@@ -28,7 +28,7 @@ For the ScreenTime Reward System, we need to create a comprehensive information 
 
 ### Site Map / Screen Inventory
 
-```mermaid
+```
 graph TD
     A[App Launch - Device Detection] --> B{Device Type?}
     B -->|Parent Device| C[Parent Dashboard]
@@ -43,6 +43,7 @@ graph TD
     C1 --> C1C[Schedule Settings]
     C2 --> C2A[App Selection Interface]
     C2 --> C2B[Reward Conditions Setup]
+    C2 --> C2C[Reward Points Configuration]
     C4 --> C4A[Daily Progress View]
     C4 --> C4B[Weekly Summary]
     C4 --> C4C[Learning vs Reward Time]
@@ -50,6 +51,7 @@ graph TD
     D --> D2[Reward Claiming]
     D --> D3[Learning App Access]
     D --> D4[Child Profile View]
+    D --> D5[Points Balance View]
 ```
 
 ### Navigation Structure
@@ -82,29 +84,14 @@ This revised architecture better reflects the context-aware nature of the applic
 - Learning apps are selected and time targets are set per app
 - Reward apps are selected and unlock conditions are defined
 - Settings are saved and active
-
-```mermaid
-graph TD
-    A[Parent Opens App] --> B[Device Authentication]
-    B --> C[Dashboard View]
-    C --> D[Select Learning Apps]
-    D --> E[Browse Available Apps]
-    E --> F[Select Individual Apps]
-    F --> G[Set Time Targets Per App]
-    G --> H[Save Targets]
-    H --> I[Setup Rewards]
-    I --> J[Select Reward Apps]
-    J --> K[Set Unlock Conditions]
-    K --> L[Save Rewards]
-    L --> M[Configuration Complete]
-    M --> N[Dashboard with Active Settings]
-```
+- Reward points conversion rates are configured
 
 **Edge Cases & Error Handling:**
 - Parent hasn't granted necessary permissions - Prompt for permissions with explanation
 - No learning apps detected - Provide guidance on installing educational apps
 - Invalid time targets (negative values, etc.) - Validation with clear error messages
 - Network issues during setup - Local save with sync when connectivity restored
+- Invalid point conversion rates - Validation with clear error messages
 
 **Notes:** 
 - All setup must be done on parent device per project requirements
@@ -126,7 +113,7 @@ graph TD
 
 **Key Elements:**
 - Header with family profile selector
-- Quick stats overview (today's learning time, rewards earned)
+- Quick stats overview (today's learning time, rewards earned, points balance)
 - Navigation tabs for Targets, Rewards, Analytics, Settings
 - Quick action buttons for common tasks
 - Recent activity feed
@@ -157,7 +144,26 @@ graph TD
 
 **Design File Reference:** Will be created in Figma as the app selection design
 
-#### 3. Child Progress Screen
+#### 3. Reward Points Configuration Screen (NEW)
+
+**Purpose:** Allow parents to configure the reward points system
+
+**Key Elements:**
+- Point conversion rate setting (e.g., 1 minute = 1 point)
+- Reward redemption rate setting (e.g., 10 points = 10 minutes)
+- Preview of points earned for sample time periods
+- Visual explanation of how the system works
+- Save/cancel buttons
+
+**Interaction Notes:**
+- Clear explanation of how points work
+- Real-time preview of point calculations
+- Validation for reasonable conversion rates
+- Reset to default options
+
+**Design File Reference:** Will be created in Figma as the reward points configuration design
+
+#### 4. Child Progress Screen
 
 **Purpose:** Simple, engaging interface for children to view their progress
 
@@ -165,6 +171,7 @@ graph TD
 - Progress visualization (circular or linear progress bar)
 - Current learning session timer
 - Reward status indicator
+- Points balance display
 - Simple navigation between progress and rewards
 - Child-friendly visuals and animations
 
@@ -247,6 +254,26 @@ graph TD
 - Provide quick select options (15, 30, 45, 60 minutes)
 - Show time in consistent format (minutes or hours:minutes)
 
+#### 4. Points Balance Component (NEW)
+
+**Purpose:** Display points balance for children and parents
+
+**Variants:** 
+- Large display for child interface
+- Compact display for parent dashboard
+- Detailed view for reward redemption
+
+**States:** 
+- Normal balance
+- High balance (celebration animation)
+- Low balance (encouragement messaging)
+
+**Usage Guidelines:** 
+- Include visual representation of points
+- Show equivalent reward time
+- Provide clear calls to action
+- Animate when points are earned
+
 ## Branding & Style Guide
 
 ### Visual Identity
@@ -264,6 +291,7 @@ graph TD
 | Warning | #F5A623 | Cautions, important notices, pending actions |
 | Error | #D0021B | Errors, destructive actions, critical issues |
 | Neutral | #F8F8F8, #E0E0E0, #9B9B9B, #4A4A4A | Text, borders, backgrounds, secondary elements |
+| **Points** | #BD10E0 | Points-related elements and rewards |
 
 ### Typography
 
@@ -291,6 +319,7 @@ graph TD
 - Use outlined variants for inactive states
 - Maintain consistent sizing (default, medium, large)
 - Ensure adequate touch targets (minimum 44px)
+- Use star or gem icons for points-related elements
 
 ### Spacing & Layout
 
@@ -394,17 +423,22 @@ graph TD
    - Easing: easeInOut
    - Description: Exciting animation sequence when a child earns access to a reward app
 
-3. **Dashboard Data Loading:** Smooth loading of analytics data
+3. **Points Earned Animation:** Visual feedback when points are earned
+   - Duration: 600ms
+   - Easing: easeOut
+   - Description: Sparkle or star animation when points are added to balance
+
+4. **Dashboard Data Loading:** Smooth loading of analytics data
    - Duration: 500ms
    - Easing: easeInOut
    - Description: Smooth transitions when loading or updating dashboard information
 
-4. **App Selection Feedback:** Immediate feedback when selecting apps
+5. **App Selection Feedback:** Immediate feedback when selecting apps
    - Duration: 200ms
    - Easing: easeInOut
    - Description: Subtle scale and color change when selecting/deselecting apps
 
-5. **Navigation Transitions:** Smooth transitions between screens
+6. **Navigation Transitions:** Smooth transitions between screens
    - Duration: 300ms
    - Easing: easeInOut
    - Description: Standard screen transitions with parallax effects where appropriate
@@ -416,6 +450,7 @@ graph TD
 - **Page Load:** Initial app launch in under 2 seconds
 - **Interaction Response:** All user interactions respond in under 100ms
 - **Animation FPS:** Maintain 60 FPS for all animations and transitions
+- **CloudKit Sync:** Data synchronization with CloudKit completes within 1 second under normal network conditions
 
 ### Design Strategies
 
@@ -424,9 +459,10 @@ graph TD
 - Use efficient layouts that minimize rendering complexity
 - Implement lazy loading for non-critical content
 - Design lightweight interfaces that minimize memory usage
-- Plan for efficient data synchronization between parent and child devices
+- Plan for efficient data synchronization between parent and child devices using CloudKit
 - Optimize progress indicators and animations to run smoothly even during background processing
 - Use system-standard components where possible to leverage iOS optimizations
+- Ensure all data storage and synchronization uses Apple's native CloudKit framework
 
 ## Next Steps
 
@@ -441,6 +477,7 @@ graph TD
 7. Plan accessibility testing with users who have disabilities
 8. Validate responsive designs across all target device sizes
 9. Document animation specifications and micro-interaction details
+10. Create designs for the new reward points configuration screens
 
 ### Design Handoff Checklist
 
@@ -453,5 +490,6 @@ graph TD
 - [ ] Design assets exported and organized
 - [ ] Interaction specifications documented
 - [ ] Prototype links shared with development team
+- [ ] Reward points system designs completed
 
-This front-end specification provides a comprehensive foundation for the ScreenTime Reward System's user interface. By following these guidelines, we can ensure a consistent, accessible, and engaging experience for both parents and children while maintaining technical performance standards.
+This front-end specification provides a comprehensive foundation for the ScreenTime Reward System's user interface. By following these guidelines, we can ensure a consistent, accessible, and engaging experience for both parents and children while maintaining technical performance standards. The addition of the reward points system adds a new dimension to the user experience that will help motivate children to engage with educational content.

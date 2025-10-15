@@ -12,7 +12,7 @@ This rule is triggered when the user types `@dev` and activates the Full Stack D
 
 CRITICAL: Read the full YAML, start activation to alter your state of being, follow startup section instructions, stay in this being until told to exit this mode:
 
-```yaml
+```
 IDE-FILE-RESOLUTION:
   - FOR LATER USE ONLY - NOT FOR ACTIVATION, when executing commands that reference dependencies
   - Dependencies map to .bmad-core/{type}/{name}
@@ -91,3 +91,14 @@ The complete agent definition is available in [.bmad-core/agents/dev.md](mdc:.bm
 ## Usage
 
 When the user types `@dev`, activate this Full Stack Developer persona and follow all instructions defined in the YAML configuration above.
+
+# Available Commands
+
+1. *help - Show this list of commands
+2. *develop-story - Execute story tasks with full development workflow
+3. *explain - Get detailed explanation of recent actions
+4. *review-qa - Apply QA fixes to code
+5. *run-tests - Execute linting and tests
+6. *exit - Exit developer mode
+
+To begin implementing the project, use *develop-story command with a story file.

@@ -30,7 +30,14 @@ The increasing role of digital devices in education and the need for more sophis
 ## Proposed Solution
 
 ### Core concept and approach:
-Our solution is a native iOS/iPadOS application that integrates with Apple's Screen Time API to create a reward-based system. Parents have full control over all settings from their device, while children can only visualize their progress and claim earned rewards. Children earn access to selected "Reward Apps" by spending time on designated "Learning Apps". The system uses Apple's native frameworks to ensure compatibility and reliability while providing parents with customization options.
+Our solution is a native iOS/iPadOS application that integrates with Apple's Screen Time API to create a reward-based system. Parents have full control over all settings from their device, while children can only visualize their progress and claim earned rewards. Children earn access to selected "Reward Apps" by spending time on designated "Learning Apps". 
+
+The system uses a unique **reward points mechanism** where:
+- Children earn points based on time spent in learning apps (e.g., 1 minute = 1 point)
+- Parents can configure how many points are needed to unlock reward time (e.g., 10 points = 10 minutes)
+- The system blocks all apps on child devices except learning apps and parent-authorized apps
+
+The system uses Apple's native frameworks to ensure compatibility and reliability while providing parents with customization options.
 
 ### Key differentiators from existing solutions:
 - True reward-based system that incentivizes learning rather than restricting access
@@ -38,6 +45,9 @@ Our solution is a native iOS/iPadOS application that integrates with Apple's Scr
 - Parental control from parent device with child interface limited to viewing progress and claiming rewards
 - Customizable duration targets for different learning activities
 - Gamification elements to make learning more engaging for children
+- **Unique reward points system with flexible conversion rates**
+- **Complete app blocking with parent-controlled authorized apps**
+- **Integration with Apple's Downtime and other family control features**
 
 ### Why this solution will succeed where others haven't:
 - Leverages Apple's existing Screen Time infrastructure for reliability
@@ -45,6 +55,8 @@ Our solution is a native iOS/iPadOS application that integrates with Apple's Scr
 - Provides tangible rewards (app access) for educational engagement
 - Offers flexibility in defining learning activities and reward structures
 - Maintains strict separation between parent control and child interaction
+- **Unique points-based reward system that parents can customize**
+- **Complete control over child device app access**
 
 ### High-level vision for the product:
 To become the leading reward-based screen time management solution for families with children, promoting educational engagement through positive reinforcement while respecting Apple's privacy and security guidelines.
@@ -72,6 +84,7 @@ To become the leading reward-based screen time management solution for families 
 - Seeking solutions that reduce family conflicts over device usage
 - Desire data-driven insights into children's digital habits
 - Require full control over children's device usage from their own device
+- Want flexible reward systems that can be customized
 
 **Goals they're trying to achieve:**
 - Encourage consistent engagement with educational content
@@ -79,6 +92,7 @@ To become the leading reward-based screen time management solution for families 
 - Reduce arguments about screen time limits
 - Promote a healthy balance between learning and entertainment
 - Maintain complete oversight of children's digital activities
+- Customize reward systems to match their family's values
 
 ### Secondary User Segment: Children (Ages 6-12)
 
@@ -106,6 +120,7 @@ To become the leading reward-based screen time management solution for families 
 - Enjoy learning through engaging activities
 - Maintain autonomy in claiming earned rewards
 - Experience a fun, gamified interface
+- Understand how their efforts translate to rewards
 
 ## Goals & Success Metrics
 
@@ -137,6 +152,8 @@ To become the leading reward-based screen time management solution for families 
 - **Basic Analytics:** View daily and weekly learning progress with simple visualizations
 - **Customizable Targets:** Set duration goals for different categories of learning apps
 - **Family Account Management:** Support for parent and child profiles with appropriate access controls
+- **Reward Points System:** Points-based reward mechanism with configurable conversion rates
+- **App Blocking:** Block all apps except learning apps and parent-authorized apps on child devices
 
 ### Out of Scope for MVP
 - Advanced machine learning recommendations for learning content
@@ -207,6 +224,7 @@ In one to two years, we envision the application becoming a comprehensive digita
 - **Resources:** Team of 4 iOS developers, 1 designer, 1 product manager
 - **Technical:** Must work within Apple's Screen Time API limitations and App Store review guidelines
 - **Device Management:** Parents control all settings from their device; children have restricted interface
+- **Ecosystem:** All data and services must remain within Apple's ecosystem
 
 ### Key Assumptions
 - Parents are willing to grant necessary device permissions for screen time tracking
@@ -215,6 +233,7 @@ In one to two years, we envision the application becoming a comprehensive digita
 - Market demand for positive reinforcement screen time solutions will continue to grow
 - Families will pay for premium features beyond basic reward systems
 - Apple's family control mechanisms allow for the parent-child control model we've designed
+- The reward points system will be intuitive for parents to configure and children to understand
 
 ## Risks & Open Questions
 
@@ -225,6 +244,7 @@ In one to two years, we envision the application becoming a comprehensive digita
 - **Competition:** Apple may introduce similar features in future iOS updates
 - **Privacy Compliance:** Complex privacy requirements may limit functionality
 - **Device Management:** Apple's restrictions may prevent full parent control implementation
+- **Reward System Complexity:** Parents may find the points system too complex to configure
 
 ### Open Questions
 - What level of device permissions will be required for accurate learning app tracking?
@@ -233,6 +253,8 @@ In one to two years, we envision the application becoming a comprehensive digita
 - How will we differentiate between active engagement and passive consumption in learning apps?
 - Can we implement the reward claiming mechanism within Apple's privacy constraints?
 - How will private tokens and family sharing affect our implementation?
+- **Will parents understand and effectively use the reward points configuration?**
+- **Can we implement complete app blocking within Apple's device management constraints?**
 
 ### Areas Needing Further Research
 - Technical feasibility of Apple's Screen Time API for our specific use case
@@ -241,6 +263,8 @@ In one to two years, we envision the application becoming a comprehensive digita
 - Optimal pricing strategy for family subscriptions
 - Apple's specific restrictions on parent-child device management
 - Private token handling and family sharing implementation details
+- **Feasibility of the reward points system within Apple's framework**
+- **Technical possibility of app blocking on child devices**
 
 ## Next Steps
 
@@ -248,11 +272,13 @@ In one to two years, we envision the application becoming a comprehensive digita
 2. Create basic prototype to test core functionality with Apple's APIs
 3. Validate parent-child control model within Apple's family sharing framework
 4. Test privacy and security compliance mechanisms
-5. Finalize technical architecture and development approach
-6. Begin UI/UX design for both parent and child interfaces
-7. Set up development environment and CI/CD pipeline
-8. Implement core tracking and reward features
-9. Conduct security and privacy review
-10. Prepare beta testing program with early adopter families
+5. **Validate technical feasibility of reward points system**
+6. **Test app blocking capabilities on child devices**
+7. Finalize technical architecture and development approach
+8. Begin UI/UX design for both parent and child interfaces
+9. Set up development environment and CI/CD pipeline
+10. Implement core tracking and reward features
+11. Conduct security and privacy review
+12. Prepare beta testing program with early adopter families
 
-This Project Brief provides the full context for the ScreenTime Reward System for Children. As your Business Analyst, I recommend we proceed with developing the MVP as outlined, beginning with a technical feasibility study of Apple's Screen Time API and family control mechanisms to ensure our concept is viable within Apple's ecosystem and privacy requirements.
+This Project Brief provides the full context for the ScreenTime Reward System for Children. As your Business Analyst, I recommend we proceed with developing the MVP as outlined, beginning with a technical feasibility study of Apple's Screen Time API and family control mechanisms to ensure our concept is viable within Apple's ecosystem and privacy requirements. The addition of the reward points system and app blocking functionality makes this study even more critical to ensure these unique features are technically achievable.

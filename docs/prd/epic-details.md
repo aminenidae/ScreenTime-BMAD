@@ -1,142 +1,9 @@
-# ScreenTime Reward System for Children Product Requirements Document (PRD)
+# Epic Details
 
-## Goals and Background Context
-
-### Goals
-- Create a reward-based screen time management system for iOS/iPadOS devices
-- Motivate children to engage with educational content through positive reinforcement
-- Provide parents with tools to balance learning and recreational screen time
-- Seamlessly integrate with Apple's native Screen Time API
-- Establish a sustainable business model through premium subscriptions
-
-### Background Context
-The ScreenTime Reward System addresses the challenge parents face in motivating children to engage with educational content on digital devices. Traditional screen time management solutions focus on restriction rather than positive reinforcement. This project leverages Apple's native Screen Time API to create a system where children earn access to entertainment apps by completing designated time targets on learning apps. The solution transforms screen time from a potential source of conflict into an incentive for educational engagement.
-
-### Change Log
-| Date | Version | Description | Author |
-|------|---------|-------------|--------|
-| 2025-10-14 | 1.0 | Initial PRD creation | John (Product Manager) |
-| 2025-10-14 | 1.1 | Updated device management model and Apple restrictions considerations | John (Product Manager) |
-| 2025-10-14 | 1.2 | Added requirement for technical feasibility testing before implementation | John (Product Manager) |
-| 2025-10-14 | 1.3 | Added detailed reward points system specification | John (Product Manager) |
-
-## Requirements
-
-### Functional Requirements
-1. FR1: Track time spent on designated learning apps using Apple's Screen Time API
-2. FR2: Automatically unlock selected reward apps after learning targets are met
-3. FR3: Provide a parental dashboard for setting learning targets and selecting reward apps
-4. FR4: Display progress tracking and analytics for both parents and children
-5. FR5: Enable customizable duration goals for different categories of learning apps
-6. FR6: Offer a child-friendly interface for viewing progress and claiming rewards
-7. FR7: Support family account management with parent and child profiles
-8. FR8: Provide notifications to parents and children about progress and rewards
-9. FR9: Enable parents to have full control over all settings from their device
-10. FR10: Restrict children to only visualize earned rewards and claim/redeem them
-11. FR11: Implement a reward points system where learning time converts to points (e.g., 10 minutes = 10 points)
-12. FR12: Allow parents to configure reward redemption rates (e.g., 10 points = 10 minutes of access to reward apps)
-13. FR13: Block all apps on child's device except learning apps and authorized apps set by parent
-14. FR14: Enable parents to set downtime schedules and other family control framework features
-
-### Non-Functional Requirements
-1. NFR1: Support iOS 14+ and iPadOS 14+ devices
-2. NFR2: Maintain battery consumption below 5% during normal operation
-3. NFR3: Ensure all data transmission is encrypted using Apple's native encryption frameworks
-4. NFR4: Comply with COPPA, GDPR, and Apple's App Store guidelines
-5. NFR5: Achieve app store rating of 4.0+ stars within first 3 months
-6. NFR6: Support up to 5 child profiles per family account
-7. NFR7: Provide offline functionality for tracking when internet is unavailable with CloudKit synchronization when online
-8. NFR8: Ensure app size remains under 50MB
-9. NFR9: Comply with all Apple family control and privacy restrictions
-10. NFR10: Handle Apple's private tokens and device management limitations gracefully
-11. NFR11: Utilize only Apple's native frameworks and CloudKit for all backend services
-12. NFR12: Ensure seamless synchronization across all Apple devices using CloudKit
-
-## User Interface Design Goals
-
-### Overall UX Vision
-The application will feature a dual-interface design with a parent dashboard for management and a child-friendly interface for engagement. The parent interface will focus on configuration and monitoring with full control capabilities, while the child interface will emphasize gamification and visual progress tracking with limited interaction capabilities.
-
-### Key Interaction Paradigms
-1. Centralized parent control - all configuration and management from parent device
-2. Restricted child interface - limited to viewing progress and claiming rewards
-3. Real-time synchronization between parent and child devices
-4. Seamless integration with existing iOS/iPadOS user experience patterns
-
-### Core Screens and Views
-1. Parent Dashboard - Main control center for setting targets, managing settings, and monitoring progress
-2. Child Progress View - Visual representation of learning goals and earned rewards (view only)
-3. App Selection Interface - Tools for parents to categorize apps as learning or reward
-4. Parent Settings Panel - Full configuration options for family accounts and preferences
-5. Child Reward Claim Interface - Simplified interface for children to claim earned rewards
-6. Parent Analytics Dashboard - Detailed insights and reporting on children's app usage
-
-### Accessibility
-WCAG AA compliance for parent interface, simplified accessibility for child interface
-
-### Branding
-Clean, modern design with vibrant colors for child interface and professional appearance for parent interface
-
-### Target Device and Platforms
-iOS and iPadOS devices running version 14 or higher
-
-## Technical Assumptions
-
-### Repository Structure
-Monorepo structure for simplified management and deployment
-
-### Service Architecture
-Native iOS application with minimal backend services for account management and synchronization, fully leveraging Apple's CloudKit for data storage and synchronization
-
-### Testing Requirements
-Unit testing for core logic, integration testing for Apple API interactions, and manual testing for UI/UX
-
-### Additional Technical Assumptions and Requests
-1. Native Swift development with SwiftUI for UI components
-2. Integration with Apple's Screen Time and Device Management APIs
-3. Core Data for local storage with iCloud/CloudKit synchronization for family data sharing
-4. CloudKit for all backend data storage, synchronization, and family account management
-5. Analytics framework for usage tracking and improvement insights
-6. Implementation of Apple's Family Sharing controls for parent-child device management
-7. Compliance with Apple's privacy requirements including App Tracking Transparency
-8. Handling of Apple's private tokens for device management and Screen Time API access
-9. Exclusive use of Apple's native frameworks and services (no third-party backend services)
-10. CloudKit integration for seamless data synchronization across all family devices
-11. End-to-end encryption of all sensitive family data using Apple's security frameworks
-12. Implementation of app blocking functionality using Apple's device management frameworks
-13. Integration with Apple's Downtime and other family control features
-
-## Pre-Implementation Validation Requirement
-
-### Technical Feasibility Testing
-Before any implementation work begins, a comprehensive technical feasibility study must be completed to validate our core concept within Apple's ecosystem restrictions. This requirement ensures we don't invest development resources in building features that may not be technically viable due to Apple's constraints.
-
-### Validation Plan
-A detailed technical feasibility testing plan has been created (see docs/technical-feasibility-testing-plan.md) that outlines:
-1. Test areas and methodology for validating core functionality
-2. Compliance testing for privacy and security requirements
-3. Risk assessment for Apple policy changes
-4. Success criteria for determining project viability
-
-### Implementation Hold
-No development work on the core features should begin until the technical feasibility tests have been completed and the results have been reviewed. Only after successful validation should we proceed with full implementation.
-
-## Epic List
-
-1. Epic 0: Technical Feasibility Validation - Complete technical feasibility testing before implementation
-2. Epic 1: Foundation & Core Infrastructure - Establish project setup, Apple API integration, and CloudKit-based user management
-3. Epic 2: Core Tracking & Reward System - Implement learning app tracking and reward app unlocking functionality
-4. Epic 3: Parent Dashboard & Configuration - Create parental controls and configuration interface with full management capabilities
-5. Epic 4: Child Interface & Gamification - Develop child-friendly progress tracking and reward visualization with restricted functionality
-6. Epic 5: Analytics & Reporting - Provide insights and data visualization for parents
-7. Epic 6: Apple Ecosystem Integration - Ensure full integration with Apple's CloudKit, Family Sharing, and privacy requirements while maintaining all data within Apple's ecosystem
-
-## Epic Details
-
-### Epic 0: Technical Feasibility Validation
+## Epic 0: Technical Feasibility Validation
 **Goal**: Complete comprehensive technical feasibility testing to validate our concept before implementation begins.
 
-#### Story 0.1: Execute Technical Feasibility Tests
+### Story 0.1: Execute Technical Feasibility Tests
 As a product manager,
 I want to complete all technical feasibility tests,
 so that we can validate our concept before investing in full development.
@@ -148,7 +15,7 @@ so that we can validate our concept before investing in full development.
 4. Risk assessment is completed
 5. Go/No-Go decision is made based on test results
 
-#### Story 0.2: Review and Approve Feasibility Results
+### Story 0.2: Review and Approve Feasibility Results
 As a stakeholder,
 I want to review the technical feasibility results,
 so that I can make an informed decision about proceeding with development.
@@ -159,10 +26,10 @@ so that I can make an informed decision about proceeding with development.
 3. Implementation strategy is clear
 4. Stakeholders approve moving forward with development
 
-### Epic 1: Foundation & Core Infrastructure
+## Epic 1: Foundation & Core Infrastructure
 **Goal**: Establish the foundational elements of the application including project setup, Apple API integration, and basic user management to enable further development.
 
-#### Story 1.1: Project Setup and Environment Configuration
+### Story 1.1: Project Setup and Environment Configuration
 As a developer,
 I want to set up the development environment with all necessary tools and frameworks,
 so that I can begin implementing the application features.
@@ -174,7 +41,7 @@ so that I can begin implementing the application features.
 4. Basic project dependencies are installed and configured
 5. Initial build and run is successful on simulator
 
-#### Story 1.2: Apple Screen Time API Integration
+### Story 1.2: Apple Screen Time API Integration
 As a developer,
 I want to integrate with Apple's Screen Time API,
 so that the application can track app usage on the device.
@@ -186,7 +53,7 @@ so that the application can track app usage on the device.
 4. Error handling is implemented for API failures
 5. Integration is tested on actual iOS device
 
-#### Story 1.3: User Account Management
+### Story 1.3: User Account Management
 As a parent,
 I want to create and manage family accounts,
 so that I can set up the system for my children.
@@ -198,10 +65,10 @@ so that I can set up the system for my children.
 4. User data is stored locally with option for cloud sync
 5. Account deletion and password reset functionality is available
 
-### Epic 2: Core Tracking & Reward System
+## Epic 2: Core Tracking & Reward System
 **Goal**: Implement the core functionality of tracking learning app usage and unlocking reward apps based on completed targets.
 
-#### Story 2.1: Learning App Tracking
+### Story 2.1: Learning App Tracking
 As a parent,
 I want to track my child's time spent on learning apps,
 so that I can monitor their educational engagement.
@@ -213,7 +80,7 @@ so that I can monitor their educational engagement.
 4. Parents can view detailed tracking reports
 5. Tracking continues even when app is in background
 
-#### Story 2.2: Reward App Unlocking System
+### Story 2.2: Reward App Unlocking System
 As a child,
 I want to unlock my reward apps after completing learning goals,
 so that I have motivation to engage with educational content.
@@ -225,7 +92,7 @@ so that I have motivation to engage with educational content.
 4. Parents can override or adjust reward status if needed
 5. System handles edge cases like app crashes or device restarts
 
-#### Story 2.3: App Categorization System
+### Story 2.3: App Categorization System
 As a parent,
 I want to categorize apps as learning or reward,
 so that the system knows which apps count toward goals.
@@ -237,7 +104,7 @@ so that the system knows which apps count toward goals.
 4. App categorization syncs across all family devices
 5. Parents can modify categorizations at any time from their device
 
-#### Story 2.4: Reward Points System
+### Story 2.4: Reward Points System
 As a parent,
 I want to configure a reward points system where learning time converts to points,
 so that I can customize how much reward time children earn for their learning.
@@ -249,10 +116,10 @@ so that I can customize how much reward time children earn for their learning.
 4. Reward time is calculated and applied automatically when points are earned
 5. Parents can view point balances and reward time available for each child
 
-### Epic 3: Parent Dashboard & Configuration
+## Epic 3: Parent Dashboard & Configuration
 **Goal**: Create a comprehensive parental dashboard for configuring the system and monitoring children's progress with full control capabilities.
 
-#### Story 3.1: Parent Dashboard Interface
+### Story 3.1: Parent Dashboard Interface
 As a parent,
 I want a dashboard to view my children's progress and manage all settings,
 so that I can effectively monitor and control the system from my device.
@@ -265,7 +132,7 @@ so that I can effectively monitor and control the system from my device.
 5. Responsive design works on both iPhone and iPad
 6. All configuration options are accessible only from parent device
 
-#### Story 3.2: Goal Configuration System
+### Story 3.2: Goal Configuration System
 As a parent,
 I want to set and adjust learning goals for my children,
 so that I can customize the reward system to my family's needs from my device.
@@ -277,7 +144,7 @@ so that I can customize the reward system to my family's needs from my device.
 4. System provides recommendations based on child's age and progress
 5. Parents receive notifications about goal completion
 
-#### Story 3.3: Notification and Alert System
+### Story 3.3: Notification and Alert System
 As a parent,
 I want to receive notifications about my children's progress,
 so that I can stay informed without constantly checking the app.
@@ -289,7 +156,7 @@ so that I can stay informed without constantly checking the app.
 4. Children receive positive reinforcement notifications
 5. System handles notification permissions properly
 
-#### Story 3.4: App Blocking and Device Control
+### Story 3.4: App Blocking and Device Control
 As a parent,
 I want to block all apps on my child's device except learning apps and authorized apps,
 so that I can ensure my child only accesses appropriate content.
@@ -301,10 +168,10 @@ so that I can ensure my child only accesses appropriate content.
 4. Parents can temporarily override app blocking when needed
 5. System gracefully handles app installation and updates
 
-### Epic 4: Child Interface & Gamification
+## Epic 4: Child Interface & Gamification
 **Goal**: Develop an engaging child-friendly interface that motivates learning through gamification elements with restricted functionality.
 
-#### Story 4.1: Child Progress Visualization
+### Story 4.1: Child Progress Visualization
 As a child,
 I want to see my progress toward earning rewards,
 so that I understand what I need to do to unlock my games.
@@ -317,7 +184,7 @@ so that I understand what I need to do to unlock my games.
 5. Interface is intuitive for children aged 6-12
 6. Children cannot modify any settings or goals
 
-#### Story 4.2: Reward Display and Management
+### Story 4.2: Reward Display and Management
 As a child,
 I want to see what rewards I've earned and claim them,
 so that I'm motivated to continue learning.
@@ -330,7 +197,7 @@ so that I'm motivated to continue learning.
 5. Children cannot access locked rewards under any circumstances
 6. All reward settings are controlled exclusively by parents
 
-#### Story 4.3: Achievement and Badge System
+### Story 4.3: Achievement and Badge System
 As a child,
 I want to earn achievements for my learning progress,
 so that I feel proud of my accomplishments.
@@ -343,10 +210,10 @@ so that I feel proud of my accomplishments.
 5. Achievement system encourages continued engagement
 6. Achievement criteria can only be modified by parents
 
-### Epic 5: Analytics & Reporting
+## Epic 5: Analytics & Reporting
 **Goal**: Provide parents with detailed insights and reporting on their children's screen time habits and educational engagement.
 
-#### Story 5.1: Usage Analytics Dashboard
+### Story 5.1: Usage Analytics Dashboard
 As a parent,
 I want to see detailed analytics about my children's app usage,
 so that I can understand their digital habits.
@@ -359,7 +226,7 @@ so that I can understand their digital habits.
 5. Export functionality is available for detailed analysis
 6. Analytics are only accessible from parent devices
 
-#### Story 5.2: Educational Impact Reporting
+### Story 5.2: Educational Impact Reporting
 As a parent,
 I want to see reports on my child's educational engagement,
 so that I can assess the effectiveness of the reward system.
@@ -372,7 +239,7 @@ so that I can assess the effectiveness of the reward system.
 5. Reports can be shared with educators or family members
 6. Reports are only accessible from parent devices
 
-#### Story 5.3: System Performance and Feedback
+### Story 5.3: System Performance and Feedback
 As a product manager,
 I want to collect usage data and feedback,
 so that we can continuously improve the application.
@@ -385,10 +252,10 @@ so that we can continuously improve the application.
 5. Privacy and security of user data is maintained at all times
 6. Feedback mechanisms are only accessible from parent devices
 
-### Epic 6: Apple Ecosystem Integration
+## Epic 6: Apple Ecosystem Integration
 **Goal**: Ensure full integration with Apple's CloudKit, Family Sharing, and privacy requirements while maintaining all data within Apple's ecosystem.
 
-#### Story 6.1: CloudKit Integration for Data Synchronization
+### Story 6.1: CloudKit Integration for Data Synchronization
 As a developer,
 I want to implement CloudKit for all data storage and synchronization,
 so that family data is seamlessly shared across all Apple devices while staying within Apple's ecosystem.
@@ -401,7 +268,7 @@ so that family data is seamlessly shared across all Apple devices while staying 
 5. CloudKit integration handles network interruptions gracefully
 6. Parent and child devices sync data in real-time when possible
 
-#### Story 6.2: Apple Privacy Framework Implementation
+### Story 6.2: Apple Privacy Framework Implementation
 As a developer,
 I want to implement Apple's privacy frameworks and ensure all data remains within Apple's ecosystem,
 so that we maintain compliance with privacy regulations and user trust.
@@ -414,7 +281,7 @@ so that we maintain compliance with privacy regulations and user trust.
 5. No personally identifiable information is stored outside Apple's ecosystem
 6. Privacy policy clearly states all data is stored within Apple's ecosystem
 
-#### Story 6.3: Family Sharing and Device Management Optimization
+### Story 6.3: Family Sharing and Device Management Optimization
 As a developer,
 I want to optimize our implementation of Apple's Family Sharing and device management,
 so that parents can seamlessly manage their children's devices while maintaining security.
@@ -426,29 +293,3 @@ so that parents can seamlessly manage their children's devices while maintaining
 4. Private tokens are handled according to Apple's guidelines
 5. Device management works within Apple's privacy constraints
 6. All functionality is validated to work exclusively within Apple's ecosystem
-
-## Checklist Results Report
-
-Before finalizing the PRD, I recommend running the PM checklist to validate all requirements and ensure completeness.
-
-## Next Steps
-
-### UX Expert Prompt
-Create detailed UI/UX specifications for the parent dashboard and child interface, focusing on the dual-interface design approach with emphasis on:
-1. Parent-focused configuration tools with full control capabilities
-2. Child-friendly gamification elements with restricted functionality
-3. Clear visual distinction between parent and child interfaces
-4. Seamless synchronization between devices while maintaining security
-5. Reward points visualization and management
-6. App blocking interface and controls
-
-### Architect Prompt
-Design the technical architecture for the ScreenTime Reward System, focusing on:
-1. Native iOS integration with Apple's Screen Time API and Family Sharing controls
-2. Data storage and synchronization strategies using exclusively Apple's CloudKit framework
-3. Security compliance with COPPA, GDPR, and Apple's App Store guidelines
-4. Handling of Apple's private tokens and device management limitations
-5. Early technical feasibility validation of core functions before full-scale development
-6. Ensuring all backend services and data storage remain within Apple's ecosystem
-7. Implementation of app blocking functionality using Apple's device management frameworks
-8. Reward points calculation and redemption system architecture
