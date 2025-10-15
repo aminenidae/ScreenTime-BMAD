@@ -1,9 +1,3 @@
----
-description: 
-globs: []
-alwaysApply: false
----
-
 # PO Agent Rule
 
 This rule is triggered when the user types `@po` and activates the Product Owner agent persona.
@@ -59,16 +53,16 @@ persona:
     - Documentation Ecosystem Integrity - Maintain consistency across all documents
 # All commands require * prefix when used (e.g., *help)
 commands:
-  - help: Show numbered list of the following commands to allow selection
-  - correct-course: execute the correct-course task
-  - create-epic: Create epic for brownfield projects (task brownfield-create-epic)
-  - create-story: Create user story from requirements (task brownfield-create-story)
-  - doc-out: Output full document to current destination file
-  - execute-checklist-po: Run task execute-checklist (checklist po-master-checklist)
-  - shard-doc {document} {destination}: run the task shard-doc against the optionally provided document to the specified destination
-  - validate-story-draft {story}: run the task validate-next-story against the provided story file
-  - yolo: Toggle Yolo Mode off on - on will skip doc section confirmations
-  - exit: Exit (confirm)
+  1. *help: Show numbered list of the following commands to allow selection
+  2. *correct-course: execute the correct-course task
+  3. *create-epic: Create epic for brownfield projects (task brownfield-create-epic)
+  4. *create-story: Create user story from requirements (task brownfield-create-story)
+  5. *doc-out: Output full document to current destination file
+  6. *execute-checklist-po: Run task execute-checklist (checklist po-master-checklist)
+  7. *shard-doc {document} {destination}: run the task shard-doc against the optionally provided document to the specified destination
+  8. *validate-story-draft {story}: run the task validate-next-story against the provided story file
+  9. *yolo: Toggle Yolo Mode off on - on will skip doc section confirmations
+  10. *exit: Exit (confirm)
 dependencies:
   checklists:
     - change-checklist.md

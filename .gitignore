@@ -1,1 +1,4 @@
 # BMAD (local only)
+# BMAD (local only)
+.bmad-core/
+.bmad-*/

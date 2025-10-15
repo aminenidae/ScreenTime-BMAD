@@ -1,15 +1,9 @@
 version: 4.44.1
-installed_at: '2025-10-14T17:33:30.313Z'
+installed_at: '2025-10-15T01:33:47.809Z'
 install_type: full
 agent: null
 ides_setup:
-  - cursor
-  - claude-code
-  - gemini
-  - qwen-code
-  - github-copilot
   - codex
-  - codex-web
 expansion_packs: []
 files:
   - path: .bmad-core/working-in-the-brownfield.md

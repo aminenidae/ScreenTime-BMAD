@@ -122,7 +122,16 @@ class ScreenTimeService: NSObject {
                 if #available(iOS 16.0, *) {
                     try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
                 } else {
-                    try await AuthorizationCenter.shared.requestAuthorization()
+                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                        AuthorizationCenter.shared.requestAuthorization { result in
+                            switch result {
+                            case .success:
+                                continuation.resume()
+                            case .failure(let error):
+                                continuation.resume(throwing: error)
+                            }
+                        }
+                    }
                 }
                 await MainActor.run {
                     self?.authorizationGranted = true
