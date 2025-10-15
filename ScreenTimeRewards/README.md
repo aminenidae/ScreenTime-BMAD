@@ -6,13 +6,6 @@ An iOS application that tracks screen time usage and implements a reward system 
 
 This project implements a ScreenTime tracking system with a reward mechanism for children who use educational apps. The application uses Apple's ScreenTime APIs to monitor device usage and provide rewards based on time spent in educational applications.
 
-## Features
-
-- Track app usage across different categories (educational, entertainment, etc.)
-- Monitor time spent in educational apps
-- Display usage statistics in an intuitive interface
-- Prepare for reward system implementation based on educational usage
-
 ## Project Structure
 
 ```
@@ -40,186 +33,91 @@ ScreenTimeRewards/
 
 ## Setup Instructions
 
-1. Open `ScreenTimeRewards.xcodeproj` in Xcode
-2. Add the required frameworks:
-   - Select your project in the Project Navigator
-   - Select the "ScreenTimeRewards" target
-   - Go to the "General" tab
-   - Scroll down to "Frameworks, Libraries, and Embedded Content"
-   - Click the "+" button and add:
-     - DeviceActivity.framework
-     - FamilyControls.framework
-3. Add the Family Controls capability:
-   - Select your project in the Project Navigator
-   - Select the "ScreenTimeRewards" target
-   - Go to the "Signing & Capabilities" tab
-   - Click the "+" button and add "Family Controls"
-4. Ensure the deployment target is compatible with your device:
-   - Select your project in the Project Navigator
-   - Select the "ScreenTimeRewards" target
-   - Go to the "General" tab
-   - Under "Deployment Info", set "iOS" to a version compatible with your device
-   - The minimum supported version is iOS 14.0
-5. Build and run the project
+1. Open `ScreenTimeRewards.xcodeproj` in Xcode (Xcode 15 or later recommended)
+2. Confirm required frameworks are linked under **Frameworks, Libraries, and Embedded Content**:
+   - `DeviceActivity.framework`
+   - `FamilyControls.framework`
+   - `ManagedSettings.framework`
+3. Under **Signing & Capabilities**, ensure the `Family Controls` capability is enabled for the `ScreenTimeRewards` target.
+4. Set the deployment target to **iOS 15.0** or later.
+5. Build and run on a physical device (Screen Time APIs do not function in Simulator).
 
-## Required Configurations
+## Key Features
 
-### Frameworks
-- DeviceActivity: For monitoring device usage
-- FamilyControls: For family sharing and parental controls
-
-### Capabilities
-- Family Controls: Required for accessing ScreenTime APIs
-
-### Entitlements
-- The project includes a ScreenTimeRewards.entitlements file for the necessary permissions
+- Configurable monitoring of apps selected via the Family Activity picker
+- Per-category threshold controls that determine when usage events register
+- Real-time updates of educational vs. entertainment totals (demo data until the DeviceActivity extension is completed)
+- Start/Stop monitoring controls and data reset
 
 ## Implementation Details
 
 ### AppUsage Model
 Represents an app usage record with:
-- Bundle identifier
-- App name
-- Category (educational, entertainment, etc.)
-- Total usage time
-- Individual usage sessions
-- First and last access dates
+- Bundle identifier & display name
+- Category (educational, entertainment, productivity, etc.)
+- Total usage time and individual sessions
+- First/last access timestamps
 
 ### ScreenTimeService
-Handles interaction with Apple's ScreenTime APIs:
-- Requesting permission to track usage
-- Starting and stopping monitoring
-- Managing app usage data
+Handles Screen Time API integration:
+- Requests authorization (async/await or continuation bridge on iOS 15)
+- Configures DeviceActivity monitoring using `FamilyActivitySelection`
+- Responds to DeviceActivity events through a custom monitor bridge
+- Broadcasts usage updates via NotificationCenter
+- Provides debug helpers (`configureForTesting`, `simulateEvent`) for unit tests
 
 ### AppUsageViewModel
-Manages the UI state and data:
-- Loading and refreshing app usage data
-- Controlling monitoring state
-- Formatting time for display
+- Maintains monitoring state, picker selections, and threshold values
+- Applies configuration by calling `ScreenTimeService.configureMonitoring`
+- Refreshes UI when usage data changes
+- Surfaces error messages from authorization/monitoring flows
 
 ### AppUsageView
-The main user interface:
-- Displays monitoring status
-- Shows category summaries
-- Lists individual app usage
-- Provides control buttons
+- Displays monitoring status indicators and category totals
+- Presents the Family Activity picker via toolbar button
+- Allows per-category threshold adjustment with steppers
+- Shows a live list of recorded usage sessions
 
 ## Testing
 
 ### Unit Tests
-The project includes unit tests for:
-- AppUsage model initialization and functionality
-- Time formatting
-- Category management
+Execute with **Product ▸ Test** (⌘U). Suites cover:
+- `AppUsage` model logic (`recordUsage`, session handling)
+- View-model formatting and reset behaviour
+- Service configuration/monitoring flows (including simulated DeviceActivity events)
 - Framework import verification
 
-To run unit tests:
-1. In Xcode, select Product > Test or press ⌘U
-2. View results in the Test Navigator
+### On-Device Manual Testing
+1. Build & run on an iOS 15+ physical device.
+2. Tap the slider icon to open the Family Activity picker; select educational/entertainment apps.
+3. Adjust thresholds (5–120 minutes) and tap **Apply Monitoring Configuration**.
+4. Start/Stop monitoring and confirm status changes and configuration persistence.
+5. (When the DeviceActivity extension is available) leave the device in normal use to observe usage totals update as thresholds are reached.
 
-### Manual Testing - Phase 1 Complete
-The first phase of manual testing has been completed successfully:
-- ✅ Button interactions work correctly
-- ✅ Status indicators update properly
-- ✅ Sample data displays correctly
-- ✅ Reset functionality works
-- ✅ Time formatting is correct
-- ✅ All unit tests pass
-
-Refer to TESTING_PLAN.md for a comprehensive testing guide that includes:
-- UI functionality tests
-- Core functionality tests
-- Data management tests
-- Integration tests
-
-### Testing Checklist - Phase 1
-- [x] App launches without crashing
-- [x] Main screen displays correctly
-- [x] Monitoring controls work (Start/Stop)
-- [x] Data reset functionality works
-- [x] Time formatting displays correctly
-- [x] Sample data loads correctly
-- [x] All unit tests pass
-
-## Next Steps - Phase 2 Implementation (In Progress)
-
-We are now moving to Phase 2 implementation which involves integrating the actual ScreenTime APIs:
-
-1. **Implement DeviceActivity Integration** - Enabling actual ScreenTime monitoring
-2. **Add Family Controls Authorization** - Implementing authorization flows
-3. **Implement Real Data Collection** - Replacing simulated data with actual ScreenTime data
-4. **Add Data Persistence** - Storing collected data locally
-5. **Test with Real Data** - Validating implementation on physical devices
-
-Refer to PHASE2_IMPLEMENTATION_PLAN.md for detailed implementation guidance.
+For command-line testing/CI:
+```bash
+DESTINATION="platform=iOS,id=<device-udid>" ./ScreenTimeRewards/test_integration.sh
+xcodebuild test \
+  -project ScreenTimeRewards/ScreenTimeRewards.xcodeproj \
+  -scheme ScreenTimeRewards \
+  -destination 'platform=iOS,id=<device-udid>'
+```
+Replace `<device-udid>` with the identifier from `xcrun xctrace list devices`.
 
 ## Troubleshooting
 
-### Common Build Issues
+1. **Family Activity picker doesn’t appear**: confirm the `FamilyControls` capability is enabled and the device is signed into an Apple ID with Family Sharing.
+2. **Monitoring doesn’t start**: check Console logs for authorization errors; rerun `Start Monitoring` after granting Family Controls access on-device.
+3. **Usage never changes**: expected until the DeviceActivity monitor extension is added. Use `simulateEvent(named:customDuration:)` in DEBUG builds for validation.
+4. **Build errors about ScreenTime frameworks**: ensure you are building for a physical device on iOS 15+ and that all required frameworks are linked.
 
-1. **"Cannot find type 'DeviceActivity' in scope" or similar errors:**
-   - Make sure DeviceActivity.framework and FamilyControls.framework are added to the project
-   - Verify that the frameworks are properly linked under "Frameworks, Libraries, and Embedded Content"
-   - Ensure you've added the Family Controls capability in Signing & Capabilities
+## Roadmap
+- Implement DeviceActivity monitor app extension to receive live Screen Time events
+- Persist usage sessions (Core Data/CloudKit) and sync thresholds across devices
+- Build parental approval and reward workflows on top of collected data
 
-2. **"No such module 'DeviceActivity'" or similar errors:**
-   - Check that the deployment target is set to iOS 14.0 or later
-   - Ensure you're building for a physical device (Simulator may not have these frameworks)
-   - Verify that the frameworks are correctly imported in your Swift files
-
-3. **Family Controls capability issues:**
-   - Make sure the Family Controls capability is added in Signing & Capabilities
-   - Verify that your App ID has the Family Controls capability enabled in the Apple Developer portal
-
-4. **"The OS version is lower than the deployment target":**
-   - Check your device's iOS version in Settings > General > About > Software Version
-   - In Xcode, set the deployment target to match or be lower than your device's iOS version
-   - The minimum supported version for this project is iOS 14.0
-
-### Testing on Physical Devices
-
-The ScreenTime APIs require a physical device to function properly. Testing on the Simulator will not provide accurate results for ScreenTime functionality.
-
-## Technical Requirements
-
-- iOS 14.0+ (minimum supported version)
-- Xcode 12.0+
-- Swift 5.0+
-
-## Framework Integration Notes
-
-The DeviceActivity and FamilyControls frameworks are part of Apple's ScreenTime APIs. These frameworks:
-
-1. Are only available on physical iOS devices (not in Simulator)
-2. Require iOS 14.0 or later
-3. Need specific entitlements and capabilities
-4. Must be properly linked in the Xcode project
-
-When implementing the actual ScreenTime API integration, you'll need to:
-
-1. Use DeviceActivityCenter to monitor device usage
-2. Implement DeviceActivityDelegate to receive usage events
-3. Use FamilyControls to manage family sharing settings
-4. Handle authorization flows properly
-
-The current implementation provides a foundation that can be extended with the actual API calls once the frameworks are properly linked.
-
-## iOS Version Compatibility
-
-This project requires a minimum iOS version of 14.0 to use the ScreenTime APIs. If your device is running an older version of iOS, you'll need to either:
-
-1. Update your device to iOS 14.0 or later
-2. Lower the deployment target in Xcode to match your device's iOS version (if it's 14.0 or later)
-3. Use a different device that meets the minimum requirements
-
-To check your device's iOS version:
-1. Open the Settings app
-2. Tap "General"
-3. Tap "About"
-4. Look for "Software Version"
-
-To change the deployment target in Xcode:
-1. Select your project in the Project Navigator
-2. Select the "ScreenTimeRewards" target
-3. Go to the "General" tab
-4. Under "Deployment Info", change the "iOS" version to match your device
+## References
+- `ScreenTimeRewards/PHASE2_IMPLEMENTATION_PLAN.md`
+- `ScreenTimeRewards/PHASE2_PROGRESS_REPORT.md`
+- `ScreenTimeRewards/TESTING_PLAN.md`
+- Apple Developer Documentation: Screen Time APIs, Family Controls, Managed Settings

@@ -80,6 +80,19 @@ struct AppUsage: Codable, Identifiable {
     private mutating func updateTotalTime() {
         totalTime = sessions.reduce(0) { $0 + $1.duration }
     }
+
+    /// Append a usage session with a known duration.
+    /// - Parameters:
+    ///   - duration: Length of the session in seconds.
+    ///   - endDate: Timestamp marking the end of the session. Defaults to current date.
+    mutating func recordUsage(duration: TimeInterval, endingAt endDate: Date = Date()) {
+        let adjustedEnd = endDate
+        let startDate = adjustedEnd.addingTimeInterval(-duration)
+        let session = UsageSession(startTime: startDate, endTime: adjustedEnd)
+        sessions.append(session)
+        totalTime += duration
+        lastAccess = adjustedEnd
+    }
     
     /// Get today's usage time
     var todayUsage: TimeInterval {

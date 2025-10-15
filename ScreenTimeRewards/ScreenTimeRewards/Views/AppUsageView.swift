@@ -1,4 +1,5 @@
 import SwiftUI
+import FamilyControls
 
 struct AppUsageView: View {
     @StateObject private var viewModel = AppUsageViewModel()
@@ -49,7 +50,10 @@ struct AppUsageView: View {
                     .cornerRadius(10)
                 }
                 .padding(.horizontal)
-                
+
+                // Monitoring configuration
+                configurationSection
+
                 // App usage list
                 List(viewModel.appUsages) { appUsage in
                     HStack {
@@ -113,7 +117,66 @@ struct AppUsageView: View {
             }
             .navigationTitle("ScreenTime Tracker")
             .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button(action: {
+                        viewModel.isFamilyPickerPresented.toggle()
+                    }) {
+                        Image(systemName: "slider.horizontal.3")
+                    }
+                }
+            }
         }
+        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+    }
+}
+
+private extension AppUsageView {
+    var configurationSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Monitoring Settings")
+                .font(.headline)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(.horizontal)
+
+            VStack(spacing: 8) {
+                ForEach(AppUsage.AppCategory.allCases, id: \.self) { category in
+                    HStack {
+                        Text(category.rawValue)
+                            .font(.subheadline)
+                        Spacer()
+                        Stepper(value: Binding(
+                            get: { viewModel.thresholdMinutes[category] ?? 15 },
+                            set: { newValue in
+                                viewModel.thresholdMinutes[category] = newValue
+                            }
+                        ), in: 5...120, step: 5) {
+                            Text("\(viewModel.thresholdMinutes[category] ?? 15) min")
+                                .font(.footnote)
+                                .monospacedDigit()
+                        }
+                        .labelsHidden()
+                    }
+                }
+            }
+            .padding()
+            .background(Color(UIColor.secondarySystemBackground))
+            .cornerRadius(10)
+            .padding(.horizontal)
+
+            Button(action: {
+                viewModel.configureMonitoring()
+            }) {
+                Text("Apply Monitoring Configuration")
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.accentColor)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    .padding(.horizontal)
+            }
+        }
+        .padding(.bottom)
     }
 }
 

@@ -117,4 +117,25 @@ final class ScreenTimeRewardsTests: XCTestCase {
         screenTimeService.stopMonitoring()
         XCTAssertFalse(screenTimeService.isMonitoring)
     }
+
+    func testScreenTimeServiceSimulatedEventRecordsUsage() {
+        let screenTimeService = ScreenTimeService.shared
+        screenTimeService.resetData()
+#if DEBUG
+        screenTimeService.configureForTesting(
+            applications: [
+                (bundleIdentifier: "com.test.education", name: "Education App", category: .educational)
+            ],
+            threshold: DateComponents(minute: 10)
+        )
+        let eventName = DeviceActivityEvent.Name("usage.educational")
+        screenTimeService.simulateEvent(named: eventName, customDuration: 600)
+        let usages = screenTimeService.getAppUsages()
+        XCTAssertEqual(usages.count, 1)
+        XCTAssertEqual(usages.first?.bundleIdentifier, "com.test.education")
+        XCTAssertEqual(usages.first?.totalTime ?? 0, 600, accuracy: 0.1)
+#else
+        XCTAssertTrue(true, "Simulation requires DEBUG configuration")
+#endif
+    }
 }

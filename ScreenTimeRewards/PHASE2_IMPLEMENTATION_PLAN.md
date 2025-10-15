@@ -1,142 +1,83 @@
 # Phase 2 Implementation Plan: ScreenTime API Integration
 
 ## Overview
-This document outlines the implementation steps for integrating Apple's actual ScreenTime APIs into the ScreenTime Rewards application.
+This document outlines the remaining work to deliver real ScreenTime API integration for ScreenTime Rewards. Core monitoring configuration is in place; next steps focus on the DeviceActivity extension, persistence, and reward logic.
 
 ## Immediate Next Steps
 
-### 1. Implement DeviceActivity Monitoring
-- [ ] Uncomment and properly implement the DeviceActivityDelegate methods
-- [ ] Set up DeviceActivityCenter for actual monitoring
-- [ ] Define activity schedules and thresholds
-- [ ] Implement data collection from DeviceActivity events
+### 1. Ship DeviceActivity Monitor Extension
+- [ ] Add Device Activity Monitor app extension target
+- [ ] Route extension callbacks into `ScreenTimeService` via the `ScreenTimeActivityMonitor`
+- [ ] Handle interval start/end and threshold warnings on the main app side
 
-### 2. Add Family Controls Authorization
-- [ ] Implement Family Controls authorization flow
-- [ ] Create authorization view presentation
-- [ ] Handle authorization state changes
+### 2. Enhance Family Controls Flow
+- [ ] Persist `FamilyActivitySelection` and thresholds (UserDefaults/Core Data)
+- [ ] Reflect authorization status in UI and guide users through initial setup
+- [ ] Support editing/removing previously selected apps/categories
 
-### 3. Implement Real Data Collection
-- [ ] Replace simulated data with actual ScreenTime data
-- [ ] Implement app categorization based on bundle identifiers
-- [ ] Add data persistence (UserDefaults or Core Data for now)
+### 3. Collect & Store Real Usage Data
+- [ ] Replace sample data seeding once DeviceActivity events flow
+- [ ] Persist recorded `AppUsage` sessions (Core Data + CloudKit sync prep)
+- [ ] Provide daily/hourly aggregates for reward logic
 
-## Detailed Implementation Tasks
+### 4. Implement Reward Experience
+- [ ] Define reward thresholds and mapping to monitored categories
+- [ ] Build parental approval flow (notifications / in-app approvals)
+- [ ] Surface reward status & history to the child-facing UI
 
-### Task 1: DeviceActivity Integration
+## Detailed Task Breakdown
 
-#### 1.1 Update ScreenTimeService
-Modify `ScreenTimeService.swift` to:
-1. Properly initialize DeviceActivityCenter
-2. Implement scheduleActivity() method
-3. Add start/stop monitoring with actual DeviceActivityCenter calls
+### Task 1: DeviceActivity Extension
+1. Create `ScreenTimeActivityExtension` target and add required entitlements
+2. Implement `DeviceActivityMonitorExtension` subclass that forwards events through shared app group storage or direct calls when the app is active
+3. Update `ScreenTimeService` to consume extension output (already prepared via delegate helpers)
+4. Add logging/analytics for interval start/end and threshold events
 
-#### 1.2 Implement DeviceActivityDelegate
-Update the delegate methods to:
-1. Collect actual usage data when activities begin/end
-2. Process and store usage data
-3. Notify UI of data changes
+### Task 2: Family Controls & Authorization UX
+1. Wrap the existing picker with first-run experience (AuthorizationCenter UI as needed)
+2. Store selections + thresholds, restoring on launch
+3. Detect authorization revocation and prompt the user to re-enable
 
-#### 1.3 Add Activity Scheduling
-Implement methods to:
-1. Define monitoring schedules
-2. Set up activity thresholds
-3. Handle different time periods (daily, weekly)
+### Task 3: Data Persistence & Reporting
+1. Model `UsageSession` entities in Core Data aligned with `AppUsage`
+2. Write ingestion pipeline triggered by event notifications
+3. Provide aggregated summaries for UI and reward engine (daily totals, category totals)
 
-### Task 2: Family Controls Integration
+### Task 4: Reward Mechanics
+1. Define reward schema (e.g., X minutes educational unlocks Y minutes entertainment)
+2. Implement scheduler that checks aggregated data and produces reward opportunities
+3. Support parental approval (notifications, manual overrides)
+4. Update UI to display earned rewards and redemption status
 
-#### 2.1 Authorization Flow
-Implement:
-1. Authorization view presentation
-2. Authorization state handling
-3. Permission change detection
+## Updated Implementation Approach
 
-#### 2.2 Family Setup
-Add:
-1. Parent-child relationship management
-2. App permission configuration
-3. Usage restriction settings
-
-### Task 3: Data Collection and Processing
-
-#### 3.1 Real Data Integration
-Replace simulated data with:
-1. Actual app usage data from DeviceActivity
-2. Real-time data updates
-3. Historical data collection
-
-#### 3.2 App Categorization
-Implement:
-1. Automatic categorization based on app types
-2. User-defined category assignment
-3. Category-based reporting
-
-#### 3.3 Data Storage
-Add:
-1. Local data persistence
-2. Data synchronization preparation
-3. Data export capabilities
-
-## Implementation Approach
-
-### Step 1: Enable DeviceActivityDelegate
-Uncomment and properly implement the DeviceActivityDelegate extension in ScreenTimeService.swift
-
-### Step 2: Add Activity Scheduling
-Implement methods to schedule and manage device activities using DeviceActivityCenter
-
-### Step 3: Implement Data Collection
-Modify the delegate methods to collect and process actual usage data
-
-### Step 4: Add Authorization Flow
-Implement the Family Controls authorization view and flow
-
-### Step 5: Test with Real Data
-Test the implementation with actual ScreenTime data on a physical device
-
-## Code Changes Required
-
-### ScreenTimeService.swift
-1. Uncomment DeviceActivityDelegate extension
-2. Implement scheduleActivity() method
-3. Add start/stop methods using DeviceActivityCenter
-4. Implement data collection in delegate methods
-
-### AppUsageViewModel.swift
-1. Modify to use actual data from ScreenTimeService
-2. Add methods to handle real-time data updates
-
-### AppUsageView.swift
-1. Add authorization view presentation
-2. Update to display real data
+1. **Extension Wiring** – complete the DeviceActivity monitor app extension and integrate with service delegate
+2. **Persist & Sync** – move from in-memory usage to durable storage and plan for CloudKit syncing
+3. **Reward Layer** – build on top of persisted data to deliver actual incentives
+4. **Polish & QA** – run device QA, regression tests, and finalize documentation before release
 
 ## Testing Considerations
 
-### Device Testing
-- Test on multiple iOS versions (14.0+)
-- Test on different device types (iPhone, iPad)
-- Test family sharing scenarios
-- Test various app categories
-
-### Data Validation
-- Verify accurate usage tracking
-- Confirm proper data categorization
-- Validate data persistence
-- Test data synchronization
+- **Unit Tests**: Expand coverage for persistence and reward calculation
+- **Extension Tests**: Create manual/automated scenarios validating extension callbacks (requires device)
+- **End-to-End**: Validate full flow: configure apps → collect usage → earn reward → approval
+- **Performance**: Monitor battery/CPU with MetricKit, especially during event spikes
 
 ## Timeline Estimate
-- DeviceActivity Integration: 2-3 days
-- Family Controls Integration: 1-2 days
-- Data Collection and Processing: 2-3 days
-- Testing and Refinement: 1-2 days
-
-## Total Estimated Time
-1-2 weeks for complete Phase 2 implementation
+- DeviceActivity extension & real data capture: 2–3 days
+- Persistence & CloudKit groundwork: 2–3 days
+- Reward experience implementation: 3–4 days
+- QA and polish: 1–2 days
 
 ## Success Criteria
-- [ ] Actual ScreenTime data collection working
-- [ ] Family sharing setup functional
-- [ ] App categorization accurate
-- [ ] Data persistence implemented
-- [ ] All unit tests passing
-- [ ] No critical bugs identified
+- [ ] DeviceActivity events from extension update app state in near-real time
+- [ ] Family activity selections and thresholds persist across launches/devices
+- [ ] Usage sessions stored and available for reward calculations
+- [ ] Reward flows functional with parental approvals
+- [ ] Unit/integration tests pass on physical hardware
+- [ ] Battery usage remains within <5% impact during typical monitoring
+
+## References
+- `ScreenTimeRewards/ScreenTimeRewards/Services/ScreenTimeService.swift`
+- `ScreenTimeRewards/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`
+- Apple Developer Documentation: DeviceActivity Monitor Extensions, Family Controls, Managed Settings

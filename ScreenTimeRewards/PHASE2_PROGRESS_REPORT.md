@@ -1,173 +1,80 @@
 # Phase 2 Implementation Progress Report
 
 ## Overview
-This document summarizes the progress made in implementing the DeviceActivity integration for the ScreenTime Rewards application.
+This document summarizes the progress made in implementing real ScreenTime API integration for the ScreenTime Rewards application.
 
-## Completed Tasks
+## Completed Work
 
-### ✅ DeviceActivityCenter Integration
-- [x] Restored DeviceActivityCenter usage in `ScreenTimeService.swift`
-- [x] Implemented schedule/start/stop helpers with error propagation
-- [x] Replaced placeholder authorization calls with production-ready code paths (async/await + continuation bridge for iOS 15)
-- [x] Seeded deterministic sample data through the service for demo/tests
-- [x] Verified clean build with Screen Time frameworks linked
+### ✅ DeviceActivity Monitoring Foundations
+- Restored `DeviceActivityCenter` usage and refactored scheduling/start/stop logic with robust error propagation
+- Added monitoring configuration pipeline (`configureMonitoring`) that maps `FamilyActivitySelection` into event thresholds
+- Introduced live usage notifications and `recordUsage` helpers so DeviceActivity events produce `AppUsage` updates
+- Created a `ScreenTimeActivityMonitor` bridge to consume DeviceActivity callbacks (awaits extension hookup)
 
-### ✅ Framework & Configuration Updates
-- [x] Verified DeviceActivity and FamilyControls frameworks import/link correctly
-- [x] Confirmed Family Controls entitlements/capabilities in the project
-- [x] Raised minimum deployment target to iOS 15 to match API availability
-- [x] Removed stale `SceneDelegate` reference that caused launch crashes
+### ✅ Family Controls UX Hooks
+- Exposed `FamilyActivityPicker` in the main UI with per-category threshold steppers
+- Persisted selection state in `AppUsageViewModel` and applied settings via the service
+- Added debug/testing utilities (`configureForTesting`, `simulateEvent`) to validate thresholds without device events
 
-### ✅ Basic Functionality & Testing
-- [x] Added inline error messaging when authorization fails
-- [x] Extended unit tests to cover sample seeding and monitoring state transitions
-- [x] Updated integration script to target physical devices (skips unsupported simulator runs)
-- [x] Verified build succeeds with the new tests and scripts in place
+### ✅ Testing & Tooling
+- Extended unit suites to cover simulated DeviceActivity events
+- Updated integration script guidance for device builds
+- Documented device test flow and monitoring configuration steps for teammates
 
-## Current Implementation Status
+## Current Implementation Snapshot
 
 ### ScreenTimeService.swift
-Current implementation highlights:
+1. Initializes DeviceActivityCenter and seeds demo data
+2. Manages authorization for iOS 15+ (async/await or continuation bridge)
+3. Schedules monitoring with per-category DeviceActivity events derived from family selections
+4. Records usage durations when events fire and broadcasts changes via NotificationCenter
+5. Provides debug helpers for unit tests and developer simulation
 
-1. **Initialization** – Singleton owns a `DeviceActivityCenter` instance and lazily seeds demo data
-2. **Authorization** – Async flow handles iOS 16+ (`for: .individual`) and bridges the iOS 15 completion handler with `withCheckedThrowingContinuation`
-3. **Monitoring Control** – `startMonitoring`/`stopMonitoring` update internal state and forward success/failure through completion handlers
-4. **Sample Data** – `bootstrapSampleDataIfNeeded()` supplies consistent `AppUsage` entries until real Screen Time events are wired up
+### AppUsageViewModel.swift
+- Maintains monitoring state, threshold configuration, and selected apps
+- Observes usage change notifications and updates UI totals
+- Surfaces errors and controls picker presentation
 
-### Test Coverage
-- Service instantiation tests: ✅ Pass
-- Sample data seeding tests: ✅ Pass
-- Monitoring start/stop completion tests: ✅ Pass
-- Build verification: ✅ Success
+### AppUsageView.swift
+- Presents status, category summaries, and live usage list
+- Adds monitoring configuration section with threshold steppers and “Apply” button
+- Includes toolbar access to the Family Activity picker
 
-## Next Implementation Steps
+## In-Flight / Next Steps
 
-### 1. DeviceActivityDelegate Implementation
-- [ ] Implement `deviceActivityDidBegin(_:)`
-- [ ] Implement `deviceActivityWillStart(_:)`
-- [ ] Implement `deviceActivityDidEnd(_:reason:)`
-- [ ] Feed delegate callbacks into persistence/view model updates
+### DeviceActivity Extension (High Priority)
+- Build the Device Activity Monitor extension target
+- Forward extension callbacks into `ScreenTimeService` via the new monitor delegate
 
-### 2. Data Collection and Processing
-- [ ] Map DeviceActivity events into concrete `AppUsage` updates
-- [ ] Categorize bundles and accumulate duration totals
-- [ ] Replace seeded demo data with live metrics
-- [ ] Persist usage snapshots for offline viewing
+### Data Persistence & Sync
+- Store recorded usage sessions (Core Data / CloudKit) for offline access
+- Sync thresholds and configuration across devices
 
-### 3. Family Controls Integration
-- [ ] Present the Family Controls picker/authorization UI
-- [ ] Persist and observe authorization status
-- [ ] Handle account/family configuration edge cases
-
-### 4. UI Integration
-- [ ] Drive `AppUsageViewModel` from real data store
-- [ ] Reflect authorization/monitoring state transitions in the UI
-- [ ] Add user flows for managing selected learning/reward apps
-
-## Technical Details
-
-### Current API Usage
-```swift
-// DeviceActivityCenter initialization
-deviceActivityCenter = DeviceActivityCenter()
-
-// Schedule creation
-let schedule = DeviceActivitySchedule(
-    intervalStart: DateComponents(hour: 0, minute: 0),
-    intervalEnd: DateComponents(hour: 23, minute: 59),
-    repeats: true
-)
-
-// Authorization (iOS 16+ or bridged to iOS 15)
-if #available(iOS 16.0, *) {
-    try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-} else {
-    try await withCheckedThrowingContinuation { continuation in
-        AuthorizationCenter.shared.requestAuthorization { result in
-            switch result {
-            case .success:
-                continuation.resume()
-            case .failure(let error):
-                continuation.resume(throwing: error)
-            }
-        }
-    }
-}
-
-// Activity monitoring
-let activityName = DeviceActivityName("ScreenTimeTracking")
-try deviceActivityCenter.startMonitoring(activityName, during: schedule)
-deviceActivityCenter.stopMonitoring([activityName])
-```
-
-### Framework Integration
-- DeviceActivity.framework: Properly linked and imported
-- FamilyControls.framework: Properly linked and imported
-- Entitlements: Family Controls capability enabled
+### Reward Engine & Authorization UX
+- Expand UI to surface selected apps/categories and status of authorization
+- Integrate parental approval and reward calculations once live data is flowing
 
 ## Testing Status
+- Unit tests: ✅ Pass (model, view model, service, simulated events)
+- Integration: ⚠️ Pending DeviceActivity extension (requires on-device testing)
+- Manual smoke: ✅ UI configuration flows on-device with seeded data
 
-### Unit Tests
-- ✅ AppUsage model tests passing
-- ✅ Time formatting tests passing
-- ✅ Category management tests passing
-- ✅ ScreenTimeService sample data & monitoring tests passing
+## Risks & Mitigations
+- **DeviceActivity extension not yet implemented** → Target next sprint; without it live data won’t appear
+- **FamilyControls authorization UX** still basic → design improvements planned post extension hookup
+- **Data persistence** pending → current sessions in-memory only; backlog item for Phase 2B
 
-### Integration Tests
-- ✅ Physical-device build verification script updated (requires connected device)
-- ⏳ DeviceActivity event handling (pending implementation)
-- ⏳ Real data collection (pending implementation)
-- ⏳ Family Controls integration (pending implementation)
+## Updated Timeline Snapshot
+- DeviceActivity extension & live event wiring: 1–2 days
+- Persistence & sync groundwork: 2–3 days
+- Reward logic + parental flows: 2–3 days
+- Device QA/refinement: 1–2 days
 
-## Quality Assurance
+## References
+- `ScreenTimeRewards/ScreenTimeRewards/Services/ScreenTimeService.swift`
+- `ScreenTimeRewards/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`
+- `ScreenTimeRewards/ScreenTimeRewards/Views/AppUsageView.swift`
+- `ScreenTimeRewards/ScreenTimeRewardsTests/ScreenTimeRewardsTests.swift`
 
-### Code Quality
-- ✅ No compilation errors
-- ✅ Proper framework usage
-- ✅ Clean code structure
-- ✅ Consistent naming conventions
-
-### Build Status
-- ✅ Clean builds successful
-- ✅ Test builds successful
-- ✅ No linker errors
-- ✅ Proper framework linking
-
-## Risks and Considerations
-
-### Platform Requirements
-- Requires iOS 15.0+ for Screen Time APIs in use
-- Requires physical device for accurate testing
-- Requires Family Sharing setup for full functionality
-
-### Testing Limitations
-- Simulator has limited ScreenTime functionality
-- Real data collection requires physical device testing
-- Family Controls require proper entitlements and capabilities
-
-## Timeline Estimate
-
-### Remaining Implementation
-- DeviceActivityDelegate: 1-2 days
-- Data Collection: 2-3 days
-- Family Controls Integration: 1-2 days
-- Testing and Refinement: 1-2 days
-
-### Total Estimated Time
-3-7 days for complete Phase 2 implementation
-
-## Success Criteria
-
-### Phase 2 Completion
-- [ ] Actual ScreenTime data collection working
-- [ ] Family sharing setup functional
-- [ ] App categorization accurate
-- [ ] Data persistence implemented
-- [ ] All unit tests passing
-- [ ] No critical bugs identified
-
-## Conclusion
-
-The foundation for DeviceActivity integration has been successfully implemented. The ScreenTimeService now properly initializes DeviceActivityCenter and provides methods for scheduling and controlling monitoring activities. The next steps involve implementing the delegate methods to handle actual ScreenTime events and collecting real usage data.
-
-This progress represents a significant milestone in the Phase 2 implementation, moving from simulated data to actual ScreenTime API integration.
+## Summary
+Phase 2 now has configurable monitoring that feeds into our data model when DeviceActivity events arrive. Next up: deliver the extension so those events fire for real, add persistence, and layer the reward experience on top.

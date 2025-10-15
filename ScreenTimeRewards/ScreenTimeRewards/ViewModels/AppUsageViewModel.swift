@@ -1,5 +1,7 @@
 import Foundation
 import Combine
+import FamilyControls
+import ManagedSettings
 
 /// View model to manage app usage data for the UI
 class AppUsageViewModel: ObservableObject {
@@ -8,12 +10,23 @@ class AppUsageViewModel: ObservableObject {
     @Published var educationalTime: TimeInterval = 0
     @Published var entertainmentTime: TimeInterval = 0
     @Published var errorMessage: String?
+    @Published var familySelection: FamilyActivitySelection = .init()
+    @Published var thresholdMinutes: [AppUsage.AppCategory: Int] = [:]
+    @Published var isFamilyPickerPresented = false
     
     private let service: ScreenTimeService
+    private var cancellables = Set<AnyCancellable>()
     
     init(service: ScreenTimeService = .shared) {
         self.service = service
         loadData()
+        NotificationCenter.default
+            .publisher(for: ScreenTimeService.usageDidChangeNotification)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.refreshData()
+            }
+            .store(in: &cancellables)
     }
     
     /// Load initial data from the service
@@ -69,6 +82,16 @@ class AppUsageViewModel: ObservableObject {
         entertainmentTime = 0
         isMonitoring = false
         errorMessage = nil
+    }
+    
+    func configureMonitoring() {
+        #if DEBUG
+        print("Selected applications: \(familySelection.applications.map { $0.bundleIdentifier ?? "unknown" })")
+        #endif
+        let thresholds = thresholdMinutes.reduce(into: [AppUsage.AppCategory: DateComponents]()) { result, entry in
+            result[entry.key] = DateComponents(minute: entry.value)
+        }
+        service.configureMonitoring(with: familySelection, thresholds: thresholds.isEmpty ? nil : thresholds)
     }
     
     /// Format time interval for display
