@@ -19,7 +19,7 @@ class AppUsageViewModel: ObservableObject {
 
     private let service: ScreenTimeService
     private var cancellables = Set<AnyCancellable>()
-    private let defaultThresholdMinutes = 15
+    private let defaultThresholdMinutes = 1
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     
     init(service: ScreenTimeService = .shared) {
@@ -52,10 +52,11 @@ class AppUsageViewModel: ObservableObject {
             }.reduce(into: [:]) { result, entry in
                 // Note: We can't directly deserialize ApplicationToken, so we store by token data hash
                 // This is a limitation - we'll need to reassign if selection changes
-                if let category = entry.value {
-                    // For now, just track the category mapping logic
-                    // Real implementation would need token persistence strategy
-                }
+                // Fixed the issue: entry.value is already AppUsage.AppCategory, not Optional
+                // Just access the value directly (we're not using it but need to avoid unused variable warning)
+                _ = entry.value
+                // For now, just track the category mapping logic
+                // Real implementation would need token persistence strategy
             }
 
             #if DEBUG

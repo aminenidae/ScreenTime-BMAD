@@ -65,28 +65,28 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         #if DEBUG
         print("[ScreenTimeActivityExtension] intervalDidStart for activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.intervalDidStart, activity: activity)
+        postNotification("com.screentimerewards.intervalDidStart", activity: activity)
     }
 
     override nonisolated func intervalWillStartWarning(for activity: DeviceActivityName) {
         #if DEBUG
         print("[ScreenTimeActivityExtension] intervalWillStartWarning for activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.intervalWillStart, activity: activity)
+        postNotification("com.screentimerewards.intervalWillStart", activity: activity)
     }
 
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
         #if DEBUG
         print("[ScreenTimeActivityExtension] intervalDidEnd for activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.intervalDidEnd, activity: activity)
+        postNotification("com.screentimerewards.intervalDidEnd", activity: activity)
     }
 
     override nonisolated func intervalWillEndWarning(for activity: DeviceActivityName) {
         #if DEBUG
         print("[ScreenTimeActivityExtension] intervalWillEndWarning for activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.intervalWillEnd, activity: activity)
+        postNotification("com.screentimerewards.intervalWillEnd", activity: activity)
     }
 
     override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
@@ -95,7 +95,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         print("[ScreenTimeActivityExtension]   Event: \(event.rawValue)")
         print("[ScreenTimeActivityExtension]   Activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.eventDidReachThreshold, event: event, activity: activity)
+        postNotification("com.screentimerewards.eventDidReachThreshold", event: event, activity: activity)
     }
 
     override nonisolated func eventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
@@ -104,6 +104,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         print("[ScreenTimeActivityExtension]   Event: \(event.rawValue)")
         print("[ScreenTimeActivityExtension]   Activity: \(activity.rawValue)")
         #endif
-        postNotification(ScreenTimeNotifications.eventWillReachThreshold, event: event, activity: activity)
+        postNotification("com.screentimerewards.eventWillReachThreshold", event: event, activity: activity)
     }
 }

@@ -72,7 +72,7 @@ class ScreenTimeService: NSObject {
     }
 
     private let activityMonitor = ScreenTimeActivityMonitor()
-    private let defaultThreshold = DateComponents(minute: 15)
+    private let defaultThreshold = DateComponents(minute: 1)
     private var monitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
     
     override private init() {
@@ -279,7 +279,7 @@ class ScreenTimeService: NSObject {
         for (category, apps) in groupedApplications {
             print("[ScreenTimeService]   \(category.rawValue): \(apps.count) applications")
             for app in apps {
-                print("[ScreenTimeService]     - \(app.displayName) (\(app.bundleIdentifier))")
+                print("[ScreenTimeService]     - \(app.displayName) (\(app.bundleIdentifier ?? "nil"))")
             }
         }
         #endif

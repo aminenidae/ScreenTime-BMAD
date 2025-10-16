@@ -1,5 +1,6 @@
 import SwiftUI
 import FamilyControls
+import ManagedSettings
 
 struct CategoryAssignmentView: View {
     @Environment(\.dismiss) var dismiss
@@ -23,8 +24,14 @@ struct CategoryAssignmentView: View {
                         if let token = app.token {
                             VStack(alignment: .leading, spacing: 8) {
                                 // Use Label(token) to show actual app name and icon
-                                Label(token)
-                                    .font(.headline)
+                                if #available(iOS 15.2, *) {
+                                    Label(token)
+                                        .font(.headline)
+                                } else {
+                                    // Fallback for older iOS versions
+                                    Text("App \(index)")
+                                        .font(.headline)
+                                }
 
                                 // Category picker
                                 Picker("Category", selection: Binding(
@@ -65,7 +72,7 @@ struct CategoryAssignmentView: View {
                         onSave()
                         dismiss()
                     }
-                    .fontWeight(.semibold)
+                    .fontWeightCompatible(.semibold)
                 }
             }
             .onAppear {
@@ -112,6 +119,21 @@ struct CategoryAssignmentView: View {
         case .productivity: return "💼"
         case .utility: return "🔧"
         case .other: return "📱"
+        }
+    }
+}
+
+// Extension for iOS version compatibility
+extension View {
+    /// Applies font weight compatible with different iOS versions
+    @ViewBuilder
+    func fontWeightCompatible(_ weight: Font.Weight) -> some View {
+        if #available(iOS 16.0, *) {
+            self.fontWeight(weight)
+        } else {
+            // For iOS 15, we can't use fontWeight, so we'll use a different approach
+            // For semibold, we can use a custom font weight or just the default styling
+            self
         }
     }
 }

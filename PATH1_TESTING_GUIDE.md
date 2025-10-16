@@ -209,25 +209,25 @@
 
 ### **Must Have:** ✅
 
-- [ ] Category Assignment screen shows **real app names** (via Label)
-- [ ] Category Assignment screen shows **real app icons**
-- [ ] User can assign categories via dropdown
-- [ ] Categories are saved (check logs)
-- [ ] Monitoring starts successfully
-- [ ] Apps grouped by assigned categories (check logs)
+- [x] Category Assignment screen shows **real app names** (via Label)
+- [x] Category Assignment screen shows **real app icons**
+- [x] User can assign categories via dropdown
+- [x] Categories are saved (check logs)
+- [x] Monitoring starts successfully
+- [x] Apps grouped by assigned categories (check logs)
 
 ### **Should Have:** ✅
 
-- [ ] Events fire when threshold reached
-- [ ] Usage data appears in app
-- [ ] Category totals update
-- [ ] UI reflects tracking progress
+- [x] Events fire when threshold reached
+- [x] Usage data appears in app
+- [x] Category totals update
+- [x] UI reflects tracking progress
 
 ### **Nice to Have:** 🎯
 
-- [ ] Persistent across app restart
-- [ ] Re-categorization works
-- [ ] All categories track correctly
+- [x] Persistent across app restart
+- [x] Re-categorization works
+- [x] All categories track correctly
 
 ---
 

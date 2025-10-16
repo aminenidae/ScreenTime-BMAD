@@ -2,6 +2,11 @@ import Foundation
 
 /// Represents an app usage record for tracking purposes
 struct AppUsage: Codable, Identifiable {
+    // Explicitly define CodingKeys to exclude id from decoding since it's computed
+    enum CodingKeys: String, CodingKey {
+        case bundleIdentifier, appName, category, totalTime, sessions, firstAccess, lastAccess
+    }
+    
     let id = UUID()
     let bundleIdentifier: String
     let appName: String
@@ -22,6 +27,11 @@ struct AppUsage: Codable, Identifiable {
     }
     
     struct UsageSession: Codable, Identifiable {
+        // Explicitly define CodingKeys to exclude id and duration from decoding since they're computed
+        enum CodingKeys: String, CodingKey {
+            case startTime, endTime
+        }
+        
         let id = UUID()
         let startTime: Date
         var endTime: Date?

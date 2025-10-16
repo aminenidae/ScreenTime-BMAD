@@ -190,8 +190,8 @@ private extension AppUsageView {
                                     viewModel.thresholdMinutes[category] = newValue
                                 }
                             ),
-                            in: 5...120,
-                            step: 5
+                            in: 1...120,
+                            step: 1
                         )
                         .labelsHidden()
                     }

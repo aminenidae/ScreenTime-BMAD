@@ -62,7 +62,7 @@ Execute with **Product ▸ Test** (⌘U). Suites cover:
 ### On-Device Manual Testing
 1. Build & run on an iOS 15+ physical device with Screen Time enabled and the extension installed (look for the "ScreenTimeActivityExtension" bundle under Settings ▶ Screen Time ▶ App & Website Activity).
 2. Tap the slider icon to open the Family Activity picker; select educational/entertainment apps.
-3. Adjust thresholds (5–120 minutes) and tap **Apply Monitoring Configuration**.
+3. Adjust thresholds (1–120 minutes) and tap **Apply Monitoring Configuration**.
 4. Start/Stop monitoring and confirm status changes and configuration persistence.
 5. Use the device normally; when thresholds are reached the extension posts events and the totals update in real time (watch the category tiles and app list).
 6. Use the `Reset Data` button between runs to clear accumulated sessions.
