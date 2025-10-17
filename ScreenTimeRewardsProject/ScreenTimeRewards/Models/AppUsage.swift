@@ -4,7 +4,7 @@ import Foundation
 struct AppUsage: Codable, Identifiable {
     // Explicitly define CodingKeys to exclude id from decoding since it's computed
     enum CodingKeys: String, CodingKey {
-        case bundleIdentifier, appName, category, totalTime, sessions, firstAccess, lastAccess
+        case bundleIdentifier, appName, category, totalTime, sessions, firstAccess, lastAccess, rewardPoints
     }
     
     let id = UUID()
@@ -15,19 +15,15 @@ struct AppUsage: Codable, Identifiable {
     var sessions: [UsageSession]
     let firstAccess: Date
     var lastAccess: Date
+    var rewardPoints: Int // Reward points assigned to this app
     
     enum AppCategory: String, Codable, CaseIterable {
-        case educational = "Educational"
-        case entertainment = "Entertainment"
-        case productivity = "Productivity"
-        case social = "Social"
-        case games = "Games"
-        case utility = "Utility"
-        case other = "Other"
+        case learning = "Learning"
+        case reward = "Reward"
     }
     
     struct UsageSession: Codable, Identifiable {
-        // Explicitly define CodingKeys to exclude id and duration from decoding since they're computed
+        // Explicitly define CodingKeys to exclude id from decoding since it's computed
         enum CodingKeys: String, CodingKey {
             case startTime, endTime
         }
@@ -44,10 +40,11 @@ struct AppUsage: Codable, Identifiable {
     }
     
     /// Initialize a new app usage record
-    init(bundleIdentifier: String, appName: String, category: AppCategory) {
+    init(bundleIdentifier: String, appName: String, category: AppCategory, rewardPoints: Int = 10) {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.category = category
+        self.rewardPoints = rewardPoints
         self.totalTime = 0
         self.sessions = []
         self.firstAccess = Date()
@@ -61,10 +58,12 @@ struct AppUsage: Codable, Identifiable {
          totalTime: TimeInterval,
          sessions: [UsageSession],
          firstAccess: Date,
-         lastAccess: Date) {
+         lastAccess: Date,
+         rewardPoints: Int = 10) {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.category = category
+        self.rewardPoints = rewardPoints
         self.totalTime = totalTime
         self.sessions = sessions
         self.firstAccess = firstAccess
@@ -111,5 +110,13 @@ struct AppUsage: Codable, Identifiable {
             guard let sessionDate = session.endTime ?? session.startTime as Date? else { return false }
             return Calendar.current.isDate(sessionDate, inSameDayAs: today)
         }.reduce(0) { $0 + $1.duration }
+    }
+    
+    /// Calculate reward points earned based on usage time and assigned reward points
+    var earnedRewardPoints: Int {
+        let minutes = Int(totalTime / 60)
+        // Calculate earned points based on assigned reward points and usage time
+        // For example: If 80 points are assigned and user used app for 1 minute, they earn 80 points
+        return minutes * rewardPoints
     }
 }

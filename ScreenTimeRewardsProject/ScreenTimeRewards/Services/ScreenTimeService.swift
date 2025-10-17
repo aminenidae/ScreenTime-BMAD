@@ -45,6 +45,7 @@ class ScreenTimeService: NSObject {
         let token: ManagedSettings.ApplicationToken  // Required for monitoring
         let displayName: String
         let category: AppUsage.AppCategory
+        let rewardPoints: Int
         let bundleIdentifier: String?  // Optional - may be nil for privacy
     }
 
@@ -117,29 +118,32 @@ class ScreenTimeService: NSObject {
         let books = AppUsage(
             bundleIdentifier: "com.apple.books",
             appName: "Books",
-            category: .educational,
+            category: .learning,
             totalTime: hour,
             sessions: booksSessions,
             firstAccess: now.addingTimeInterval(-86400),
-            lastAccess: now.addingTimeInterval(-hour)
+            lastAccess: now.addingTimeInterval(-hour),
+            rewardPoints: 20
         )
         let calculator = AppUsage(
             bundleIdentifier: "com.apple.calculator",
             appName: "Calculator",
-            category: .productivity,
+            category: .learning,
             totalTime: 600,
             sessions: calculatorSessions,
             firstAccess: now.addingTimeInterval(-172800),
-            lastAccess: now.addingTimeInterval(-hour * 6 + 600)
+            lastAccess: now.addingTimeInterval(-hour * 6 + 600),
+            rewardPoints: 20
         )
         let music = AppUsage(
             bundleIdentifier: "com.apple.Music",
             appName: "Music",
-            category: .entertainment,
+            category: .reward,
             totalTime: halfHour,
             sessions: musicSessions,
             firstAccess: now.addingTimeInterval(-432000),
-            lastAccess: now.addingTimeInterval(-halfHour)
+            lastAccess: now.addingTimeInterval(-halfHour),
+            rewardPoints: 10
         )
         
         appUsages = [
@@ -154,41 +158,16 @@ class ScreenTimeService: NSObject {
         print("[ScreenTimeService] Categorizing app with bundle ID: \(bundleIdentifier)")
         #endif
         
-        if bundleIdentifier.contains("education") || bundleIdentifier.contains("book") || bundleIdentifier.contains("learn") {
+        if bundleIdentifier.contains("education") || bundleIdentifier.contains("book") || bundleIdentifier.contains("learn") || bundleIdentifier.contains("calculator") {
             #if DEBUG
-            print("[ScreenTimeService] Categorized as educational")
+            print("[ScreenTimeService] Categorized as learning")
             #endif
-            return .educational
-        } else if bundleIdentifier.contains("game") || bundleIdentifier.contains("games") {
-            #if DEBUG
-            print("[ScreenTimeService] Categorized as games")
-            #endif
-            return .games
-        } else if bundleIdentifier.contains("social") || bundleIdentifier.contains("facebook") || bundleIdentifier.contains("twitter") || bundleIdentifier.contains("instagram") {
-            #if DEBUG
-            print("[ScreenTimeService] Categorized as social")
-            #endif
-            return .social
-        } else if bundleIdentifier.contains("music") || bundleIdentifier.contains("video") || bundleIdentifier.contains("entertainment") {
-            #if DEBUG
-            print("[ScreenTimeService] Categorized as entertainment")
-            #endif
-            return .entertainment
-        } else if bundleIdentifier.contains("productivity") || bundleIdentifier.contains("work") || bundleIdentifier.contains("office") {
-            #if DEBUG
-            print("[ScreenTimeService] Categorized as productivity")
-            #endif
-            return .productivity
-        } else if bundleIdentifier.contains("utility") || bundleIdentifier.contains("tool") {
-            #if DEBUG
-            print("[ScreenTimeService] Categorized as utility")
-            #endif
-            return .utility
+            return .learning
         } else {
             #if DEBUG
-            print("[ScreenTimeService] Categorized as other")
+            print("[ScreenTimeService] Categorized as reward")
             #endif
-            return .other
+            return .reward
         }
     }
 
@@ -196,10 +175,12 @@ class ScreenTimeService: NSObject {
     /// - Parameters:
     ///   - selection: The selection of applications/categories chosen by the parent.
     ///   - categoryAssignments: User-assigned categories for each app token.
+    ///   - rewardPoints: User-assigned reward points for each app token.
     ///   - thresholds: Optional per-category thresholds that dictate when events fire.
     func configureMonitoring(
         with selection: FamilyActivitySelection,
         categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:],
+        rewardPoints: [ApplicationToken: Int] = [:],
         thresholds: [AppUsage.AppCategory: DateComponents]? = nil
     ) {
         #if DEBUG
@@ -264,11 +245,27 @@ class ScreenTimeService: NSObject {
                 print("[ScreenTimeService]   ⚠️ No user assignment - using auto-categorization")
                 #endif
             }
+            
+            // Use user-assigned reward points if available, otherwise use defaults
+            let points: Int
+            if let assignedPoints = rewardPoints[token] {
+                points = assignedPoints
+                #if DEBUG
+                print("[ScreenTimeService]   Reward Points: \(points) (user-assigned ✓)")
+                #endif
+            } else {
+                // Use default points based on category
+                points = getDefaultRewardPoints(for: category)
+                #if DEBUG
+                print("[ScreenTimeService]   Reward Points: \(points) (default)")
+                #endif
+            }
 
             let monitored = MonitoredApplication(
                 token: token,
                 displayName: displayName,
                 category: category,
+                rewardPoints: points,
                 bundleIdentifier: bundleIdentifier
             )
             groupedApplications[category, default: []].append(monitored)
@@ -279,7 +276,7 @@ class ScreenTimeService: NSObject {
         for (category, apps) in groupedApplications {
             print("[ScreenTimeService]   \(category.rawValue): \(apps.count) applications")
             for app in apps {
-                print("[ScreenTimeService]     - \(app.displayName) (\(app.bundleIdentifier ?? "nil"))")
+                print("[ScreenTimeService]     - \(app.displayName) (\(app.bundleIdentifier ?? "nil")) - \(app.rewardPoints) points")
             }
         }
         #endif
@@ -332,6 +329,15 @@ class ScreenTimeService: NSObject {
                 print("Failed to reschedule monitoring: \(error)")
                 #endif
             }
+        }
+    }
+    
+    private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
+        switch category {
+        case .learning:
+            return 20
+        case .reward:
+            return 10
         }
     }
 
@@ -570,6 +576,10 @@ class ScreenTimeService: NSObject {
         getAppUsages(by: category).reduce(0) { $0 + $1.totalTime }
     }
     
+    func getTotalRewardPoints() -> Int {
+        return appUsages.values.reduce(0) { $0 + $1.earnedRewardPoints }
+    }
+    
     func resetData() {
         appUsages.removeAll()
         hasSeededSampleData = false
@@ -584,11 +594,144 @@ class ScreenTimeService: NSObject {
         NotificationCenter.default.post(name: Self.usageDidChangeNotification, object: nil)
     }
 
+    // MARK: - ManagedSettings App Blocking
+
+    // ManagedSettings store for app blocking
+    private let managedSettingsStore = ManagedSettingsStore()
+
+    // Track currently shielded (blocked) apps
+    private var currentlyShielded: Set<ApplicationToken> = []
+
+    // Track apps that should always be accessible (learning apps)
+    private var alwaysAccessible: Set<ApplicationToken> = []
+
+    /// Block reward apps (shield them)
+    func blockRewardApps(tokens: Set<ApplicationToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔒 Blocking \(tokens.count) reward apps")
+        print("[ScreenTimeService] Starting shield application...")
+        let startTime = Date()
+        #endif
+
+        currentlyShielded = tokens
+        managedSettingsStore.shield.applications = tokens
+
+        #if DEBUG
+        let elapsed = Date().timeIntervalSince(startTime)
+        print("[ScreenTimeService] ✅ Shield applied to \(tokens.count) apps in \(String(format: "%.2f", elapsed)) seconds")
+        print("[ScreenTimeService] ⚠️  IMPORTANT: If apps are already running, user must close and reopen them")
+        print("[ScreenTimeService] Shield tokens: \(tokens.map { String($0.hashValue) })")
+        #endif
+
+        // Post notification
+        NotificationCenter.default.post(name: .rewardAppsBlocked, object: nil)
+    }
+
+    /// Unblock reward apps (remove shield)
+    func unblockRewardApps(tokens: Set<ApplicationToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔓 Unblocking \(tokens.count) reward apps")
+        print("[ScreenTimeService] Removing shields...")
+        let startTime = Date()
+        #endif
+
+        // Remove from currently shielded
+        currentlyShielded.subtract(tokens)
+
+        // Update ManagedSettings
+        managedSettingsStore.shield.applications = currentlyShielded
+
+        #if DEBUG
+        let elapsed = Date().timeIntervalSince(startTime)
+        print("[ScreenTimeService] ✅ Shield removed from \(tokens.count) apps in \(String(format: "%.2f", elapsed)) seconds")
+        print("[ScreenTimeService] Currently shielded: \(currentlyShielded.count) apps")
+        print("[ScreenTimeService] ⚠️  RESEARCH FINDING: Requires app relaunch to take effect (shield staleness)")
+        print("[ScreenTimeService] Unblocked tokens: \(tokens.map { String($0.hashValue) })")
+        #endif
+
+        // Post notification
+        NotificationCenter.default.post(
+            name: .rewardAppsUnlocked,
+            object: nil,
+            userInfo: ["requiresRelaunch": true, "count": tokens.count]
+        )
+    }
+
+    /// Block ALL apps except learning and system apps
+    func blockAllExceptLearning(learningTokens: Set<ApplicationToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] ⚠️  Attempting to block all apps except \(learningTokens.count) learning apps")
+        #endif
+
+        alwaysAccessible = learningTokens
+
+        // Note: ManagedSettings doesn't have a "block all except" mode
+        // We can only block specific apps we know about
+        #if DEBUG
+        print("[ScreenTimeService] ⚠️  LIMITATION DISCOVERED:")
+        print("[ScreenTimeService] ManagedSettings cannot block 'all except X'")
+        print("[ScreenTimeService] Can only block explicitly specified apps")
+        print("[ScreenTimeService] Workaround: Block known reward apps explicitly")
+        print("[ScreenTimeService] This is a documented Apple limitation")
+        #endif
+    }
+
+    /// Get current shield status
+    func getShieldStatus() -> (blocked: Int, accessible: Int) {
+        let status = (blocked: currentlyShielded.count, accessible: alwaysAccessible.count)
+
+        #if DEBUG
+        print("[ScreenTimeService] Shield status: \(status.blocked) blocked, \(status.accessible) accessible")
+        #endif
+
+        return status
+    }
+
+    /// Clear all shields
+    func clearAllShields() {
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Clearing all shields...")
+        let startTime = Date()
+        #endif
+
+        currentlyShielded.removeAll()
+        managedSettingsStore.shield.applications = nil
+
+        #if DEBUG
+        let elapsed = Date().timeIntervalSince(startTime)
+        print("[ScreenTimeService] ✅ All shields cleared in \(String(format: "%.2f", elapsed)) seconds")
+        print("[ScreenTimeService] All apps should now be accessible")
+        #endif
+
+        // Post notification
+        NotificationCenter.default.post(name: .allShieldsCleared, object: nil)
+    }
+
+    /// Test if app blocking is working (development only)
+    func testShieldBehavior() {
+        #if DEBUG
+        print("[ScreenTimeService] 🧪 Running shield behavior test...")
+        print("[ScreenTimeService] This will help identify shield staleness and other issues")
+
+        let status = getShieldStatus()
+        print("[ScreenTimeService] Current status: \(status.blocked) apps blocked")
+
+        if status.blocked > 0 {
+            print("[ScreenTimeService] ✅ Shields are active")
+            print("[ScreenTimeService] Test: Try opening a blocked app now")
+            print("[ScreenTimeService] Expected: Shield screen should appear")
+        } else {
+            print("[ScreenTimeService] ⚠️  No apps currently shielded")
+            print("[ScreenTimeService] Run 'Block Reward Apps' first")
+        }
+        #endif
+    }
+
     private func recordUsage(for applications: [MonitoredApplication], duration: TimeInterval, endingAt endDate: Date = Date()) {
         #if DEBUG
         print("[ScreenTimeService] Recording usage for \(applications.count) applications, duration: \(duration) seconds")
         for app in applications {
-            print("[ScreenTimeService] App: \(app.displayName) (Bundle ID: \(app.bundleIdentifier ?? "nil")), Category: \(app.category.rawValue)")
+            print("[ScreenTimeService] App: \(app.displayName) (Bundle ID: \(app.bundleIdentifier ?? "nil")), Category: \(app.category.rawValue), Reward Points: \(app.rewardPoints)")
         }
         #endif
 
@@ -599,7 +742,25 @@ class ScreenTimeService: NSObject {
             return
         }
 
+        // 🔒 CRITICAL FIX: Check if apps are currently blocked
+        // If blocked, this is shield time (not real usage) - skip recording
+        var recordedCount = 0
+        var skippedCount = 0
+
         for application in applications {
+            // Check if app is currently shielded (blocked)
+            if currentlyShielded.contains(application.token) {
+                #if DEBUG
+                print("[ScreenTimeService] 🛑 SKIPPING \(application.displayName) - currently blocked (shield time, not real usage)")
+                #endif
+                skippedCount += 1
+                continue  // Skip this app - it's shield time!
+            }
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Recording usage for \(application.displayName) - app is unblocked")
+            #endif
+
             // Use bundle ID if available, otherwise use display name as key
             let storageKey = application.bundleIdentifier ?? "app.\(application.displayName.replacingOccurrences(of: " ", with: ".").lowercased())"
 
@@ -621,12 +782,22 @@ class ScreenTimeService: NSObject {
                     totalTime: duration,
                     sessions: [session],
                     firstAccess: session.startTime,
-                    lastAccess: endDate
+                    lastAccess: endDate,
+                    rewardPoints: application.rewardPoints
                 )
                 appUsages[storageKey] = usage
             }
+            recordedCount += 1
         }
-        notifyUsageChange()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Recorded usage for \(recordedCount) apps, skipped \(skippedCount) blocked apps")
+        #endif
+
+        // Only notify if we actually recorded something
+        if recordedCount > 0 {
+            notifyUsageChange()
+        }
     }
 
     private func seconds(from components: DateComponents) -> TimeInterval {
@@ -710,21 +881,21 @@ func getMonitoredEventNames() -> [String] {
 /// NOTE: This simulates app monitoring without requiring FamilyActivityPicker.
 /// In production, tokens come from FamilyActivitySelection.
 func configureForTesting(
-    applications: [(bundleIdentifier: String?, name: String, category: AppUsage.AppCategory)],
+    applications: [(bundleIdentifier: String?, name: String, category: AppUsage.AppCategory, rewardPoints: Int)],
     threshold: DateComponents = DateComponents(minute: 15)
 ) {
     #if DEBUG
     print("[ScreenTimeService] ⚠️ Configuring for TESTING mode with \(applications.count) applications")
     print("[ScreenTimeService] This creates mock events that won't receive real DeviceActivity callbacks")
     for app in applications {
-        print("[ScreenTimeService] Test app: \(app.name) (Bundle ID: \(app.bundleIdentifier ?? "nil")), Category: \(app.category.rawValue)")
+        print("[ScreenTimeService] Test app: \(app.name) (Bundle ID: \(app.bundleIdentifier ?? "nil")), Category: \(app.category.rawValue), Reward Points: \(app.rewardPoints)")
     }
     #endif
 
     // For testing, we simulate the event structure without actual monitoring
     // This allows UI and data flow testing without real Screen Time data
-    let grouped = applications.reduce(into: [AppUsage.AppCategory: [(String?, String, AppUsage.AppCategory)]]()) { result, entry in
-        result[entry.category, default: []].append((entry.bundleIdentifier, entry.name, entry.category))
+    let grouped = applications.reduce(into: [AppUsage.AppCategory: [(String?, String, AppUsage.AppCategory, Int)]]()) { result, entry in
+        result[entry.category, default: []].append((entry.bundleIdentifier, entry.name, entry.category, entry.rewardPoints))
     }
 
     // Create placeholder events (won't be used for actual monitoring)
@@ -751,11 +922,12 @@ func configureForTesting(
 func recordTestUsage(
     appName: String,
     category: AppUsage.AppCategory,
+    rewardPoints: Int = 10,
     duration: TimeInterval,
     bundleIdentifier: String? = nil
 ) {
     #if DEBUG
-    print("[ScreenTimeService] Recording test usage: \(appName), duration: \(duration)s")
+    print("[ScreenTimeService] Recording test usage: \(appName), duration: \(duration)s, reward points: \(rewardPoints)")
     #endif
 
     let storageKey = bundleIdentifier ?? "app.\(appName.replacingOccurrences(of: " ", with: ".").lowercased())"
@@ -776,7 +948,8 @@ func recordTestUsage(
             totalTime: duration,
             sessions: [session],
             firstAccess: session.startTime,
-            lastAccess: endDate
+            lastAccess: endDate,
+            rewardPoints: rewardPoints
         )
         appUsages[storageKey] = usage
     }
@@ -789,18 +962,18 @@ func configureWithTestApplications() {
     print("[ScreenTimeService] Configuring with test applications")
     #endif
 
-    let testApps: [(bundleIdentifier: String?, name: String, category: AppUsage.AppCategory)] = [
-        (bundleIdentifier: "com.apple.books", name: "Books", category: .educational),
-        (bundleIdentifier: "com.apple.calculator", name: "Calculator", category: .productivity),
-        (bundleIdentifier: "com.apple.Music", name: "Music", category: .entertainment)
+    let testApps: [(bundleIdentifier: String?, name: String, category: AppUsage.AppCategory, rewardPoints: Int)] = [
+        (bundleIdentifier: "com.apple.books", name: "Books", category: .learning, rewardPoints: 20),
+        (bundleIdentifier: "com.apple.calculator", name: "Calculator", category: .learning, rewardPoints: 20),
+        (bundleIdentifier: "com.apple.Music", name: "Music", category: .reward, rewardPoints: 10)
     ]
 
     configureForTesting(applications: testApps, threshold: DateComponents(minute: 5))
 
     // Manually add test usage data since we don't have real tokens
-    recordTestUsage(appName: "Books", category: .educational, duration: 3600, bundleIdentifier: "com.apple.books")
-    recordTestUsage(appName: "Calculator", category: .productivity, duration: 600, bundleIdentifier: "com.apple.calculator")
-    recordTestUsage(appName: "Music", category: .entertainment, duration: 1800, bundleIdentifier: "com.apple.Music")
+    recordTestUsage(appName: "Books", category: .learning, rewardPoints: 20, duration: 3600, bundleIdentifier: "com.apple.books")
+    recordTestUsage(appName: "Calculator", category: .learning, rewardPoints: 20, duration: 600, bundleIdentifier: "com.apple.calculator")
+    recordTestUsage(appName: "Music", category: .reward, rewardPoints: 10, duration: 1800, bundleIdentifier: "com.apple.Music")
 }
 #endif
 }
