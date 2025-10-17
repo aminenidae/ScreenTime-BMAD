@@ -49,7 +49,7 @@ struct CategoryAssignmentView: View {
                                     }
                                 }
                                 .pickerStyle(.menu)
-                                
+
                                 // Reward points input
                                 HStack {
                                     Text("Reward Points:")

@@ -727,6 +727,90 @@ class ScreenTimeService: NSObject {
         #endif
     }
 
+    // MARK: - Path 2: Bundle ID Discovery (ShieldConfiguration Extension)
+
+    /// Read bundle ID mappings discovered by ShieldConfiguration extension
+    /// These are only available AFTER an app has been shielded (blocked) at least once
+    func getBundleIDMappings() -> [(bundleID: String, appName: String, category: String)] {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Failed to access App Group for bundle ID mappings")
+            #endif
+            return []
+        }
+
+        let categoryMappings = sharedDefaults.dictionary(forKey: "bundleIDCategoryMappings") as? [String: String] ?? [:]
+        let nameMappings = sharedDefaults.dictionary(forKey: "bundleIDNameMappings") as? [String: String] ?? [:]
+
+        #if DEBUG
+        print("[ScreenTimeService] 📱 Reading bundle ID mappings from shield extension:")
+        print("[ScreenTimeService] Found \(categoryMappings.count) apps discovered via shield")
+        #endif
+
+        var results: [(bundleID: String, appName: String, category: String)] = []
+
+        for (bundleID, category) in categoryMappings {
+            let appName = nameMappings[bundleID] ?? "Unknown"
+            results.append((bundleID: bundleID, appName: appName, category: category))
+
+            #if DEBUG
+            print("[ScreenTimeService]   \(bundleID) → \(appName) (\(category))")
+            #endif
+        }
+
+        return results
+    }
+
+    /// Get count of apps discovered via ShieldConfiguration extension
+    func getDiscoveredAppsCount() -> Int {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return 0
+        }
+
+        let categoryMappings = sharedDefaults.dictionary(forKey: "bundleIDCategoryMappings") as? [String: String] ?? [:]
+        return categoryMappings.count
+    }
+
+    /// Check if a specific bundle ID has been discovered
+    func isAppDiscovered(bundleID: String) -> Bool {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return false
+        }
+
+        let categoryMappings = sharedDefaults.dictionary(forKey: "bundleIDCategoryMappings") as? [String: String] ?? [:]
+        return categoryMappings[bundleID] != nil
+    }
+
+    /// Get auto-categorization suggestion for a bundle ID (from shield extension)
+    func getAutoCategorySuggestion(for bundleID: String) -> AppUsage.AppCategory? {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return nil
+        }
+
+        let categoryMappings = sharedDefaults.dictionary(forKey: "bundleIDCategoryMappings") as? [String: String] ?? [:]
+
+        guard let categoryString = categoryMappings[bundleID] else {
+            return nil
+        }
+
+        return AppUsage.AppCategory(rawValue: categoryString)
+    }
+
+    /// Clear all bundle ID mappings (for testing)
+    func clearBundleIDMappings() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return
+        }
+
+        sharedDefaults.removeObject(forKey: "bundleIDCategoryMappings")
+        sharedDefaults.removeObject(forKey: "bundleIDNameMappings")
+        sharedDefaults.removeObject(forKey: "bundleIDTimestamps")
+
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Cleared all bundle ID mappings")
+        #endif
+    }
+
     private func recordUsage(for applications: [MonitoredApplication], duration: TimeInterval, endingAt endDate: Date = Date()) {
         #if DEBUG
         print("[ScreenTimeService] Recording usage for \(applications.count) applications, duration: \(duration) seconds")

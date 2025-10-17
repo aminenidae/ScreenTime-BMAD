@@ -2,7 +2,7 @@
 
 **Date:** 2025-10-16
 **Severity:** 🔴 CRITICAL - Affects reward calculation accuracy
-**Status:** ✅ FIXED
+**Status:** ✅ FIXED & VALIDATED
 
 ---
 
@@ -192,10 +192,44 @@ if currentlyShielded.contains(application.token) {
 
 ---
 
+## Validation Results
+
+### ✅ Fix Validated on Device
+
+**Test Date:** 2025-10-16
+**Test Environment:** Physical iOS device
+**Tester:** User (Ameen)
+
+**Test Scenario:**
+- 3 reward apps selected and blocked
+- User sat on shield screen for 1 minute
+- Monitored console logs and UI
+
+**Results:**
+✅ **SUCCESS** - Fix works as expected!
+
+**Console Output:**
+```
+🛑 SKIPPING Unknown App 0 - currently blocked (shield time, not real usage)
+🛑 SKIPPING Unknown App 1 - currently blocked (shield time, not real usage)
+🛑 SKIPPING Unknown App 2 - currently blocked (shield time, not real usage)
+✅ Recorded usage for 0 apps, skipped 3 blocked apps
+```
+
+**UI Display:**
+- All apps showed 0:00:00 usage time ✅
+- No reward points earned ✅
+- Total usage: 0 seconds ✅
+
+**Conclusion:**
+The shield time multiplication bug is completely resolved. Shield time is now correctly ignored, and only real app usage is recorded.
+
+---
+
 ## Recommendation
 
 **Add to future test plans:**
-1. Verify blocked apps don't accumulate usage time
+1. Verify blocked apps don't accumulate usage time ✅ (DONE)
 2. Test shield screen for various durations
 3. Compare our app's usage tracking vs iOS Screen Time system
 4. Test mixed scenarios (some apps blocked, others not)
@@ -206,4 +240,4 @@ if currentlyShielded.contains(application.token) {
 
 **For implementation details:** See `ScreenTimeService.swift` line 730
 **For testing guidance:** See "Testing Instructions" above
-**For algorithm validation:** Test on physical device per instructions
+**For algorithm validation:** ✅ **VALIDATED** - Fix confirmed working
