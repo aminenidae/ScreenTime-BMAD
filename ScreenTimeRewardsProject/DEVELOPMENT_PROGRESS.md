@@ -968,6 +968,24 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ---
 
+### 7. Learning App Usage Misattribution
+
+**Status**: Fix implemented (2025-10-18) – needs on-device regression run with redacted app names.
+
+**Issue**: After running one learning app, the Learning tab sometimes shows usage minutes and points under a different app.
+
+**Root Cause**: Privacy restrictions hide bundle IDs and display names, so the monitoring pipeline derived storage keys like `Unknown App 0`. When `FamilyActivitySelection` reorders tokens (common as DeviceActivity restarts), those keys pointed to the wrong app and the UI rows swapped data even though category totals stayed correct.
+
+**Resolution**: Persist usage by a stable `ApplicationToken`-based storage key. `ScreenTimeService` now archives each token into a deterministic key when configuring monitor events and records usage against that key. `AppUsageViewModel.getUsageTimes()` queries the service by token instead of guessing via bundle/display name heuristics. This keeps per-app minutes/points aligned with the actual app that generated them.
+
+**Next Validation**: Re-run the Flowkey/Sololearn test on-device to confirm the per-app cards stay in sync. Note that `xcodebuild build -project ScreenTimeRewards.xcodeproj -scheme ScreenTimeRewards -destination 'generic/platform=iOS'` currently fails in the sandbox because Xcode cannot write to `DerivedData`; no code issues surfaced in compiler output.
+
+**Code Locations**:
+- `ScreenTimeService.swift` (token `storageKey`, `recordUsage`, new `getUsage(for:)` APIs)
+- `AppUsageViewModel.swift` (`getUsageTimes()` token lookup)
+
+---
+
 ## Next Steps
 
 ### Immediate Priorities

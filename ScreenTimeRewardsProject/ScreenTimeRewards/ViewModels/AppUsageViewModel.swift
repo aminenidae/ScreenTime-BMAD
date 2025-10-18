@@ -542,13 +542,8 @@ func configureWithTestApplications() {
         #if DEBUG
         print("[AppUsageViewModel] ========== Building usage times map ==========")
         print("[AppUsageViewModel] Family selection has \(familySelection.applications.count) apps")
-        print("[AppUsageViewModel] Available usage data: \(appUsages.count) entries")
-        for usage in appUsages {
-            print("[AppUsageViewModel]   Storage: \(usage.bundleIdentifier) → \(usage.appName) → \(usage.totalTime)s")
-        }
         #endif
 
-        // For each app in the selection with a token
         for (index, application) in familySelection.applications.enumerated() {
             guard let token = application.token else {
                 #if DEBUG
@@ -558,52 +553,13 @@ func configureWithTestApplications() {
             }
 
             let displayName = application.localizedDisplayName ?? "Unknown App \(index)"
-            let bundleId = application.bundleIdentifier
+            let duration = service.getUsageDuration(for: token)
+            usageTimes[token] = duration
 
             #if DEBUG
             print("[AppUsageViewModel]   App \(index): \(displayName)")
-            print("[AppUsageViewModel]     Bundle ID: \(bundleId ?? "nil")")
-            #endif
-
-            // Try to find matching usage data
-            // First try by bundle identifier if available
-            if let bundleId = bundleId, !bundleId.isEmpty {
-                if let usage = appUsages.first(where: { $0.bundleIdentifier == bundleId }) {
-                    usageTimes[token] = usage.totalTime
-                    #if DEBUG
-                    print("[AppUsageViewModel]     ✅ Matched by bundle ID: \(usage.totalTime)s")
-                    #endif
-                    continue
-                }
-            }
-
-            // Fall back to matching by derived key from display name
-            let derivedKey = "app.\(displayName.replacingOccurrences(of: " ", with: ".").lowercased())"
-            #if DEBUG
-            print("[AppUsageViewModel]     Trying derived key: \(derivedKey)")
-            #endif
-
-            if let usage = appUsages.first(where: { $0.bundleIdentifier == derivedKey }) {
-                usageTimes[token] = usage.totalTime
-                #if DEBUG
-                print("[AppUsageViewModel]     ✅ Matched by derived key: \(usage.totalTime)s")
-                #endif
-                continue
-            }
-
-            // Also try matching by app name
-            if let usage = appUsages.first(where: { $0.appName == displayName }) {
-                usageTimes[token] = usage.totalTime
-                #if DEBUG
-                print("[AppUsageViewModel]     ✅ Matched by app name: \(usage.totalTime)s")
-                #endif
-                continue
-            }
-
-            // No match found - usage is 0
-            usageTimes[token] = 0
-            #if DEBUG
-            print("[AppUsageViewModel]     ❌ No match found, setting to 0s")
+            print("[AppUsageViewModel]     Token hash: \(token.hashValue)")
+            print("[AppUsageViewModel]     Reported usage: \(duration)s")
             #endif
         }
 

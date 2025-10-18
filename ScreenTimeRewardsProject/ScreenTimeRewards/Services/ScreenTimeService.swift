@@ -43,10 +43,20 @@ class ScreenTimeService: NSObject {
 
     private struct MonitoredApplication {
         let token: ManagedSettings.ApplicationToken  // Required for monitoring
+        let storageKey: String
         let displayName: String
         let category: AppUsage.AppCategory
         let rewardPoints: Int
         let bundleIdentifier: String?  // Optional - may be nil for privacy
+    }
+
+    /// Produce a stable storage key for an application token. We prefer archiving the token
+    /// so the key survives ordering changes; hash-based fallback keeps debug/test flows working.
+    private func storageKey(for token: ApplicationToken) -> String {
+        if let data = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+            return "token." + data.base64EncodedString()
+        }
+        return "token.hash.\(token.hashValue)"
     }
 
     private struct MonitoredEvent {
@@ -278,6 +288,7 @@ class ScreenTimeService: NSObject {
 
             let monitored = MonitoredApplication(
                 token: token,
+                storageKey: storageKey(for: token),
                 displayName: displayName,
                 category: category,
                 rewardPoints: points,
@@ -633,7 +644,15 @@ class ScreenTimeService: NSObject {
     func getAppUsages() -> [AppUsage] {
         Array(appUsages.values)
     }
-    
+
+    func getUsage(for token: ApplicationToken) -> AppUsage? {
+        appUsages[storageKey(for: token)]
+    }
+
+    func getUsageDuration(for token: ApplicationToken) -> TimeInterval {
+        getUsage(for: token)?.totalTime ?? 0
+    }
+
     func getAppUsages(by category: AppUsage.AppCategory) -> [AppUsage] {
         appUsages.values.filter { $0.category == category }
     }
@@ -911,8 +930,7 @@ class ScreenTimeService: NSObject {
             print("[ScreenTimeService] ✅ Recording usage for \(application.displayName) - app is unblocked")
             #endif
 
-            // Use bundle ID if available, otherwise use display name as key
-            let storageKey = application.bundleIdentifier ?? "app.\(application.displayName.replacingOccurrences(of: " ", with: ".").lowercased())"
+            let storageKey = application.storageKey
 
             if var existing = appUsages[storageKey] {
                 #if DEBUG
@@ -926,7 +944,7 @@ class ScreenTimeService: NSObject {
                 #endif
                 let session = AppUsage.UsageSession(startTime: endDate.addingTimeInterval(-duration), endTime: endDate)
                 let usage = AppUsage(
-                    bundleIdentifier: storageKey,  // Use storage key
+                    bundleIdentifier: application.bundleIdentifier ?? storageKey,
                     appName: application.displayName,
                     category: application.category,
                     totalTime: duration,
