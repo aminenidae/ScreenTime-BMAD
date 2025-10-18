@@ -47,8 +47,18 @@ class AppUsageViewModel: ObservableObject {
     
     init(service: ScreenTimeService = .shared) {
         self.service = service
-        loadCategoryAssignments()
-        loadRewardPoints()
+
+        // Load from shared service instead of UserDefaults
+        self.categoryAssignments = service.categoryAssignments
+        self.rewardPoints = service.rewardPointsAssignments
+        self.familySelection = service.familySelection
+
+        #if DEBUG
+        print("[AppUsageViewModel] Initialized with \(categoryAssignments.count) category assignments from service")
+        print("[AppUsageViewModel] Initialized with \(rewardPoints.count) reward points from service")
+        print("[AppUsageViewModel] Initialized with \(familySelection.applications.count) applications from service")
+        #endif
+
         loadData()
         NotificationCenter.default
             .publisher(for: ScreenTimeService.usageDidChangeNotification)
@@ -530,15 +540,30 @@ func configureWithTestApplications() {
         var usageTimes: [ApplicationToken: TimeInterval] = [:]
 
         #if DEBUG
-        print("[AppUsageViewModel] Building usage times map for \(familySelection.applications.count) apps")
+        print("[AppUsageViewModel] ========== Building usage times map ==========")
+        print("[AppUsageViewModel] Family selection has \(familySelection.applications.count) apps")
+        print("[AppUsageViewModel] Available usage data: \(appUsages.count) entries")
+        for usage in appUsages {
+            print("[AppUsageViewModel]   Storage: \(usage.bundleIdentifier) → \(usage.appName) → \(usage.totalTime)s")
+        }
         #endif
 
         // For each app in the selection with a token
-        for application in familySelection.applications {
-            guard let token = application.token else { continue }
+        for (index, application) in familySelection.applications.enumerated() {
+            guard let token = application.token else {
+                #if DEBUG
+                print("[AppUsageViewModel]   App \(index): No token, skipping")
+                #endif
+                continue
+            }
 
-            let displayName = application.localizedDisplayName ?? "Unknown"
+            let displayName = application.localizedDisplayName ?? "Unknown App \(index)"
             let bundleId = application.bundleIdentifier
+
+            #if DEBUG
+            print("[AppUsageViewModel]   App \(index): \(displayName)")
+            print("[AppUsageViewModel]     Bundle ID: \(bundleId ?? "nil")")
+            #endif
 
             // Try to find matching usage data
             // First try by bundle identifier if available
@@ -546,7 +571,7 @@ func configureWithTestApplications() {
                 if let usage = appUsages.first(where: { $0.bundleIdentifier == bundleId }) {
                     usageTimes[token] = usage.totalTime
                     #if DEBUG
-                    print("[AppUsageViewModel]   Matched \(displayName) by bundle ID: \(usage.totalTime)s")
+                    print("[AppUsageViewModel]     ✅ Matched by bundle ID: \(usage.totalTime)s")
                     #endif
                     continue
                 }
@@ -554,10 +579,14 @@ func configureWithTestApplications() {
 
             // Fall back to matching by derived key from display name
             let derivedKey = "app.\(displayName.replacingOccurrences(of: " ", with: ".").lowercased())"
+            #if DEBUG
+            print("[AppUsageViewModel]     Trying derived key: \(derivedKey)")
+            #endif
+
             if let usage = appUsages.first(where: { $0.bundleIdentifier == derivedKey }) {
                 usageTimes[token] = usage.totalTime
                 #if DEBUG
-                print("[AppUsageViewModel]   Matched \(displayName) by derived key: \(usage.totalTime)s")
+                print("[AppUsageViewModel]     ✅ Matched by derived key: \(usage.totalTime)s")
                 #endif
                 continue
             }
@@ -566,7 +595,7 @@ func configureWithTestApplications() {
             if let usage = appUsages.first(where: { $0.appName == displayName }) {
                 usageTimes[token] = usage.totalTime
                 #if DEBUG
-                print("[AppUsageViewModel]   Matched \(displayName) by app name: \(usage.totalTime)s")
+                print("[AppUsageViewModel]     ✅ Matched by app name: \(usage.totalTime)s")
                 #endif
                 continue
             }
@@ -574,12 +603,15 @@ func configureWithTestApplications() {
             // No match found - usage is 0
             usageTimes[token] = 0
             #if DEBUG
-            print("[AppUsageViewModel]   No usage data for \(displayName) yet (0s)")
+            print("[AppUsageViewModel]     ❌ No match found, setting to 0s")
             #endif
         }
 
         #if DEBUG
-        print("[AppUsageViewModel] Built usage times for \(usageTimes.count) tokens")
+        print("[AppUsageViewModel] ========== Built usage times for \(usageTimes.count) tokens ==========")
+        for (token, time) in usageTimes where time > 0 {
+            print("[AppUsageViewModel]   Token \(token.hashValue) → \(time)s")
+        }
         #endif
 
         return usageTimes

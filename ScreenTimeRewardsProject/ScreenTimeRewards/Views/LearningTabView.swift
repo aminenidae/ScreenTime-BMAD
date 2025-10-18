@@ -48,25 +48,50 @@ struct LearningTabView: View {
                                 .padding(.horizontal)
 
                             ForEach(Array(viewModel.learningApps.enumerated()), id: \.offset) { index, token in
-                                HStack {
-                                    if #available(iOS 15.2, *) {
-                                        Label(token)
-                                            .font(.body)
-                                    } else {
-                                        Text("Learning App \(index + 1)")
-                                            .font(.body)
+                                VStack(alignment: .leading, spacing: 8) {
+                                    HStack {
+                                        if #available(iOS 15.2, *) {
+                                            Label(token)
+                                                .font(.body)
+                                        } else {
+                                            Text("Learning App \(index + 1)")
+                                                .font(.body)
+                                        }
+
+                                        Spacer()
+
+                                        if let earnRate = viewModel.rewardPoints[token] {
+                                            Text("+\(earnRate) pts/min")
+                                                .font(.caption)
+                                                .foregroundColor(.blue)
+                                                .padding(.horizontal, 8)
+                                                .padding(.vertical, 4)
+                                                .background(Color.blue.opacity(0.2))
+                                                .cornerRadius(8)
+                                        }
                                     }
 
-                                    Spacer()
+                                    // Show individual app usage time
+                                    if let usageTime = viewModel.getUsageTimes()[token], usageTime > 0 {
+                                        HStack {
+                                            Image(systemName: "clock.fill")
+                                                .font(.caption2)
+                                                .foregroundColor(.blue)
+                                            Text("Used: \(viewModel.formatTime(usageTime))")
+                                                .font(.caption)
+                                                .foregroundColor(.secondary)
 
-                                    if let earnRate = viewModel.rewardPoints[token] {
-                                        Text("+\(earnRate) pts/min")
-                                            .font(.caption)
-                                            .foregroundColor(.blue)
-                                            .padding(.horizontal, 8)
-                                            .padding(.vertical, 4)
-                                            .background(Color.blue.opacity(0.2))
-                                            .cornerRadius(8)
+                                            // Show points earned from this specific app
+                                            if let earnRate = viewModel.rewardPoints[token] {
+                                                let minutesUsed = Int(usageTime / 60)
+                                                let pointsEarned = minutesUsed * earnRate
+                                                Text("•")
+                                                    .foregroundColor(.secondary)
+                                                Text("\(pointsEarned) pts earned")
+                                                    .font(.caption)
+                                                    .foregroundColor(.blue)
+                                            }
+                                        }
                                     }
                                 }
                                 .padding()
