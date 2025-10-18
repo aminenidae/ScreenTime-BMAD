@@ -75,7 +75,16 @@ class ScreenTimeService: NSObject {
     private let activityMonitor = ScreenTimeActivityMonitor()
     private let defaultThreshold = DateComponents(minute: 1)
     private var monitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
-    
+
+    // Timer for continuous tracking - restarts monitoring periodically to reset events
+    private var monitoringRestartTimer: Timer?
+    private let restartInterval: TimeInterval = 120  // 2 minutes
+
+    // Store category assignments and selection for sharing across ViewModels
+    private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
+    private(set) var rewardPointsAssignments: [ApplicationToken: Int] = [:]
+    private(set) var familySelection: FamilyActivitySelection = .init()
+
     override private init() {
         deviceActivityCenter = DeviceActivityCenter()
         super.init()
@@ -183,8 +192,14 @@ class ScreenTimeService: NSObject {
         rewardPoints: [ApplicationToken: Int] = [:],
         thresholds: [AppUsage.AppCategory: DateComponents]? = nil
     ) {
+        // Store for sharing across ViewModels
+        self.familySelection = selection
+        self.categoryAssignments = categoryAssignments
+        self.rewardPointsAssignments = rewardPoints
+
         #if DEBUG
         print("[ScreenTimeService] Configuring monitoring with \(selection.applications.count) applications")
+        print("[ScreenTimeService] Storing \(categoryAssignments.count) category assignments and \(rewardPoints.count) reward points")
         print("[ScreenTimeService] Selection details:")
         print("[ScreenTimeService]   Applications count: \(selection.applications.count)")
         print("[ScreenTimeService]   Categories count: \(selection.categories.count)")
@@ -281,32 +296,38 @@ class ScreenTimeService: NSObject {
         }
         #endif
 
+        // CRITICAL FIX: Create one event per app for accurate individual tracking
+        // (DeviceActivity has a limit of ~8 events, so this works for small app counts)
+        var eventIndex = 0
         monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
             let (category, applications) = entry
-            guard !applications.isEmpty else { 
+            guard !applications.isEmpty else {
                 #if DEBUG
                 print("[ScreenTimeService] No applications in category \(category.rawValue)")
                 #endif
-                return 
+                return
             }
             let threshold = providedThresholds[category] ?? defaultThreshold
-            let safeCategoryIdentifier = category.rawValue
-                .replacingOccurrences(of: " ", with: "")
-                .lowercased()
-            let eventName = DeviceActivityEvent.Name("usage.\(safeCategoryIdentifier)")
-        
-            #if DEBUG
-            print("[ScreenTimeService] Creating monitored event for category \(category.rawValue) with \(applications.count) applications")
-            print("[ScreenTimeService] Event name: \(eventName.rawValue)")
-            print("[ScreenTimeService] Threshold: \(threshold)")
-            #endif
-        
-            result[eventName] = MonitoredEvent(
-                name: eventName,
-                category: category,
-                threshold: threshold,
-                applications: applications
-            )
+
+            // Create separate event for each app
+            for app in applications {
+                let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex)")
+                eventIndex += 1
+
+                #if DEBUG
+                print("[ScreenTimeService] Creating monitored event for app: \(app.displayName)")
+                print("[ScreenTimeService] Event name: \(eventName.rawValue)")
+                print("[ScreenTimeService] Category: \(category.rawValue)")
+                print("[ScreenTimeService] Threshold: \(threshold)")
+                #endif
+
+                result[eventName] = MonitoredEvent(
+                    name: eventName,
+                    category: category,
+                    threshold: threshold,
+                    applications: [app]  // Single app per event!
+                )
+            }
         }
 
         #if DEBUG
@@ -503,6 +524,7 @@ class ScreenTimeService: NSObject {
                 do {
                     try self.scheduleActivity()
                     self.isMonitoring = true
+                    self.startMonitoringRestartTimer()
                     DispatchQueue.main.async {
                         completion(.success(()))
                     }
@@ -520,10 +542,54 @@ class ScreenTimeService: NSObject {
             }
         }
     }
-    
+
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
+        stopMonitoringRestartTimer()
         isMonitoring = false
+    }
+
+    // MARK: - Continuous Tracking via Periodic Restarts
+
+    /// Start a timer that periodically restarts monitoring to reset threshold events
+    /// This allows continuous tracking beyond the first threshold
+    private func startMonitoringRestartTimer() {
+        // Stop existing timer if any
+        stopMonitoringRestartTimer()
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Starting monitoring restart timer (interval: \(restartInterval)s)")
+        print("[ScreenTimeService] This enables continuous tracking by resetting events every \(Int(restartInterval/60)) minutes")
+        #endif
+
+        monitoringRestartTimer = Timer.scheduledTimer(withTimeInterval: restartInterval, repeats: true) { [weak self] _ in
+            guard let self = self, self.isMonitoring else { return }
+
+            #if DEBUG
+            print("[ScreenTimeService] ⏰ Timer fired - restarting monitoring to reset events...")
+            #endif
+
+            do {
+                try self.scheduleActivity()
+                #if DEBUG
+                print("[ScreenTimeService] ✅ Monitoring restarted successfully")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+                #endif
+            }
+        }
+    }
+
+    /// Stop the monitoring restart timer
+    private func stopMonitoringRestartTimer() {
+        monitoringRestartTimer?.invalidate()
+        monitoringRestartTimer = nil
+
+        #if DEBUG
+        print("[ScreenTimeService] 🛑 Stopped monitoring restart timer")
+        #endif
     }
     
     private func scheduleActivity() throws {
@@ -907,6 +973,7 @@ class ScreenTimeService: NSObject {
     fileprivate func handleIntervalDidEnd(for activity: DeviceActivityName) {
         #if DEBUG
         print("[ScreenTimeService] Monitoring interval ended for \(activity.rawValue)")
+        print("[ScreenTimeService] Note: Daily interval ended at midnight, will restart automatically")
         #endif
     }
 
