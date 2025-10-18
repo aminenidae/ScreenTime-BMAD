@@ -7,6 +7,8 @@ struct CategoryAssignmentView: View {
     let selection: FamilyActivitySelection
     @Binding var categoryAssignments: [ApplicationToken: AppUsage.AppCategory]
     @Binding var rewardPoints: [ApplicationToken: Int]
+    let fixedCategory: AppUsage.AppCategory?  // NEW: If provided, auto-assign all apps to this category
+    let usageTimes: [ApplicationToken: TimeInterval]  // Usage time for each app
     var onSave: () -> Void
 
     @State private var localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
@@ -16,9 +18,15 @@ struct CategoryAssignmentView: View {
         NavigationView {
             List {
                 Section {
-                    Text("Assign apps to Learning or Reward categories for tracking")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                    if let category = fixedCategory {
+                        Text("Set points per minute for these \(category.rawValue.lowercased()) apps")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    } else {
+                        Text("Assign apps to Learning or Reward categories for tracking")
+                            .font(.subheadline)
+                            .foregroundColor(.secondary)
+                    }
                 }
 
                 Section(header: Text("Selected Apps (\(selection.applications.count))")) {
@@ -35,35 +43,52 @@ struct CategoryAssignmentView: View {
                                         .font(.headline)
                                 }
 
-                                // Category picker - only two options now
-                                Picker("Category", selection: Binding(
-                                    get: { localCategoryAssignments[token] ?? .learning },
-                                    set: { localCategoryAssignments[token] = $0 }
-                                )) {
-                                    ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
-                                        HStack {
-                                            Text(categoryIcon(for: category))
-                                            Text(category.rawValue)
+                                // Category picker - only show if no fixed category
+                                if fixedCategory == nil {
+                                    Picker("Category", selection: Binding(
+                                        get: { localCategoryAssignments[token] ?? .learning },
+                                        set: { localCategoryAssignments[token] = $0 }
+                                    )) {
+                                        ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
+                                            HStack {
+                                                Text(categoryIcon(for: category))
+                                                Text(category.rawValue)
+                                            }
+                                            .tag(category)
                                         }
-                                        .tag(category)
+                                    }
+                                    .pickerStyle(.menu)
+                                }
+
+                                // Usage time display - only for learning apps with usage data
+                                if let usageTime = usageTimes[token], usageTime > 0 {
+                                    HStack {
+                                        Image(systemName: "clock.fill")
+                                            .font(.caption)
+                                            .foregroundColor(.blue)
+                                        Text("Used: \(formatUsageTime(usageTime))")
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
                                     }
                                 }
-                                .pickerStyle(.menu)
 
-                                // Reward points input
+                                // Points input - label changes based on category
                                 HStack {
-                                    Text("Reward Points:")
+                                    let category = fixedCategory ?? localCategoryAssignments[token] ?? .learning
+                                    Text(pointsLabel(for: category))
                                     Spacer()
+
+                                    let (minPoints, maxPoints, stepValue) = pointsRange(for: category)
                                     Stepper(
-                                        "\(localRewardPoints[token] ?? 10)",
+                                        "\(localRewardPoints[token] ?? minPoints)",
                                         value: Binding(
-                                            get: { localRewardPoints[token] ?? 10 },
+                                            get: { localRewardPoints[token] ?? minPoints },
                                             set: { localRewardPoints[token] = $0 }
                                         ),
-                                        in: 0...100,
-                                        step: 5
+                                        in: minPoints...maxPoints,
+                                        step: stepValue
                                     )
-                                    .frame(width: 120)
+                                    .frame(width: 140)
                                 }
                             }
                             .padding(.vertical, 4)
@@ -161,18 +186,38 @@ struct CategoryAssignmentView: View {
         // Initialize with existing assignments or defaults
         for app in selection.applications {
             if let token = app.token {
-                localCategoryAssignments[token] = categoryAssignments[token] ?? .learning
-                localRewardPoints[token] = rewardPoints[token] ?? getDefaultRewardPoints(for: localCategoryAssignments[token] ?? .learning)
+                // Use fixedCategory if provided, otherwise use existing or default
+                let category = fixedCategory ?? categoryAssignments[token] ?? .learning
+                localCategoryAssignments[token] = category
+                localRewardPoints[token] = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
             }
         }
     }
-    
+
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
         switch category {
         case .learning:
-            return 20
+            return 5  // Learning: minimum 5 points
         case .reward:
-            return 10
+            return 50  // Reward: minimum 50 points
+        }
+    }
+
+    private func pointsRange(for category: AppUsage.AppCategory) -> (min: Int, max: Int, step: Int) {
+        switch category {
+        case .learning:
+            return (5, 500, 5)  // Learning: 5-500, step by 5
+        case .reward:
+            return (50, 1000, 10)  // Reward: 50-1000, step by 10
+        }
+    }
+
+    private func pointsLabel(for category: AppUsage.AppCategory) -> String {
+        switch category {
+        case .learning:
+            return "Earn per minute:"
+        case .reward:
+            return "Cost per minute:"
         }
     }
 
@@ -180,6 +225,21 @@ struct CategoryAssignmentView: View {
         switch category {
         case .learning: return "📚"
         case .reward: return "🏆"
+        }
+    }
+
+    /// Format usage time for display
+    private func formatUsageTime(_ timeInterval: TimeInterval) -> String {
+        let hours = Int(timeInterval) / 3600
+        let minutes = Int(timeInterval) / 60 % 60
+
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else if minutes > 0 {
+            return "\(minutes)m"
+        } else {
+            let seconds = Int(timeInterval) % 60
+            return "\(seconds)s"
         }
     }
 }

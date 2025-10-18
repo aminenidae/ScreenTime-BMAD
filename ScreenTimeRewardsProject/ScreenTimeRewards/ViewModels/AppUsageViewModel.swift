@@ -32,6 +32,18 @@ class AppUsageViewModel: ObservableObject {
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     private var pickerTimeoutWorkItem: DispatchWorkItem?
     private let pickerTimeoutSeconds: TimeInterval = 15.0
+
+    // MARK: - Computed Properties for Tab Views
+
+    /// All application tokens assigned to Learning category
+    var learningApps: [ApplicationToken] {
+        categoryAssignments.filter { $0.value == .learning }.map { $0.key }
+    }
+
+    /// All application tokens assigned to Reward category
+    var rewardApps: [ApplicationToken] {
+        categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+    }
     
     init(service: ScreenTimeService = .shared) {
         self.service = service
@@ -174,7 +186,8 @@ class AppUsageViewModel: ObservableObject {
     
     /// Load initial data from the service
     func loadData() {
-        service.bootstrapSampleDataIfNeeded()
+        // Removed placeholder data - app now works with real apps only
+        // service.bootstrapSampleDataIfNeeded()
         refreshData()
     }
     
@@ -509,6 +522,114 @@ func configureWithTestApplications() {
     /// Get reward points for an app token
     func rewardPoints(for token: ApplicationToken) -> Int {
         return rewardPoints[token] ?? 0
+    }
+
+    /// Get usage times for all tokens in the current selection
+    /// Returns a dictionary mapping ApplicationToken to TimeInterval (usage time in seconds)
+    func getUsageTimes() -> [ApplicationToken: TimeInterval] {
+        var usageTimes: [ApplicationToken: TimeInterval] = [:]
+
+        #if DEBUG
+        print("[AppUsageViewModel] Building usage times map for \(familySelection.applications.count) apps")
+        #endif
+
+        // For each app in the selection with a token
+        for application in familySelection.applications {
+            guard let token = application.token else { continue }
+
+            let displayName = application.localizedDisplayName ?? "Unknown"
+            let bundleId = application.bundleIdentifier
+
+            // Try to find matching usage data
+            // First try by bundle identifier if available
+            if let bundleId = bundleId, !bundleId.isEmpty {
+                if let usage = appUsages.first(where: { $0.bundleIdentifier == bundleId }) {
+                    usageTimes[token] = usage.totalTime
+                    #if DEBUG
+                    print("[AppUsageViewModel]   Matched \(displayName) by bundle ID: \(usage.totalTime)s")
+                    #endif
+                    continue
+                }
+            }
+
+            // Fall back to matching by derived key from display name
+            let derivedKey = "app.\(displayName.replacingOccurrences(of: " ", with: ".").lowercased())"
+            if let usage = appUsages.first(where: { $0.bundleIdentifier == derivedKey }) {
+                usageTimes[token] = usage.totalTime
+                #if DEBUG
+                print("[AppUsageViewModel]   Matched \(displayName) by derived key: \(usage.totalTime)s")
+                #endif
+                continue
+            }
+
+            // Also try matching by app name
+            if let usage = appUsages.first(where: { $0.appName == displayName }) {
+                usageTimes[token] = usage.totalTime
+                #if DEBUG
+                print("[AppUsageViewModel]   Matched \(displayName) by app name: \(usage.totalTime)s")
+                #endif
+                continue
+            }
+
+            // No match found - usage is 0
+            usageTimes[token] = 0
+            #if DEBUG
+            print("[AppUsageViewModel]   No usage data for \(displayName) yet (0s)")
+            #endif
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] Built usage times for \(usageTimes.count) tokens")
+        #endif
+
+        return usageTimes
+    }
+
+    // MARK: - Shield Management
+
+    /// Block (shield) all reward apps
+    func blockRewardApps() {
+        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+
+        guard !rewardTokens.isEmpty else {
+            #if DEBUG
+            print("[AppUsageViewModel] No reward apps to block")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] 🔒 Blocking \(rewardTokens.count) reward apps")
+        #endif
+
+        service.blockRewardApps(tokens: Set(rewardTokens))
+    }
+
+    /// Unblock (unlock) all reward apps
+    func unlockRewardApps() {
+        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+
+        guard !rewardTokens.isEmpty else {
+            #if DEBUG
+            print("[AppUsageViewModel] No reward apps to unlock")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] 🔓 Unlocking \(rewardTokens.count) reward apps")
+        #endif
+
+        service.unblockRewardApps(tokens: Set(rewardTokens))
+    }
+
+    /// Clear all shields (unlock all apps)
+    func clearAllShields() {
+        #if DEBUG
+        print("[AppUsageViewModel] 🧹 Clearing all shields")
+        #endif
+
+        service.clearAllShields()
     }
 
     // MARK: - ManagedSettings Testing Methods

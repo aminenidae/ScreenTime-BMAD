@@ -182,6 +182,7 @@ struct AppUsageView: View {
                 }
             }
         }
+        .navigationViewStyle(.stack)  // Force full-width on iPad
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
         .onChange(of: viewModel.familySelection) { newSelection in
             // Notify ViewModel that picker is working (cancel timeout)
@@ -225,6 +226,8 @@ struct AppUsageView: View {
                 selection: viewModel.familySelection,
                 categoryAssignments: $viewModel.categoryAssignments,
                 rewardPoints: $viewModel.rewardPoints,
+                fixedCategory: nil,  // Allow manual categorization in old view
+                usageTimes: viewModel.getUsageTimes(),  // Pass usage times for display
                 onSave: {
                     viewModel.onCategoryAssignmentSave()
                 }
@@ -282,23 +285,6 @@ private extension AppUsageView {
                     .cornerRadius(10)
                     .padding(.horizontal)
             }
-            
-            #if DEBUG
-            Button(action: {
-                #if DEBUG
-                print("[AppUsageView] Configure with Test Applications button tapped")
-                #endif
-                viewModel.configureWithTestApplications()
-            }) {
-                Text("Configure with Test Applications")
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.orange)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-                    .padding(.horizontal)
-            }
-            #endif
         }
         .padding(.bottom)
     }

@@ -14,7 +14,7 @@ struct ScreenTimeRewardsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            AppUsageView()
+            MainTabView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
         }
     }
