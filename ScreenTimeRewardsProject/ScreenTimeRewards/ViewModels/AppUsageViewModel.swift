@@ -56,36 +56,9 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel] Family selection has \(familySelection.applications.count) applications")
         #endif
 
-        // CRITICAL FIX: Restore persisted assignments from disk
-        // This ensures tokens survive app restart/kill
-        let restoredAssignments = service.restoreCategoryAssignments(from: familySelection)
-        let restoredRewardPoints = service.restoreRewardPoints(from: familySelection)
-
-        if !restoredAssignments.isEmpty {
-            self.categoryAssignments = restoredAssignments
-            #if DEBUG
-            print("[AppUsageViewModel] ✅ Restored \(restoredAssignments.count) category assignments from persistent storage")
-            #endif
-        } else {
-            // Fallback to in-memory assignments if nothing was persisted
-            self.categoryAssignments = service.categoryAssignments
-            #if DEBUG
-            print("[AppUsageViewModel] No persisted assignments, using in-memory state: \(categoryAssignments.count) assignments")
-            #endif
-        }
-
-        if !restoredRewardPoints.isEmpty {
-            self.rewardPoints = restoredRewardPoints
-            #if DEBUG
-            print("[AppUsageViewModel] ✅ Restored \(restoredRewardPoints.count) reward point assignments from persistent storage")
-            #endif
-        } else {
-            // Fallback to in-memory reward points if nothing was persisted
-            self.rewardPoints = service.rewardPointsAssignments
-            #if DEBUG
-            print("[AppUsageViewModel] No persisted reward points, using in-memory state: \(rewardPoints.count) assignments")
-            #endif
-        }
+        // Load assignments from service (already restored from persistence in service init)
+        self.categoryAssignments = service.categoryAssignments
+        self.rewardPoints = service.rewardPointsAssignments
 
         #if DEBUG
         print("[AppUsageViewModel] ✅ Initialization complete:")
@@ -154,30 +127,18 @@ class AppUsageViewModel: ObservableObject {
     }
 
     /// Save category assignments using service's persistent storage
+    /// NOTE: Persistence now happens automatically in configureMonitoring()
     func saveCategoryAssignments() {
         #if DEBUG
-        print("[AppUsageViewModel] Saving \(categoryAssignments.count) category assignments to persistent storage")
-        #endif
-
-        // Use service's index-based persistence (pass current selection)
-        service.persistCategoryAssignments(categoryAssignments, selection: familySelection)
-
-        #if DEBUG
-        print("[AppUsageViewModel] ✅ Category assignments saved to service persistence layer")
+        print("[AppUsageViewModel] Category assignments will be saved during configureMonitoring()")
         #endif
     }
-    
+
     /// Save reward points using service's persistent storage
+    /// NOTE: Persistence now happens automatically in configureMonitoring()
     func saveRewardPoints() {
         #if DEBUG
-        print("[AppUsageViewModel] Saving \(rewardPoints.count) reward point assignments to persistent storage")
-        #endif
-
-        // Use service's index-based persistence (pass current selection)
-        service.persistRewardPoints(rewardPoints, selection: familySelection)
-
-        #if DEBUG
-        print("[AppUsageViewModel] ✅ Reward points saved to service persistence layer")
+        print("[AppUsageViewModel] Reward points will be saved during configureMonitoring()")
         #endif
     }
 
