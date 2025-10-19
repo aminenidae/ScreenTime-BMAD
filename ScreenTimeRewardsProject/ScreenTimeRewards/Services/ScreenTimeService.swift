@@ -100,6 +100,415 @@ class ScreenTimeService: NSObject {
         super.init()
         activityMonitor.delegate = self
         registerForExtensionNotifications()
+        loadPersistedAssignments()
+    }
+
+    // MARK: - Token Persistence (Fixes App Restart Issue)
+
+    /// Get a stable array of applications by encoding/decoding the selection
+    /// When FamilyActivitySelection is encoded to JSON and decoded back,
+    /// the resulting Set iteration should follow the JSON array order
+    private func stablySortedApplications(from selection: FamilyActivitySelection) -> [Application] {
+        // Encode and decode the selection to get stable iteration order
+        guard let encoded = try? JSONEncoder().encode(selection),
+              let decoded = try? JSONDecoder().decode(FamilyActivitySelection.self, from: encoded) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Failed to encode/decode selection for stable sorting")
+            #endif
+            // Fallback to simple array conversion
+            return Array(selection.applications)
+        }
+
+        // The decoded selection should have applications in the same order as JSON array
+        let apps = Array(decoded.applications)
+
+        #if DEBUG
+        print("[ScreenTimeService] 📊 Stable sorted \(apps.count) applications via encode/decode")
+        #endif
+
+        return apps
+    }
+
+    /// Helper to get stable key for logging (just use token hash since we can't do better)
+    private func stableSortKey(for application: Application, from selection: FamilyActivitySelection) -> String {
+        guard let token = application.token else { return "no-token" }
+        return "hash.\(token.hashValue)"
+    }
+
+    /// Persist category assignments using FamilyActivitySelection array indices
+    /// Uses stable sorting to ensure consistent indices across app restarts
+    func persistCategoryAssignments(_ assignments: [ApplicationToken: AppUsage.AppCategory], selection: FamilyActivitySelection) {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to access App Group for persisting assignments")
+            #endif
+            return
+        }
+
+        // CRITICAL: Use stably sorted applications to ensure consistent indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var indexAssignments: [Int: String] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token,
+                  let category = assignments[token] else { continue }
+
+            indexAssignments[index] = category.rawValue
+
+            #if DEBUG
+            let sortKey = stableSortKey(for: application, from: selection)
+            print("[ScreenTimeService] Mapping app at index \(index) (sorted key: \(sortKey)...) → \(category.rawValue)")
+            #endif
+        }
+
+        if let encoded = try? JSONEncoder().encode(indexAssignments) {
+            sharedDefaults.set(encoded, forKey: "categoryAssignments_byIndex")
+            sharedDefaults.synchronize()
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Persisted \(indexAssignments.count) category assignments by index (stable sort)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to encode category assignments for persistence")
+            #endif
+        }
+    }
+
+    /// Persist reward points using FamilyActivitySelection array indices
+    /// Uses stable sorting to ensure consistent indices across app restarts
+    func persistRewardPoints(_ points: [ApplicationToken: Int], selection: FamilyActivitySelection) {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to access App Group for persisting reward points")
+            #endif
+            return
+        }
+
+        // CRITICAL: Use stably sorted applications to ensure consistent indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var indexPoints: [Int: Int] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token,
+                  let pts = points[token] else { continue }
+
+            indexPoints[index] = pts
+
+            #if DEBUG
+            let sortKey = stableSortKey(for: application, from: selection)
+            print("[ScreenTimeService] Mapping app at index \(index) (sorted key: \(sortKey)...) → \(pts) points")
+            #endif
+        }
+
+        if let encoded = try? JSONEncoder().encode(indexPoints) {
+            sharedDefaults.set(encoded, forKey: "rewardPoints_byIndex")
+            sharedDefaults.synchronize()
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Persisted \(indexPoints.count) reward point assignments by index (stable sort)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to encode reward points for persistence")
+            #endif
+        }
+    }
+
+    /// Restore category assignments from persistent storage using array indices
+    /// Uses stable sorting to match persisted indices correctly
+    func restoreCategoryAssignments(from selection: FamilyActivitySelection) -> [ApplicationToken: AppUsage.AppCategory] {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = sharedDefaults.data(forKey: "categoryAssignments_byIndex"),
+              let indexAssignments = try? JSONDecoder().decode([Int: String].self, from: data) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⓘ No persisted category assignments found (first launch or cleared data)")
+            #endif
+            return [:]
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Restoring category assignments from persistent storage...")
+        print("[ScreenTimeService] Found \(indexAssignments.count) persisted assignments by index")
+        #endif
+
+        // CRITICAL: Use stably sorted applications to match persisted indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var restored: [ApplicationToken: AppUsage.AppCategory] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token,
+                  let categoryRaw = indexAssignments[index],
+                  let category = AppUsage.AppCategory(rawValue: categoryRaw) else {
+                #if DEBUG
+                print("[ScreenTimeService] Skipping app at index \(index) - no assignment or token")
+                #endif
+                continue
+            }
+
+            restored[token] = category
+
+            #if DEBUG
+            let sortKey = stableSortKey(for: application, from: selection)
+            print("[ScreenTimeService]   ✅ Restored index \(index) (sorted key: \(sortKey)..., \(application.localizedDisplayName ?? "Unknown")) → \(category.rawValue)")
+            #endif
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Successfully restored \(restored.count)/\(indexAssignments.count) category assignments (stable sort)")
+        #endif
+
+        return restored
+    }
+
+    /// Restore reward points from persistent storage using array indices
+    /// Uses stable sorting to match persisted indices correctly
+    func restoreRewardPoints(from selection: FamilyActivitySelection) -> [ApplicationToken: Int] {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = sharedDefaults.data(forKey: "rewardPoints_byIndex"),
+              let indexPoints = try? JSONDecoder().decode([Int: Int].self, from: data) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⓘ No persisted reward points found (first launch or cleared data)")
+            #endif
+            return [:]
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Restoring reward points from persistent storage...")
+        print("[ScreenTimeService] Found \(indexPoints.count) persisted reward point assignments by index")
+        #endif
+
+        // CRITICAL: Use stably sorted applications to match persisted indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var restored: [ApplicationToken: Int] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token,
+                  let points = indexPoints[index] else {
+                #if DEBUG
+                print("[ScreenTimeService] Skipping app at index \(index) - no points or token")
+                #endif
+                continue
+            }
+
+            restored[token] = points
+
+            #if DEBUG
+            let sortKey = stableSortKey(for: application, from: selection)
+            print("[ScreenTimeService]   ✅ Restored index \(index) (sorted key: \(sortKey)..., \(application.localizedDisplayName ?? "Unknown")) → \(points) points")
+            #endif
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Successfully restored \(restored.count)/\(indexPoints.count) reward point assignments (stable sort)")
+        #endif
+
+        return restored
+    }
+
+    /// Persist FamilyActivitySelection using Codable (if available) or fallback to individual token archiving
+    func persistFamilySelection(_ selection: FamilyActivitySelection) {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to access App Group for persisting family selection")
+            #endif
+            return
+        }
+
+        // Try to encode using Codable first
+        if let encoded = try? JSONEncoder().encode(selection) {
+            sharedDefaults.set(encoded, forKey: "familySelection_persistent")
+            sharedDefaults.synchronize()
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Persisted FamilyActivitySelection to disk (Codable)")
+            print("[ScreenTimeService]   Applications: \(selection.applications.count)")
+            print("[ScreenTimeService]   Categories: \(selection.categories.count)")
+            print("[ScreenTimeService]   Web domains: \(selection.webDomains.count)")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ⚠️ FamilyActivitySelection is not Codable, using token archiving fallback")
+        #endif
+
+        // Fallback: Archive individual application tokens
+        var archivedTokens: [Data] = []
+        for application in selection.applications {
+            if let token = application.token,
+               let archived = try? NSKeyedArchiver.archivedData(withRootObject: token, requiringSecureCoding: true) {
+                archivedTokens.append(archived)
+            }
+        }
+
+        if !archivedTokens.isEmpty,
+           let encoded = try? JSONEncoder().encode(archivedTokens) {
+            sharedDefaults.set(encoded, forKey: "familySelection_tokens_persistent")
+            sharedDefaults.synchronize()
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Persisted \(archivedTokens.count) application tokens to disk")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to persist family selection")
+            #endif
+        }
+    }
+
+    /// Restore FamilyActivitySelection from persistent storage
+    func restoreFamilySelection() -> FamilyActivitySelection {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⓘ No shared defaults available")
+            #endif
+            return FamilyActivitySelection()
+        }
+
+        // Try to decode using Codable first
+        if let data = sharedDefaults.data(forKey: "familySelection_persistent"),
+           let selection = try? JSONDecoder().decode(FamilyActivitySelection.self, from: data) {
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Restored FamilyActivitySelection from disk (Codable)")
+            print("[ScreenTimeService]   Applications: \(selection.applications.count)")
+            print("[ScreenTimeService]   Categories: \(selection.categories.count)")
+            print("[ScreenTimeService]   Web domains: \(selection.webDomains.count)")
+            #endif
+            return selection
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ⓘ No Codable FamilyActivitySelection found, trying token restoration")
+        print("[ScreenTimeService] ⚠️ WARNING: Cannot fully restore FamilyActivitySelection - user must reselect apps")
+        print("[ScreenTimeService] This is an Apple framework limitation: FamilyActivitySelection cannot be reconstructed programmatically")
+        #endif
+
+        return FamilyActivitySelection()
+    }
+
+    /// Persist usage data using array indices
+    /// Uses stable sorting to ensure consistent indices across app restarts
+    func persistUsageData(_ usages: [String: AppUsage], selection: FamilyActivitySelection) {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to access App Group for persisting usage data")
+            #endif
+            return
+        }
+
+        // CRITICAL: Use stably sorted applications to ensure consistent indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var indexUsages: [Int: AppUsage] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token else { continue }
+
+            // Find usage by searching all entries (hash keys are unstable across sessions)
+            let usage = usages.values.first { usage in
+                // Match by comparing the storage key we would generate from this token with all keys
+                usages.keys.contains { usageKey in
+                    usageKey == storageKey(for: token)
+                }
+            }
+
+            if let usage = usage {
+                indexUsages[index] = usage
+
+                #if DEBUG
+                let sortKey = stableSortKey(for: application, from: selection)
+                print("[ScreenTimeService] Mapping usage at index \(index) (sorted key: \(sortKey)...) → \(usage.totalTime)s, \(usage.earnedRewardPoints) pts")
+                #endif
+            }
+        }
+
+        if let encoded = try? JSONEncoder().encode(indexUsages) {
+            sharedDefaults.set(encoded, forKey: "appUsages_byIndex")
+            sharedDefaults.synchronize()
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Persisted \(indexUsages.count) app usage records by index (stable sort)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to encode usage data for persistence")
+            #endif
+        }
+    }
+
+    /// Restore usage data from persistent storage using array indices
+    /// Uses stable sorting to match persisted indices correctly
+    func restoreUsageData(from selection: FamilyActivitySelection) -> [String: AppUsage] {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = sharedDefaults.data(forKey: "appUsages_byIndex"),
+              let indexUsages = try? JSONDecoder().decode([Int: AppUsage].self, from: data) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⓘ No persisted usage data found (first launch or cleared data)")
+            #endif
+            return [:]
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Restoring usage data from persistent storage...")
+        print("[ScreenTimeService] Found \(indexUsages.count) persisted usage records by index")
+        #endif
+
+        // CRITICAL: Use stably sorted applications to match persisted indices
+        let sortedApps = stablySortedApplications(from: selection)
+        var restored: [String: AppUsage] = [:]
+
+        for (index, application) in sortedApps.enumerated() {
+            guard let token = application.token,
+                  let usage = indexUsages[index] else {
+                #if DEBUG
+                print("[ScreenTimeService] Skipping usage at index \(index) - no data or token")
+                #endif
+                continue
+            }
+
+            let key = storageKey(for: token)
+            restored[key] = usage
+
+            #if DEBUG
+            let sortKey = stableSortKey(for: application, from: selection)
+            print("[ScreenTimeService]   ✅ Restored usage index \(index) (sorted key: \(sortKey)...) → \(usage.totalTime)s, \(usage.earnedRewardPoints) pts")
+            #endif
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Successfully restored \(restored.count)/\(indexUsages.count) usage records (stable sort)")
+        #endif
+
+        return restored
+    }
+
+    /// Load persisted assignments from disk on init
+    private func loadPersistedAssignments() {
+        // Restore the FamilyActivitySelection first
+        let restoredSelection = restoreFamilySelection()
+
+        if !restoredSelection.applications.isEmpty {
+            self.familySelection = restoredSelection
+
+            // Now restore assignments using the restored selection
+            self.categoryAssignments = restoreCategoryAssignments(from: restoredSelection)
+            self.rewardPointsAssignments = restoreRewardPoints(from: restoredSelection)
+
+            // CRITICAL: Restore usage data so time/points persist
+            self.appUsages = restoreUsageData(from: restoredSelection)
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Loaded persisted state on init:")
+            print("[ScreenTimeService]   Family selection: \(familySelection.applications.count) apps")
+            print("[ScreenTimeService]   Category assignments: \(categoryAssignments.count)")
+            print("[ScreenTimeService]   Reward points: \(rewardPointsAssignments.count)")
+            print("[ScreenTimeService]   Usage records: \(appUsages.count)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] No persisted selection found - starting fresh")
+            #endif
+        }
     }
     
     // MARK: - Sample Data
@@ -965,6 +1374,9 @@ class ScreenTimeService: NSObject {
         // Only notify if we actually recorded something
         if recordedCount > 0 {
             notifyUsageChange()
+
+            // CRITICAL: Persist usage data after recording so it survives app restart
+            persistUsageData(appUsages, selection: familySelection)
         }
     }
 

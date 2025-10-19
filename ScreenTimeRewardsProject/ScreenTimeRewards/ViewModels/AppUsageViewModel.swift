@@ -48,15 +48,50 @@ class AppUsageViewModel: ObservableObject {
     init(service: ScreenTimeService = .shared) {
         self.service = service
 
-        // Load from shared service instead of UserDefaults
-        self.categoryAssignments = service.categoryAssignments
-        self.rewardPoints = service.rewardPointsAssignments
+        // Load from shared service
         self.familySelection = service.familySelection
 
         #if DEBUG
-        print("[AppUsageViewModel] Initialized with \(categoryAssignments.count) category assignments from service")
-        print("[AppUsageViewModel] Initialized with \(rewardPoints.count) reward points from service")
-        print("[AppUsageViewModel] Initialized with \(familySelection.applications.count) applications from service")
+        print("[AppUsageViewModel] Initializing...")
+        print("[AppUsageViewModel] Family selection has \(familySelection.applications.count) applications")
+        #endif
+
+        // CRITICAL FIX: Restore persisted assignments from disk
+        // This ensures tokens survive app restart/kill
+        let restoredAssignments = service.restoreCategoryAssignments(from: familySelection)
+        let restoredRewardPoints = service.restoreRewardPoints(from: familySelection)
+
+        if !restoredAssignments.isEmpty {
+            self.categoryAssignments = restoredAssignments
+            #if DEBUG
+            print("[AppUsageViewModel] ✅ Restored \(restoredAssignments.count) category assignments from persistent storage")
+            #endif
+        } else {
+            // Fallback to in-memory assignments if nothing was persisted
+            self.categoryAssignments = service.categoryAssignments
+            #if DEBUG
+            print("[AppUsageViewModel] No persisted assignments, using in-memory state: \(categoryAssignments.count) assignments")
+            #endif
+        }
+
+        if !restoredRewardPoints.isEmpty {
+            self.rewardPoints = restoredRewardPoints
+            #if DEBUG
+            print("[AppUsageViewModel] ✅ Restored \(restoredRewardPoints.count) reward point assignments from persistent storage")
+            #endif
+        } else {
+            // Fallback to in-memory reward points if nothing was persisted
+            self.rewardPoints = service.rewardPointsAssignments
+            #if DEBUG
+            print("[AppUsageViewModel] No persisted reward points, using in-memory state: \(rewardPoints.count) assignments")
+            #endif
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Initialization complete:")
+        print("[AppUsageViewModel]   Category assignments: \(categoryAssignments.count)")
+        print("[AppUsageViewModel]   Reward points: \(rewardPoints.count)")
+        print("[AppUsageViewModel]   Selected apps: \(familySelection.applications.count)")
         #endif
 
         loadData()
@@ -118,58 +153,32 @@ class AppUsageViewModel: ObservableObject {
         }
     }
 
-    /// Save category assignments to App Group storage
+    /// Save category assignments using service's persistent storage
     func saveCategoryAssignments() {
-        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            #if DEBUG
-            print("[AppUsageViewModel] Failed to access App Group for saving assignments")
-            #endif
-            return
-        }
+        #if DEBUG
+        print("[AppUsageViewModel] Saving \(categoryAssignments.count) category assignments to persistent storage")
+        #endif
 
-        // Note: ApplicationToken is not directly Codable
-        // We'll save a simpler representation for now
-        let assignmentsDict = categoryAssignments.reduce(into: [String: String]()) { result, entry in
-            // Use token hash as key (not perfect but works for session)
-            let tokenKey = String(entry.key.hashValue)
-            result[tokenKey] = entry.value.rawValue
-        }
+        // Use service's index-based persistence (pass current selection)
+        service.persistCategoryAssignments(categoryAssignments, selection: familySelection)
 
-        if let encoded = try? JSONEncoder().encode(assignmentsDict) {
-            sharedDefaults.set(encoded, forKey: "categoryAssignments")
-            sharedDefaults.synchronize()
-
-            #if DEBUG
-            print("[AppUsageViewModel] Saved \(categoryAssignments.count) category assignments")
-            #endif
-        }
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Category assignments saved to service persistence layer")
+        #endif
     }
     
-    /// Save reward points to App Group storage
+    /// Save reward points using service's persistent storage
     func saveRewardPoints() {
-        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            #if DEBUG
-            print("[AppUsageViewModel] Failed to access App Group for saving reward points")
-            #endif
-            return
-        }
+        #if DEBUG
+        print("[AppUsageViewModel] Saving \(rewardPoints.count) reward point assignments to persistent storage")
+        #endif
 
-        // Note: ApplicationToken is not directly Codable
-        // We'll save a simpler representation for now
-        let rewardPointsDict = rewardPoints.reduce(into: [String: Int]()) { result, entry in
-            // Use token hash as key (not perfect but works for session)
-            let tokenKey = String(entry.key.hashValue)
-            result[tokenKey] = entry.value
-        }
+        // Use service's index-based persistence (pass current selection)
+        service.persistRewardPoints(rewardPoints, selection: familySelection)
 
-        if let encoded = try? JSONEncoder().encode(rewardPointsDict) {
-            sharedDefaults.set(encoded, forKey: "rewardPoints")
-            sharedDefaults.synchronize()
-
-            #if DEBUG
-            print("[AppUsageViewModel] Saved \(rewardPoints.count) reward point assignments")
-            #endif
-        }
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Reward points saved to service persistence layer")
+        #endif
     }
 
     /// Handle category assignment completion
@@ -185,6 +194,10 @@ class AppUsageViewModel: ObservableObject {
         }
         #endif
 
+        // CRITICAL: Persist FamilyActivitySelection first so tokens can be restored
+        service.persistFamilySelection(familySelection)
+
+        // Then persist assignments and points
         saveCategoryAssignments()
         saveRewardPoints()
         configureMonitoring()
