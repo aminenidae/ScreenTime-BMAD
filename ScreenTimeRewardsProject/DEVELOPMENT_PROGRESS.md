@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-17
+**Last Updated:** 2025-10-19
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 2 - Core Features Implementation Complete
@@ -875,7 +875,27 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 
 ## Known Issues & Limitations
 
-### 1. Shield Staleness
+### 1. Learning Usage Reset After Relaunch
+
+**Issue**: Learning cards show `0` minutes and points after a cold launch even though the DeviceActivity extension recorded usage while the app was running.
+
+**Evidence**:
+- `Run-ScreenTimeRewards-2025.10.19_11-53-14--0500.xcresult` → `[UsagePersistence] ✅ Loaded 3 apps, 3 token mappings` followed immediately by `[ScreenTimeService]   - Unknown App 0 (…) 0.0s, 0pts`.
+- Screenshot `2025-10-19 11:48 AM` (Learning tab) exhibits the zeroed totals while the selected apps remain in place.
+
+**Root Cause**: When `ScreenTimeService.configureMonitoring` rebuilds monitoring after a launch, it creates a fresh `UsagePersistence.PersistedApp` for each token with `totalSeconds` and `earnedPoints` hard-coded to `0`. That write happens after the persisted records are loaded, so the real totals are overwritten before the UI renders.
+
+**Status (Oct 19)**: Validated on device—`Run-ScreenTimeRewards-2025.10.19_12-39-58--0500.xcresult` shows `[ScreenTimeService]   - Unknown App 0 (…) 120.0s, 10pts` and `[ScreenTimeService]   💾 Updated app configuration (preserved 120s, 10pts)`. Cold launch (`…12-39-58…`) and UI screenshot `2025-10-19 12:41 PM` confirm the Learning tab now loads 60 s + 120 s with 15 total points.
+
+**Outcome**:
+1. Cold-launch retention ✅ — News/Books scenario retains minutes/points after relaunch (see logs above).
+2. Background accumulation ✅ — Extension wrote while UI closed; totals persisted on reopen.
+
+**Tracked In Code**: `ScreenTimeRewards/Services/ScreenTimeService.swift:500-591`, `ScreenTimeRewards/Shared/UsagePersistence.swift:129-139`.
+
+---
+
+### 2. Shield Staleness
 
 **Issue**: If a reward app is already running when shield is applied, the shield doesn't appear until app is relaunched.
 
@@ -895,27 +915,17 @@ print("⚠️ IMPORTANT: If apps are already running, user must close and reopen
 
 ---
 
-### 2. ApplicationToken Persistence
+### 3. Token Mapping Reliability
 
-**Issue**: `ApplicationToken` is not `Codable`, cannot be saved to disk easily
+**Status**: Resolved in the current build by hashing the raw `ApplicationToken` bytes (`token.sha256.<digest>`) and persisting the mapping in `tokenMappings_v1`.
 
-**Current Solution**: Store by token hash for current session
-```swift
-let tokenKey = String(entry.key.hashValue)
-```
+**Remaining Risk**: On first launch after reinstall the mapping is empty until the user selects apps; ensure debug logging stays in place while the merge fix (above) is validated so we can double-check that logical IDs survive background tracking and re-authorization flows.
 
-**Limitation**: Token mapping lost on app restart
-
-**Future Solution Needed**:
-- Use App Group + NSKeyedArchiver
-- Or rebuild token mapping from FamilyActivitySelection on launch
-- Or store parallel mapping: bundleID → category
-
-**Code Location**: `AppUsageViewModel.swift:122-126`
+**Code Location**: `ScreenTimeRewards/Shared/UsagePersistence.swift:54-120`
 
 ---
 
-### 3. App Names/Icons Visibility
+### 4. App Names/Icons Visibility
 
 **Issue**: App names and icons only reliably visible via `Label(token)` in sheets
 
@@ -931,7 +941,7 @@ let tokenKey = String(entry.key.hashValue)
 
 ---
 
-### 4. Bundle Identifier May Be Nil
+### 5. Bundle Identifier May Be Nil
 
 **Issue**: `application.bundleIdentifier` may be `nil` for privacy
 
@@ -946,7 +956,7 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ---
 
-### 5. No Real-Time Usage Updates
+### 6. No Real-Time Usage Updates
 
 **Issue**: Usage data updates on 1-minute interval, not real-time
 
@@ -958,7 +968,7 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ---
 
-### 6. Learning Apps Have No Time Limits (By Design)
+### 7. Learning Apps Have No Time Limits (By Design)
 
 **Status**: NOT A BUG - This is intentional
 
@@ -968,7 +978,7 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ---
 
-### 7. Learning App Usage Misattribution
+### 8. Learning App Usage Misattribution
 
 **Status**: Fix implemented (2025-10-18) – needs on-device regression run with redacted app names.
 
@@ -983,6 +993,18 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 **Code Locations**:
 - `ScreenTimeService.swift` (token `storageKey`, `recordUsage`, new `getUsage(for:)` APIs)
 - `AppUsageViewModel.swift` (`getUsageTimes()` token lookup)
+
+---
+
+### 9. Learning Tab Compile Timeout (Resolved Oct 20)
+
+**Issue**: Swift compiler began failing with “unable to type-check this expression in reasonable time” when compiling the Learning tab (`Build ScreenTimeRewards_2025-10-20T12-48-02.txt`).
+
+**Root Cause**: `LearningTabView` combined a large `VStack`, inline `ForEach`, and a computed `Binding` that repeatedly called `getUsageTimes()`. The single mega-expression created an enormous generic tree that the compiler could no longer solve.
+
+**Fix (Oct 20)**: Mirrored the earlier Rewards tab refactor—split the layout into helper builders (`headerSection`, `learningAppsSection`, `learningAppRow`, etc.) and cached usage data once per render. The sheet now receives a simple dictionary instead of a synthetic binding (`ScreenTimeRewards/Views/LearningTabView.swift:8-189`).
+
+**Status**: ✅ Builds cleanly after refactor; keep future UI edits small and composable.
 
 ---
 

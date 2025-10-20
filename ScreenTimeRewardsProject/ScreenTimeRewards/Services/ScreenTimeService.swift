@@ -6,6 +6,7 @@ import ManagedSettings
 
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
+@available(iOS 16.0, *)
 class ScreenTimeService: NSObject {
     static let shared = ScreenTimeService()
     static let usageDidChangeNotification = Notification.Name("ScreenTimeService.usageDidChange")
@@ -192,13 +193,17 @@ class ScreenTimeService: NSObject {
         let persistedApps = usagePersistence.loadAllApps()
 
         // Convert to AppUsage dictionary
-        self.appUsages = persistedApps.mapValues { $0.toAppUsage() }
+        self.appUsages = persistedApps.reduce(into: [:]) { result, entry in
+            let (logicalID, persisted) = entry
+            result[logicalID] = appUsage(from: persisted)
+        }
 
         #if DEBUG
         print("[ScreenTimeService] ✅ Loaded \(appUsages.count) apps from persistence")
         for (logicalID, usage) in appUsages {
             print("[ScreenTimeService]   - \(usage.appName) (\(logicalID)): \(usage.totalTime)s, \(usage.earnedRewardPoints)pts")
         }
+        usagePersistence.printDebugInfo()
         #endif
 
         // Load FamilyActivitySelection if available
@@ -214,15 +219,12 @@ class ScreenTimeService: NSObject {
                 // CRITICAL: Use same display name format as configureMonitoring!
                 let displayName = application.localizedDisplayName ?? "Unknown App \(index)"
 
-                let logicalID = usagePersistence.generateLogicalID(
-                    token: token,
+                let mapping = usagePersistence.resolveLogicalID(
+                    for: token,
                     bundleIdentifier: application.bundleIdentifier,
                     displayName: displayName
                 )
-
-                // Map token archive hash to logical ID for future lookups
-                let tokenArchiveHash = usagePersistence.getTokenArchiveHash(for: token)
-                usagePersistence.mapTokenArchiveHash(tokenArchiveHash, to: logicalID)
+                let logicalID = mapping.logicalID
 
                 // Restore assignments from persisted app data (category & points now in PersistedApp!)
                 if let persistedApp = persistedApps[logicalID],
@@ -470,16 +472,14 @@ class ScreenTimeService: NSObject {
                 #endif
             }
 
-            // Generate logical ID for this app
-            let logicalID = usagePersistence.generateLogicalID(
-                token: token,
+            // Resolve logical ID (stable across launches) and token hash
+            let mapping = usagePersistence.resolveLogicalID(
+                for: token,
                 bundleIdentifier: bundleIdentifier,
                 displayName: displayName
             )
-
-            // Map token archive hash to logical ID for persistence
-            let tokenArchiveHash = usagePersistence.getTokenArchiveHash(for: token)
-            usagePersistence.mapTokenArchiveHash(tokenArchiveHash, to: logicalID)
+            let logicalID = mapping.logicalID
+            let tokenArchiveHash = mapping.tokenHash
 
             #if DEBUG
             print("[ScreenTimeService]   Logical ID: \(logicalID)")
@@ -497,20 +497,26 @@ class ScreenTimeService: NSObject {
             groupedApplications[category, default: []].append(monitored)
 
             // Save app configuration to persistence immediately
+            let existingApp = usagePersistence.app(for: logicalID)
+            let now = Date()
             let persistedApp = UsagePersistence.PersistedApp(
                 logicalID: logicalID,
                 displayName: displayName,
                 category: category.rawValue,
                 rewardPoints: points,
-                totalSeconds: 0,  // No usage yet
-                earnedPoints: 0,  // No points earned yet
-                createdAt: Date(),
-                lastUpdated: Date()
+                totalSeconds: existingApp?.totalSeconds ?? 0,
+                earnedPoints: existingApp?.earnedPoints ?? 0,
+                createdAt: existingApp?.createdAt ?? now,
+                lastUpdated: existingApp?.lastUpdated ?? now
             )
             usagePersistence.saveApp(persistedApp)
 
             #if DEBUG
-            print("[ScreenTimeService]   💾 Saved app configuration to persistence")
+            if let existingApp {
+                print("[ScreenTimeService]   💾 Updated app configuration (preserved \(existingApp.totalSeconds)s, \(existingApp.earnedPoints)pts)")
+            } else {
+                print("[ScreenTimeService]   💾 Saved app configuration to persistence")
+            }
             #endif
         }
 
@@ -569,7 +575,19 @@ class ScreenTimeService: NSObject {
         saveEventMappings()
 
         hasSeededSampleData = false
-        appUsages.removeAll()
+
+        // Keep existing usage totals for monitored apps (and drop anything no longer selected)
+        var refreshedUsages: [String: AppUsage] = [:]
+        for apps in groupedApplications.values {
+            for app in apps {
+                if let existing = appUsages[app.logicalID] {
+                    refreshedUsages[app.logicalID] = existing
+                } else if let persisted = usagePersistence.app(for: app.logicalID) {
+                    refreshedUsages[app.logicalID] = appUsage(from: persisted)
+                }
+            }
+        }
+        appUsages = refreshedUsages
         notifyUsageChange()
 
         if isMonitoring {
@@ -591,6 +609,21 @@ class ScreenTimeService: NSObject {
         case .reward:
             return 10
         }
+    }
+
+    private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
+        let category = AppUsage.AppCategory(rawValue: persisted.category) ?? .learning
+        let session = AppUsage.UsageSession(startTime: persisted.createdAt, endTime: persisted.lastUpdated)
+        return AppUsage(
+            bundleIdentifier: persisted.logicalID,
+            appName: persisted.displayName,
+            category: category,
+            totalTime: TimeInterval(persisted.totalSeconds),
+            sessions: [session],
+            firstAccess: persisted.createdAt,
+            lastAccess: persisted.lastUpdated,
+            rewardPoints: persisted.rewardPoints
+        )
     }
 
     /// Save event name → app info mapping for extension to use
@@ -789,6 +822,16 @@ class ScreenTimeService: NSObject {
                     try self.scheduleActivity()
                     self.isMonitoring = true
                     self.startMonitoringRestartTimer()
+
+                    // Persist monitoring state for auto-restart on app launch
+                    if let sharedDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
+                        sharedDefaults.set(true, forKey: "wasMonitoringActive")
+                        sharedDefaults.synchronize()
+                        #if DEBUG
+                        print("[ScreenTimeService] 💾 Persisted monitoring state: ACTIVE")
+                        #endif
+                    }
+
                     DispatchQueue.main.async {
                         completion(.success(()))
                     }
@@ -811,6 +854,15 @@ class ScreenTimeService: NSObject {
         deviceActivityCenter.stopMonitoring([activityName])
         stopMonitoringRestartTimer()
         isMonitoring = false
+
+        // Persist monitoring state so we don't auto-restart on next launch
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            sharedDefaults.set(false, forKey: "wasMonitoringActive")
+            sharedDefaults.synchronize()
+            #if DEBUG
+            print("[ScreenTimeService] 💾 Persisted monitoring state: INACTIVE")
+            #endif
+        }
     }
 
     // MARK: - Continuous Tracking via Periodic Restarts
@@ -899,11 +951,11 @@ class ScreenTimeService: NSObject {
     }
 
     func getUsage(for token: ApplicationToken) -> AppUsage? {
-        // Look up logical ID from token archive hash
-        let tokenArchiveHash = usagePersistence.getTokenArchiveHash(for: token)
-        guard let logicalID = usagePersistence.getLogicalID(for: tokenArchiveHash) else {
+        // Look up logical ID from token hash
+        let tokenHash = usagePersistence.tokenHash(for: token)
+        guard let logicalID = usagePersistence.logicalID(for: tokenHash) else {
             #if DEBUG
-            print("[ScreenTimeService] ⚠️ No logical ID found for token archive hash: \(tokenArchiveHash.prefix(20))...")
+            print("[ScreenTimeService] ⚠️ No logical ID found for token hash: \(tokenHash.prefix(20))...")
             #endif
             return nil
         }
@@ -1219,7 +1271,16 @@ class ScreenTimeService: NSObject {
 
             // Persist to shared storage immediately
             let appUsage = appUsages[logicalID]!
-            let persistedApp = UsagePersistence.PersistedApp.from(appUsage: appUsage, logicalID: logicalID)
+            let persistedApp = UsagePersistence.PersistedApp(
+                logicalID: logicalID,
+                displayName: appUsage.appName,
+                category: appUsage.category.rawValue,
+                rewardPoints: appUsage.rewardPoints,
+                totalSeconds: Int(appUsage.totalTime),
+                earnedPoints: appUsage.earnedRewardPoints,
+                createdAt: appUsage.firstAccess,
+                lastUpdated: appUsage.lastAccess
+            )
             usagePersistence.saveApp(persistedApp)
 
             recordedCount += 1
