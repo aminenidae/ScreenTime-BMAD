@@ -6,7 +6,7 @@ struct LearningTabView: View {
     @StateObject private var viewModel = AppUsageViewModel()
 
     private var hasLearningApps: Bool {
-        !viewModel.learningApps.isEmpty
+        !viewModel.sortedLearningApps.isEmpty
     }
 
     var body: some View {
@@ -90,11 +90,11 @@ private extension LearningTabView {
     func learningAppsSection(usageTimes: [ApplicationToken: TimeInterval]) -> some View {
         if hasLearningApps {
             VStack(alignment: .leading, spacing: 12) {
-                Text("Selected Learning Apps (\(viewModel.learningApps.count))")
+                Text("Selected Learning Apps (\(viewModel.sortedLearningApps.count))")
                     .font(.headline)
                     .padding(.horizontal)
 
-                ForEach(Array(viewModel.learningApps.enumerated()), id: \.offset) { index, token in
+                ForEach(Array(viewModel.sortedLearningApps.enumerated()), id: \.offset) { index, token in
                     learningAppRow(
                         index: index,
                         token: token,

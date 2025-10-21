@@ -48,6 +48,27 @@ class AppUsageViewModel: ObservableObject {
         categoryAssignments.filter { $0.value == .reward }.map { $0.key }
     }
     
+    // TASK 12: Add sorted category properties
+    /// Learning application tokens in stable sorted order
+    var sortedLearningApps: [ApplicationToken] {
+        sortedApplications
+            .compactMap { app -> ApplicationToken? in
+                guard let token = app.token,
+                      categoryAssignments[token] == .learning else { return nil }
+                return token
+            }
+    }
+
+    /// Reward application tokens in stable sorted order
+    var sortedRewardApps: [ApplicationToken] {
+        sortedApplications
+            .compactMap { app -> ApplicationToken? in
+                guard let token = app.token,
+                      categoryAssignments[token] == .reward else { return nil }
+                return token
+            }
+    }
+    
     init(service: ScreenTimeService = .shared) {
         self.service = service
 

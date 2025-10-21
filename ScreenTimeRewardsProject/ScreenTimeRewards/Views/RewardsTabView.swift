@@ -22,15 +22,15 @@ struct RewardsTabView: View {
                     .padding()
 
                     // Selected reward apps list
-                    if !viewModel.rewardApps.isEmpty {
+                    if !viewModel.sortedRewardApps.isEmpty {
                         VStack(alignment: .leading, spacing: 12) {
-                            Text("Selected Reward Apps (\(viewModel.rewardApps.count))")
+                            Text("Selected Reward Apps (\(viewModel.sortedRewardApps.count))")
                                 .font(.headline)
                                 .padding(.horizontal)
 
                             let usageTimes = viewModel.getUsageTimes()
 
-                            ForEach(Array(viewModel.rewardApps.enumerated()), id: \.offset) { index, token in
+                            ForEach(Array(viewModel.sortedRewardApps.enumerated()), id: \.offset) { index, token in
                                 rewardAppRow(
                                     index: index,
                                     token: token,
@@ -51,7 +51,7 @@ struct RewardsTabView: View {
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                            Text(viewModel.rewardApps.isEmpty ? "Select Reward Apps" : "Add More Apps")
+                            Text(viewModel.sortedRewardApps.isEmpty ? "Select Reward Apps" : "Add More Apps")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -62,7 +62,7 @@ struct RewardsTabView: View {
                     .padding(.horizontal)
 
                     // View all reward apps button - only show if there are reward apps
-                    if !viewModel.rewardApps.isEmpty {
+                    if !viewModel.sortedRewardApps.isEmpty {
                         Button(action: {
                             viewModel.isCategoryAssignmentPresented = true
                         }) {
@@ -80,7 +80,7 @@ struct RewardsTabView: View {
                     }
 
                     // Unlock all reward apps button - only show if there are reward apps
-                    if !viewModel.rewardApps.isEmpty {
+                    if !viewModel.sortedRewardApps.isEmpty {
                         Button(action: {
                             viewModel.unlockRewardApps()
                         }) {
