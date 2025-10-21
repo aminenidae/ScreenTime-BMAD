@@ -3,6 +3,25 @@ import Combine
 import FamilyControls
 import ManagedSettings
 
+// Snapshot structs for deterministic ordering
+struct LearningAppSnapshot: Identifiable {
+    let token: ManagedSettings.ApplicationToken
+    let logicalID: String
+    let displayName: String
+    let pointsPerMinute: Int
+    let totalSeconds: TimeInterval
+    var id: String { logicalID }
+}
+
+struct RewardAppSnapshot: Identifiable {
+    let token: ManagedSettings.ApplicationToken
+    let logicalID: String
+    let displayName: String
+    let pointsPerMinute: Int
+    let totalSeconds: TimeInterval
+    var id: String { logicalID }
+}
+
 /// View model to manage app usage data for the UI
 class AppUsageViewModel: ObservableObject {
     @Published var appUsages: [AppUsage] = []
@@ -28,6 +47,10 @@ class AppUsageViewModel: ObservableObject {
     @Published var pickerError: String?
     @Published var pickerLoadingTimeout = false
     @Published var pickerRetryCount = 0
+
+    // Snapshot properties for deterministic ordering
+    @Published private(set) var learningSnapshots: [LearningAppSnapshot] = []
+    @Published private(set) var rewardSnapshots: [RewardAppSnapshot] = []
 
     private let service: ScreenTimeService
     private var cancellables = Set<AnyCancellable>()
@@ -99,7 +122,7 @@ class AppUsageViewModel: ObservableObject {
             .publisher(for: ScreenTimeService.usageDidChangeNotification)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
-                self?.refreshData()
+                self?.usageDidChange()
             }
             .store(in: &cancellables)
     }
@@ -172,13 +195,97 @@ class AppUsageViewModel: ObservableObject {
     // TASK 12 REVISED: Create updateSortedApplications method
     private func updateSortedApplications() {
         // Use the existing sorting extension
-        self.sortedApplications = familySelection.sortedApplications()
+        self.sortedApplications = familySelection.sortedApplications(using: service.usagePersistence)
         
         #if DEBUG
         print("[AppUsageViewModel] 🔄 Updated sorted applications snapshot: \(sortedApplications.count) apps")
         #endif
+        
+        // Update snapshots whenever sorted applications change
+        updateSnapshots()
     }
-
+    
+    /// Build snapshot arrays from sorted applications
+    private func updateSnapshots() {
+        var newLearningSnapshots: [LearningAppSnapshot] = []
+        var newRewardSnapshots: [RewardAppSnapshot] = []
+        
+        // Use a set to track logical IDs we've already processed to avoid duplicates
+        var processedLogicalIDs: Set<String> = []
+        
+        // Single pass over sorted applications
+        for application in sortedApplications {
+            guard let token = application.token else { continue }
+            
+            // Resolve logical ID via usagePersistence
+            let tokenHash = service.usagePersistence.tokenHash(for: token)
+            let logicalID = service.usagePersistence.logicalID(for: tokenHash) ?? tokenHash
+            
+            // Skip if we've already processed this logical ID
+            if processedLogicalIDs.contains(logicalID) {
+                #if DEBUG
+                print("[AppUsageViewModel] Skipping duplicate logical ID: \(logicalID)")
+                #endif
+                continue
+            }
+            
+            // Mark this logical ID as processed
+            processedLogicalIDs.insert(logicalID)
+            
+            // Get display name
+            let displayName = application.localizedDisplayName ?? "Unknown App"
+            
+            // Determine category
+            let category = categoryAssignments[token] ?? .learning
+            
+            // Pull usage from appUsages[logicalID] (default to zero)
+            let appUsage = service.getUsage(for: token)
+            let totalSeconds = appUsage?.totalTime ?? 0
+            
+            // Look up assigned points
+            let pointsPerMinute = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
+            
+            // Create appropriate snapshot based on category
+            switch category {
+            case .learning:
+                let snapshot = LearningAppSnapshot(
+                    token: token,
+                    logicalID: logicalID,
+                    displayName: displayName,
+                    pointsPerMinute: pointsPerMinute,
+                    totalSeconds: totalSeconds
+                )
+                newLearningSnapshots.append(snapshot)
+            case .reward:
+                let snapshot = RewardAppSnapshot(
+                    token: token,
+                    logicalID: logicalID,
+                    displayName: displayName,
+                    pointsPerMinute: pointsPerMinute,
+                    totalSeconds: totalSeconds
+                )
+                newRewardSnapshots.append(snapshot)
+            }
+        }
+        
+        // Update published properties
+        self.learningSnapshots = newLearningSnapshots
+        self.rewardSnapshots = newRewardSnapshots
+        
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 Updated snapshots - Learning: \(newLearningSnapshots.count), Reward: \(newRewardSnapshots.count)")
+        #endif
+    }
+    
+    private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
+        switch category {
+        case .learning:
+            return 20
+        case .reward:
+            return 10
+        }
+    }
+    
     /// Handle category assignment completion
     func onCategoryAssignmentSave() {
         #if DEBUG
@@ -192,6 +299,14 @@ class AppUsageViewModel: ObservableObject {
         }
         #endif
 
+        // INSTRUMENTATION: Log view-model snapshots before calling configureMonitoring
+        #if DEBUG
+        print("[AppUsageViewModel] === VIEW MODEL SNAPSHOT BEFORE configureMonitoring ===")
+        logViewModelSnapshots()
+        print("[AppUsageViewModel] === END VIEW MODEL SNAPSHOT BEFORE configureMonitoring ===")
+        #endif
+        // END INSTRUMENTATION
+
         // CRITICAL: Persist FamilyActivitySelection first so tokens can be restored
         service.persistFamilySelection(familySelection)
 
@@ -203,6 +318,14 @@ class AppUsageViewModel: ObservableObject {
         // TASK 12 REVISED: Update sorted applications snapshot after save & monitor
         updateSortedApplications()
         
+        // INSTRUMENTATION: Log view-model snapshots after service call completes
+        #if DEBUG
+        print("[AppUsageViewModel] === VIEW MODEL SNAPSHOT AFTER configureMonitoring ===")
+        logViewModelSnapshots()
+        print("[AppUsageViewModel] === END VIEW MODEL SNAPSHOT AFTER configureMonitoring ===")
+        #endif
+        // END INSTRUMENTATION
+        
         // TASK 12 REVISED: Trigger UI refresh after save & monitor to eliminate need for restart
         // This re-sorts apps and refreshes UI immediately without requiring app restart
         DispatchQueue.main.async { [weak self] in
@@ -211,6 +334,44 @@ class AppUsageViewModel: ObservableObject {
             self.refreshData()
         }
     }
+
+    /// INSTRUMENTATION: Add helper method to log view-model snapshots
+    #if DEBUG
+    private func logViewModelSnapshots() {
+        print("[AppUsageViewModel] Learning Apps Snapshot:")
+        for (index, token) in sortedLearningApps.enumerated() {
+            let tokenHash = String(token.hashValue).prefix(20)
+            // We need to get the logical ID from the service
+            let logicalID = getLogicalID(for: token) ?? "unknown"
+            let usageSeconds = service.getUsageDuration(for: token)
+            let pointsPerMin = rewardPoints[token] ?? 0
+            let displayName = getDisplayName(for: token) ?? "Unknown App"
+            print("[AppUsageViewModel]   \(index): tokenHash=\(tokenHash)..., logicalID=\(logicalID), displayName=\(displayName), usageSeconds=\(usageSeconds), pointsPerMin=\(pointsPerMin)")
+        }
+        
+        print("[AppUsageViewModel] Reward Apps Snapshot:")
+        for (index, token) in sortedRewardApps.enumerated() {
+            let tokenHash = String(token.hashValue).prefix(20)
+            // We need to get the logical ID from the service
+            let logicalID = getLogicalID(for: token) ?? "unknown"
+            let usageSeconds = service.getUsageDuration(for: token)
+            let pointsPerMin = rewardPoints[token] ?? 0
+            let displayName = getDisplayName(for: token) ?? "Unknown App"
+            print("[AppUsageViewModel]   \(index): tokenHash=\(tokenHash)..., logicalID=\(logicalID), displayName=\(displayName), usageSeconds=\(usageSeconds), pointsPerMin=\(pointsPerMin)")
+        }
+    }
+    
+    private func getLogicalID(for token: ApplicationToken) -> String? {
+        // We need to access the service's usagePersistence to get the logical ID
+        return service.getLogicalID(for: token)
+    }
+    
+    private func getDisplayName(for token: ApplicationToken) -> String? {
+        // Use the service to get the display name
+        return service.getDisplayName(for: token)
+    }
+    #endif
+    /// END INSTRUMENTATION
 
     func thresholdValue(for category: AppUsage.AppCategory) -> Int {
         thresholdMinutes[category] ?? defaultThresholdMinutes
@@ -281,6 +442,14 @@ class AppUsageViewModel: ObservableObject {
         updateCategoryTotals()
         updateTotalRewardPoints()
         updateCategoryRewardPoints()
+        // Rebuild snapshots when data is refreshed
+        updateSnapshots()
+    }
+    
+    /// Called when usage data changes
+    private func usageDidChange() {
+        // Refresh data and rebuild snapshots
+        refreshData()
     }
     
     /// Update category totals using the locally cached data
@@ -749,13 +918,3 @@ func configureWithTestApplications() {
 }
 
 // MARK: - FamilyActivitySelection Extension for Consistent Sorting
-extension FamilyActivitySelection {
-    /// Returns applications sorted by token hash value for consistent iteration order
-    /// This ensures consistency with ScreenTimeService sorting
-    func sortedApplications() -> [Application] {
-        return self.applications.sorted { app1, app2 in
-            guard let token1 = app1.token, let token2 = app2.token else { return false }
-            return token1.hashValue < token2.hashValue
-        }
-    }
-}

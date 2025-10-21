@@ -43,7 +43,7 @@ class ScreenTimeService: NSObject {
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
 
     // Shared persistence helper for logical ID-based storage
-    private let usagePersistence = UsagePersistence()
+    private(set) var usagePersistence = UsagePersistence()
 
     private struct MonitoredApplication {
         let token: ManagedSettings.ApplicationToken  // Required for monitoring
@@ -213,7 +213,9 @@ class ScreenTimeService: NSObject {
 
             // Rebuild categoryAssignments and rewardPointsAssignments from loaded apps
             // We need to map tokens back to their categories/points
-            for (index, application) in restoredSelection.applications.enumerated() {
+            // FIX: Use sorted applications to ensure consistent iteration order
+            let sortedApplications = restoredSelection.sortedApplications(using: usagePersistence)
+            for (index, application) in sortedApplications.enumerated() {
                 guard let token = application.token else { continue }
 
                 // CRITICAL: Use same display name format as configureMonitoring!
@@ -403,7 +405,9 @@ class ScreenTimeService: NSObject {
         #endif
     
         // Log detailed information about each selected application
-        for (index, application) in selection.applications.enumerated() {
+        // FIX: Use sorted applications to ensure consistent iteration order
+        let sortedApplications = selection.sortedApplications(using: usagePersistence)
+        for (index, application) in sortedApplications.enumerated() {
             #if DEBUG
             print("[ScreenTimeService]   Application \(index):")
             print("[ScreenTimeService]     Localized display name: \(application.localizedDisplayName ?? "nil")")
@@ -417,7 +421,8 @@ class ScreenTimeService: NSObject {
 
         var groupedApplications: [AppUsage.AppCategory: [MonitoredApplication]] = [:]
 
-        for (index, application) in selection.applications.enumerated() {
+        // FIX: Use sorted applications to ensure consistent iteration order
+        for (index, application) in sortedApplications.enumerated() {
             // Token is required for monitoring - skip apps without tokens
             guard let token = application.token else {
                 #if DEBUG
@@ -519,6 +524,20 @@ class ScreenTimeService: NSObject {
             }
             #endif
         }
+
+        // INSTRUMENTATION: Log service ordering before writing to persistence
+        #if DEBUG
+        print("[ScreenTimeService] === SERVICE ORDERING LOG ===")
+        for (category, apps) in groupedApplications {
+            print("[ScreenTimeService] Category: \(category.rawValue)")
+            for (index, app) in apps.enumerated() {
+                let totalSeconds = usagePersistence.app(for: app.logicalID)?.totalSeconds ?? 0
+                print("[ScreenTimeService]   \(index): tokenHash=\(usagePersistence.tokenHash(for: app.token).prefix(20))..., logicalID=\(app.logicalID), displayName=\(app.displayName), rewardPoints=\(app.rewardPoints), totalSeconds=\(totalSeconds)")
+            }
+        }
+        print("[ScreenTimeService] === END SERVICE ORDERING LOG ===")
+        #endif
+        // END INSTRUMENTATION
 
         #if DEBUG
         print("[ScreenTimeService] Grouped applications by category:")
@@ -1228,6 +1247,9 @@ class ScreenTimeService: NSObject {
         // If blocked, this is shield time (not real usage) - skip recording
         var recordedCount = 0
         var skippedCount = 0
+        
+        // Use a set to track logical IDs we've already processed to avoid duplicates
+        var processedLogicalIDs: Set<String> = []
 
         for application in applications {
             // Check if app is currently shielded (blocked)
@@ -1238,12 +1260,23 @@ class ScreenTimeService: NSObject {
                 skippedCount += 1
                 continue  // Skip this app - it's shield time!
             }
+            
+            let logicalID = application.logicalID
+            
+            // Skip if we've already processed this logical ID
+            if processedLogicalIDs.contains(logicalID) {
+                #if DEBUG
+                print("[ScreenTimeService] Skipping duplicate logical ID: \(logicalID)")
+                #endif
+                continue
+            }
+            
+            // Mark this logical ID as processed
+            processedLogicalIDs.insert(logicalID)
 
             #if DEBUG
             print("[ScreenTimeService] ✅ Recording usage for \(application.displayName) - app is unblocked")
             #endif
-
-            let logicalID = application.logicalID
 
             if var existing = appUsages[logicalID] {
                 #if DEBUG
@@ -1474,7 +1507,8 @@ func configureWithTestApplications() {
     recordTestUsage(appName: "Music", category: .reward, rewardPoints: 10, duration: 1800, bundleIdentifier: "com.apple.Music")
 }
 #endif
-}
+
+}  // Closing brace for ScreenTimeService class
 
 extension ScreenTimeService: ScreenTimeActivityMonitorDelegate {
     func activityMonitorDidStartInterval(_ activity: DeviceActivityName) {
@@ -1563,5 +1597,93 @@ private final class ScreenTimeActivityMonitor: DeviceActivityMonitor {
         deliverToMain { delegate in
             delegate.activityMonitorWillReachThreshold(for: event)
         }
+    }
+}
+
+// MARK: - FamilyActivitySelection Extension for Consistent Sorting
+extension FamilyActivitySelection {
+    /// Returns applications sorted by token hash for consistent iteration order
+    /// This fixes the Set reordering bug that causes data shuffling when adding new apps
+    func sortedApplications(using usagePersistence: UsagePersistence) -> [Application] {
+        return self.applications.sorted { app1, app2 in
+            guard let token1 = app1.token, let token2 = app2.token else { return false }
+            let hash1 = usagePersistence.getTokenArchiveHash(for: token1)
+            let hash2 = usagePersistence.getTokenArchiveHash(for: token2)
+            return hash1 < hash2
+        }
+    }
+}
+
+extension ScreenTimeService {
+    /// Get display name for a given token (for debugging purposes)
+    func getDisplayName(for token: ApplicationToken) -> String? {
+        // Find the application in our familySelection that matches this token
+        guard let application = familySelection.applications.first(where: { $0.token == token }) else {
+            return nil
+        }
+        return application.localizedDisplayName
+    }
+    
+    /// Get logical ID for a given token (for debugging purposes)
+    func getLogicalID(for token: ApplicationToken) -> String? {
+        let tokenHash = usagePersistence.tokenHash(for: token)
+        return usagePersistence.logicalID(for: tokenHash)
+    }
+    
+    /// Public method to record usage for a logical ID, replacing existing entries rather than appending
+    /// - Parameters:
+    ///   - logicalID: The logical ID of the app
+    ///   - additionalSeconds: Additional seconds to add to the app's usage
+    ///   - rewardPointsPerMinute: Reward points per minute for this app
+    func recordUsage(logicalID: String, additionalSeconds: TimeInterval, rewardPointsPerMinute: Int) {
+        #if DEBUG
+        print("[ScreenTimeService] Public recordUsage called for logicalID: \(logicalID), additionalSeconds: \(additionalSeconds), rewardPointsPerMinute: \(rewardPointsPerMinute)")
+        #endif
+        
+        // Check if we already have an entry for this logical ID
+        if var existing = appUsages[logicalID] {
+            #if DEBUG
+            print("[ScreenTimeService] Updating existing usage for \(logicalID)")
+            #endif
+            // Update the existing entry rather than creating a new one
+            existing.recordUsage(duration: additionalSeconds)
+            appUsages[logicalID] = existing
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] Creating new usage record for \(logicalID)")
+            #endif
+            // Create a new entry if one doesn't exist
+            let now = Date()
+            let session = AppUsage.UsageSession(startTime: now.addingTimeInterval(-additionalSeconds), endTime: now)
+            let usage = AppUsage(
+                bundleIdentifier: logicalID,
+                appName: "Unknown App",
+                category: .learning,
+                totalTime: additionalSeconds,
+                sessions: [session],
+                firstAccess: session.startTime,
+                lastAccess: now,
+                rewardPoints: rewardPointsPerMinute
+            )
+            appUsages[logicalID] = usage
+        }
+        
+        // Persist to shared storage immediately
+        if let appUsage = appUsages[logicalID] {
+            let persistedApp = UsagePersistence.PersistedApp(
+                logicalID: logicalID,
+                displayName: appUsage.appName,
+                category: appUsage.category.rawValue,
+                rewardPoints: appUsage.rewardPoints,
+                totalSeconds: Int(appUsage.totalTime),
+                earnedPoints: appUsage.earnedRewardPoints,
+                createdAt: appUsage.firstAccess,
+                lastUpdated: appUsage.lastAccess
+            )
+            usagePersistence.saveApp(persistedApp)
+        }
+        
+        // Notify that usage has changed
+        notifyUsageChange()
     }
 }
