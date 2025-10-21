@@ -21,6 +21,9 @@ class AppUsageViewModel: ObservableObject {
     @Published var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @Published var rewardPoints: [ApplicationToken: Int] = [:]
 
+    // TASK 12 REVISED: Add sorted applications snapshot property
+    @Published private(set) var sortedApplications: [Application] = []
+
     // Picker error handling
     @Published var pickerError: String?
     @Published var pickerLoadingTimeout = false
@@ -66,6 +69,9 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel]   Reward points: \(rewardPoints.count)")
         print("[AppUsageViewModel]   Selected apps: \(familySelection.applications.count)")
         #endif
+
+        // TASK 12 REVISED: Update sorted applications snapshot after initialization
+        updateSortedApplications()
 
         loadData()
         NotificationCenter.default
@@ -142,6 +148,16 @@ class AppUsageViewModel: ObservableObject {
         #endif
     }
 
+    // TASK 12 REVISED: Create updateSortedApplications method
+    private func updateSortedApplications() {
+        // Use the existing sorting extension
+        self.sortedApplications = familySelection.sortedApplications()
+        
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 Updated sorted applications snapshot: \(sortedApplications.count) apps")
+        #endif
+    }
+
     /// Handle category assignment completion
     func onCategoryAssignmentSave() {
         #if DEBUG
@@ -162,6 +178,17 @@ class AppUsageViewModel: ObservableObject {
         saveCategoryAssignments()
         saveRewardPoints()
         configureMonitoring()
+        
+        // TASK 12 REVISED: Update sorted applications snapshot after save & monitor
+        updateSortedApplications()
+        
+        // TASK 12 REVISED: Trigger UI refresh after save & monitor to eliminate need for restart
+        // This re-sorts apps and refreshes UI immediately without requiring app restart
+        DispatchQueue.main.async { [weak self] in
+            guard let self = self else { return }
+            // Refresh the ViewModel data to update the UI
+            self.refreshData()
+        }
     }
 
     func thresholdValue(for category: AppUsage.AppCategory) -> Int {
@@ -298,6 +325,8 @@ class AppUsageViewModel: ObservableObject {
         errorMessage = nil
         // Reset the family selection to allow re-picking
         familySelection = .init()
+        // TASK 12 REVISED: Update sorted applications snapshot after reset
+        updateSortedApplications()
     }
 
     /// Request authorization BEFORE opening FamilyActivityPicker
@@ -433,6 +462,8 @@ class AppUsageViewModel: ObservableObject {
         pickerLoadingTimeout = false
         pickerError = nil
         pickerRetryCount = 0  // Reset retry count on successful selection
+        // TASK 12 REVISED: Update sorted applications snapshot when picker selection changes
+        updateSortedApplications()
     }
     
     /// Open category assignment view for adjusting existing categories
@@ -458,6 +489,8 @@ func configureWithTestApplications() {
     print("[AppUsageViewModel] Configuring with test applications")
     #endif
     service.configureWithTestApplications()
+    // TASK 12 REVISED: Update sorted applications snapshot after test configuration
+    updateSortedApplications()
 }
 #endif
     
@@ -493,6 +526,9 @@ func configureWithTestApplications() {
             rewardPoints: rewardPoints,
             thresholds: thresholds.isEmpty ? nil : thresholds
         )
+        
+        // TASK 12 REVISED: Update sorted applications snapshot after configuring monitoring
+        updateSortedApplications()
     }
     
     /// Format time interval for display
@@ -518,7 +554,8 @@ func configureWithTestApplications() {
         print("[AppUsageViewModel] Family selection has \(familySelection.applications.count) apps")
         #endif
 
-        for (index, application) in familySelection.applications.enumerated() {
+        // TASK 12 REVISED: Use sorted applications snapshot to ensure consistent iteration order
+        for (index, application) in sortedApplications.enumerated() {
             guard let token = application.token else {
                 #if DEBUG
                 print("[AppUsageViewModel]   App \(index): No token, skipping")
@@ -687,5 +724,17 @@ func configureWithTestApplications() {
     /// Get shield status for display
     func getShieldStatus() -> (blocked: Int, accessible: Int) {
         return service.getShieldStatus()
+    }
+}
+
+// MARK: - FamilyActivitySelection Extension for Consistent Sorting
+extension FamilyActivitySelection {
+    /// Returns applications sorted by token hash value for consistent iteration order
+    /// This ensures consistency with ScreenTimeService sorting
+    func sortedApplications() -> [Application] {
+        return self.applications.sorted { app1, app2 in
+            guard let token1 = app1.token, let token2 = app2.token else { return false }
+            return token1.hashValue < token2.hashValue
+        }
     }
 }

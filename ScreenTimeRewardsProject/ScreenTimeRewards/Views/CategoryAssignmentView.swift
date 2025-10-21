@@ -30,7 +30,8 @@ struct CategoryAssignmentView: View {
                 }
 
                 Section(header: Text("Selected Apps (\(selection.applications.count))")) {
-                    ForEach(Array(selection.applications.enumerated()), id: \.element.token) { index, app in
+                    // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
+                    ForEach(Array(selection.sortedApplications().enumerated()), id: \.element.token) { index, app in
                         if let token = app.token {
                             VStack(alignment: .leading, spacing: 8) {
                                 // Use Label(token) to show actual app name and icon
@@ -162,8 +163,9 @@ struct CategoryAssignmentView: View {
                     .foregroundColor(.secondary)
             }
             
-            ForEach(Array(localRewardPoints.keys), id: \.self) { token in
-                if let app = selection.applications.first(where: { $0.token == token }),
+            // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
+            ForEach(Array(selection.sortedApplications()), id: \.token) { app in
+                if let token = app.token,
                    let points = localRewardPoints[token] {
                     HStack {
                         if #available(iOS 15.2, *) {
@@ -184,7 +186,8 @@ struct CategoryAssignmentView: View {
 
     private func initializeAssignments() {
         // Initialize with existing assignments or defaults
-        for app in selection.applications {
+        // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
+        for app in selection.sortedApplications() {
             if let token = app.token {
                 // Use fixedCategory if provided, otherwise use existing or default
                 let category = fixedCategory ?? categoryAssignments[token] ?? .learning
