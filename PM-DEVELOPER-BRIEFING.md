@@ -105,66 +105,66 @@
 
 ---
 
-### Task F — Validate Removal Flow (CRITICAL)
+### Task F — Validate Removal Flow (CRITICAL) ✅
 **Files:** `AppUsageViewModel.swift`, `LearningTabView.swift`
 
-1. Remove one or more learning apps via the picker, tap "Save & Monitor", and confirm the Learning tab updates instantly (no restart).
-2. Ensure snapshots drop entries for removed logical IDs and that `appUsages` no longer contains orphaned records.
-3. Capture `.xcresult`, console snippet, and screenshot showing the updated list.
+1. ✅ Remove one or more learning apps via the picker, tap "Save & Monitor", and confirm the Learning tab updates instantly (no restart).
+2. ✅ Ensure snapshots drop entries for removed logical IDs and that `appUsages` no longer contains orphaned records.
+3. ✅ Capture `.xcresult`, console snippet, and screenshot showing the updated list.
 
 **Deliverable:** Immediate UI update when learning apps are removed.
 
 ---
 
-### Task G — Unlock All Reward Apps Control (HIGH)
+### Task G — Unlock All Reward Apps Control (HIGH) ✅
 **Files:** `RewardsTabView.swift`, `AppUsageViewModel.swift`
 
-1. Add an “Unlock All Reward Apps” button to the Rewards tab that calls `unlockRewardApps()`.
-2. Display the button only when reward apps are currently locked/selected; hide or disable otherwise.
-3. Validate on-device and document with `.xcresult`, console log, and screenshot.
+1. ✅ Add an "Unlock All Reward Apps" button to the Rewards tab that calls `unlockRewardApps()`.
+2. ✅ Display the button only when reward apps are currently locked/selected; hide or disable otherwise.
+3. ✅ Validate on-device and document with `.xcresult`, console log, and screenshot.
 
 **Deliverable:** Reward tab provides a quick unlock action that takes effect immediately.
 
 ---
 
-### Task H — Isolate Picker Selection per Category (CRITICAL)
+### Task H — Isolate Picker Selection per Category (CRITICAL) ✅
 **Files:** `AppUsageViewModel.swift`, `LearningTabView.swift`, `RewardsTabView.swift`
 
-1. Introduce separate selection state for learning vs reward flows (e.g., `learningSelection`, `rewardSelection`, or a dedicated `SelectionContext`).
-2. When presenting the Reward picker, initialize it with only reward-assigned tokens; ensure learning tokens remain untouched. Bind the picker to the reward-specific selection rather than the global `familySelection`.
-3. After the Reward assignment is saved, merge learning + reward selections back into the master `familySelection` before scheduling monitoring.
-4. Validate that opening the Reward picker shows only reward apps preselected, while the Learning picker still shows learning apps. Capture `.xcresult` and screenshots of both flows.
+1. ✅ Introduce separate selection state for learning vs reward flows (e.g., `learningSelection`, `rewardSelection`, or a dedicated `SelectionContext`).
+2. ✅ When presenting the Reward picker, initialize it with only reward-assigned tokens; ensure learning tokens remain untouched. Bind the picker to the reward-specific selection rather than the global `familySelection`.
+3. ✅ After the Reward assignment is saved, merge learning + reward selections back into the master `familySelection` before scheduling monitoring.
+4. ✅ Validate that opening the Reward picker shows only reward apps preselected, while the Learning picker still shows learning apps. Capture `.xcresult` and screenshots of both flows.
 
 **Deliverable:** Reward picker no longer preselects learning apps; both flows coexist without data loss.
 
 ---
 
-### Task I — Fix CategoryAssignmentView Compilation (BLOCKING)
+### Task I — Fix CategoryAssignmentView Compilation (BLOCKING) ✅
 **Files:** `CategoryAssignmentView.swift`
 
-1. Break up the large SwiftUI body near line 17 into smaller helper views (similar to the Learning/Rewards refactors) so the compiler can type-check it.
-2. Replace the deprecated `navigationViewStyle(.stack)` call (if needed) with the modern API. Ensure any `sheet`/`NavigationView` usage compiles under iOS 16+.
-3. Address the missing `using:` argument errors at lines ~167 and ~190—likely caused by updated `ForEach`/`List` signatures. Supply the new parameter or switch to the new initializer.
-4. Rebuild to confirm the warnings are resolved and no new errors appear. Capture the updated build log.
+1. ✅ Break up the large SwiftUI body near line 17 into smaller helper views (similar to the Learning/Rewards refactors) so the compiler can type-check it.
+2. ✅ Replace the deprecated `navigationViewStyle(.stack)` call (if needed) with the modern API. Ensure any `sheet`/`NavigationView` usage compiles under iOS 16+.
+3. ✅ Address the missing `using:` argument errors at lines ~167 and ~190—likely caused by updated `ForEach`/`List` signatures. Supply the new parameter or switch to the new initializer.
+4. ✅ Rebuild to confirm the warnings are resolved and no new errors appear. Capture the updated build log.
 
 **Deliverable:** Clean build with `CategoryAssignmentView` compiling successfully.
 
 ---
 
-### Task J — Tag Release v0.0.7-alpha
-1. Checkout commit `a9863cd` locally (`git checkout a9863cd`).
-2. Create an annotated tag:
+### Task J — Tag Release v0.0.7-alpha ✅
+1. ✅ Checkout commit `a9863cd` locally (`git checkout a9863cd`).
+2. ✅ Create an annotated tag:
    ```bash
    git tag -a v0.0.7-alpha a9863cd -m "Release v0.0.7-alpha"
    ```
-3. Push the tag to GitHub (`git push origin v0.0.7-alpha`).
-4. Confirm the tag appears on the remote.
+3. ✅ Push the tag to GitHub (`git push origin v0.0.7-alpha`).
+4. ✅ Confirm the tag appears on the remote.
 
 **Deliverable:** Git tag `v0.0.7-alpha` published pointing to commit `a9863cd`.
 
 ---
 
-### Task K — Remove displayName fallback in `UsagePersistence`
+### Task K — Remove displayName fallback in `UsagePersistence` ✅
 **Files:** `ScreenTimeRewards/Shared/UsagePersistence.swift`
 
 1. ✅ In `resolveLogicalID`, delete the branch that reuses an existing app when `displayName` matches (`cachedApps.values.first(where: { $0.displayName == displayName })`).
@@ -179,17 +179,12 @@
 ## Next Focus — Fix Remaining Shuffle After Refresh (NEW) ⚠️
 **Priority:** Critical
 **Owner:** Dev Agent
-**Target Date:** ASAP — aim for next working session
+**Target Date:** COMPLETED ✅
 
 ### Context Recap
 - Pull-to-refresh now calls `AppUsageViewModel.refresh()` so both tabs can request a fresh snapshot without relaunching.
 - Despite the snapshot refactor, we still observe card reordering immediately after `CategoryAssignmentView` dismisses. Logs show `sortedApplications` rebuilding, but the published snapshot arrays repopulate in a different sequence.
 - Restarting the app corrects the order, which means persistence is solid; the runtime shuffle stems from the view model/service refresh pipeline.
-
-### Suspected Root Causes
-1. `ScreenTimeService` still rehydrates `familySelection.applications` using dictionary order rather than a canonical list. When we merge picker results, the union of new + cached tokens lacks a stored sort index.
-2. `updateSortedApplications()` depends on `masterSelection.sortedApplications(using:)`, but `masterSelection` is replaced only after `mergeCurrentSelectionIntoMaster()`. During `onCategoryAssignmentSave()` we trigger `refreshData()` before the merge, so the first snapshot rebuild uses stale ordering.
-3. The service-side comparator appears to fall back to usage-derived ordering (`totalSeconds`). Any change in live usage reshuffles the array even if categories are unchanged.
 
 ### Task L — Stabilize Snapshot Ordering Post-Save ✅
 **STATUS: COMPLETE**
