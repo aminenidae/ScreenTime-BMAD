@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-21
+**Last Updated:** 2025-10-22
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 2 - Core Features Implementation Complete
@@ -424,6 +424,35 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 **Code Locations**:
 - `AppUsageViewModel.swift` (new `areRewardAppsShielded` property and `updateShieldStatus()` method)
 - `RewardsTabView.swift` (updated button visibility logic)
+
+---
+
+### 14. Duplicate App Assignment Prevention (Task M - Resolved Oct 22) 🚧
+
+**Issue**: Users could accidentally assign the same app to both Learning and Reward categories, causing data conflicts and UI issues.
+
+**Root Cause**: The category assignment validation did not check for duplicate assignments between categories.
+
+**Resolution (Task M - Oct 22)**: Implemented duplicate assignment prevention with the following features:
+1. **Validation Logic**: Added `hasDuplicateAssignments()` method in `AppUsageViewModel` to detect apps assigned to both categories
+2. **User-Friendly Error Messages**: Dynamic error messages that specify which app is duplicated and in which categories
+3. **Visual Error Display**: Added error section in `CategoryAssignmentView` with warning icon and orange background
+4. **Save Blocking**: Prevents "Save & Monitor" action when duplicates are detected, keeping the assignment sheet open
+5. **Automatic Error Clearing**: Clears error when conflicts are resolved
+
+**Implementation Details**:
+- Added `@Published var duplicateAssignmentError: String?` to `AppUsageViewModel`
+- Created `validateAndHandleAssignments()` method to check for duplicates before saving
+- Modified `handleSave()` in `CategoryAssignmentView` to call validation
+- Added error display section in the CategoryAssignmentView UI
+- Used NotificationCenter to communicate errors between ViewModel and View
+
+**Status**: ✅ Duplicate app assignments are now prevented with clear user feedback
+
+**Code Locations**:
+- `AppUsageViewModel.swift` (new validation methods and error property)
+- `CategoryAssignmentView.swift` (error display and validation integration)
+- `AppUsageView.swift` (environment object passing)
 
 ---
 
@@ -1218,7 +1247,7 @@ let points = calculateCustomPoints(usage: appUsage, multiplier: 1.5) // 1.5x wee
 
 ### Example 3: Add New Notification Type
 
-```swift
+```
 // 1. Add to ScreenTimeNotifications.swift
 extension Notification.Name {
     static let pointsBalanceChanged = Notification.Name("ScreenTimeService.pointsBalanceChanged")

@@ -235,6 +235,8 @@ struct AppUsageView: View {
                     viewModel.cancelCategoryAssignment()
                 }
             )
+            // Task M: Pass ViewModel reference to CategoryAssignmentView for duplicate assignment validation
+            .environmentObject(viewModel)
         }
     }
 }

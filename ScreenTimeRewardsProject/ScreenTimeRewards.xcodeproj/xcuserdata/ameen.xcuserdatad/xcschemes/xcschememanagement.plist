@@ -7,12 +7,12 @@
 		<key>ScreenTimeActivityExtension.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>1</integer>
+			<integer>0</integer>
 		</dict>
 		<key>ScreenTimeRewards.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>0</integer>
+			<integer>1</integer>
 		</dict>
 		<key>ScreenTimeShieldConfiguration.xcscheme_^#shared#^_</key>
 		<dict>

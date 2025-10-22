@@ -203,6 +203,9 @@
 3. **Fix ViewModel sequencing issues.**
    - Modified `onCategoryAssignmentSave()` to update sorted applications BEFORE calling `configureMonitoring()` and ensure `masterSelection` reflects the merged selection before any refresh occurs.
    - Updated `mergeCurrentSelectionIntoMaster()` to immediately update sorted applications after master selection changes.
+
+---
+
 4. **Enhanced snapshot updates with proper timing.**
    - Ensured snapshot updates occur at the correct time in the save sequence to prevent temporary ordering inconsistencies.
 5. **Re-run instrumentation & validation.**
@@ -215,6 +218,33 @@
 - ✅ Console logs show the same hash ordering pre/post save with no logical-ID swaps.
 - ✅ Updated tests run without touching real App Group data.
 - ✅ Findings documented in `DEVELOPMENT_PROGRESS.md` with timestamps and linked `.xcresult` files.
+
+---
+
+### Task M — Block Duplicate App Assignments Between Tabs 🚧
+**STATUS: COMPLETE ✅**
+
+1. In `AppUsageViewModel.onCategoryAssignmentSave()`, check each selected token before saving. If a token already lives in the other category, keep the sheet open instead of merging assignments.
+2. Surface an inline alert that says, `"<App Name> is already in the <Category> list. You can't pick it in the <Other Category> list."` Swap the category names dynamically so the copy matches the actual conflict (Learning vs Reward).
+3. Clear the alert as soon as the conflict is resolved and allow the normal `Save & Monitor` path to continue.
+4. Handle both directions (learning-to-reward and reward-to-learning) so duplicate apps never slip into persistence or the running monitors.
+
+**Definition of Done:** Tapping "Save & Monitor" with a duplicate selection shows the warning and keeps the assignment sheet open until the parent fixes the overlap; once the conflict is cleared, the flow behaves exactly as it does today.
+
+**Implementation Details:**
+- Added `@Published var duplicateAssignmentError: String?` to `AppUsageViewModel`
+- Implemented `hasDuplicateAssignments()` method to detect conflicts
+- Created `validateAndHandleAssignments()` method for validation logic
+- Modified `handleSave()` in `CategoryAssignmentView` to prevent saving when duplicates exist
+- Added visual error display in `CategoryAssignmentView` with warning icon and orange background
+- Used NotificationCenter to communicate errors between ViewModel and View
+- Passed ViewModel reference to CategoryAssignmentView through environment object
+
+**Files Modified:**
+- `ScreenTimeRewardsProject/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/CategoryAssignmentView.swift`
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/AppUsageView.swift`
+- `ScreenTimeRewardsProject/DEVELOPMENT_PROGRESS.md`
 
 ---
 

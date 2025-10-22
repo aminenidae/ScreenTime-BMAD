@@ -11,6 +11,8 @@ struct CategoryAssignmentEntry: Identifiable {
 
 struct CategoryAssignmentView: View {
     @Environment(\.dismiss) private var dismiss
+    // Task M: Access the ViewModel through environment
+    @EnvironmentObject var viewModel: AppUsageViewModel
 
     let selection: FamilyActivitySelection
     @Binding var categoryAssignments: [ApplicationToken: AppUsage.AppCategory]
@@ -22,6 +24,9 @@ struct CategoryAssignmentView: View {
 
     @State private var localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @State private var localRewardPoints: [ApplicationToken: Int] = [:]
+    
+    // Task M: Access the view model to get duplicate assignment errors
+    @State private var duplicateAssignmentError: String?
 
     private let usagePersistence = UsagePersistence()
 
@@ -38,6 +43,10 @@ struct CategoryAssignmentView: View {
         NavigationView {
             List {
                 headerSection
+                // Task M: Add duplicate assignment error display
+                if let error = duplicateAssignmentError {
+                    errorSection(error)
+                }
                 applicationsSection
                 Section { categorySummary }
                 Section { rewardPointsSummary }
@@ -46,7 +55,33 @@ struct CategoryAssignmentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .onAppear(perform: initializeAssignments)
+            // Task M: Listen for duplicate assignment errors
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DuplicateAssignmentError"))) { notification in
+                if let errorMessage = notification.object as? String {
+                    duplicateAssignmentError = errorMessage
+                }
+            }
         }
+    }
+    
+    // Task M: Add error section to display duplicate assignment errors
+    private func errorSection(_ error: String) -> some View {
+        Section {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundColor(.orange)
+                    Text("Assignment Conflict")
+                        .font(.headline)
+                        .foregroundColor(.orange)
+                }
+                Text(error)
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .padding(.vertical, 4)
+        }
+        .listRowBackground(Color.orange.opacity(0.1))
     }
 
     private var categorySummary: some View {
@@ -273,6 +308,14 @@ private extension CategoryAssignmentView {
     func handleSave() {
         categoryAssignments = localCategoryAssignments
         rewardPoints = localRewardPoints
+        
+        // Task M: Validate assignments before saving
+        if !viewModel.validateAndHandleAssignments() {
+            // Validation failed due to duplicates - don't dismiss the sheet
+            // The error message will be shown in the UI
+            return
+        }
+        
         onSave()
         dismiss()
     }

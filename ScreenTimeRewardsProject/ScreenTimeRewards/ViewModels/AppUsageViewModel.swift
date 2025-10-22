@@ -382,6 +382,21 @@ class AppUsageViewModel: ObservableObject {
         }
         #endif
 
+        // Task M: Check for duplicate assignments before proceeding
+        if hasDuplicateAssignments() {
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Duplicate assignments detected, aborting save")
+            #endif
+            
+            // Post notification to display error in UI
+            NotificationCenter.default.post(
+                name: NSNotification.Name("DuplicateAssignmentError"),
+                object: duplicateAssignmentError
+            )
+            
+            return
+        }
+
         // INSTRUMENTATION: Log view-model snapshots before calling configureMonitoring
         #if DEBUG
         print("[AppUsageViewModel] === VIEW MODEL SNAPSHOT BEFORE configureMonitoring ===")
@@ -1031,3 +1046,85 @@ func configureWithTestApplications() {
 }
 
 // MARK: - FamilyActivitySelection Extension for Consistent Sorting
+
+}
+
+// MARK: - Task M: Duplicate Assignment Prevention
+extension AppUsageViewModel {
+    /// Check for duplicate app assignments between categories before saving
+    /// Task M: Block Duplicate App Assignments Between Tabs
+    private func hasDuplicateAssignments() -> Bool {
+        // Clear any previous error
+        duplicateAssignmentError = nil
+        
+        // Get tokens for each category
+        let learningTokens = Set(categoryAssignments.filter { $0.value == .learning }.map { $0.key })
+        let rewardTokens = Set(categoryAssignments.filter { $0.value == .reward }.map { $0.key })
+        
+        // Check for intersection (apps assigned to both categories)
+        let duplicates = learningTokens.intersection(rewardTokens)
+        
+        if !duplicates.isEmpty {
+            // Find the first duplicate app name for the error message
+            if let firstDuplicateToken = duplicates.first,
+               let application = masterSelection.applications.first(where: { $0.token == firstDuplicateToken }),
+               let displayName = application.localizedDisplayName {
+                // Determine which category the app is already in
+                let existingCategory: AppUsage.AppCategory = learningTokens.contains(firstDuplicateToken) ? .learning : .reward
+                let conflictingCategory: AppUsage.AppCategory = existingCategory == .learning ? .reward : .learning
+                
+                duplicateAssignmentError = "\"\(displayName)\" is already in the \(existingCategory.rawValue) list. You can't pick it in the \(conflictingCategory.rawValue) list."
+            } else {
+                duplicateAssignmentError = "An app is assigned to both Learning and Reward categories. Please fix the conflict."
+            }
+            
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Duplicate assignment detected: \(duplicates.count) apps assigned to both categories")
+            for token in duplicates {
+                if let application = masterSelection.applications.first(where: { $0.token == token }),
+                   let displayName = application.localizedDisplayName {
+                    print("[AppUsageViewModel]   Duplicate: \(displayName) (token hash: \(token.hashValue))")
+                }
+            }
+            #endif
+            
+            return true
+        }
+        
+        return false
+    }
+    
+    /// Validate assignments and handle duplicates
+    /// Task M: Block Duplicate App Assignments Between Tabs
+    func validateAndHandleAssignments() -> Bool {
+        // Check for duplicates
+        if hasDuplicateAssignments() {
+            #if DEBUG
+            print("[AppUsageViewModel] ⚠️ Duplicate assignments found, blocking save")
+            #endif
+            return false
+        }
+        
+        // Clear any previous error if validation passes
+        duplicateAssignmentError = nil
+        return true
+    }
+}
+
+private extension CategoryAssignmentView {
+    func handleSave() {
+        categoryAssignments = localCategoryAssignments
+        rewardPoints = localRewardPoints
+        
+        // Task M: Validate assignments before saving
+        if let viewModel = (UIApplication.shared.delegate as? ScreenTimeRewardsApp.AppDelegate)?.viewModel,
+           !viewModel.validateAndHandleAssignments() {
+            // Validation failed due to duplicates - don't dismiss the sheet
+            // The error message will be shown in the UI
+            return
+        }
+        
+        onSave()
+        dismiss()
+    }
+}
