@@ -4,13 +4,16 @@ import FamilyControls
 import ManagedSettings
 
 // Snapshot structs for deterministic ordering
+// TASK L: Update snapshot structs to use token hash as ID for stability
 struct LearningAppSnapshot: Identifiable {
     let token: ManagedSettings.ApplicationToken
     let logicalID: String
     let displayName: String
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
-    var id: String { logicalID }
+    // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
+    var id: String { tokenHash }
+    let tokenHash: String
 }
 
 struct RewardAppSnapshot: Identifiable {
@@ -19,7 +22,9 @@ struct RewardAppSnapshot: Identifiable {
     let displayName: String
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
-    var id: String { logicalID }
+    // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
+    var id: String { tokenHash }
+    let tokenHash: String
 }
 
 /// View model to manage app usage data for the UI
@@ -53,6 +58,8 @@ class AppUsageViewModel: ObservableObject {
     @Published private(set) var rewardSnapshots: [RewardAppSnapshot] = []
 
     private let service: ScreenTimeService
+    private var masterSelection: FamilyActivitySelection
+    private var activePickerContext: PickerContext?
     private var cancellables = Set<AnyCancellable>()
     private let defaultThresholdMinutes = 1
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
@@ -92,11 +99,29 @@ class AppUsageViewModel: ObservableObject {
             }
     }
     
+    func presentLearningPicker() {
+        activePickerContext = .learning
+        familySelection = selection(for: .learning)
+        requestAuthorizationAndOpenPicker()
+    }
+
+    func presentRewardPicker() {
+        activePickerContext = .reward
+        familySelection = selection(for: .reward)
+        requestAuthorizationAndOpenPicker()
+    }
+    
+    enum PickerContext {
+        case learning
+        case reward
+    }
+
     init(service: ScreenTimeService = .shared) {
         self.service = service
 
         // Load from shared service
         self.familySelection = service.familySelection
+        self.masterSelection = service.familySelection
 
         #if DEBUG
         print("[AppUsageViewModel] Initializing...")
@@ -194,8 +219,8 @@ class AppUsageViewModel: ObservableObject {
 
     // TASK 12 REVISED: Create updateSortedApplications method
     private func updateSortedApplications() {
-        // Use the existing sorting extension
-        self.sortedApplications = familySelection.sortedApplications(using: service.usagePersistence)
+        // Use the master selection (union of all apps) for deterministic ordering
+        self.sortedApplications = masterSelection.sortedApplications(using: service.usagePersistence)
         
         #if DEBUG
         print("[AppUsageViewModel] 🔄 Updated sorted applications snapshot: \(sortedApplications.count) apps")
@@ -246,6 +271,7 @@ class AppUsageViewModel: ObservableObject {
             let pointsPerMinute = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
             
             // Create appropriate snapshot based on category
+            // TASK L: Include tokenHash in snapshot creation
             switch category {
             case .learning:
                 let snapshot = LearningAppSnapshot(
@@ -253,7 +279,8 @@ class AppUsageViewModel: ObservableObject {
                     logicalID: logicalID,
                     displayName: displayName,
                     pointsPerMinute: pointsPerMinute,
-                    totalSeconds: totalSeconds
+                    totalSeconds: totalSeconds,
+                    tokenHash: tokenHash
                 )
                 newLearningSnapshots.append(snapshot)
             case .reward:
@@ -262,7 +289,8 @@ class AppUsageViewModel: ObservableObject {
                     logicalID: logicalID,
                     displayName: displayName,
                     pointsPerMinute: pointsPerMinute,
-                    totalSeconds: totalSeconds
+                    totalSeconds: totalSeconds,
+                    tokenHash: tokenHash
                 )
                 newRewardSnapshots.append(snapshot)
             }
@@ -274,6 +302,15 @@ class AppUsageViewModel: ObservableObject {
         
         #if DEBUG
         print("[AppUsageViewModel] 🔄 Updated snapshots - Learning: \(newLearningSnapshots.count), Reward: \(newRewardSnapshots.count)")
+        // TASK L: Add targeted diagnostics to verify ordering stability
+        let learningLogicalIDs = newLearningSnapshots.map(\.logicalID)
+        let rewardLogicalIDs = newRewardSnapshots.map(\.logicalID)
+        let learningTokenHashes = newLearningSnapshots.map(\.tokenHash)
+        let rewardTokenHashes = newRewardSnapshots.map(\.tokenHash)
+        print("[AppUsageViewModel] 📋 Learning snapshot logical IDs: \(learningLogicalIDs)")
+        print("[AppUsageViewModel] 📋 Learning snapshot token hashes: \(learningTokenHashes)")
+        print("[AppUsageViewModel] 📋 Reward snapshot logical IDs: \(rewardLogicalIDs)")
+        print("[AppUsageViewModel] 📋 Reward snapshot token hashes: \(rewardTokenHashes)")
         #endif
     }
     
@@ -284,6 +321,52 @@ class AppUsageViewModel: ObservableObject {
         case .reward:
             return 10
         }
+    }
+    
+    private func mergeCurrentSelectionIntoMaster() {
+        guard let context = activePickerContext else {
+            masterSelection = familySelection
+            // TASK L: Ensure sorted applications are updated after master selection change
+            updateSortedApplications()
+            return
+        }
+
+        var merged = masterSelection
+        let currentTokens = familySelection.applicationTokens
+
+        let retainedTokens = merged.applicationTokens.filter { token in
+            let category = categoryAssignments[token] ?? .learning
+            switch context {
+            case .learning:
+                return category == .reward
+            case .reward:
+                return category == .learning
+            }
+        }
+
+        var combinedTokens = Set(retainedTokens)
+        combinedTokens.formUnion(currentTokens)
+        merged.applicationTokens = combinedTokens
+
+        // Preserve category/web domain selections as-is for now
+        merged.categoryTokens = masterSelection.categoryTokens
+        merged.webDomainTokens = masterSelection.webDomainTokens
+
+        masterSelection = merged
+        familySelection = merged
+        activePickerContext = nil
+        
+        // TASK L: Ensure sorted applications are updated after master selection change
+        updateSortedApplications()
+    }
+    
+    private func selection(for category: AppUsage.AppCategory) -> FamilyActivitySelection {
+        var result = FamilyActivitySelection()
+        let filteredTokens = masterSelection.applicationTokens.filter { token in
+            categoryAssignments[token] == category
+        }
+        result.applicationTokens = Set(filteredTokens)
+        return result
     }
     
     /// Handle category assignment completion
@@ -307,16 +390,25 @@ class AppUsageViewModel: ObservableObject {
         #endif
         // END INSTRUMENTATION
 
-        // CRITICAL: Persist FamilyActivitySelection first so tokens can be restored
+        // TASK L: Fix ViewModel sequencing - update sorted applications BEFORE merging
+        updateSortedApplications()
+        
+        // CRITICAL: Merge current picker context back into master selection before persisting
+        mergeCurrentSelectionIntoMaster()
+
+        // Persist FamilyActivitySelection so tokens can be restored
         service.persistFamilySelection(familySelection)
 
         // Then persist assignments and points
         saveCategoryAssignments()
         saveRewardPoints()
-        configureMonitoring()
         
-        // TASK 12 REVISED: Update sorted applications snapshot after save & monitor
+        // TASK L: Update sorted applications snapshot BEFORE calling configureMonitoring
+        // This ensures the snapshots use the correct ordering when building monitored events
         updateSortedApplications()
+        
+        configureMonitoring()
+        masterSelection = familySelection
         
         // INSTRUMENTATION: Log view-model snapshots after service call completes
         #if DEBUG
@@ -326,13 +418,19 @@ class AppUsageViewModel: ObservableObject {
         #endif
         // END INSTRUMENTATION
         
-        // TASK 12 REVISED: Trigger UI refresh after save & monitor to eliminate need for restart
+        // TASK L: Trigger UI refresh after save & monitor to eliminate need for restart
         // This re-sorts apps and refreshes UI immediately without requiring app restart
         DispatchQueue.main.async { [weak self] in
             guard let self = self else { return }
             // Refresh the ViewModel data to update the UI
             self.refreshData()
         }
+    }
+
+    func cancelCategoryAssignment() {
+        familySelection = masterSelection
+        activePickerContext = nil
+        updateSortedApplications()
     }
 
     /// INSTRUMENTATION: Add helper method to log view-model snapshots
@@ -442,13 +540,19 @@ class AppUsageViewModel: ObservableObject {
         updateCategoryTotals()
         updateTotalRewardPoints()
         updateCategoryRewardPoints()
-        // Rebuild snapshots when data is refreshed
-        updateSnapshots()
+        // Refresh sorted applications and snapshots after pulling new data
+        updateSortedApplications()
     }
     
     /// Called when usage data changes
     private func usageDidChange() {
         // Refresh data and rebuild snapshots
+        refreshData()
+    }
+
+    /// Support async refresh triggers (e.g., pull-to-refresh)
+    @MainActor
+    func refresh() async {
         refreshData()
     }
     
@@ -515,6 +619,7 @@ class AppUsageViewModel: ObservableObject {
         errorMessage = nil
         // Reset the family selection to allow re-picking
         familySelection = .init()
+        masterSelection = .init()
         // TASK 12 REVISED: Update sorted applications snapshot after reset
         updateSortedApplications()
     }
@@ -638,7 +743,15 @@ class AppUsageViewModel: ObservableObject {
 
         // Wait a moment then try again
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            self?.requestAuthorizationAndOpenPicker()
+            guard let self = self else { return }
+            switch self.activePickerContext {
+            case .learning:
+                self.presentLearningPicker()
+            case .reward:
+                self.presentRewardPicker()
+            case nil:
+                self.requestAuthorizationAndOpenPicker()
+            }
         }
     }
 

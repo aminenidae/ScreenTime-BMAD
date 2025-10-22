@@ -1604,11 +1604,12 @@ private final class ScreenTimeActivityMonitor: DeviceActivityMonitor {
 extension FamilyActivitySelection {
     /// Returns applications sorted by token hash for consistent iteration order
     /// This fixes the Set reordering bug that causes data shuffling when adding new apps
+    /// TASK L: Ensure deterministic sorting using token hash
     func sortedApplications(using usagePersistence: UsagePersistence) -> [Application] {
         return self.applications.sorted { app1, app2 in
             guard let token1 = app1.token, let token2 = app2.token else { return false }
-            let hash1 = usagePersistence.getTokenArchiveHash(for: token1)
-            let hash2 = usagePersistence.getTokenArchiveHash(for: token2)
+            let hash1 = usagePersistence.tokenHash(for: token1)
+            let hash2 = usagePersistence.tokenHash(for: token2)
             return hash1 < hash2
         }
     }

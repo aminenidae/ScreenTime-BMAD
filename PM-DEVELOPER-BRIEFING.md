@@ -1,560 +1,264 @@
 # PM-Developer Briefing Document
 **Project:** ScreenTime Rewards App
-**Date:** 2025-10-20
-**PM:** Claude (Analysis & Documentation)
-**Developer:** Code Agent (Implementation Only)
+**Date:** 2025-10-20 (12:55 PM)
+**PM:** GPT-5 (acting PM)
+**Developer:** Code Agent (implementation only)
 
 ---
 
 ## 🎯 Current Sprint Goal
 
-**Fix the Set reordering bug that shuffles app data when adding new apps to the selection.**
+**Eliminate the immediate post-"Save & Monitor" shuffle on the Learning and Rewards tabs by introducing deterministic, snapshot-based ordering across service, view model, and SwiftUI layers.**
 
 ---
 
-## 📊 Current State Analysis - UPDATED 2025-10-20
+## 📊 Current State Analysis
 
 ### What's Working ✅
-1. ✅ **Token-based persistence** - Data survives app restarts perfectly
-2. ✅ **Background tracking** - Usage tracked even when app is closed
-3. ✅ **Data restoration** - All data correctly restored after app restart
-4. ✅ **Monitoring auto-restart** - DeviceActivity monitoring works across sessions
-5. ✅ **Token mapping stability** - UUIDs correctly assigned and preserved
+1. **Token persistence** survives cold launches; usage totals reload correctly.
+2. **Background tracking** records usage while the UI is closed.
+3. **Monitoring auto-restart** (DeviceActivity) continues after relaunches.
+4. **UUID collision** was resolved on Oct 19; new apps now start at 0 s / 0 pts.
+5. **Rewards/Learning tab refactors** (Oct 20 morning) compile cleanly after we broke the giant SwiftUI bodies into helper builders.
 
-### Critical Bug Identified 🔴
-**THE SET REORDERING BUG DURING APP ADDITION**
+### What's Broken 🔴
+- **UI shuffle persists after "Save & Monitor".** Reproduced again at 12:45 PM: logs show ScreenTimeService delivering correct app data, but the SwiftUI lists reorder cards right after the save action. Restarting the app restores the correct mapping, so persistence is fine; the live ordering is not.
 
-**Symptom:** When adding a new app to existing selection, the data shuffles between existing apps in the UI.
-
-**Recovery:** Data corrects itself after app restart (proves persistence is working).
-
-**Test Results:**
-- ✅ Background tracking: PASS - Usage tracked while app closed
-- ✅ Data persistence: PASS - Data survives restarts
-- ✅ Multi-restart stability: PASS - Data stable across multiple restarts
-- 🔴 Add new app: FAIL - Data shuffles between existing apps
-- ✅ Restart after add: PASS - Data corrects itself
+### Summary of Root Cause
+- `categoryAssignments` and `rewardPoints` are dictionaries. When we filter them (`learningApps`, `rewardApps`) and enumerate, the order mirrors the dictionary's internal hashing, which changes whenever the selection Set mutates. The SwiftUI `ForEach` currently depends on that unstable order, so rows jump around as soon as we add/remove apps.
+- We must provide a **stable snapshot** (sorted array) sourced from the same ordering logic in both the service and the view model, then render strictly from that snapshot.
 
 ### Evidence
-- **Log 1 (Initial):** `Run-ScreenTimeRewards-2025.10.20_12-59-27--0500.xcresult`
-- **Log 3 (Shuffle):** `Run-ScreenTimeRewards-2025.10.20_13-08-04--0500.xcresult`
-- **Log 4 (Recovery):** `Run-ScreenTimeRewards-2025.10.20_13-09-06--0500.xcresult`
-- **Pattern:** Set reorders when 3rd app added, causing position-based mismatch
+- `Run-ScreenTimeRewards-2025.10.19_12-39-58--0500.xcresult` – data loads correctly after refactor.
+- `Run-ScreenTimeRewards-2025.10.20_12-33-29--0500.xcresult` – shows correct usage recorded prior to relaunch.
+- `Run-ScreenTimeRewards-2025.10.20_12-39-58--0500.xcresult` + 12:41 PM screenshot – demonstrates persistence is stable but order still shifts post-save.
+- Latest manual test (12:45 PM) confirmed shuffle still occurs immediately after pressing "Save & Monitor".
 
 ---
 
-## 🔍 Root Cause Analysis - UPDATED 2025-10-20
+## 📋 Developer Tasks – UPDATED 2025-10-20 12:55 PM
+**STATUS: IMPLEMENTATION COMPLETE ✅**
 
-### The Set Reordering Problem
+### Task A — Rebuild Snapshot Pipeline (CRITICAL) ✅
+**Files:** `ScreenTimeService.swift`, `AppUsageViewModel.swift`
 
-**What Happens:**
-```
-User adds new app to selection
-    ↓
-FamilyActivitySelection.applications Set gets modified
-    ↓
-Swift Set reorders internally (non-deterministic behavior)
-    ↓
-Set iteration order changes: [App A, App B] → [App B, App A, App C]
-    ↓
-UI displays apps based on iteration order ("Unknown App 0", "Unknown App 1")
-    ↓
-MISMATCH: What was "App 0" is now "App 1" in iteration order
-    ↓
-User sees data shuffle between apps
-```
+1. ✅ Keep the shared sorted helper (`tokenHash`-based) and ensure every service iteration uses it. Confirm we remove/replace existing `appUsages[logicalID]` entries instead of appending duplicates when `configureMonitoring` runs.
+2. ✅ Replace the token-only arrays with rich snapshot structs, e.g.:
+   ```swift
+   struct LearningAppSnapshot: Identifiable {
+       let token: ManagedSettings.ApplicationToken
+       let logicalID: String
+       let displayName: String
+       let pointsPerMinute: Int
+       let totalSeconds: TimeInterval
+       var id: String { logicalID }
+   }
+   ```
+3. ✅ Build `learningSnapshots` / `rewardSnapshots` from a single pass over the sorted applications: resolve logical ID via `usagePersistence`, pull usage from `appUsages[logicalID]` (default to zero), and look up the assigned points. No dictionary filtering/`enumerated()` calls.
+4. ✅ Refresh these snapshots whenever `familySelection`, `categoryAssignments`, or `rewardPoints` change so they stay in sync immediately after "Save & Monitor".
 
-### Log Evidence
-
-**Initial Setup (Log 1):**
-- Position 0: Logical ID `A075CBFA` (hash `8a82d44`), 10 pts/min
-- Position 1: Logical ID `21652C14` (hash `0dfa4c1`), 5 pts/min
-
-**After Adding 3rd App (Log 3 - SHUFFLE OCCURRED):**
-- Position 0: Logical ID `21652C14` (hash `0dfa4c1`) ← **SWAPPED**
-- Position 1: Logical ID `A075CBFA` (hash `8a82d44`) ← **SWAPPED**
-- Position 2: Logical ID `62E1E064` (hash `bc2cc8f`) ← NEW
-
-**After Restart (Log 4 - DATA CORRECT):**
-- Position 0: Logical ID `62E1E064`, 0s, 0pts ← New app
-- Position 1: Logical ID `A075CBFA`, 240s, 40pts ← **CORRECT DATA**
-- Position 2: Logical ID `21652C14`, 180s, 15pts ← **CORRECT DATA**
-
-**Conclusion:** Token-based persistence IS working (restart proves it). The issue is UI displaying apps based on Set iteration order instead of stable identifiers.
-
-### Why Restart Fixes It
-
-When the app restarts:
-1. Data loaded from persistent storage using token hashes ✅
-2. Set reorders again (different random order)
-3. But the token-based lookup correctly retrieves each app's data ✅
-4. UI displays correct data because it's using the fresh iteration order
-
-**The Real Problem:** UI relies on iteration order consistency, but Set doesn't guarantee this when modified.
+**Deliverable:** Deterministic snapshot arrays without duplicate logical IDs and matching service output.
 
 ---
 
-## 📋 DEVELOPER TASKS - UPDATED 2025-10-20
+### Task B — Render Directly from Snapshots (CRITICAL) ✅
+**Files:** `LearningTabView.swift`, `RewardsTabView.swift`
 
-### Task 6: Sort the Applications Set Before Iteration
-**Priority:** CRITICAL
-**File:** `ScreenTimeService.swift`
+1. ✅ Replace all `ForEach(Array(...enumerated()))` usage with `ForEach(viewModel.learningSnapshots)` / `.rewardSnapshots`, using `.id(\.id)` (logical ID) for stability.
+2. ✅ Bind each row directly to the snapshot fields (display name, formatted `totalSeconds`, `pointsPerMinute`, icon via `Label(token)`), eliminating any dictionary lookups or `getUsageTimes()` calls.
+3. ✅ Keep the helper-based view structure so the compiler stays happy.
 
-**Problem:** Swift Set iteration order is non-deterministic. When the Set is modified (adding/removing apps), the iteration order changes unpredictably.
-
-**Solution:** Convert the Set to a sorted array before iterating to ensure consistent ordering.
-
-**Implementation Required:**
-In `configureMonitoring()` method, before iterating through applications, sort them by token hash:
-
-```swift
-// BEFORE (current):
-for (index, application) in familySelection.applications.enumerated() {
-    // Processing...
-}
-
-// AFTER (fix):
-let sortedApplications = familySelection.applications.sorted { app1, app2 in
-    guard let token1 = app1.token, let token2 = app2.token else { return false }
-    let hash1 = usagePersistence.getTokenArchiveHash(for: token1)
-    let hash2 = usagePersistence.getTokenArchiveHash(for: token2)
-    return hash1 < hash2
-}
-
-for (index, application) in sortedApplications.enumerated() {
-    // Processing...
-}
-```
-
-**Files to Update:**
-- `ScreenTimeService.swift` - `configureMonitoring()` method
-- Any other method that iterates through `familySelection.applications`
-
-**Deliverable:** Code changes that ensure consistent iteration order
+**Deliverable:** SwiftUI lists that render once with correct data (no duplicate rows, no shuffling) immediately after "Save & Monitor".
 
 ---
 
-### Task 7: Apply Same Sort in ViewModel
-**Priority:** CRITICAL
-**File:** `AppUsageViewModel.swift`
+### Task C — Device Validation (MUST PASS) ⏳
+**STATUS: PENDING VALIDATION**
 
-**Problem:** ViewModel also iterates through applications Set. Must use same sorting to match ScreenTimeService.
+1. Configure three learning apps with distinct point/min values. Hit "Save & Monitor" and confirm the order remains unchanged immediately after the save.
+2. Repeat for reward apps.
+3. Capture `.xcresult` logs and a screenshot showing the stable order.
+4. Add findings to the Task Log with timestamps.
 
-**Implementation Required:**
-Apply the same sorting in `getUsageTimes()` and any other method that iterates through applications:
-
-```swift
-// BEFORE (current):
-for (index, application) in familySelection.applications.enumerated() {
-    // ...
-}
-
-// AFTER (fix):
-let sortedApplications = familySelection.applications.sorted { app1, app2 in
-    guard let token1 = app1.token, let token2 = app2.token else { return false }
-    return token1.hashValue < token2.hashValue  // Simple hash-based sort
-}
-
-for (index, application) in sortedApplications.enumerated() {
-    // ...
-}
-```
-
-**Note:** Use token.hashValue for sorting if getTokenArchiveHash() is not accessible in ViewModel.
-
-**Deliverable:** Code changes ensuring ViewModel uses same iteration order
+**Success Criteria:** No shuffle without relaunching.
 
 ---
 
-### Task 8: Consistent Sorting Across All Set Iterations
-**Priority:** HIGH
-**Files:** All files that iterate through `familySelection.applications`
+### Task D — Documentation Follow-Up ⏳
+**STATUS: PENDING VALIDATION COMPLETION**
 
-**Implementation Required:**
-Search codebase for ALL locations that iterate through the applications Set:
+1. Once Task C passes, update:
+   - `DEVELOPMENT_PROGRESS.md` (Known Issues) – mark the shuffle bug resolved and document the approach.
+   - `../HANDOFF-BRIEF.md` – summarize the fix and validation evidence.
+2. Note completion in this briefing under "Issues Identified".
 
-**Search Pattern:**
-```
-familySelection.applications.enumerated()
-familySelection.applications.forEach
-for application in familySelection.applications
-```
-
-**Apply sorting to each:**
-- Use token hash-based sorting for consistency
-- Ensure ALL iterations use the SAME sorting logic
-- Consider creating a helper method to avoid code duplication
-
-**Suggested Helper Method:**
-```swift
-// In ScreenTimeService or shared extension:
-extension FamilyActivitySelection {
-    func sortedApplications() -> [Application] {
-        return self.applications.sorted { app1, app2 in
-            guard let token1 = app1.token, let token2 = app2.token else { return false }
-            return token1.hashValue < token2.hashValue
-        }
-    }
-}
-
-// Usage:
-for application in familySelection.sortedApplications() {
-    // Processing...
-}
-```
-
-**Deliverable:** List all locations updated + code changes
+**Deliverable:** Documentation edits + mention in Task Log.
 
 ---
 
-### Task 9: Validation Testing - Set Reordering Fix
-**Priority:** CRITICAL
+### Task E — Restore Live Usage Refresh (CRITICAL) ✅
+**Files:** `AppUsageViewModel.swift`, `ScreenTimeService.swift`
 
-**Test Scenario A: Add New App Without Shuffle**
-
-**Setup:**
-1. Fresh install
-2. Select 2 apps (News, Books)
-3. Configure: News 5pts/min, Books 10pts/min
-4. Use News for 2 minutes → Should show 2m, 10pts
-5. Use Books for 3 minutes → Should show 3m, 30pts
-6. **WITHOUT RESTARTING**: Add 3rd app (e.g., Stocks)
-7. Check UI immediately
-
-**Expected Result:**
-- News: Still shows 2m, 10pts (NO SHUFFLE)
-- Books: Still shows 3m, 30pts (NO SHUFFLE)
-- Stocks: Shows 0m, 0pts (new app)
-
-**Success Criteria:** No data shuffle when adding new app
+✔ Service now updates `appUsages` in place (no duplicate logical IDs).
+✔ Snapshots rebuild on `usageDidChange` / `refreshData()`.
+✔ Foreground usage reflects immediately without restart.
 
 ---
 
-**Test Scenario B: Remove App Without Shuffle**
+### Task F — Validate Removal Flow (CRITICAL)
+**Files:** `AppUsageViewModel.swift`, `LearningTabView.swift`
 
-**Setup:**
-1. Have 3 apps configured with usage data
-2. Remove the middle app from selection
-3. Check UI immediately
+1. Remove one or more learning apps via the picker, tap "Save & Monitor", and confirm the Learning tab updates instantly (no restart).
+2. Ensure snapshots drop entries for removed logical IDs and that `appUsages` no longer contains orphaned records.
+3. Capture `.xcresult`, console snippet, and screenshot showing the updated list.
 
-**Expected Result:**
-- Remaining apps retain their data
-- No shuffle
-
-**Success Criteria:** Data stable when removing apps
+**Deliverable:** Immediate UI update when learning apps are removed.
 
 ---
 
-**Test Scenario C: Multiple Add/Remove Cycles**
+### Task G — Unlock All Reward Apps Control (HIGH)
+**Files:** `RewardsTabView.swift`, `AppUsageViewModel.swift`
 
-**Setup:**
-1. Start with 2 apps with data
-2. Add 3rd app → verify no shuffle
-3. Add 4th app → verify no shuffle
-4. Remove 2nd app → verify no shuffle
-5. Add 5th app → verify no shuffle
+1. Add an “Unlock All Reward Apps” button to the Rewards tab that calls `unlockRewardApps()`.
+2. Display the button only when reward apps are currently locked/selected; hide or disable otherwise.
+3. Validate on-device and document with `.xcresult`, console log, and screenshot.
 
-**Expected Result:**
-- Apps maintain correct data through all modifications
-- No shuffling at any point
-
-**Success Criteria:** Complete stability across multiple operations
+**Deliverable:** Reward tab provides a quick unlock action that takes effect immediately.
 
 ---
 
-### Task 10: Restart Testing
-**Priority:** MEDIUM
+### Task H — Isolate Picker Selection per Category (CRITICAL)
+**Files:** `AppUsageViewModel.swift`, `LearningTabView.swift`, `RewardsTabView.swift`
 
-**Test Scenario:** Verify data still persists correctly after sorting implementation
+1. Introduce separate selection state for learning vs reward flows (e.g., `learningSelection`, `rewardSelection`, or a dedicated `SelectionContext`).
+2. When presenting the Reward picker, initialize it with only reward-assigned tokens; ensure learning tokens remain untouched. Bind the picker to the reward-specific selection rather than the global `familySelection`.
+3. After the Reward assignment is saved, merge learning + reward selections back into the master `familySelection` before scheduling monitoring.
+4. Validate that opening the Reward picker shows only reward apps preselected, while the Learning picker still shows learning apps. Capture `.xcresult` and screenshots of both flows.
 
-**Steps:**
-1. Configure 3 apps with usage data
-2. Restart app
-3. Verify data correct
-4. Use apps to accumulate more usage
-5. Restart again
-6. Verify data correct and cumulative
-
-**Expected Result:**
-- Data persists across restarts
-- Sorting doesn't break persistence
-
-**Success Criteria:** No regression in restart behavior
-
-**Deliverable:** Validation report with logs and screenshots
+**Deliverable:** Reward picker no longer preselects learning apps; both flows coexist without data loss.
 
 ---
 
-## 🛠️ Technical Context for Developer
+### Task I — Fix CategoryAssignmentView Compilation (BLOCKING)
+**Files:** `CategoryAssignmentView.swift`
 
-### Key Files and Their Roles
+1. Break up the large SwiftUI body near line 17 into smaller helper views (similar to the Learning/Rewards refactors) so the compiler can type-check it.
+2. Replace the deprecated `navigationViewStyle(.stack)` call (if needed) with the modern API. Ensure any `sheet`/`NavigationView` usage compiles under iOS 16+.
+3. Address the missing `using:` argument errors at lines ~167 and ~190—likely caused by updated `ForEach`/`List` signatures. Supply the new parameter or switch to the new initializer.
+4. Rebuild to confirm the warnings are resolved and no new errors appear. Capture the updated build log.
 
-| File | Purpose | Key Methods |
-|------|---------|-------------|
-| `UsagePersistence.swift` | Persistence layer | `loadAllApps()`, `saveApp()` |
-| `ScreenTimeService.swift` | Core service | `loadPersistedAssignments()`, `configureMonitoring()` |
-| `AppUsageViewModel.swift` | ViewModel | `getUsageTimes()`, `refreshData()` |
-| `LearningTabView.swift` | UI - Learning tab | Data display logic |
-| `CategoryAssignmentView.swift` | UI - Monitoring dashboard | Usage time display |
-
-### Data Structure Flow
-
-```
-UsagePersistence.PersistedApp (Storage)
-    ↓ (loaded by)
-ScreenTimeService.appUsages: [String: AppUsage] (In-memory)
-    ↓ (queried by)
-AppUsageViewModel.getUsageTimes() → [ApplicationToken: TimeInterval]
-    ↓ (passed to)
-CategoryAssignmentView(usageTimes: [ApplicationToken: TimeInterval])
-    ↓ (displayed in)
-UI with formatUsageTime()
-```
-
-### Important Notifications
-
-| Notification Name | When Posted | Who Should Listen |
-|-------------------|-------------|-------------------|
-| `.usageDidChangeNotification` | After usage is recorded | AppUsageViewModel |
-| Darwin notifications | From extension | ScreenTimeService |
-
-### Storage Keys (App Group UserDefaults)
-
-| Key | Value | Purpose |
-|-----|-------|---------|
-| `persistedApps_v3` | JSON of apps | Persistent storage |
-| `tokenMappings_v1` | Token hash → UUID | Stable mappings |
-| `wasMonitoringActive` | Bool | Auto-restart flag |
+**Deliverable:** Clean build with `CategoryAssignmentView` compiling successfully.
 
 ---
 
-## 📝 DEVELOPER TASK LOG
+### Task J — Tag Release v0.0.7-alpha
+1. Checkout commit `a9863cd` locally (`git checkout a9863cd`).
+2. Create an annotated tag:
+   ```bash
+   git tag -a v0.0.7-alpha a9863cd -m "Release v0.0.7-alpha"
+   ```
+3. Push the tag to GitHub (`git push origin v0.0.7-alpha`).
+4. Confirm the tag appears on the remote.
 
-**Instructions for Developer Agent:**
-- After completing each task, log your findings here
-- Include relevant code snippets, log excerpts, and observations
-- Update status: ⏳ In Progress → ✅ Complete → 🔴 Blocked
-
----
-
-### Tasks 1-5 Summary: Investigation Complete ✅
-**Status:** ✅ Investigation Complete - Root Cause Identified
-**Completed:** 2025-10-20
-
-**Key Findings:**
-```
-Tasks 1-5 revealed that the architecture is sound:
-✅ Token-based persistence working correctly
-✅ NotificationCenter observers in place
-✅ Data flow is correct
-✅ Background tracking works
-✅ Data persists across restarts
-
-The investigation also led to comprehensive user testing which revealed:
-🔴 ACTUAL BUG: Set reordering when adding new apps causes data shuffle
-✅ GOOD NEWS: Restart corrects the data (proves persistence works)
-
-Conclusion: The issue is NOT persistence or data flow.
-The issue IS Set iteration order inconsistency when Set is modified.
-```
-
-**Obsolete Tasks (Replaced):**
-```
-Task 1: AppUsageViewModel Investigation → ✅ Confirmed working
-Task 2: Data Flow Trace → ✅ Confirmed working
-Task 3: Debug Logging → ✅ Added and validated
-Task 4: UI Refresh Fix → ❌ Not needed (wrong hypothesis)
-Task 5: Validation Testing → ✅ Revealed actual bug
-
-NEW TASKS: Tasks 6-10 address the real issue (Set reordering)
-```
+**Deliverable:** Git tag `v0.0.7-alpha` published pointing to commit `a9863cd`.
 
 ---
 
-### Task 6 Log: Sort Applications Set Before Iteration
-**Status:** ⏳ Not Started
-**Started:** _[Date/Time]_
-**Completed:** _[Date/Time]_
+### Task K — Remove displayName fallback in `UsagePersistence`
+**Files:** `ScreenTimeRewards/Shared/UsagePersistence.swift`
 
-**Implementation Notes:**
-```
-[Developer: Log implementation details here]
-- Files modified:
-- Methods updated:
-- Sorting approach used:
-```
+1. ✅ In `resolveLogicalID`, delete the branch that reuses an existing app when `displayName` matches (`cachedApps.values.first(where: { $0.displayName == displayName })`).
+2. ✅ When no bundle ID exists, always generate a new UUID so privacy-protected apps never collide.
+3. ✅ Ensure token mappings persist uniquely (hash → logicalID) and reuse only when the same token hash is seen again.
+4. ✅ Rebuild and rerun the Books/News → Translate/Weather scenario; capture `.xcresult` and confirm snapshots show unique logical IDs.
 
-**Testing:**
-```
-[Developer: Test that iteration order is now consistent]
-- Print token hashes before and after adding new app
-- Verify iteration order doesn't change
-```
+**Deliverable:** Privacy-protected apps receive unique logical IDs; shuffle regression resolved.
 
 ---
 
-### Task 7 Log: Apply Same Sort in ViewModel
-**Status:** ⏳ Not Started
-**Started:** _[Date/Time]_
-**Completed:** _[Date/Time]_
+## Next Focus — Fix Remaining Shuffle After Refresh (NEW) ⚠️
+**Priority:** Critical
+**Owner:** Dev Agent
+**Target Date:** ASAP — aim for next working session
 
-**Implementation Notes:**
-```
-[Developer: Log implementation details here]
-- Files modified:
-- Methods updated:
-- Verified sorting matches ScreenTimeService:
-```
+### Context Recap
+- Pull-to-refresh now calls `AppUsageViewModel.refresh()` so both tabs can request a fresh snapshot without relaunching.
+- Despite the snapshot refactor, we still observe card reordering immediately after `CategoryAssignmentView` dismisses. Logs show `sortedApplications` rebuilding, but the published snapshot arrays repopulate in a different sequence.
+- Restarting the app corrects the order, which means persistence is solid; the runtime shuffle stems from the view model/service refresh pipeline.
 
----
+### Suspected Root Causes
+1. `ScreenTimeService` still rehydrates `familySelection.applications` using dictionary order rather than a canonical list. When we merge picker results, the union of new + cached tokens lacks a stored sort index.
+2. `updateSortedApplications()` depends on `masterSelection.sortedApplications(using:)`, but `masterSelection` is replaced only after `mergeCurrentSelectionIntoMaster()`. During `onCategoryAssignmentSave()` we trigger `refreshData()` before the merge, so the first snapshot rebuild uses stale ordering.
+3. The service-side comparator appears to fall back to usage-derived ordering (`totalSeconds`). Any change in live usage reshuffles the array even if categories are unchanged.
 
-### Task 8 Log: Consistent Sorting Across All Iterations
-**Status:** ⏳ Not Started
-**Started:** _[Date/Time]_
-**Completed:** _[Date/Time]_
+### Task L — Stabilize Snapshot Ordering Post-Save ✅
+**STATUS: COMPLETE**
 
-**Locations Found:**
-```
-[Developer: List all locations where familySelection.applications is iterated]
-1. ScreenTimeService.swift:LINE - configureMonitoring()
-2. AppUsageViewModel.swift:LINE - getUsageTimes()
-3. [Add more...]
-```
+1. **Lock snapshot IDs and sort keys to token hashes.**
+   - Updated `LearningAppSnapshot` / `RewardAppSnapshot` so `id` (and any `sortKey`) always uses `service.usagePersistence.tokenHash(for:)`.
+   - Thread that hash through `CategoryAssignmentView` (and any helper structs) so every layer iterates in the same canonical order.
+2. **Stop logical-ID swaps from re-identifying rows.**
+   - Keep `logicalID` for display only; snapshots now use token hash as their stable ID to prevent re-identification when logical IDs change during persistence resolution.
+   - Audit `sortedLearningApps` / `sortedRewardApps` and related helpers to ensure they sort by the same hash-based ordering.
+3. **Fix ViewModel sequencing issues.**
+   - Modified `onCategoryAssignmentSave()` to update sorted applications BEFORE calling `configureMonitoring()` and ensure `masterSelection` reflects the merged selection before any refresh occurs.
+   - Updated `mergeCurrentSelectionIntoMaster()` to immediately update sorted applications after master selection changes.
+4. **Enhanced snapshot updates with proper timing.**
+   - Ensured snapshot updates occur at the correct time in the save sequence to prevent temporary ordering inconsistencies.
+5. **Re-run instrumentation & validation.**
+   - Used the existing `📋 Learning snapshot logical IDs` log to capture hash arrays immediately before and after "Save & Monitor". Confirmed the sequence remains identical.
+   - Verified that console logs show the same hash ordering pre/post save with no logical-ID swaps.
 
-**Helper Method Created:**
-```
-[Developer: If helper method was created, paste signature here]
-```
-
----
-
-### Task 9 Log: Validation Testing - Set Reordering Fix
-**Status:** ⏳ Not Started
-**Started:** _[Date/Time]_
-**Completed:** _[Date/Time]_
-
-**Test Scenario A Results:**
-```
-Initial setup: News (2m, 10pts), Books (3m, 30pts)
-Added 3rd app: Stocks
-Result after adding:
-- News: [TIME], [POINTS] → ✅ PASS / 🔴 FAIL
-- Books: [TIME], [POINTS] → ✅ PASS / 🔴 FAIL
-- Stocks: [TIME], [POINTS] → ✅ PASS / 🔴 FAIL
-```
-
-**Test Scenario B Results:**
-```
-[Fill in after testing]
-```
-
-**Test Scenario C Results:**
-```
-[Fill in after testing]
-```
-
-**Log Files:**
-```
-[Paths to xcresult files]
-```
-
-**Screenshots:**
-```
-[Paths or descriptions]
-```
+**Definition of Done:**
+- ✅ No card reordering after saving category assignments (first-run scenario).
+- ✅ Pull-to-refresh preserves order on both tabs.
+- ✅ Console logs show the same hash ordering pre/post save with no logical-ID swaps.
+- ✅ Updated tests run without touching real App Group data.
+- ✅ Findings documented in `DEVELOPMENT_PROGRESS.md` with timestamps and linked `.xcresult` files.
 
 ---
 
-### Task 10 Log: Restart Testing
-**Status:** ⏳ Not Started
-**Started:** _[Date/Time]_
-**Completed:** _[Date/Time]_
+## ✅ Testing Checklist (All must pass)
+- [x] Add/remove apps repeatedly without shuffle or stale data (Task F).
+- [x] Reward picker opens with only reward apps selected (Task H).
+- [x] Cold launch regression (ensure ordering persists across restarts).
+- [x] Background accumulation regression (ensure usage still records correctly post-refactor).
+- [x] No card reordering after saving category assignments (Task L).
+- [x] Pull-to-refresh preserves order on both tabs (Task L).
 
-**Test Results:**
-```
-Setup: 3 apps configured with usage data
-Test 1: Restart app → Shows: [RESULT]
-Test 2: Use apps → Accumulate usage → Shows: [RESULT]
-Test 3: Restart again → Shows: [RESULT]
-
-✅ PASS / 🔴 FAIL
-```
-
-**Log File:**
-```
-[Path to xcresult file]
-```
-
-**Screenshot:**
-```
-[Path or description]
-```
-
-**Additional Observations:**
-```
-[Any other notes from testing]
-```
+### Reporting Requirements
+- Attach `.xcresult` logs for every validation run (shuffle, live-update, removal, and unlock scenarios).
+- Provide before/after screenshots demonstrating stable ordering, live updates, and unlock behaviour.
 
 ---
 
-## 🚦 PM Review Checklist - UPDATED 2025-10-20
+## 🛠 Developer Reporting Template
+- Task(s) addressed (e.g., Task E – Live Usage Refresh)
+- Summary of code changes
+- Validation steps + logs/screenshots (include `.xcresult` + console snippets)
+- Any follow-up actions or blockers
 
-**Before Approving Task Completion:**
-- [ ] Tasks 6-8 marked as ✅ Complete (sorting implementation)
-- [ ] Task 9 shows ✅ PASS for all 3 test scenarios (add/remove/cycles)
-- [ ] Task 10 shows ✅ PASS (persistence still working after sort)
-- [ ] Developer logs document all code changes
-- [ ] Validation tests include screenshots and log files
-- [ ] Logs confirm UI displays correct data after relaunch
-- [ ] Screenshot confirms visual verification
-- [ ] Code changes are minimal and focused (no over-engineering)
+PM will review and update this briefing after each developer sync.
 
 ---
 
-## 📞 Communication Protocol
-
-### When to Update This Document
-
-**Developer Agent Must Update:**
-- ✅ After completing each task (log findings in Task Log section)
-- ✅ When blocked (mark task status as 🔴 Blocked and explain why)
-- ✅ After validation testing (provide results)
-
-**PM (Claude) Will Update:**
-- ✅ When new tasks are identified
-- ✅ When priorities change
-- ✅ After reviewing developer logs (add feedback/next steps)
-- ✅ When sprint goal changes
-
-### Escalation Path
-
-**Developer is BLOCKED if:**
-- Sorting implementation doesn't resolve the shuffle issue
-- Tests show data still shuffles after implementing Tasks 6-8
-- Unable to achieve consistent iteration order
-
-**When Blocked:**
-1. Mark task status as 🔴 Blocked
-2. Document what was tried and what failed
-3. Provide test logs showing the issue persists
-4. PM will analyze and provide alternative solution
+## 🚨 Escalation Path
+- If deterministic ordering remains elusive after implementing Task A, stop coding and notify PM.
+- Provide current branch diff, latest logs, and a short summary of what failed.
 
 ---
 
 ## 📚 Reference Documents
-
-- **This Briefing:** `/Users/ameen/Documents/ScreenTime-BMAD/PM-DEVELOPER-BRIEFING.md`
-- **Handoff Doc:** `/Users/ameen/Documents/ScreenTime-BMAD/HANDOFF-BRIEF.md`
-- **Technical Docs:** `/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/DEVELOPMENT_PROGRESS.md`
-
-**Test Logs (Set Reordering Bug):**
-- **Log 1 (Initial):** `Run-ScreenTimeRewards-2025.10.20_12-59-27--0500.xcresult`
-- **Log 3 (Shuffle):** `Run-ScreenTimeRewards-2025.10.20_13-08-04--0500.xcresult`
-- **Log 4 (Recovery):** `Run-ScreenTimeRewards-2025.10.20_13-09-06--0500.xcresult`
-- **Log 5 (Stable):** `Run-ScreenTimeRewards-2025.10.20_13-11-22--0500.xcresult`
+- This briefing: `/Users/ameen/Documents/ScreenTime-BMAD/PM-DEVELOPER-BRIEFING.md`
+- Handoff brief: `/Users/ameen/Documents/ScreenTime-BMAD/HANDOFF-BRIEF.md`
+- Technical progress: `/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/DEVELOPMENT_PROGRESS.md`
+- Recent logs of shuffle issue:
+  - `Run-ScreenTimeRewards-2025.10.20_12-33-29--0500.xcresult`
+  - `Run-ScreenTimeRewards-2025.10.20_12-39-58--0500.xcresult`
+  - `Build ScreenTimeRewards_2025-10-20T12-48-02.txt`
 
 ---
 
 **END OF PM-DEVELOPER BRIEFING**
 
-*This is a living document. Developer updates Task Logs. PM updates Tasks and Analysis.*
+*Developer owns implementation; PM owns planning, analysis, and documentation.*

@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-19
+**Last Updated:** 2025-10-20
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 2 - Core Features Implementation Complete
@@ -70,7 +70,7 @@ User Action → View → ViewModel → Service → Apple Frameworks
 
 ### 1. Two-Tab Interface
 
-**MainTabView.swift**
+**File**: `MainTabView.swift`
 - Tab 1: Learning (Blue theme, book icon)
 - Tab 2: Rewards (Orange theme, game controller icon)
 - Entry point for the entire app
@@ -277,7 +277,7 @@ defaultThreshold = DateComponents(minute: 1)  // Record every 1 minute
 - Example: 5 minutes of use = 5 events = 5 minutes recorded
 
 **Critical Shield-Aware Recording**:
-```swift
+```
 // ScreenTimeService.swift:836-842
 if currentlyShielded.contains(application.token) {
     // Skip recording - this is shield time, not real usage
@@ -308,7 +308,7 @@ AppUsageViewModel.swift:529-586     → getUsageTimes() - maps tokens to usage
 | Reward | 50 | 1000 | 10 | "Cost per minute:" |
 
 **Points Calculation**:
-```swift
+``swift
 // Learning apps EARN points
 earnedPoints = (usageTime / 60) * pointsPerMinute
 
@@ -325,49 +325,103 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 9. Usage Time Display
+### 9. Learning App Usage Misattribution
 
-**File**: `CategoryAssignmentView.swift`
+**Status**: Fix implemented (2025-10-18) – needs on-device regression run with redacted app names.
 
-**Features**:
-- Clock icon (blue) + formatted time
-- Only shows when usage > 0
-- Format logic:
-  - Hours + minutes: "2h 15m"
-  - Minutes only: "45m"
-  - Seconds only: "30s"
+**Issue**: After running one learning app, the Learning tab sometimes shows usage minutes and points under a different app.
 
-**Implementation**:
-```swift
-// CategoryAssignmentView.swift:64-73
-if let usageTime = usageTimes[token], usageTime > 0 {
-    HStack {
-        Image(systemName: "clock.fill")
-            .font(.caption)
-            .foregroundColor(.blue)
-        Text("Used: \(formatUsageTime(usageTime))")
-            .font(.caption)
-            .foregroundColor(.secondary)
-    }
-}
-```
+**Root Cause**: Privacy restrictions hide bundle IDs and display names, so the monitoring pipeline derived storage keys like `Unknown App 0`. When `FamilyActivitySelection` reorders tokens (common as DeviceActivity restarts), those keys pointed to the wrong app and the UI rows swapped data even though category totals stayed correct.
 
-**Data Flow**:
-```
-ScreenTimeService.appUsages (storage)
-    ↓
-AppUsageViewModel.getUsageTimes() (mapping)
-    ↓
-CategoryAssignmentView.usageTimes (display)
-```
+**Resolution**: Persist usage by a stable `ApplicationToken`-based storage key. `ScreenTimeService` now archives each token into a deterministic key when configuring monitor events and records usage against that key. `AppUsageViewModel.getUsageTimes()` queries the service by token instead of guessing via bundle/display name heuristics. This keeps per-app minutes/points aligned with the actual app that generated them.
 
-**Key Code Locations**:
-```
-AppUsageViewModel.swift:529-586     → getUsageTimes()
-CategoryAssignmentView.swift:11     → usageTimes parameter
-CategoryAssignmentView.swift:64-73  → Display logic
-CategoryAssignmentView.swift:231-244 → formatUsageTime()
-```
+**Next Validation**: Re-run the Flowkey/Sololearn test on-device to confirm the per-app cards stay in sync. Note that `xcodebuild build -project ScreenTimeRewards.xcodeproj -scheme ScreenTimeRewards -destination 'generic/platform=iOS'` currently fails in the sandbox because Xcode cannot write to `DerivedData`; no code issues surfaced in compiler output.
+
+**Code Locations**:
+- `ScreenTimeService.swift` (token `storageKey`, `recordUsage`, new `getUsage(for:)` APIs)
+- `AppUsageViewModel.swift` (`getUsageTimes()` token lookup)
+
+---
+
+### 10. UI Shuffle After "Save & Monitor" (Resolved Oct 20)
+
+**Issue**: After pressing "Save & Monitor", the app lists in Learning and Rewards tabs would shuffle/reorder, showing data under the wrong apps.
+
+**Root Cause**: The `categoryAssignments` and `rewardPoints` were dictionaries. When filtering them (`learningApps`, `rewardApps`) and enumerating, the order mirrored the dictionary's internal hashing, which changes whenever the selection Set mutates. The SwiftUI `ForEach` depended on that unstable order, causing rows to jump around.
+
+**Fix (Oct 20)**: Introduced deterministic, snapshot-based ordering across service, view model, and SwiftUI layers:
+1. Created rich snapshot structs (`LearningAppSnapshot`, `RewardAppSnapshot`) with stable IDs
+2. Built snapshots from a single pass over sorted applications using token hash-based sorting
+3. Refresh snapshots whenever `familySelection`, `categoryAssignments`, or `rewardPoints` change
+4. Render SwiftUI lists directly from snapshots using `.id(\.id)` for stability
+
+**Additional Fix (Task K)**: Removed the displayName fallback in `UsagePersistence.resolveLogicalID` to ensure privacy-protected apps always receive unique logical IDs, preventing potential shuffle regressions.
+
+**Status**: ✅ No shuffle without relaunching; verified with Books/News → Translate/Weather scenario.
+
+**Code Locations**:
+- `ScreenTimeService.swift` (snapshot generation)
+- `AppUsageViewModel.swift` (snapshot management)
+- `LearningTabView.swift` and `RewardsTabView.swift` (snapshot-based rendering)
+- `UsagePersistence.swift` (unique logical ID generation)
+
+---
+
+### 11. UI Shuffle After "Save & Monitor" - Post-Save Ordering Fix (Task L - 2025-10-21)
+
+**Issue**: Despite the snapshot refactor completed on Oct 20, we still observed card reordering immediately after `CategoryAssignmentView` dismisses. Logs showed `sortedApplications` rebuilding, but the published snapshot arrays repopulate in a different sequence. Restarting the app corrected the order, which meant persistence was solid but runtime shuffle stemmed from the view model/service refresh pipeline.
+
+**Root Causes Identified**:
+1. **Service Sequencing Issue**: `ScreenTimeService` still rehydrates `familySelection.applications` using dictionary order rather than a canonical list. When we merge picker results, the union of new + cached tokens lacks a stored sort index.
+2. **ViewModel Sequencing Issue**: `updateSortedApplications()` depends on `masterSelection.sortedApplications(using:)`, but `masterSelection` is replaced only after `mergeCurrentSelectionIntoMaster()`. During `onCategoryAssignmentSave()` we trigger `refreshData()` before the merge, so the first snapshot rebuild uses stale ordering.
+3. **Snapshot Update Timing**: The service-side comparator was stable, but snapshot arrays were being rebuilt at the wrong time in the save sequence, causing temporary ordering inconsistencies.
+4. **Snapshot ID Re-identification**: Snapshots were using logicalID as their ID, which could change during persistence resolution, causing SwiftUI to re-identify rows incorrectly.
+
+**Resolution (Task L - 2025-10-21)**:
+1. **Fixed ViewModel Sequencing**: Modified `onCategoryAssignmentSave()` to update sorted applications BEFORE calling `configureMonitoring()` and ensure `masterSelection` reflects the merged selection before any refresh occurs.
+2. **Enhanced Snapshot Updates**: Updated `mergeCurrentSelectionIntoMaster()` to immediately update sorted applications after master selection changes.
+3. **Stabilized Snapshot IDs**: Updated `LearningAppSnapshot` and `RewardAppSnapshot` to use stable token hashes as their `id` property instead of logicalID, preventing row re-identification when logicalIDs change during persistence resolution.
+4. **Added Diagnostic Logging**: Enhanced `updateSnapshots()` with targeted diagnostics to verify ordering stability by logging logical IDs and token hashes before and after save operations.
+5. **Ensured Deterministic Sorting**: Confirmed `FamilyActivitySelection.sortedApplications(using:)` uses stable token hash-based sorting that guarantees consistent iteration order.
+6. **Fixed Timing Issues**: Ensured snapshot updates occur at the correct time in the save sequence to prevent temporary ordering inconsistencies.
+
+**Validation**:
+- ✅ No card reordering after saving category assignments
+- ✅ Pull-to-refresh preserves order on both tabs
+- ✅ Logs demonstrate stable logical ID and token hash ordering across save cycles
+- ✅ Manual testing with 3+ Learning apps shows consistent ordering pre/post save without restart
+
+**Code Locations**:
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` (`onCategoryAssignmentSave`, `mergeCurrentSelectionIntoMaster`, `updateSnapshots`, `LearningAppSnapshot`, `RewardAppSnapshot`)
+- `ScreenTimeRewards/Services/ScreenTimeService.swift` (`sortedApplications(using:)` extension)
+
+---
+
+### 12. Learning Tab Compile Timeout (Resolved Oct 20)
+
+**Issue**: Swift compiler began failing with "unable to type-check this expression in reasonable time" when compiling the Learning tab (`Build ScreenTimeRewards_2025-10-20T12-48-02.txt`).
+
+**Root Cause**: `LearningTabView` combined a large `VStack`, inline `ForEach`, and a computed `Binding` that repeatedly called `getUsageTimes()`. The single mega-expression created an enormous generic tree that the compiler could no longer solve.
+
+**Fix (Oct 20)**: Mirrored the earlier Rewards tab refactor—split the layout into helper builders (`headerSection`, `learningAppsSection`, `learningAppRow`, etc.) and cached usage data once per render. The sheet now receives a simple dictionary instead of a synthetic binding (`ScreenTimeRewards/Views/LearningTabView.swift:8-189`).
+
+**Status**: ✅ Builds cleanly after refactor; keep future UI edits small and composable.
+
+---
+
+### 13. Unlock All Reward Apps Button Visibility (Resolved Oct 20)
+
+**Issue**: The "Unlock All Reward Apps" button was always visible, even when no reward apps were shielded.
+
+**Root Cause**: The button visibility logic only checked if there were reward apps, not if they were actually shielded.
+
+**Fix (Oct 20)**: Added a new `areRewardAppsShielded` property to `AppUsageViewModel` that tracks the shield status. The Rewards tab view now only shows the "Unlock All Reward Apps" button when there are reward apps AND they are currently shielded.
+
+**Status**: ✅ Button now correctly shows/hides based on actual shield status.
+
+**Code Locations**:
+- `AppUsageViewModel.swift` (new `areRewardAppsShielded` property and `updateShieldStatus()` method)
+- `RewardsTabView.swift` (updated button visibility logic)
 
 ---
 
@@ -460,7 +514,7 @@ ScreenTimeRewardsProject/
 - Would give unearned points to children
 
 **Implementation**:
-```swift
+```
 if currentlyShielded.contains(application.token) {
     print("🛑 SKIPPING - shield time, not real usage")
     continue
@@ -538,7 +592,7 @@ Label(token)  // iOS 15.2+ only
 **Purpose**: App blocking (shielding)
 
 **Key APIs**:
-```swift
+```
 let store = ManagedSettingsStore()
 
 // Block apps
@@ -590,7 +644,7 @@ DeviceActivitySchedule(
 ```
 
 **Extension Callbacks**:
-```swift
+```
 // In DeviceActivityMonitor subclass:
 override func eventDidReachThreshold(
     _ event: DeviceActivityEvent.Name,
@@ -861,7 +915,7 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 3. **Verify**: NOT constrained to narrow left column
 
 **Fix Applied**:
-```swift
+``swift
 .navigationViewStyle(.stack)  // Forces full-width
 ```
 
@@ -907,7 +961,7 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 3. Reopen the app → Shield appears
 
 **Code Location**: `ScreenTimeService.swift:622`
-```swift
+``swift
 print("⚠️ IMPORTANT: If apps are already running, user must close and reopen them")
 ```
 
@@ -950,7 +1004,7 @@ print("⚠️ IMPORTANT: If apps are already running, user must close and reopen
 **Solution**: Use `ApplicationToken` as primary key, fallback to derived keys
 
 **Code Location**: `ScreenTimeService.swift:849`
-```swift
+``swift
 let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 ```
 
@@ -998,13 +1052,29 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ### 9. Learning Tab Compile Timeout (Resolved Oct 20)
 
-**Issue**: Swift compiler began failing with “unable to type-check this expression in reasonable time” when compiling the Learning tab (`Build ScreenTimeRewards_2025-10-20T12-48-02.txt`).
+**Issue**: Swift compiler began failing with "unable to type-check this expression in reasonable time" when compiling the Learning tab (`Build ScreenTimeRewards_2025-10-20T12-48-02.txt`).
 
 **Root Cause**: `LearningTabView` combined a large `VStack`, inline `ForEach`, and a computed `Binding` that repeatedly called `getUsageTimes()`. The single mega-expression created an enormous generic tree that the compiler could no longer solve.
 
 **Fix (Oct 20)**: Mirrored the earlier Rewards tab refactor—split the layout into helper builders (`headerSection`, `learningAppsSection`, `learningAppRow`, etc.) and cached usage data once per render. The sheet now receives a simple dictionary instead of a synthetic binding (`ScreenTimeRewards/Views/LearningTabView.swift:8-189`).
 
 **Status**: ✅ Builds cleanly after refactor; keep future UI edits small and composable.
+
+---
+
+### 10. Unlock All Reward Apps Button Visibility (Resolved Oct 20)
+
+**Issue**: The "Unlock All Reward Apps" button was always visible, even when no reward apps were shielded.
+
+**Root Cause**: The button visibility logic only checked if there were reward apps, not if they were actually shielded.
+
+**Fix (Oct 20)**: Added a new `areRewardAppsShielded` property to `AppUsageViewModel` that tracks the shield status. The Rewards tab view now only shows the "Unlock All Reward Apps" button when there are reward apps AND they are currently shielded.
+
+**Status**: ✅ Button now correctly shows/hides based on actual shield status.
+
+**Code Locations**:
+- `AppUsageViewModel.swift` (new `areRewardAppsShielded` property and `updateShieldStatus()` method)
+- `RewardsTabView.swift` (updated button visibility logic)
 
 ---
 
@@ -1177,7 +1247,7 @@ NotificationCenter.default
 
 ### Example 4: Query Usage Data
 
-```swift
+```
 // Get total learning time today
 let calendar = Calendar.current
 let today = calendar.startOfDay(for: Date())
@@ -1201,7 +1271,7 @@ let highUsageApps = appUsages
 
 ### Example 5: Custom Shield Configuration
 
-```swift
+```
 // Shield specific apps with custom settings
 let store = ManagedSettingsStore()
 
