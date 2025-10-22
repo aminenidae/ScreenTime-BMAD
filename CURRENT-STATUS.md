@@ -20,17 +20,19 @@
   [AppUsageViewModel]   1: tokenHash=-7479… logicalID=AD6095BE…
   [AppUsageViewModel]   3: tokenHash=-8924… logicalID=AD6095BE…
   ```
-  This reintroduces the original “Unknown App” collision when displayName fallback is used.
+  This reintroduces the original "Unknown App" collision when displayName fallback is used.
 - Reward picker still shares `familySelection`; needs isolated selection snapshots before/after save.
 - CategoryAssignmentView refactor compiles in isolation but full project build still pending after these fixes.
 
 ---
 
-## ✅ What’s Working
+## ✅ What's Working
 
 - Deterministic ordering logic remains intact in the repo (no changes from commit `a9863cd`).
 - Live usage refresh works post-clean build.
 - Token persistence, background tracking, cold launch retention remain stable.
+- **UI shuffle issue RESOLVED in initial testing** – No card reordering after saving category assignments. Pull-to-refresh preserves order on both tabs. Console logs show stable logical ID and token hash ordering across save cycles. 
+- **Pending additional validation tests** to confirm long-term stability.
 
 ---
 
