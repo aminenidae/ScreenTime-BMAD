@@ -230,6 +230,9 @@ struct AppUsageView: View {
                 usageTimes: viewModel.getUsageTimes(),  // Pass usage times for display
                 onSave: {
                     viewModel.onCategoryAssignmentSave()
+                },
+                onCancel: {
+                    viewModel.cancelCategoryAssignment()
                 }
             )
         }

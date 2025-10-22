@@ -21,37 +21,15 @@ struct RewardsTabView: View {
                     }
                     .padding()
 
-                    // Selected reward apps list
-                    if !viewModel.sortedRewardApps.isEmpty {
-                        VStack(alignment: .leading, spacing: 12) {
-                            Text("Selected Reward Apps (\(viewModel.sortedRewardApps.count))")
-                                .font(.headline)
-                                .padding(.horizontal)
-
-                            let usageTimes = viewModel.getUsageTimes()
-
-                            ForEach(Array(viewModel.sortedRewardApps.enumerated()), id: \.offset) { index, token in
-                                rewardAppRow(
-                                    index: index,
-                                    token: token,
-                                    usageTime: usageTimes[token],
-                                    pointsPerMinute: viewModel.rewardPoints[token]
-                                )
-                                .padding()
-                                .background(Color(UIColor.secondarySystemBackground))
-                                .cornerRadius(10)
-                                .padding(.horizontal)
-                            }
-                        }
-                    }
+                    rewardAppsSection
 
                     // Add reward apps button
                     Button(action: {
-                        viewModel.requestAuthorizationAndOpenPicker()
+                        viewModel.presentRewardPicker()
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")
-                            Text(viewModel.sortedRewardApps.isEmpty ? "Select Reward Apps" : "Add More Apps")
+                            Text(viewModel.rewardSnapshots.isEmpty ? "Select Reward Apps" : "Add More Apps")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
@@ -62,7 +40,7 @@ struct RewardsTabView: View {
                     .padding(.horizontal)
 
                     // View all reward apps button - only show if there are reward apps
-                    if !viewModel.sortedRewardApps.isEmpty {
+                    if !viewModel.rewardSnapshots.isEmpty {
                         Button(action: {
                             viewModel.isCategoryAssignmentPresented = true
                         }) {
@@ -80,7 +58,7 @@ struct RewardsTabView: View {
                     }
 
                     // Unlock all reward apps button - only show if there are reward apps
-                    if !viewModel.sortedRewardApps.isEmpty {
+                    if !viewModel.rewardSnapshots.isEmpty {
                         Button(action: {
                             viewModel.unlockRewardApps()
                         }) {
@@ -101,6 +79,9 @@ struct RewardsTabView: View {
                 }
                 .padding(.vertical)
             }
+            .refreshable {
+                await viewModel.refresh()
+            }
             .navigationTitle("Rewards")
             .navigationBarTitleDisplayMode(.inline)
         }
@@ -109,7 +90,7 @@ struct RewardsTabView: View {
         .onChange(of: viewModel.familySelection) { newSelection in
             viewModel.onPickerSelectionChange()
 
-            if !newSelection.applications.isEmpty {
+            if viewModel.isFamilyPickerPresented && !newSelection.applications.isEmpty {
                 viewModel.isCategoryAssignmentPresented = true
             }
         }
@@ -128,6 +109,9 @@ struct RewardsTabView: View {
 
                     // Start monitoring usage
                     viewModel.startMonitoring()
+                },
+                onCancel: {
+                    viewModel.cancelCategoryAssignment()
                 }
             )
         }
@@ -135,55 +119,66 @@ struct RewardsTabView: View {
 }
 
 private extension RewardsTabView {
+    var rewardAppsSection: some View {
+        Group {
+            if !viewModel.rewardSnapshots.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Selected Reward Apps (\(viewModel.rewardSnapshots.count))")
+                        .font(.headline)
+                        .padding(.horizontal)
+
+                    ForEach(viewModel.rewardSnapshots) { snapshot in
+                        rewardAppRow(snapshot: snapshot)
+                            .padding()
+                            .background(Color(UIColor.secondarySystemBackground))
+                            .cornerRadius(10)
+                            .padding(.horizontal)
+                    }
+                }
+            }
+        }
+    }
+
     @ViewBuilder
-    func rewardAppRow(
-        index: Int,
-        token: ManagedSettings.ApplicationToken,
-        usageTime: TimeInterval?,
-        pointsPerMinute: Int?
-    ) -> some View {
+    func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 if #available(iOS 15.2, *) {
-                    Label(token)
+                    Label(snapshot.token)
                         .font(.body)
                 } else {
-                    Text("Reward App \(index + 1)")
+                    Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                         .font(.body)
                 }
 
                 Spacer()
 
-                if let cost = pointsPerMinute {
-                    Text("\(cost) pts/min")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.orange.opacity(0.2))
-                        .cornerRadius(8)
-                }
+                Text("\(snapshot.pointsPerMinute) pts/min")
+                    .font(.caption)
+                    .foregroundColor(.orange)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.orange.opacity(0.2))
+                    .cornerRadius(8)
             }
 
-            if let usageTime, usageTime > 0 {
+            if snapshot.totalSeconds > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
                         .font(.caption2)
                         .foregroundColor(.orange)
 
-                    Text("Used: \(viewModel.formatTime(usageTime))")
+                    Text("Used: \(viewModel.formatTime(snapshot.totalSeconds))")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    if let cost = pointsPerMinute {
-                        let minutesUsed = Int(usageTime / 60)
-                        let pointsSpent = minutesUsed * cost
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Text("\(pointsSpent) pts spent")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
+                    let minutesUsed = Int(snapshot.totalSeconds / 60)
+                    let pointsSpent = minutesUsed * snapshot.pointsPerMinute
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    Text("\(pointsSpent) pts spent")
+                        .font(.caption)
+                        .foregroundColor(.orange)
                 }
             }
         }

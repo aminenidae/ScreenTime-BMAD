@@ -1,4 +1,19 @@
-# BMAD (local only)
-# BMAD (local only)
-.bmad-core/
-.bmad-*/
+# Build reports
+Build Reports/
+*.xcresult
+
+# Debug reports
+Debug Reports/
+
+# macOS specific
+.DS_Store
+
+# Xcode
+*.xcuserstate
+project.xcworkspace
+
+# Validation scripts
+validate_task_k.*
+
+# Ignore the embedded repo
+ScreenTime-BMAD/

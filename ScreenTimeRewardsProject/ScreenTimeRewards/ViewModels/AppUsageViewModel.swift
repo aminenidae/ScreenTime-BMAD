@@ -235,27 +235,27 @@ class AppUsageViewModel: ObservableObject {
         var newLearningSnapshots: [LearningAppSnapshot] = []
         var newRewardSnapshots: [RewardAppSnapshot] = []
         
-        // Use a set to track logical IDs we've already processed to avoid duplicates
-        var processedLogicalIDs: Set<String> = []
+        // Use a set to track token hashes we've already processed to avoid duplicates
+        var processedTokenHashes: Set<String> = []
         
         // Single pass over sorted applications
         for application in sortedApplications {
             guard let token = application.token else { continue }
             
-            // Resolve logical ID via usagePersistence
+            // Resolve stable identifiers via usagePersistence
             let tokenHash = service.usagePersistence.tokenHash(for: token)
             let logicalID = service.usagePersistence.logicalID(for: tokenHash) ?? tokenHash
-            
-            // Skip if we've already processed this logical ID
-            if processedLogicalIDs.contains(logicalID) {
+
+            // Skip if we've already processed this token hash
+            if processedTokenHashes.contains(tokenHash) {
                 #if DEBUG
-                print("[AppUsageViewModel] Skipping duplicate logical ID: \(logicalID)")
+                print("[AppUsageViewModel] Skipping duplicate token hash: \(tokenHash)")
                 #endif
                 continue
             }
-            
-            // Mark this logical ID as processed
-            processedLogicalIDs.insert(logicalID)
+
+            // Mark this token hash as processed
+            processedTokenHashes.insert(tokenHash)
             
             // Get display name
             let displayName = application.localizedDisplayName ?? "Unknown App"

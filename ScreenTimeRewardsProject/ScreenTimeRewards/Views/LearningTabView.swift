@@ -6,23 +6,24 @@ struct LearningTabView: View {
     @StateObject private var viewModel = AppUsageViewModel()
 
     private var hasLearningApps: Bool {
-        !viewModel.sortedLearningApps.isEmpty
+        !viewModel.learningSnapshots.isEmpty
     }
 
     var body: some View {
-        let usageTimes = viewModel.getUsageTimes()
-
-        return NavigationView {
+        NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
                     headerSection
                     totalPointsCard
-                    learningAppsSection(usageTimes: usageTimes)
+                    learningAppsSection
                     addLearningAppsButton
                     viewAllLearningAppsButton
                     Spacer()
                 }
                 .padding(.vertical)
+            }
+            .refreshable {
+                await viewModel.refresh()
             }
             .navigationTitle("Learning")
             .navigationBarTitleDisplayMode(.inline)
@@ -32,7 +33,7 @@ struct LearningTabView: View {
         .onChange(of: viewModel.familySelection) { newSelection in
             viewModel.onPickerSelectionChange()
 
-            if !newSelection.applications.isEmpty {
+            if viewModel.isFamilyPickerPresented && !newSelection.applications.isEmpty {
                 viewModel.isCategoryAssignmentPresented = true
             }
         }
@@ -42,10 +43,13 @@ struct LearningTabView: View {
                 categoryAssignments: $viewModel.categoryAssignments,
                 rewardPoints: $viewModel.rewardPoints,
                 fixedCategory: .learning,
-                usageTimes: usageTimes,
+                usageTimes: viewModel.getUsageTimes(),
                 onSave: {
                     viewModel.onCategoryAssignmentSave()
                     viewModel.startMonitoring()
+                },
+                onCancel: {
+                    viewModel.cancelCategoryAssignment()
                 }
             )
         }
@@ -86,29 +90,25 @@ private extension LearningTabView {
         .padding(.horizontal)
     }
 
-    @ViewBuilder
-    func learningAppsSection(usageTimes: [ApplicationToken: TimeInterval]) -> some View {
-        if hasLearningApps {
-            VStack(alignment: .leading, spacing: 12) {
-                Text("Selected Learning Apps (\(viewModel.sortedLearningApps.count))")
-                    .font(.headline)
-                    .padding(.horizontal)
+    var learningAppsSection: some View {
+        Group {
+            if !viewModel.learningSnapshots.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Selected Learning Apps (\(viewModel.learningSnapshots.count))")
+                        .font(.headline)
+                        .padding(.horizontal)
 
-                ForEach(Array(viewModel.sortedLearningApps.enumerated()), id: \.offset) { index, token in
-                    learningAppRow(
-                        index: index,
-                        token: token,
-                        usageTime: usageTimes[token],
-                        pointsPerMinute: viewModel.rewardPoints[token]
-                    )
-                    .padding(.horizontal)
+                    ForEach(viewModel.learningSnapshots) { snapshot in
+                        learningAppRow(snapshot: snapshot)
+                            .padding(.horizontal)
+                    }
                 }
             }
         }
     }
 
     var addLearningAppsButton: some View {
-        Button(action: viewModel.requestAuthorizationAndOpenPicker) {
+        Button(action: { viewModel.presentLearningPicker() }) {
             HStack {
                 Image(systemName: "plus.circle.fill")
                 Text(hasLearningApps ? "Add More Apps" : "Select Learning Apps")
@@ -141,54 +141,45 @@ private extension LearningTabView {
     }
 
     @ViewBuilder
-    func learningAppRow(
-        index: Int,
-        token: ManagedSettings.ApplicationToken,
-        usageTime: TimeInterval?,
-        pointsPerMinute: Int?
-    ) -> some View {
+    func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
                 if #available(iOS 15.2, *) {
-                    Label(token)
+                    Label(snapshot.token)
                         .font(.body)
                 } else {
-                    Text("Learning App \(index + 1)")
+                    Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                         .font(.body)
                 }
 
                 Spacer()
 
-                if let earnRate = pointsPerMinute {
-                    Text("+\(earnRate) pts/min")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
-                        .background(Color.blue.opacity(0.2))
-                        .cornerRadius(8)
-                }
+                Text("+\(snapshot.pointsPerMinute) pts/min")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.blue.opacity(0.2))
+                    .cornerRadius(8)
             }
 
-            if let usageTime, usageTime > 0 {
+            if snapshot.totalSeconds > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
                         .font(.caption2)
                         .foregroundColor(.blue)
 
-                    Text("Used: \(viewModel.formatTime(usageTime))")
+                    Text("Used: \(viewModel.formatTime(snapshot.totalSeconds))")
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    if let earnRate = pointsPerMinute {
-                        let minutesUsed = Int(usageTime / 60)
-                        let pointsEarned = minutesUsed * earnRate
-                        Text("•")
-                            .foregroundColor(.secondary)
-                        Text("\(pointsEarned) pts earned")
-                            .font(.caption)
-                            .foregroundColor(.blue)
-                    }
+                    let minutesUsed = Int(snapshot.totalSeconds / 60)
+                    let pointsEarned = minutesUsed * snapshot.pointsPerMinute
+                    Text("•")
+                        .foregroundColor(.secondary)
+                    Text("\(pointsEarned) pts earned")
+                        .font(.caption)
+                        .foregroundColor(.blue)
                 }
             }
         }

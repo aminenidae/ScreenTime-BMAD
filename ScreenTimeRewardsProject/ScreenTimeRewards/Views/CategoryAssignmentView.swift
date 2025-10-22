@@ -2,131 +2,50 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 
+struct CategoryAssignmentEntry: Identifiable {
+    let token: ApplicationToken
+    let displayName: String
+    let sortKey: String
+    var id: String { sortKey }
+}
+
 struct CategoryAssignmentView: View {
-    @Environment(\.dismiss) var dismiss
+    @Environment(\.dismiss) private var dismiss
+
     let selection: FamilyActivitySelection
     @Binding var categoryAssignments: [ApplicationToken: AppUsage.AppCategory]
     @Binding var rewardPoints: [ApplicationToken: Int]
-    let fixedCategory: AppUsage.AppCategory?  // NEW: If provided, auto-assign all apps to this category
-    let usageTimes: [ApplicationToken: TimeInterval]  // Usage time for each app
+    let fixedCategory: AppUsage.AppCategory?
+    let usageTimes: [ApplicationToken: TimeInterval]
     var onSave: () -> Void
+    var onCancel: () -> Void = {}
 
     @State private var localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @State private var localRewardPoints: [ApplicationToken: Int] = [:]
 
+    private let usagePersistence = UsagePersistence()
+
+    private var applicationEntries: [CategoryAssignmentEntry] {
+        selection.applications.compactMap { application in
+            guard let token = application.token else { return nil }
+            let sortKey = usagePersistence.getTokenArchiveHash(for: token)
+            let name = application.localizedDisplayName ?? "Unknown App"
+            return CategoryAssignmentEntry(token: token, displayName: name, sortKey: sortKey)
+        }.sorted { $0.sortKey < $1.sortKey }
+    }
+
     var body: some View {
         NavigationView {
             List {
-                Section {
-                    if let category = fixedCategory {
-                        Text("Set points per minute for these \(category.rawValue.lowercased()) apps")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    } else {
-                        Text("Assign apps to Learning or Reward categories for tracking")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                }
-
-                Section(header: Text("Selected Apps (\(selection.applications.count))")) {
-                    // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
-                    ForEach(Array(selection.sortedApplications().enumerated()), id: \.element.token) { index, app in
-                        if let token = app.token {
-                            VStack(alignment: .leading, spacing: 8) {
-                                // Use Label(token) to show actual app name and icon
-                                if #available(iOS 15.2, *) {
-                                    Label(token)
-                                        .font(.headline)
-                                } else {
-                                    // Fallback for older iOS versions
-                                    Text("App \(index)")
-                                        .font(.headline)
-                                }
-
-                                // Category picker - only show if no fixed category
-                                if fixedCategory == nil {
-                                    Picker("Category", selection: Binding(
-                                        get: { localCategoryAssignments[token] ?? .learning },
-                                        set: { localCategoryAssignments[token] = $0 }
-                                    )) {
-                                        ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
-                                            HStack {
-                                                Text(categoryIcon(for: category))
-                                                Text(category.rawValue)
-                                            }
-                                            .tag(category)
-                                        }
-                                    }
-                                    .pickerStyle(.menu)
-                                }
-
-                                // Usage time display - only for learning apps with usage data
-                                if let usageTime = usageTimes[token], usageTime > 0 {
-                                    HStack {
-                                        Image(systemName: "clock.fill")
-                                            .font(.caption)
-                                            .foregroundColor(.blue)
-                                        Text("Used: \(formatUsageTime(usageTime))")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
-                                }
-
-                                // Points input - label changes based on category
-                                HStack {
-                                    let category = fixedCategory ?? localCategoryAssignments[token] ?? .learning
-                                    Text(pointsLabel(for: category))
-                                    Spacer()
-
-                                    let (minPoints, maxPoints, stepValue) = pointsRange(for: category)
-                                    Stepper(
-                                        "\(localRewardPoints[token] ?? minPoints)",
-                                        value: Binding(
-                                            get: { localRewardPoints[token] ?? minPoints },
-                                            set: { localRewardPoints[token] = $0 }
-                                        ),
-                                        in: minPoints...maxPoints,
-                                        step: stepValue
-                                    )
-                                    .frame(width: 140)
-                                }
-                            }
-                            .padding(.vertical, 4)
-                        }
-                    }
-                }
-
-                Section {
-                    categorySummary
-                }
-                
-                Section {
-                    rewardPointsSummary
-                }
+                headerSection
+                applicationsSection
+                Section { categorySummary }
+                Section { rewardPointsSummary }
             }
             .navigationTitle("Assign Categories & Rewards")
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
-                        dismiss()
-                    }
-                }
-
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save & Monitor") {
-                        categoryAssignments = localCategoryAssignments
-                        rewardPoints = localRewardPoints
-                        onSave()
-                        dismiss()
-                    }
-                    .fontWeightCompatible(.semibold)
-                }
-            }
-            .onAppear {
-                initializeAssignments()
-            }
+            .toolbar { toolbarContent }
+            .onAppear(perform: initializeAssignments)
         }
     }
 
@@ -163,16 +82,14 @@ struct CategoryAssignmentView: View {
                     .foregroundColor(.secondary)
             }
             
-            // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
-            ForEach(Array(selection.sortedApplications()), id: \.token) { app in
-                if let token = app.token,
-                   let points = localRewardPoints[token] {
+            ForEach(applicationEntries) { entry in
+                if let points = localRewardPoints[entry.token] {
                     HStack {
                         if #available(iOS 15.2, *) {
-                            Label(app.token!)
+                            Label(entry.token)
                                 .font(.caption)
                         } else {
-                            Text(app.localizedDisplayName ?? "Unknown App")
+                            Text(entry.displayName)
                                 .font(.caption)
                         }
                         Spacer()
@@ -185,15 +102,10 @@ struct CategoryAssignmentView: View {
     }
 
     private func initializeAssignments() {
-        // Initialize with existing assignments or defaults
-        // TASK 12 REVISED: Use sorted applications to ensure consistent iteration order
-        for app in selection.sortedApplications() {
-            if let token = app.token {
-                // Use fixedCategory if provided, otherwise use existing or default
-                let category = fixedCategory ?? categoryAssignments[token] ?? .learning
-                localCategoryAssignments[token] = category
-                localRewardPoints[token] = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
-            }
+        for entry in applicationEntries {
+            let category = fixedCategory ?? categoryAssignments[entry.token] ?? .learning
+            localCategoryAssignments[entry.token] = category
+            localRewardPoints[entry.token] = rewardPoints[entry.token] ?? getDefaultRewardPoints(for: category)
         }
     }
 
@@ -244,6 +156,130 @@ struct CategoryAssignmentView: View {
             let seconds = Int(timeInterval) % 60
             return "\(seconds)s"
         }
+    }
+}
+
+// MARK: - Subviews
+private extension CategoryAssignmentView {
+    var headerSection: some View {
+        Section {
+            if let category = fixedCategory {
+                Text("Set points per minute for these \(category.rawValue.lowercased()) apps")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            } else {
+                Text("Assign apps to Learning or Reward categories for tracking")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    var applicationsSection: some View {
+        Section(header: Text("Selected Apps (\(applicationEntries.count))")) {
+            ForEach(Array(applicationEntries.enumerated()), id: \.element.id) { index, entry in
+                appRow(for: entry, index: index)
+            }
+        }
+    }
+
+    @ViewBuilder
+    func appRow(for entry: CategoryAssignmentEntry, index: Int) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            headerRow(for: entry, index: index)
+            if fixedCategory == nil {
+                categoryPicker(for: entry)
+            }
+            usageRow(for: entry)
+            pointsRow(for: entry)
+        }
+        .padding(.vertical, 4)
+    }
+
+    @ViewBuilder
+    func headerRow(for entry: CategoryAssignmentEntry, index: Int) -> some View {
+        if #available(iOS 15.2, *) {
+            Label(entry.token)
+                .font(.headline)
+        } else {
+            Text(entry.displayName.isEmpty ? "App \(index)" : entry.displayName)
+                .font(.headline)
+        }
+    }
+
+    @ViewBuilder
+    func categoryPicker(for entry: CategoryAssignmentEntry) -> some View {
+        Picker("Category", selection: Binding(
+            get: { localCategoryAssignments[entry.token] ?? .learning },
+            set: { localCategoryAssignments[entry.token] = $0 }
+        )) {
+            ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
+                HStack {
+                    Text(categoryIcon(for: category))
+                    Text(category.rawValue)
+                }
+                .tag(category)
+            }
+        }
+        .pickerStyle(.menu)
+    }
+
+    @ViewBuilder
+    func usageRow(for entry: CategoryAssignmentEntry) -> some View {
+        if let usageTime = usageTimes[entry.token], usageTime > 0 {
+            HStack {
+                Image(systemName: "clock.fill")
+                    .font(.caption)
+                    .foregroundColor(.blue)
+                Text("Used: \(formatUsageTime(usageTime))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    func pointsRow(for entry: CategoryAssignmentEntry) -> some View {
+        let category = fixedCategory ?? localCategoryAssignments[entry.token] ?? .learning
+        let (minPoints, maxPoints, stepValue) = pointsRange(for: category)
+        HStack {
+            Text(pointsLabel(for: category))
+            Spacer()
+            Stepper(
+                "\(localRewardPoints[entry.token] ?? minPoints)",
+                value: Binding(
+                    get: { localRewardPoints[entry.token] ?? minPoints },
+                    set: { localRewardPoints[entry.token] = $0 }
+                ),
+                in: minPoints...maxPoints,
+                step: stepValue
+            )
+            .frame(width: 140)
+        }
+    }
+
+    @ToolbarContentBuilder
+    var toolbarContent: some ToolbarContent {
+        ToolbarItem(placement: .cancellationAction) {
+            Button("Cancel", action: handleCancel)
+        }
+
+        ToolbarItem(placement: .confirmationAction) {
+            Button("Save & Monitor", action: handleSave)
+                .fontWeightCompatible(.semibold)
+        }
+    }
+
+    func handleSave() {
+        categoryAssignments = localCategoryAssignments
+        rewardPoints = localRewardPoints
+        onSave()
+        dismiss()
+    }
+
+    func handleCancel() {
+        onCancel()
+        dismiss()
     }
 }
 

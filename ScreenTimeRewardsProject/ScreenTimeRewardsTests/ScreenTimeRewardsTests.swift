@@ -138,4 +138,26 @@ final class ScreenTimeRewardsTests: XCTestCase {
         XCTAssertTrue(true, "Simulation requires DEBUG configuration")
 #endif
     }
+    
+    // Test to verify that privacy-protected apps receive unique logical IDs
+    func testUsagePersistenceGeneratesUniqueIDsForPrivacyProtectedApps() {
+        let usagePersistence = UsagePersistence()
+        
+        // Clear any existing data
+        usagePersistence.clearAll()
+        
+        // Create two tokens with the same display name but no bundle identifier (privacy-protected apps)
+        let token1 = ManagedSettings.ApplicationToken(rawValue: UUID().uuidString)
+        let token2 = ManagedSettings.ApplicationToken(rawValue: UUID().uuidString)
+        
+        let result1 = usagePersistence.resolveLogicalID(for: token1, bundleIdentifier: nil, displayName: "Privacy Protected App")
+        let result2 = usagePersistence.resolveLogicalID(for: token2, bundleIdentifier: nil, displayName: "Privacy Protected App")
+        
+        // Verify that they get different logical IDs
+        XCTAssertNotEqual(result1.logicalID, result2.logicalID, "Privacy-protected apps with the same name should receive unique logical IDs")
+        
+        // Verify that the same token always gets the same logical ID
+        let result3 = usagePersistence.resolveLogicalID(for: token1, bundleIdentifier: nil, displayName: "Privacy Protected App")
+        XCTAssertEqual(result1.logicalID, result3.logicalID, "Same token should always resolve to the same logical ID")
+    }
 }

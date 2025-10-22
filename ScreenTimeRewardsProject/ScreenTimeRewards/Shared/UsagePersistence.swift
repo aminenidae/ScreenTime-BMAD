@@ -76,9 +76,8 @@ final class UsagePersistence {
 
         if let bundleID = bundleIdentifier, !bundleID.isEmpty {
             logicalID = bundleID
-        } else if let existing = cachedApps.values.first(where: { $0.displayName == displayName }) {
-            logicalID = existing.logicalID
         } else {
+            // TASK K & L: Always generate a new UUID for privacy-protected apps to prevent collisions
             logicalID = UUID().uuidString
         }
 
