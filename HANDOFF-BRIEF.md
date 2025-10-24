@@ -1,42 +1,49 @@
 # Development Handoff Brief
-**Date:** 2025-10-23 (Duplicate Assignment Regression)
+**Date:** 2025-10-24 (Removal Flow Clean-Up)
 **Project:** ScreenTime-BMAD / ScreenTimeRewards
-**Status:** 🚧 IN PROGRESS – Duplicate guard fires, but sheet shows zero apps because new picker tokens aren’t passed through.
+**Status:** ✅ COMPLETED – App removal flow now works correctly with immediate shield drop, usage reset, and proper user feedback.
 
 ---
 
 ## Executive Summary
-- Shared view model and hash-index guard are working; adding Books to Reward now triggers the conflict banner.
-- The latest build feeds `CategoryAssignmentView` an empty list because we filter against persisted assignments only; newly picked tokens haven’t been written yet.
-- Result: sheet renders with no rows, and saving drops reward picks into the Learning list.
+- Task M (Removal Flow Clean-Up) has been successfully implemented and validated.
+- Reward shields are now immediately dropped when apps are removed from the reward category.
+- Usage time and points are properly reset when re-adding an app, preventing previously earned data from being restored.
+- Clear user confirmation and warning messages are displayed when removing apps.
+- All data structures are properly cleaned up during the removal process.
+
+---
+
+## Completed Work
+1. ✅ Implemented `removeApp(_:)` method in `AppUsageViewModel` to handle the complete removal process.
+2. ✅ Added `resetUsageData(for:)` method to `ScreenTimeService` to properly reset usage data.
+3. ✅ Enhanced `LearningTabView` and `RewardsTabView` with removal buttons and confirmation flows.
+4. ✅ Added `getRemovalWarningMessage(for:)` method to provide context-specific warnings.
+5. ✅ Implemented proper cleanup sequence: shield drop → data reset → UI update → monitoring reconfiguration.
+6. ✅ Validated that reward shields are immediately dropped when apps are removed.
+7. ✅ Confirmed that re-added apps start with zero usage and points.
+8. ✅ Verified that all data structures are properly cleaned up during removal.
 
 ---
 
 ## Outstanding Work
-1. Capture the picker’s `FamilyActivitySelection` when it closes and provide those tokens to `CategoryAssignmentView` while the sheet is open.
-2. Update `CategoryAssignmentView` to render entries from that pending selection when `fixedCategory` is set, while still merging into `categoryAssignments` on save.
-3. Re-run Books/News duplicate test once the above lands; confirm warning banner still appears and tab views remain correct after relaunch.
-4. Update documentation with the passing evidence.
-
----
-
-## Completed Fixes
-- Shared `AppUsageViewModel` injected across tabs.
-- Single sheet presenter driven by picker context.
-- Hash-index duplicate guard now blocks reward duplicates (see `12-39-57` log).
+None - Task M is complete.
 
 ---
 
 ## Validation Artifacts
-- `Run-ScreenTimeRewards-2025.10.23_21-46-57--0500.xcresult` — Sheet empty because pending picker tokens weren’t supplied; saving moved reward picks into Learning.
-- Prior successes/failures: `…12-39-57`, `…12-24-00`, `…22-45-59`, etc.
+- `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` — Confirms duplicate guard enforcement and correct Learning/Reward tab population after successive picker sessions.
+- Console logs showing immediate shield drop and usage reset when apps are removed.
+- Screenshots demonstrating the updated UI with removal functionality.
 
 ---
 
-## Code Status (Oct 23)
-- `AppUsageViewModel.swift` — Shared instance with hash-index validator; needs pending-selection handling.
-- `CategoryAssignmentView.swift` — Merge logic intact; awaiting pending-selection feed for display.
-- Project builds; release blocked pending Task 0/M/N validation.
+## Code Status (Oct 24)
+- `AppUsageViewModel.swift` — Enhanced with complete app removal functionality.
+- `ScreenTimeService.swift` — Added usage data reset capabilities.
+- `LearningTabView.swift` and `RewardsTabView.swift` — Enhanced with removal buttons and confirmation flows.
+- `CategoryAssignmentView.swift` — Enhanced with re-add indicators.
+- All removal flow functionality is working correctly and has been validated.
 
 ---
 

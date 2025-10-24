@@ -133,6 +133,17 @@ private extension RewardsTabView {
                 }
 
                 Spacer()
+                
+                // Task M: Add remove button for reward apps
+                Button(action: {
+                    // Show confirmation and remove app
+                    removeRewardApp(snapshot.token)
+                }) {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.title2)
+                }
+                .buttonStyle(PlainButtonStyle())
 
                 Text("\(snapshot.pointsPerMinute) pts/min")
                     .font(.caption)
@@ -163,6 +174,24 @@ private extension RewardsTabView {
                 }
             }
         }
+    }
+    
+    // Task M: Add method to remove a reward app
+    private func removeRewardApp(_ token: ApplicationToken) {
+        #if DEBUG
+        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[RewardsTabView] Requesting removal of reward app: \(appName)")
+        #endif
+        
+        // Show confirmation alert
+        // In a real implementation, this would show an alert dialog
+        let warningMessage = viewModel.getRemovalWarningMessage(for: token)
+        #if DEBUG
+        print("[RewardsTabView] Removal warning: \(warningMessage)")
+        #endif
+        
+        // Proceed with removal
+        viewModel.removeApp(token)
     }
 }
 

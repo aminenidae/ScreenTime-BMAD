@@ -277,12 +277,34 @@ private extension CategoryAssignmentView {
 
     @ViewBuilder
     func headerRow(for entry: CategoryAssignmentEntry, index: Int) -> some View {
-        if #available(iOS 15.2, *) {
-            Label(entry.token)
-                .font(.headline)
-        } else {
-            Text(entry.displayName.isEmpty ? "App \(index)" : entry.displayName)
-                .font(.headline)
+        HStack {
+            if #available(iOS 15.2, *) {
+                Label(entry.token)
+                    .font(.headline)
+            } else {
+                Text(entry.displayName.isEmpty ? "App \(index)" : entry.displayName)
+                    .font(.headline)
+            }
+            
+            Spacer()
+            
+            // Task M: Add indicator for apps that have been previously removed and re-added
+            if let logicalID = usagePersistence.logicalID(for: usagePersistence.getTokenArchiveHash(for: entry.token)),
+               let persistedApp = usagePersistence.app(for: logicalID),
+               persistedApp.totalSeconds == 0 && persistedApp.earnedPoints == 0 {
+                // Check if this is a re-added app by looking at the creation date
+                // If the app was created recently but has zero usage, it's likely a re-added app
+                let timeSinceCreation = Date().timeIntervalSince(persistedApp.createdAt)
+                if timeSinceCreation < 60 { // Created within the last minute
+                    Text("NEW")
+                        .font(.caption)
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(Color.green)
+                        .foregroundColor(.white)
+                        .cornerRadius(4)
+                }
+            }
         }
     }
 
@@ -315,6 +337,16 @@ private extension CategoryAssignmentView {
                     .font(.caption)
                     .foregroundColor(.blue)
                 Text("Used: \(formatUsageTime(usageTime))")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+        } else {
+            // Task M: Show message for apps with zero usage (newly added or reset)
+            HStack {
+                Image(systemName: "clock.fill")
+                    .font(.caption)
+                    .foregroundColor(.gray)
+                Text("No usage recorded")
                     .font(.caption)
                     .foregroundColor(.secondary)
             }

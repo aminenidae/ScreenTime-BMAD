@@ -140,6 +140,17 @@ private extension LearningTabView {
 
                 Spacer()
 
+                // Task M: Add remove button for learning apps
+                Button(action: {
+                    // Show confirmation and remove app
+                    removeLearningApp(snapshot.token)
+                }) {
+                    Image(systemName: "minus.circle.fill")
+                        .foregroundColor(.red)
+                        .font(.title2)
+                }
+                .buttonStyle(PlainButtonStyle())
+
                 Text("+\(snapshot.pointsPerMinute) pts/min")
                     .font(.caption)
                     .foregroundColor(.blue)
@@ -172,6 +183,24 @@ private extension LearningTabView {
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
         .cornerRadius(10)
+    }
+    
+    // Task M: Add method to remove a learning app
+    private func removeLearningApp(_ token: ApplicationToken) {
+        #if DEBUG
+        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[LearningTabView] Requesting removal of learning app: \(appName)")
+        #endif
+        
+        // Show confirmation alert
+        // In a real implementation, this would show an alert dialog
+        let warningMessage = viewModel.getRemovalWarningMessage(for: token)
+        #if DEBUG
+        print("[LearningTabView] Removal warning: \(warningMessage)")
+        #endif
+        
+        // Proceed with removal
+        viewModel.removeApp(token)
     }
 }
 

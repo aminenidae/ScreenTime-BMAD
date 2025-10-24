@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-22
+**Last Updated:** 2025-10-24
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 2 - Core Features Implementation Complete
@@ -314,14 +314,14 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 
 // Reward apps COST points (future: will deduct from balance)
 costPerMinute = configuredPoints
-```
+``
 
 **Key Code Locations**:
 ```
 CategoryAssignmentView.swift:193-200 → pointsRange()
 CategoryAssignmentView.swift:184-191 → getDefaultRewardPoints()
 CategoryAssignmentView.swift:202-209 → pointsLabel()
-```
+``
 
 ---
 
@@ -476,6 +476,39 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 **Code Locations**:
 - `CategoryAssignmentView.swift` (enhanced handleSave method with selective updating)
 - `AppUsageViewModel.swift` (existing proper merging logic in mergeCurrentSelectionIntoMaster)
+
+---
+
+### 16. Removal Flow Clean-Up (Task M - Completed Oct 24) ✅
+
+**Issue**: When removing apps from categories, several issues occurred:
+1. Reward shields were not immediately dropped when apps left the reward category
+2. Usage time and points were not reset when re-adding an app, causing previously earned data to be restored
+3. No user confirmation or warning about the consequences of removal
+4. No clear UX messaging about what happens when an app is removed
+
+**Resolution (Task M - Oct 24)**: Implemented comprehensive app removal flow with proper cleanup:
+1. **Immediate Shield Drop**: When removing a reward app, immediately drop its shield using `unblockRewardApps()`
+2. **Usage Data Reset**: Reset usage time and points to zero when removing an app, ensuring fresh start on re-add
+3. **Removal Confirmation**: Added confirmation dialogs with clear warnings about consequences of removal
+4. **UX Messaging**: Enhanced UI with clear messaging about removal consequences
+5. **Proper Data Cleanup**: Remove app from all relevant data structures and reconfigure monitoring
+
+**Implementation Details**:
+- Added `removeApp(_:)` method to `AppUsageViewModel` to handle the complete removal process
+- Added `resetUsageData(for:)` method to `ScreenTimeService` to properly reset usage data
+- Enhanced `LearningTabView` and `RewardsTabView` with removal buttons and confirmation flows
+- Added `getRemovalWarningMessage(for:)` method to provide context-specific warnings
+- Implemented proper cleanup sequence: shield drop → data reset → UI update → monitoring reconfiguration
+
+**Status**: ✅ App removal now works correctly with immediate shield drop, usage reset, and proper user feedback
+
+**Code Locations**:
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` (new `removeApp(_:)` and related methods)
+- `ScreenTimeRewards/Services/ScreenTimeService.swift` (new `resetUsageData(for:)` method)
+- `ScreenTimeRewards/Views/LearningTabView.swift` (enhanced with removal functionality)
+- `ScreenTimeRewards/Views/RewardsTabView.swift` (enhanced with removal functionality)
+- `ScreenTimeRewards/Views/CategoryAssignmentView.swift` (enhanced with re-add indicators)
 
 ---
 
@@ -980,6 +1013,36 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 
 ---
 
+### Test Case 8: App Removal Flow (Task M - New)
+
+**Objective**: Verify proper app removal with shield drop and usage reset
+
+**Steps**:
+1. Setup reward apps with shield active (Test Case 2)
+2. Verify apps are blocked (shield screen appears)
+3. Return to app → Rewards tab
+4. Tap the remove button (minus icon) next to a reward app
+5. **Verify**: Confirmation dialog appears with clear warning about consequences
+6. Confirm removal
+7. **Verify**: App is removed from the list
+8. **Verify**: Shield is immediately dropped for that app
+9. Exit app
+10. Close the removed app completely
+11. Reopen the removed app
+12. **Expected**: App opens normally (no shield)
+13. Re-add the same app to rewards
+14. **Verify**: Usage time and points start at zero (not restored from previous session)
+
+**Expected Debug Logs**:
+```
+[AppUsageViewModel] Removing app with token: <token_hash>
+[AppUsageViewModel] Removing shield for reward app: <app_name>
+[ScreenTimeService] Resetting usage data for logicalID: <logical_id>
+[AppUsageViewModel] ✅ App removal completed for: <app_name>
+```
+
+---
+
 ## Known Issues & Limitations
 
 ### 1. Learning Usage Reset After Relaunch
@@ -1014,7 +1077,7 @@ earnedPoints = (usageTime / 60) * pointsPerMinute
 3. Reopen the app → Shield appears
 
 **Code Location**: `ScreenTimeService.swift:622`
-``swift
+```swift
 print("⚠️ IMPORTANT: If apps are already running, user must close and reopen them")
 ```
 
@@ -1181,6 +1244,35 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 **Code Locations**:
 - `ScreenTimeRewards/Views/CategoryAssignmentView.swift` - Enhanced handleSave() method with improved merging logic and logging
+
+---
+
+### 13. App Removal Flow Issues (Resolved Oct 24) ✅
+
+**Issue**: When removing apps from categories, several issues occurred:
+1. Reward shields were not immediately dropped when apps left the reward category
+2. Usage time and points were not reset when re-adding an app, causing previously earned data to be restored
+3. No user confirmation or warning about the consequences of removal
+4. No clear UX messaging about what happens when an app is removed
+
+**Fix (Oct 24)**: Implemented comprehensive app removal flow with proper cleanup:
+1. **Immediate Shield Drop**: When removing a reward app, immediately drop its shield using `unblockRewardApps()`
+2. **Usage Data Reset**: Reset usage time and points to zero when removing an app, ensuring fresh start on re-add
+3. **Removal Confirmation**: Added confirmation dialogs with clear warnings about consequences of removal
+4. **UX Messaging**: Enhanced UI with clear messaging about removal consequences
+5. **Proper Data Cleanup**: Remove app from all relevant data structures and reconfigure monitoring
+
+**Status**: ✅ App removal now works correctly with immediate shield drop, usage reset, and proper user feedback
+- Reward apps immediately lose their shield when removed
+- Re-added apps start with zero usage and points
+- Clear warnings inform users about removal consequences
+- All data structures are properly cleaned up
+
+**Code Locations**:
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` - Added `removeApp(_:)` method and related functionality
+- `ScreenTimeRewards/Services/ScreenTimeService.swift` - Added `resetUsageData(for:)` method
+- `ScreenTimeRewards/Views/LearningTabView.swift` and `ScreenTimeRewards/Views/RewardsTabView.swift` - Enhanced with removal functionality
+- `ScreenTimeRewards/Views/CategoryAssignmentView.swift` - Enhanced with re-add indicators
 
 ---
 

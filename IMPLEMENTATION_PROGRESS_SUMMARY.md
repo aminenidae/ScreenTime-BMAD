@@ -6,6 +6,8 @@
 ### Latest Validation (Oct 24, 2025)
 - ✅ Duplicate guard holds across back-to-back picker sessions; Reward flows cannot retain Learning apps.
 - ✅ Learning and Reward tabs refresh instantly after save; correct apps show without relaunching.
+- ❌ Removing a reward app leaves its shield active; needs explicit unblocking.
+- ❌ Re-adding a removed app resurrects its previous usage/points data instead of resetting to zero.
 - ⚠️ Initial picker presentation still flickers and logs `Label is already or no longer part of the view hierarchy` warnings.
 - ✅ Learning sheet header now renders the correct copy after the latest fix.
 
@@ -63,7 +65,7 @@ See `PM-DEVELOPER-BRIEFING.md` Task M for the remaining polish plan.
 - ✅ Category totals update correctly
 - ✅ Data persists across app restarts
 - ✅ Category adjustment workflow functions
-- ⚠️ Picker presentation polish — guard validated; first-open flicker remains on the backlog.
+- ⚠️ Removal cleanup — ensure shields drop and data resets on re-add; picker flicker remains deferred.
 
 ## Key Technical Decisions
 

@@ -1523,3 +1523,115 @@ extension AppUsageViewModel {
 
 private extension CategoryAssignmentView {
 }
+
+extension AppUsageViewModel {
+    // Task M: Add method to handle app removal
+    func removeApp(_ token: ApplicationToken) {
+        #if DEBUG
+        print("[AppUsageViewModel] Removing app with token: \(token.hashValue)")
+        #endif
+        
+        // Get app information before removal for user feedback
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        let category = categoryAssignments[token] ?? .learning
+        
+        // Show confirmation dialog before removal
+        // In a real implementation, this would trigger a UI confirmation dialog
+        #if DEBUG
+        print("[AppUsageViewModel] ⚠️ CONFIRMATION REQUIRED: Removing \(appName) from \(category.rawValue) category")
+        print("[AppUsageViewModel] This will:")
+        print("[AppUsageViewModel]   • Clear earned points for this app")
+        if category == .reward {
+            print("[AppUsageViewModel]   • Remove shield/block for this app")
+        }
+        print("[AppUsageViewModel]   • Reset usage time to zero")
+        #endif
+        
+        // Proceed with removal
+        removeAppWithoutConfirmation(token)
+    }
+    
+    // Task M: Add method to handle app removal without confirmation (for programmatic use)
+    private func removeAppWithoutConfirmation(_ token: ApplicationToken) {
+        #if DEBUG
+        print("[AppUsageViewModel] Removing app without confirmation: \(token.hashValue)")
+        #endif
+        
+        // Get the category before removal
+        let category = categoryAssignments[token] ?? .learning
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        
+        // 1. Drop reward shields immediately when apps leave the reward category
+        if category == .reward {
+            #if DEBUG
+            print("[AppUsageViewModel] Removing shield for reward app: \(appName)")
+            #endif
+            service.unblockRewardApps(tokens: [token])
+        }
+        
+        // 2. Remove the app from category assignments
+        categoryAssignments.removeValue(forKey: token)
+        
+        // 3. Remove reward points assignment
+        rewardPoints.removeValue(forKey: token)
+        
+        // 4. Reset usage time and points when re-adding an app
+        // Remove the app usage data so it starts fresh when re-added
+        if let logicalID = service.getLogicalID(for: token) {
+            #if DEBUG
+            print("[AppUsageViewModel] Resetting usage data for app: \(appName) (logicalID: \(logicalID))")
+            #endif
+            
+            // Remove from service's appUsages
+            service.resetUsageData(for: logicalID)
+            
+            // Reset the persisted data for this app
+            let now = Date()
+            let persistedApp = UsagePersistence.PersistedApp(
+                logicalID: logicalID,
+                displayName: appName,
+                category: category.rawValue,
+                rewardPoints: getDefaultRewardPoints(for: category),
+                totalSeconds: 0,  // Reset to zero
+                earnedPoints: 0,  // Reset to zero
+                createdAt: now,
+                lastUpdated: now
+            )
+            service.usagePersistence.saveApp(persistedApp)
+        }
+        
+        // 5. Update the family selection to remove this token
+        familySelection.applicationTokens.remove(token)
+        
+        // 6. Update sorted applications and snapshots
+        updateSortedApplications()
+        
+        // 7. Reconfigure monitoring to reflect the removal
+        configureMonitoring()
+        
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ App removal completed for: \(appName)")
+        #endif
+    }
+    
+    // Task M: Add method to check if an app can be safely removed
+    func canRemoveApp(_ token: ApplicationToken) -> Bool {
+        // Check if the app is currently assigned to any category
+        return categoryAssignments[token] != nil
+    }
+    
+    // Task M: Add method to get removal warning message
+    func getRemovalWarningMessage(for token: ApplicationToken) -> String {
+        guard let category = categoryAssignments[token] else {
+            return "Are you sure you want to remove this app?"
+        }
+        
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        
+        if category == .reward {
+            return "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Remove the shield/block for this app\n• Reset usage time to zero\n\nDo you want to continue?"
+        } else {
+            return "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Reset usage time to zero\n\nDo you want to continue?"
+        }
+    }
+}

@@ -6,15 +6,18 @@
 
 ## 🎯 Active Work
 
-- **Picker presentation flicker (Oct 24 evening)** – First launch still flashes the picker sheet and logs repeated “Label is already or no longer part of the view hierarchy” warnings. We agreed to defer unless a quick fix surfaces.
-- **Awaiting new QA tickets** – PM will provide the next set of issues once documentation is updated with the latest validation.
+- **Reward removal cleanup** – Removing a reward app leaves the screen-time shield active; need to release blocks immediately after removal.
+- **Re-adding apps resets state** – Reintroducing a previously removed app pulls back prior usage/points data; expected behaviour is a clean slate.
+- **Removal UX messaging** – Add confirmation copy warning that deleting an app clears its earned points and (for reward apps) lifts the shield.
+- **Picker presentation flicker (Oct 24 evening)** – First launch still flashes the picker sheet; deferred unless a quick fix surfaces.
 
 ---
 
 ## 🔍 Latest Findings
 
 - `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` re-run confirms category guard behaviour: reward tokens stay in Reward, learning tokens remain isolated, and the app blocks cross-category duplicates even after multiple picker sessions.
-- Immediate post-picker sheet presentations now display the expected apps, but the console still reports presentation warnings (`Attempt to present … while a presentation is in progress`) indicating the presentation flicker remains.
+- Manual removal tests show reward apps remain shielded after deletion, and re-adding an app restores its prior usage/points instead of resetting.
+- Immediate post-picker sheet presentations display the expected apps, but the console still reports presentation warnings (`Attempt to present … while a presentation is in progress`) indicating the presentation flicker remains.
 
 ---
 
@@ -30,8 +33,10 @@
 
 ## 🔧 Next Steps
 
-1. Timebox a spike on picker presentation sequencing; if the flicker fix is quick, land it, otherwise park for a later sprint.
-2. Capture an updated device run once any presentation tweaks land, then sync with PM for the next backlog items.
+1. Implement reward-removal cleanup so shields drop when apps leave the reward list; retest on device.
+2. Reset usage/points when re-adding a previously removed app; confirm persistence updates accordingly.
+3. Add removal confirmation UX messaging covering point loss and shield release.
+4. Timebox a spike on picker presentation sequencing; if the flicker fix is quick, land it, otherwise park for a later sprint.
 
 Refer to `/Users/ameen/Documents/ScreenTime-BMAD/PM-DEVELOPER-BRIEFING.md` for task breakdowns and coordination notes.
 

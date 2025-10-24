@@ -22,8 +22,9 @@
 5. **Refactored sheet coordination compiles cleanly** and keeps pending selections alive through the assignment flow.
 
 ### What's Broken 🔴
-- **Picker presentation still flickers on first launch.** Console logs repeated `Label is already or no longer part of the view hierarchy` warnings; agreed to tackle only if a fast fix surfaces.
-- **SwiftUI reports double-presentation warnings** (`Attempt to present … while a presentation is in progress`) when sheets open rapidly; tied to the same flicker behaviour.
+- **Reward removal leaves shields active.** Deleting a reward app doesn’t unblock it; shield persists until monitoring restarts manually.
+- **Re-added apps resurrect old usage/points.** Removing and reintroducing an app brings back stale totals instead of starting at zero.
+- **Picker presentation still flickers on first launch.** Console logs repeated `Label is already or no longer part of the view hierarchy` and double-present warnings; agreed to tackle only if a fast fix surfaces.
 
 ### Summary of Root Cause (Updated)
 - Presentation flow still races between the TabView host and the sheet presenter, causing transient dismissals and stale header binding.
@@ -44,24 +45,25 @@
 
 **Result:** Reward/Learning sheets now open populated immediately after the picker dismisses, category assignments persist, and guard validation succeeds across relaunches.
 
-**Follow-up:** Continue to monitor multi-step flows while polishing the presentation order.
+**Follow-up:** Continue to monitor multi-step flows while removal fixes land.
 
-### Task M — Picker Presentation Flicker (IN PROGRESS 🚧, LOW PRIORITY)
+### Task M — Removal Flow Clean-Up (IN PROGRESS 🚧)
 **Files:** `ScreenTimeRewards/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/LearningTabView.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/RewardsTabView.swift`
 
-1. Gate sheet presentation until the picker dismissal completes to eliminate flicker and stop double-present warnings.
-2. Ensure `TabHostingController` stays attached before presenting assignment sheets (`showAllLearningApps` / `showAllRewardApps`).
-3. Only pursue if the fix proves quick; otherwise document and defer to a later sprint.
-4. When addressed, capture a follow-up device run verifying clean console output.
+1. Drop reward shields immediately when apps leave the reward category; verify `ScreenTimeService` unblocks the tokens during `configureMonitoring`.
+2. Reset usage time and points when re-adding an app so previously earned data isn’t restored automatically.
+3. Introduce removal confirmation copy warning that deleting an app clears earned points and (for reward apps) lifts the shield.
+4. After changes, rerun delete/add scenarios to confirm shields drop, totals reset, and UX messaging appears.
 
-**Deliverable:** (Timeboxed) First-open assignment sheets remain visible without auto-dismiss and console is free of presentation warnings. If not achievable quickly, leave notes for future sprint.
+**Deliverable:** App removal behaves cleanly—shields lift, points/usage reset on re-add, and users see accurate warnings.
 
-**New Coordination Notes (2025‑10‑24 19:51):**
-- Oct 24 validation confirms the new flags keep sheets populated immediately after picker dismissal; retain them while we decide when to tackle the presentation flicker.
+**New Coordination Notes (2025‑10‑24 19:51 & 22:10):**
+- Oct 24 validation confirms the new flags keep sheets populated immediately after picker dismissal; retain them while removal fixes land.
 - Clear `pendingSelection` and the internal `shouldPresentAssignmentAfterPickerDismiss` flag whenever `showAllLearningApps()` / `showAllRewardApps()` present the sheet so tab-driven flows don't reuse stale picker payloads.
 - Introduce a separate `shouldUsePendingSelectionForSheet` flag. Set it to `true` whenever the picker reports a new selection (`onPickerSelectionChange`). Only clear it after the sheet saves or cancels.
 - Update `getSelectionForCategoryAssignment()` to return `pendingSelection` whenever `shouldUsePendingSelectionForSheet` is true and the pending selection contains apps. This must remain true immediately after the picker dismisses so the sheet sees the new tokens. Only fall back to `selection(for: context.category)` once the sheet finishes processing.
-- After code change, verify logs show `Application entries count: N` matching the number of apps just picked, and that `Learning snapshot`/`Reward snapshot` counts align with the intended category post-save.
+- After removal changes, verify logs show shields being released and that re-added apps start with zero usage/points.
+- Document removal UX copy requirements before implementation so localization isn’t blocked.
 
 
 ### Task A — Rebuild Snapshot Pipeline (CRITICAL) ✅
@@ -97,15 +99,11 @@
 
 ---
 
-### Task C — Device Validation (MUST PASS) ⏳
-**STATUS: PENDING VALIDATION**
+### Task C — Device Validation (COMPLETED ✅)
+**Status:** Validated Oct 24 on physical hardware (Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult).
 
-1. Configure three learning apps with distinct point/min values. Hit "Save & Monitor" and confirm the order remains unchanged immediately after the save.
-2. Repeat for reward apps.
-3. Capture `.xcresult` logs and a screenshot showing the stable order.
-4. Add findings to the Task Log with timestamps.
-
-**Success Criteria:** No shuffle without relaunching.
+- Learning and Reward lists retained their order immediately after "Save & Monitor".
+- Evidence captured via device run logs and screenshots stored with the Oct 24 validation bundle.
 
 ---
 
@@ -249,31 +247,17 @@
 
 ---
 
-### Task M — Block Duplicate App Assignments Between Tabs 🚧
-**Status:** New hash-index guard coded; needs fresh device validation.
+### Task M — Block Duplicate App Assignments Between Tabs (COMPLETED ✅)
+**Status:** Validated Oct 24. Hash-index guard confirmed on device; warning appears and prevents cross-category saves.
 
-**Latest Changes (Oct 22 @ 22:55)**
-- Replaced the single-value hash map with a hash → `[token, category]` index so duplicates can’t overwrite each other.
-- Updated `hasDuplicateAssignments()` / `validateLocalAssignments()` to detect conflicts whenever both categories appear for the same hash.
-- Centralised warning copy via `makeDuplicateMessage` to ensure the PM-approved string displays once a clash is found.
-
-**Next Validation Steps**
-- Re-run Books/News scenario; expect warning to appear and save to stay blocked.
-- Capture console output showing hash-index conflict plus `.xcresult` bundle.
-- Provide screenshot of the warning banner if possible.
+**Evidence:** `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` and console logs showing duplicate guard enforcement.
 
 ---
 
-### Task N — Preserve Category Assignments Across Sheets 🚧
-**Status:** Merge logic updated; pending confirmation that Learning list survives Reward edits.
+### Task N — Preserve Category Assignments Across Sheets (COMPLETED ✅)
+**Status:** Confirmed Oct 24. Learning and Reward counts remain intact after reward edits and relaunch.
 
-**Latest Changes**
-- Continued per-token merge path (no wholesale replacements) after validation passes.
-- Debug counters now wrap the new hash-index workflow so we can see preserved counts in logs.
-
-**Next Validation Steps**
-- After Task M passes, relaunch immediately and confirm Learning & Reward counts match pre-save values.
-- Attach `.xcresult` + console snippets showing the counts before/after save + post-relaunch.
+**Evidence:** Same Oct 24 run with post-save/relaunch console snapshots showing preserved category assignments.
 
 ---
 
