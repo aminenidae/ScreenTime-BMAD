@@ -7,7 +7,7 @@
 ## 🎯 Active Work
 
 - **Shuffle regression (Oct 21 20:07)** – Snapshot logs show two learning apps resolving to the same logical ID (`AD6095BE…`). Fix `UsagePersistence.resolveLogicalID` so privacy-protected apps always get a fresh UUID.
-- **Reward picker context (Task H)** – Reward picker should preselect only reward apps.
+- **Reward picker context (Task H)** – Reward picker should preselect only reward apps and clear `pendingSelection` before tab-driven sheets so learning assignments stop showing reward tokens on first open. New regression: after the picker dismisses the sheet, `pendingSelection` is ignored, so no apps appear.
 - **CategoryAssignmentView build fix (Task I)** – Finish refactor / `using:` updates.
 - **Removal & unlock validations (Tasks F & G)** – Pending once the above are stable.
 
@@ -21,7 +21,7 @@
   [AppUsageViewModel]   3: tokenHash=-8924… logicalID=AD6095BE…
   ```
   This reintroduces the original "Unknown App" collision when displayName fallback is used.
-- Reward picker still shares `familySelection`; needs isolated selection snapshots before/after save.
+- Reward picker still shares `familySelection`; needs isolated selection snapshots before/after save. Tab-driven "View All Learning Apps" continues to show reward tokens on the first open because `pendingSelection` isn’t cleared. Latest device run also shows the sheet opening empty after picker dismiss because the new guard refuses to use `pendingSelection`. Need a flag to use pending results exactly once per picker flow.
 - CategoryAssignmentView refactor compiles in isolation but full project build still pending after these fixes.
 
 ---

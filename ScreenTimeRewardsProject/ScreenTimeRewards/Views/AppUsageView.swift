@@ -193,18 +193,18 @@ struct AppUsageView: View {
             print("[AppUsageView] Applications selected: \(newSelection.applications.count)")
             for (index, app) in newSelection.applications.enumerated() {
                 print("[AppUsageView]   App \(index):")
-                print("[AppUsageView]     Display Name: \(app.localizedDisplayName ?? "NIL ❌")")
-                print("[AppUsageView]     Bundle ID: \(app.bundleIdentifier ?? "NIL (OK if display name exists)")")
-                print("[AppUsageView]     Token: \(app.token != nil ? "✓" : "NIL ❌")")
+                let displayName = app.localizedDisplayName ?? "<missing display name>"
+                let bundleID = app.bundleIdentifier ?? "<missing bundle id>"
+                let tokenState = app.token != nil ? "✓" : "NIL ❌"
+                print("[AppUsageView]     Display Name: \(displayName)")
+                print("[AppUsageView]     Bundle ID: \(bundleID)")
+                print("[AppUsageView]     Token: \(tokenState)")
             }
             #endif
-
-            // Open category assignment view after selection
-            if !newSelection.applications.isEmpty {
-                #if DEBUG
-                print("[AppUsageView] Opening category assignment for \(newSelection.applications.count) apps")
-                #endif
-                viewModel.isCategoryAssignmentPresented = true
+        }
+        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+            if !isPresented {
+                viewModel.onFamilyPickerDismissed()
             }
         }
         .alert("Picker Issue Detected", isPresented: $viewModel.pickerLoadingTimeout) {

@@ -3,7 +3,7 @@ import FamilyControls
 import ManagedSettings
 
 struct RewardsTabView: View {
-    @StateObject private var viewModel = AppUsageViewModel()
+    @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
 
     var body: some View {
         NavigationView {
@@ -42,7 +42,7 @@ struct RewardsTabView: View {
                     // View all reward apps button - only show if there are reward apps
                     if !viewModel.rewardSnapshots.isEmpty {
                         Button(action: {
-                            viewModel.isCategoryAssignmentPresented = true
+                            viewModel.showAllRewardApps()
                         }) {
                             HStack {
                                 Image(systemName: "list.bullet.rectangle")
@@ -87,35 +87,16 @@ struct RewardsTabView: View {
         }
         .navigationViewStyle(.stack)
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { newSelection in
+        .onChange(of: viewModel.familySelection) { _ in
             viewModel.onPickerSelectionChange()
-
-            if viewModel.isFamilyPickerPresented && !newSelection.applications.isEmpty {
-                viewModel.isCategoryAssignmentPresented = true
+        }
+        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+            if !isPresented {
+                viewModel.onFamilyPickerDismissed()
             }
         }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            CategoryAssignmentView(
-                selection: viewModel.familySelection,
-                categoryAssignments: $viewModel.categoryAssignments,
-                rewardPoints: $viewModel.rewardPoints,
-                fixedCategory: .reward,  // Auto-categorize as Reward
-                usageTimes: viewModel.getUsageTimes(),  // Pass usage times for display
-                onSave: {
-                    viewModel.onCategoryAssignmentSave()
-
-                    // Immediately shield (block) reward apps
-                    viewModel.blockRewardApps()
-
-                    // Start monitoring usage
-                    viewModel.startMonitoring()
-                },
-                onCancel: {
-                    viewModel.cancelCategoryAssignment()
-                }
-            )
-        }
-}
+        // Task 0: Sheet moved to MainTabView
+    }
 }
 
 private extension RewardsTabView {
@@ -188,5 +169,6 @@ private extension RewardsTabView {
 struct RewardsTabView_Previews: PreviewProvider {
     static var previews: some View {
         RewardsTabView()
+            .environmentObject(AppUsageViewModel())  // Provide a view model for previews
     }
 }

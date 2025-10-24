@@ -45,6 +45,12 @@ class AppUsageViewModel: ObservableObject {
     @Published var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @Published var rewardPoints: [ApplicationToken: Int] = [:]
 
+    // Task 0: Add pending selection to capture picker results before they're merged
+    @Published var pendingSelection: FamilyActivitySelection = .init()
+    
+    // Fix: Add dedicated flag to control when to use pendingSelection for sheet
+    @Published private var shouldUsePendingSelectionForSheet = false
+    
     // TASK 12 REVISED: Add sorted applications snapshot property
     @Published private(set) var sortedApplications: [Application] = []
 
@@ -57,6 +63,9 @@ class AppUsageViewModel: ObservableObject {
     @Published private(set) var learningSnapshots: [LearningAppSnapshot] = []
     @Published private(set) var rewardSnapshots: [RewardAppSnapshot] = []
 
+    // MARK: - Task M: Duplicate Assignment Prevention
+    @Published var duplicateAssignmentError: String?
+
     private let service: ScreenTimeService
     private var masterSelection: FamilyActivitySelection
     private var activePickerContext: PickerContext?
@@ -65,17 +74,23 @@ class AppUsageViewModel: ObservableObject {
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     private var pickerTimeoutWorkItem: DispatchWorkItem?
     private let pickerTimeoutSeconds: TimeInterval = 15.0
+    private var shouldPresentAssignmentAfterPickerDismiss = false
 
     // MARK: - Computed Properties for Tab Views
 
     /// All application tokens assigned to Learning category
     var learningApps: [ApplicationToken] {
-        categoryAssignments.filter { $0.value == .learning }.map { $0.key }
+        categoryAssignments.filter { $0.value == AppUsage.AppCategory.learning }.map { $0.key }
     }
 
     /// All application tokens assigned to Reward category
     var rewardApps: [ApplicationToken] {
-        categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+        categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
+    }
+    
+    // Task 0: Expose active picker context for sheet presentation
+    var currentPickerContext: PickerContext? {
+        activePickerContext
     }
     
     // TASK 12: Add sorted category properties
@@ -84,7 +99,7 @@ class AppUsageViewModel: ObservableObject {
         sortedApplications
             .compactMap { app -> ApplicationToken? in
                 guard let token = app.token,
-                      categoryAssignments[token] == .learning else { return nil }
+                      categoryAssignments[token] == AppUsage.AppCategory.learning else { return nil }
                 return token
             }
     }
@@ -94,26 +109,59 @@ class AppUsageViewModel: ObservableObject {
         sortedApplications
             .compactMap { app -> ApplicationToken? in
                 guard let token = app.token,
-                      categoryAssignments[token] == .reward else { return nil }
+                      categoryAssignments[token] == AppUsage.AppCategory.reward else { return nil }
                 return token
             }
     }
     
     func presentLearningPicker() {
         activePickerContext = .learning
-        familySelection = selection(for: .learning)
+        shouldPresentAssignmentAfterPickerDismiss = false
+        familySelection = selection(for: AppUsage.AppCategory.learning)
         requestAuthorizationAndOpenPicker()
     }
 
     func presentRewardPicker() {
         activePickerContext = .reward
-        familySelection = selection(for: .reward)
+        shouldPresentAssignmentAfterPickerDismiss = false
+        familySelection = selection(for: AppUsage.AppCategory.reward)
         requestAuthorizationAndOpenPicker()
+    }
+    
+    // Task 0: Add methods to show category assignment view with proper context
+    func showAllLearningApps() {
+        activePickerContext = .learning
+        // Task 0: Clear pending selection and flag when showing from tabs to prevent stale data
+        pendingSelection = .init()
+        shouldPresentAssignmentAfterPickerDismiss = false
+        // Fix: Reset the flag for tab-driven sheets
+        shouldUsePendingSelectionForSheet = false
+        isCategoryAssignmentPresented = true
+    }
+    
+    func showAllRewardApps() {
+        activePickerContext = .reward
+        // Task 0: Clear pending selection and flag when showing from tabs to prevent stale data
+        pendingSelection = .init()
+        shouldPresentAssignmentAfterPickerDismiss = false
+        // Fix: Reset the flag for tab-driven sheets
+        shouldUsePendingSelectionForSheet = false
+        isCategoryAssignmentPresented = true
     }
     
     enum PickerContext {
         case learning
         case reward
+        
+        // Task 0: Add method to get the corresponding category
+        var category: AppUsage.AppCategory {
+            switch self {
+            case .learning:
+                return AppUsage.AppCategory.learning
+            case .reward:
+                return AppUsage.AppCategory.reward
+            }
+        }
     }
 
     init(service: ScreenTimeService = .shared) {
@@ -261,7 +309,7 @@ class AppUsageViewModel: ObservableObject {
             let displayName = application.localizedDisplayName ?? "Unknown App"
             
             // Determine category
-            let category = categoryAssignments[token] ?? .learning
+            let category = categoryAssignments[token] ?? AppUsage.AppCategory.learning
             
             // Pull usage from appUsages[logicalID] (default to zero)
             let appUsage = service.getUsage(for: token)
@@ -273,7 +321,7 @@ class AppUsageViewModel: ObservableObject {
             // Create appropriate snapshot based on category
             // TASK L: Include tokenHash in snapshot creation
             switch category {
-            case .learning:
+            case AppUsage.AppCategory.learning:
                 let snapshot = LearningAppSnapshot(
                     token: token,
                     logicalID: logicalID,
@@ -283,7 +331,7 @@ class AppUsageViewModel: ObservableObject {
                     tokenHash: tokenHash
                 )
                 newLearningSnapshots.append(snapshot)
-            case .reward:
+            case AppUsage.AppCategory.reward:
                 let snapshot = RewardAppSnapshot(
                     token: token,
                     logicalID: logicalID,
@@ -316,9 +364,9 @@ class AppUsageViewModel: ObservableObject {
     
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
         switch category {
-        case .learning:
+        case AppUsage.AppCategory.learning:
             return 20
-        case .reward:
+        case AppUsage.AppCategory.reward:
             return 10
         }
     }
@@ -334,13 +382,31 @@ class AppUsageViewModel: ObservableObject {
         var merged = masterSelection
         let currentTokens = familySelection.applicationTokens
 
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 MERGE CURRENT SELECTION INTO MASTER STARTED")
+        print("[AppUsageViewModel]   Active picker context: \(context)")
+        print("[AppUsageViewModel]   Current tokens count: \(currentTokens.count)")
+        print("[AppUsageViewModel]   Master selection tokens count (before merge): \(merged.applicationTokens.count)")
+        print("[AppUsageViewModel]   Category assignments count (before merge): \(categoryAssignments.count)")
+        
+        // Log current tokens
+        for token in currentTokens {
+            let appName = masterSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            if let category = categoryAssignments[token] {
+                print("[AppUsageViewModel]     Current token: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+            } else {
+                print("[AppUsageViewModel]     Current token: \(appName) (token: \(token.hashValue)) → unassigned")
+            }
+        }
+        #endif
+
         let retainedTokens = merged.applicationTokens.filter { token in
-            let category = categoryAssignments[token] ?? .learning
+            let category = categoryAssignments[token] ?? AppUsage.AppCategory.learning
             switch context {
             case .learning:
-                return category == .reward
+                return category == AppUsage.AppCategory.reward
             case .reward:
-                return category == .learning
+                return category == AppUsage.AppCategory.learning
             }
         }
 
@@ -356,43 +422,71 @@ class AppUsageViewModel: ObservableObject {
         familySelection = merged
         activePickerContext = nil
         
+        #if DEBUG
+        print("[AppUsageViewModel]   Retained tokens count: \(retainedTokens.count)")
+        print("[AppUsageViewModel]   Combined tokens count: \(combinedTokens.count)")
+        print("[AppUsageViewModel]   Master selection tokens count (after merge): \(masterSelection.applicationTokens.count)")
+        print("[AppUsageViewModel]   Family selection tokens count (after merge): \(familySelection.applicationTokens.count)")
+        print("[AppUsageViewModel] 🔄 MERGE CURRENT SELECTION INTO MASTER COMPLETED")
+        #endif
+        
         // TASK L: Ensure sorted applications are updated after master selection change
         updateSortedApplications()
     }
     
-    private func selection(for category: AppUsage.AppCategory) -> FamilyActivitySelection {
+    func selection(for category: AppUsage.AppCategory) -> FamilyActivitySelection {
+        // Task 0: If we have a pending selection, use that for filtering
+        // Otherwise, use the master selection
+        let sourceSelection = !pendingSelection.applications.isEmpty ? pendingSelection : masterSelection
+        
         var result = FamilyActivitySelection()
-        let filteredTokens = masterSelection.applicationTokens.filter { token in
+        let filteredTokens = sourceSelection.applicationTokens.filter { token in
             categoryAssignments[token] == category
         }
         result.applicationTokens = Set(filteredTokens)
+        
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 SELECTION FOR CATEGORY: \(category.rawValue)")
+        print("[AppUsageViewModel]   Source selection tokens count: \(sourceSelection.applicationTokens.count)")
+        print("[AppUsageViewModel]   Category assignments count: \(categoryAssignments.count)")
+        print("[AppUsageViewModel]   Filtered tokens count: \(filteredTokens.count)")
+        
+        for token in filteredTokens {
+            let appName = sourceSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[AppUsageViewModel]     Filtered token: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        #endif
+        
         return result
+    }
+    
+    // Task 0: Overload selection method to accept PickerContext
+    func selection(for context: PickerContext) -> FamilyActivitySelection {
+        switch context {
+        case .learning:
+            return selection(for: AppUsage.AppCategory.learning)
+        case .reward:
+            return selection(for: AppUsage.AppCategory.reward)
+        }
     }
     
     /// Handle category assignment completion
     func onCategoryAssignmentSave() {
         #if DEBUG
-        print("[AppUsageViewModel] Category assignments saved")
+        print("[AppUsageViewModel] 🔄 ON CATEGORY ASSIGNMENT SAVE STARTED")
+        print("[AppUsageViewModel]   Current category assignments count: \(categoryAssignments.count)")
         for (token, category) in categoryAssignments {
-            print("[AppUsageViewModel]   Token \(token.hashValue) → \(category.rawValue)")
-        }
-        print("[AppUsageViewModel] Reward points saved")
-        for (token, points) in rewardPoints {
-            print("[AppUsageViewModel]   Token \(token.hashValue) → \(points) points")
+            let appName = masterSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[AppUsageViewModel]     Current: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
         }
         #endif
 
         // Task M: Check for duplicate assignments before proceeding
+        // Note: This validation is now primarily handled in the view, but we keep it as a safety check
         if hasDuplicateAssignments() {
             #if DEBUG
-            print("[AppUsageViewModel] ❌ Duplicate assignments detected, aborting save")
+            print("[AppUsageViewModel] ❌ Duplicate assignments detected in hasDuplicateAssignments(), aborting save")
             #endif
-            
-            // Post notification to display error in UI
-            NotificationCenter.default.post(
-                name: NSNotification.Name("DuplicateAssignmentError"),
-                object: duplicateAssignmentError
-            )
             
             return
         }
@@ -425,6 +519,12 @@ class AppUsageViewModel: ObservableObject {
         configureMonitoring()
         masterSelection = familySelection
         
+        // Task 0: Clear the pending selection after successful save
+        pendingSelection = FamilyActivitySelection()
+        shouldPresentAssignmentAfterPickerDismiss = false
+        // Fix: Reset the flag when sheet finishes
+        shouldUsePendingSelectionForSheet = false
+
         // INSTRUMENTATION: Log view-model snapshots after service call completes
         #if DEBUG
         print("[AppUsageViewModel] === VIEW MODEL SNAPSHOT AFTER configureMonitoring ===")
@@ -440,11 +540,19 @@ class AppUsageViewModel: ObservableObject {
             // Refresh the ViewModel data to update the UI
             self.refreshData()
         }
+        
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 ON CATEGORY ASSIGNMENT SAVE COMPLETED")
+        #endif
     }
 
     func cancelCategoryAssignment() {
         familySelection = masterSelection
         activePickerContext = nil
+        pendingSelection = FamilyActivitySelection()  // Task 0: Clear pending selection on cancel
+        shouldPresentAssignmentAfterPickerDismiss = false
+        // Fix: Reset the flag when sheet is cancelled
+        shouldUsePendingSelectionForSheet = false
         updateSortedApplications()
     }
 
@@ -480,8 +588,8 @@ class AppUsageViewModel: ObservableObject {
     }
     
     private func getDisplayName(for token: ApplicationToken) -> String? {
-        // Use the service to get the display name
-        return service.getDisplayName(for: token)
+        // Use the shared resolver so debug logging matches production UI
+        return resolvedDisplayName(for: token)
     }
     #endif
     /// END INSTRUMENTATION
@@ -577,10 +685,10 @@ class AppUsageViewModel: ObservableObject {
         let previousRewardTime = rewardTime
     
         learningTime = appUsages
-            .filter { $0.category == .learning }
+            .filter { $0.category == AppUsage.AppCategory.learning }
             .reduce(0) { $0 + $1.totalTime }
         rewardTime = appUsages
-            .filter { $0.category == .reward }
+            .filter { $0.category == AppUsage.AppCategory.reward }
             .reduce(0) { $0 + $1.totalTime }
         
         #if DEBUG
@@ -608,10 +716,10 @@ class AppUsageViewModel: ObservableObject {
         let previousRewardPoints = rewardRewardPoints
         
         learningRewardPoints = appUsages
-            .filter { $0.category == .learning }
+            .filter { $0.category == AppUsage.AppCategory.learning }
             .reduce(0) { $0 + $1.earnedRewardPoints }
         rewardRewardPoints = appUsages
-            .filter { $0.category == .reward }
+            .filter { $0.category == AppUsage.AppCategory.reward }
             .reduce(0) { $0 + $1.earnedRewardPoints }
         
         #if DEBUG
@@ -637,6 +745,8 @@ class AppUsageViewModel: ObservableObject {
         masterSelection = .init()
         // TASK 12 REVISED: Update sorted applications snapshot after reset
         updateSortedApplications()
+        // Task 0: Clear pending selection on reset
+        pendingSelection = .init()
     }
 
     /// Request authorization BEFORE opening FamilyActivityPicker
@@ -691,6 +801,7 @@ class AppUsageViewModel: ObservableObject {
         }
     }
 
+    
     /// Start timeout timer for picker loading
     private func startPickerTimeout() {
         #if DEBUG
@@ -745,6 +856,7 @@ class AppUsageViewModel: ObservableObject {
         #endif
 
         pickerRetryCount += 1
+        shouldPresentAssignmentAfterPickerDismiss = false
 
         // Close current picker if open
         if isFamilyPickerPresented {
@@ -760,9 +872,9 @@ class AppUsageViewModel: ObservableObject {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
             guard let self = self else { return }
             switch self.activePickerContext {
-            case .learning:
+            case .some(.learning):
                 self.presentLearningPicker()
-            case .reward:
+            case .some(.reward):
                 self.presentRewardPicker()
             case nil:
                 self.requestAuthorizationAndOpenPicker()
@@ -780,8 +892,36 @@ class AppUsageViewModel: ObservableObject {
         pickerLoadingTimeout = false
         pickerError = nil
         pickerRetryCount = 0  // Reset retry count on successful selection
+        
+        // Task 0: Capture the pending selection when picker changes
+        pendingSelection = familySelection
+        
+        // Fix: Set flag to true when capturing new picker results
+        shouldUsePendingSelectionForSheet = true
+        
+        if isFamilyPickerPresented && !familySelection.applicationTokens.isEmpty {
+            shouldPresentAssignmentAfterPickerDismiss = true
+        } else if familySelection.applicationTokens.isEmpty {
+            shouldPresentAssignmentAfterPickerDismiss = false
+        }
+
         // TASK 12 REVISED: Update sorted applications snapshot when picker selection changes
         updateSortedApplications()
+    }
+    
+    /// Called when the FamilyActivityPicker is dismissed to decide whether to open the assignment sheet
+    func onFamilyPickerDismissed() {
+        cancelPickerTimeout()
+        pickerLoadingTimeout = false
+
+        guard shouldPresentAssignmentAfterPickerDismiss,
+              !pendingSelection.applicationTokens.isEmpty else {
+            shouldPresentAssignmentAfterPickerDismiss = false
+            return
+        }
+
+        shouldPresentAssignmentAfterPickerDismiss = false
+        isCategoryAssignmentPresented = true
     }
     
     /// Open category assignment view for adjusting existing categories
@@ -797,6 +937,18 @@ class AppUsageViewModel: ObservableObject {
         } else {
             // If no apps are selected, open the picker first
             requestAuthorizationAndOpenPicker()
+        }
+    }
+    
+    // Task 0: Add method to get the appropriate selection for CategoryAssignmentView
+    func getSelectionForCategoryAssignment() -> FamilyActivitySelection {
+        // Fix: Use pendingSelection when flag is set and payload is not empty
+        if shouldUsePendingSelectionForSheet && !pendingSelection.applications.isEmpty {
+            return pendingSelection
+        } else if let context = activePickerContext {
+            return selection(for: context.category)
+        } else {
+            return familySelection
         }
     }
     
@@ -862,6 +1014,19 @@ func configureWithTestApplications() {
         return rewardPoints[token] ?? 0
     }
 
+    /// Resolve a user-facing display name for a token using the best available cache
+    func resolvedDisplayName(for token: ApplicationToken) -> String? {
+        if let name = familySelection.applications.first(where: { $0.token == token })?.localizedDisplayName {
+            return name
+        }
+
+        if let name = masterSelection.applications.first(where: { $0.token == token })?.localizedDisplayName {
+            return name
+        }
+
+        return service.getDisplayName(for: token)
+    }
+
     /// Get usage times for all tokens in the current selection
     /// Returns a dictionary mapping ApplicationToken to TimeInterval (usage time in seconds)
     func getUsageTimes() -> [ApplicationToken: TimeInterval] {
@@ -906,7 +1071,7 @@ func configureWithTestApplications() {
 
     /// Block (shield) all reward apps
     func blockRewardApps() {
-        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         guard !rewardTokens.isEmpty else {
             #if DEBUG
@@ -924,7 +1089,7 @@ func configureWithTestApplications() {
 
     /// Unblock (unlock) all reward apps
     func unlockRewardApps() {
-        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         guard !rewardTokens.isEmpty else {
             #if DEBUG
@@ -958,7 +1123,7 @@ func configureWithTestApplications() {
         #endif
 
         // Get all tokens assigned to "Reward" category
-        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         if rewardTokens.isEmpty {
             errorMessage = "No reward apps assigned. Please assign some apps to 'Reward' category first."
@@ -970,7 +1135,7 @@ func configureWithTestApplications() {
 
         #if DEBUG
         print("[AppUsageViewModel] Blocking \(rewardTokens.count) reward apps:")
-        for (token, category) in categoryAssignments where category == .reward {
+        for (token, category) in categoryAssignments where category == AppUsage.AppCategory.reward {
             print("[AppUsageViewModel]   Token \(token.hashValue) → \(category.rawValue)")
         }
         #endif
@@ -992,7 +1157,7 @@ func configureWithTestApplications() {
         print("[AppUsageViewModel] TEST: Unblocking reward apps")
         #endif
 
-        let rewardTokens = categoryAssignments.filter { $0.value == .reward }.map { $0.key }
+        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         if rewardTokens.isEmpty {
             errorMessage = "No reward apps assigned."
@@ -1004,7 +1169,7 @@ func configureWithTestApplications() {
 
         #if DEBUG
         print("[AppUsageViewModel] Unblocking \(rewardTokens.count) reward apps:")
-        for (token, category) in categoryAssignments where category == .reward {
+        for (token, category) in categoryAssignments where category == AppUsage.AppCategory.reward {
             print("[AppUsageViewModel]   Token \(token.hashValue) → \(category.rawValue)")
         }
         #endif
@@ -1047,50 +1212,125 @@ func configureWithTestApplications() {
 
 // MARK: - FamilyActivitySelection Extension for Consistent Sorting
 
-}
-
 // MARK: - Task M: Duplicate Assignment Prevention
 extension AppUsageViewModel {
+    private struct HashAssignmentEntry {
+        let token: ApplicationToken
+        let category: AppUsage.AppCategory
+        let tokenHash: String
+        let logicalID: String?
+        let displayName: String?
+    }
+
+    private struct AssignmentGroups {
+        var byHash: [String: [HashAssignmentEntry]] = [:]
+        var byDisplayName: [String: [HashAssignmentEntry]] = [:]
+    }
+
+    /// Build grouped views of the assignments keyed by token hash and display name.
+    private func groupedAssignments(_ assignments: [ApplicationToken: AppUsage.AppCategory]) -> AssignmentGroups {
+        assignments.reduce(into: AssignmentGroups()) { result, element in
+            let (token, category) = element
+            let tokenHash = service.usagePersistence.tokenHash(for: token)
+            let logicalID = service.getLogicalID(for: token)
+            let name = displayName(for: token)
+            let entry = HashAssignmentEntry(
+                token: token,
+                category: category,
+                tokenHash: tokenHash,
+                logicalID: logicalID,
+                displayName: name
+            )
+
+            result.byHash[tokenHash, default: []].append(entry)
+            if let name {
+                result.byDisplayName[name, default: []].append(entry)
+            }
+        }
+    }
+
+    private func displayName(for token: ApplicationToken) -> String? {
+        resolvedDisplayName(for: token)
+    }
+
+    private func makeDuplicateMessage(existingCategory: AppUsage.AppCategory,
+                                      conflictingCategory: AppUsage.AppCategory,
+                                      localEntries: [HashAssignmentEntry],
+                                      existingEntries: [HashAssignmentEntry],
+                                      displayNameOverride: String? = nil) -> String {
+        let combinedEntries = localEntries + existingEntries
+
+        if let name = displayNameOverride
+            ?? combinedEntries.compactMap({ $0.displayName }).first {
+            return "\"\(name)\" is already in the \(existingCategory.rawValue) list. You can't pick it in the \(conflictingCategory.rawValue) list."
+        }
+
+        if let entry = combinedEntries.first {
+        return "An app (token hash: \(entry.tokenHash)) is assigned to both Learning and Reward categories. Please fix the conflict."
+        }
+
+        return "An app is assigned to both Learning and Reward categories. Please fix the conflict."
+    }
+
+    #if DEBUG
+    private func debugLog(entries: [HashAssignmentEntry], context: String) {
+        print("[AppUsageViewModel]   \(context) entries:")
+        for entry in entries {
+            let name = entry.displayName ?? "Unknown App"
+            let logical = entry.logicalID ?? "nil"
+            print("[AppUsageViewModel]     • name=\(name), category=\(entry.category.rawValue), tokenHash=\(entry.tokenHash), logicalID=\(logical)")
+        }
+    }
+    #endif
+
     /// Check for duplicate app assignments between categories before saving
     /// Task M: Block Duplicate App Assignments Between Tabs
     private func hasDuplicateAssignments() -> Bool {
         // Clear any previous error
         duplicateAssignmentError = nil
         
-        // Get tokens for each category
-        let learningTokens = Set(categoryAssignments.filter { $0.value == .learning }.map { $0.key })
-        let rewardTokens = Set(categoryAssignments.filter { $0.value == .reward }.map { $0.key })
-        
-        // Check for intersection (apps assigned to both categories)
-        let duplicates = learningTokens.intersection(rewardTokens)
-        
-        if !duplicates.isEmpty {
-            // Find the first duplicate app name for the error message
-            if let firstDuplicateToken = duplicates.first,
-               let application = masterSelection.applications.first(where: { $0.token == firstDuplicateToken }),
-               let displayName = application.localizedDisplayName {
-                // Determine which category the app is already in
-                let existingCategory: AppUsage.AppCategory = learningTokens.contains(firstDuplicateToken) ? .learning : .reward
-                let conflictingCategory: AppUsage.AppCategory = existingCategory == .learning ? .reward : .learning
-                
-                duplicateAssignmentError = "\"\(displayName)\" is already in the \(existingCategory.rawValue) list. You can't pick it in the \(conflictingCategory.rawValue) list."
-            } else {
-                duplicateAssignmentError = "An app is assigned to both Learning and Reward categories. Please fix the conflict."
-            }
-            
+        let groups = groupedAssignments(categoryAssignments)
+
+        for (hash, entries) in groups.byHash {
+            let categories = Set(entries.map { $0.category })
+            guard categories.contains(AppUsage.AppCategory.learning), categories.contains(AppUsage.AppCategory.reward) else { continue }
+
+            duplicateAssignmentError = makeDuplicateMessage(
+                existingCategory: AppUsage.AppCategory.learning,
+                conflictingCategory: AppUsage.AppCategory.reward,
+                localEntries: [],
+                existingEntries: entries
+            )
+
             #if DEBUG
-            print("[AppUsageViewModel] ❌ Duplicate assignment detected: \(duplicates.count) apps assigned to both categories")
-            for token in duplicates {
-                if let application = masterSelection.applications.first(where: { $0.token == token }),
-                   let displayName = application.localizedDisplayName {
-                    print("[AppUsageViewModel]   Duplicate: \(displayName) (token hash: \(token.hashValue))")
-                }
-            }
+            print("[AppUsageViewModel] ❌ Duplicate assignment detected for token hash: \(hash)")
+            debugLog(entries: entries, context: "Persisted hash")
             #endif
-            
+
             return true
         }
-        
+
+        // Fallback detection using display names when hashes differ (e.g. hashValue fallback)
+        for (name, entries) in groups.byDisplayName {
+            let categories = Set(entries.map { $0.category })
+            guard categories.contains(AppUsage.AppCategory.learning), categories.contains(AppUsage.AppCategory.reward) else { continue }
+
+            duplicateAssignmentError = makeDuplicateMessage(
+                existingCategory: AppUsage.AppCategory.learning,
+                conflictingCategory: AppUsage.AppCategory.reward,
+                localEntries: [],
+                existingEntries: entries,
+                displayNameOverride: name
+            )
+
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Duplicate assignment detected by display name: \(name)")
+            debugLog(entries: entries, context: "Persisted display name")
+            #endif
+
+            return true
+        }
+
         return false
     }
     
@@ -1102,6 +1342,13 @@ extension AppUsageViewModel {
             #if DEBUG
             print("[AppUsageViewModel] ⚠️ Duplicate assignments found, blocking save")
             #endif
+            
+            // Post notification to display error in UI
+            NotificationCenter.default.post(
+                name: NSNotification.Name("DuplicateAssignmentError"),
+                object: duplicateAssignmentError
+            )
+            
             return false
         }
         
@@ -1109,22 +1356,170 @@ extension AppUsageViewModel {
         duplicateAssignmentError = nil
         return true
     }
+    
+    /// Task M: Enhanced validation that checks local assignments in CategoryAssignmentView
+    /// Uses token hashes for reliable equality checks
+    func validateLocalAssignments(_ localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory]) -> Bool {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔍 VALIDATE LOCAL ASSIGNMENTS STARTED")
+        print("[AppUsageViewModel]   Local assignments count: \(localCategoryAssignments.count)")
+        for (token, category) in localCategoryAssignments {
+            let appName = masterSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[AppUsageViewModel]     Local: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        
+        print("[AppUsageViewModel]   Persisted assignments count: \(categoryAssignments.count)")
+        for (token, category) in categoryAssignments {
+            let appName = masterSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[AppUsageViewModel]     Persisted: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        #endif
+        
+        // Clear any previous error
+        duplicateAssignmentError = nil
+        
+        let localGroups = groupedAssignments(localCategoryAssignments)
+        let existingGroups = groupedAssignments(categoryAssignments)
+
+        #if DEBUG
+        print("[AppUsageViewModel]   Hash index counts — local: \(localGroups.byHash.count), existing: \(existingGroups.byHash.count)")
+        #endif
+
+        // Detect duplicates within the sheet's working copy
+        for (hash, entries) in localGroups.byHash {
+            let categories = Set(entries.map { $0.category })
+            guard categories.contains(AppUsage.AppCategory.learning), categories.contains(AppUsage.AppCategory.reward) else { continue }
+
+            duplicateAssignmentError = makeDuplicateMessage(
+                existingCategory: AppUsage.AppCategory.learning,
+                conflictingCategory: AppUsage.AppCategory.reward,
+                localEntries: entries,
+                existingEntries: existingGroups.byHash[hash] ?? []
+            )
+
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Duplicate assignments detected inside local sheet state for hash: \(hash)")
+            debugLog(entries: entries, context: "Local hash")
+            if let persisted = existingGroups.byHash[hash], !persisted.isEmpty {
+                debugLog(entries: persisted, context: "Persisted hash counterpart")
+            }
+            #endif
+
+            return false
+        }
+
+        // Detect conflicts between local edits and persisted assignments
+        for (hash, localEntries) in localGroups.byHash {
+            let localCategories = Set(localEntries.map { $0.category })
+            guard !localCategories.isEmpty else { continue }
+
+            let persistedEntries = existingGroups.byHash[hash] ?? []
+            let persistedCategories = Set(persistedEntries.map { $0.category })
+
+            if localCategories.contains(AppUsage.AppCategory.learning), persistedCategories.contains(AppUsage.AppCategory.reward) {
+                duplicateAssignmentError = makeDuplicateMessage(
+                    existingCategory: AppUsage.AppCategory.reward,
+                    conflictingCategory: AppUsage.AppCategory.learning,
+                    localEntries: localEntries,
+                    existingEntries: persistedEntries
+                )
+
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cross-tab conflict detected: local learning vs persisted reward for hash: \(hash)")
+                #endif
+
+                return false
+            }
+
+            if localCategories.contains(AppUsage.AppCategory.reward), persistedCategories.contains(AppUsage.AppCategory.learning) {
+                duplicateAssignmentError = makeDuplicateMessage(
+                    existingCategory: AppUsage.AppCategory.learning,
+                    conflictingCategory: AppUsage.AppCategory.reward,
+                    localEntries: localEntries,
+                    existingEntries: persistedEntries
+                )
+
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cross-tab conflict detected: local reward vs persisted learning for hash: \(hash)")
+                #endif
+
+                return false
+            }
+        }
+
+        // Display name checks within the sheet
+        for (name, entries) in localGroups.byDisplayName {
+            let categories = Set(entries.map { $0.category })
+            guard !categories.isEmpty else { continue }
+
+            if categories.contains(AppUsage.AppCategory.learning), categories.contains(AppUsage.AppCategory.reward) {
+                duplicateAssignmentError = makeDuplicateMessage(
+                    existingCategory: AppUsage.AppCategory.learning,
+                    conflictingCategory: AppUsage.AppCategory.reward,
+                    localEntries: entries,
+                    existingEntries: existingGroups.byDisplayName[name] ?? [],
+                    displayNameOverride: name
+                )
+
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Duplicate assignments detected inside local sheet state by display name: \(name)")
+                debugLog(entries: entries, context: "Local display name")
+                if let persisted = existingGroups.byDisplayName[name], !persisted.isEmpty {
+                    debugLog(entries: persisted, context: "Persisted display name counterpart")
+                }
+                #endif
+
+                return false
+            }
+
+            let persistedEntries = existingGroups.byDisplayName[name] ?? []
+            let persistedCategories = Set(persistedEntries.map { $0.category })
+
+            if categories.contains(AppUsage.AppCategory.learning), persistedCategories.contains(AppUsage.AppCategory.reward) {
+                duplicateAssignmentError = makeDuplicateMessage(
+                    existingCategory: AppUsage.AppCategory.reward,
+                    conflictingCategory: AppUsage.AppCategory.learning,
+                    localEntries: entries,
+                    existingEntries: persistedEntries,
+                    displayNameOverride: name
+                )
+
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cross-tab conflict detected by display name: \(name) (local learning vs persisted reward)")
+                debugLog(entries: entries, context: "Local display name")
+                debugLog(entries: persistedEntries, context: "Persisted display name counterpart")
+                #endif
+
+                return false
+            }
+
+            if categories.contains(AppUsage.AppCategory.reward), persistedCategories.contains(AppUsage.AppCategory.learning) {
+                duplicateAssignmentError = makeDuplicateMessage(
+                    existingCategory: AppUsage.AppCategory.learning,
+                    conflictingCategory: AppUsage.AppCategory.reward,
+                    localEntries: entries,
+                    existingEntries: persistedEntries,
+                    displayNameOverride: name
+                )
+
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cross-tab conflict detected by display name: \(name) (local reward vs persisted learning)")
+                debugLog(entries: entries, context: "Local display name")
+                debugLog(entries: persistedEntries, context: "Persisted display name counterpart")
+                #endif
+
+                return false
+            }
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ NO DUPLICATE OR CROSS-TAB CONFLICTS DETECTED")
+        #endif
+
+        duplicateAssignmentError = nil
+        return true
+    }
 }
 
 private extension CategoryAssignmentView {
-    func handleSave() {
-        categoryAssignments = localCategoryAssignments
-        rewardPoints = localRewardPoints
-        
-        // Task M: Validate assignments before saving
-        if let viewModel = (UIApplication.shared.delegate as? ScreenTimeRewardsApp.AppDelegate)?.viewModel,
-           !viewModel.validateAndHandleAssignments() {
-            // Validation failed due to duplicates - don't dismiss the sheet
-            // The error message will be shown in the UI
-            return
-        }
-        
-        onSave()
-        dismiss()
-    }
 }

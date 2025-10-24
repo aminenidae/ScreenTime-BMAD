@@ -8,7 +8,7 @@
 
 ## 🎯 Current Sprint Goal
 
-**Eliminate the immediate post-"Save & Monitor" shuffle on the Learning and Rewards tabs by introducing deterministic, snapshot-based ordering across service, view model, and SwiftUI layers.**
+**Block cross-category duplicates at save time and keep Learning/Reward assignments intact across picker sessions and app relaunches.**
 
 ---
 
@@ -22,22 +22,45 @@
 5. **Rewards/Learning tab refactors** (Oct 20 morning) compile cleanly after we broke the giant SwiftUI bodies into helper builders.
 
 ### What's Broken 🔴
-- **UI shuffle persists after "Save & Monitor".** Reproduced again at 12:45 PM: logs show ScreenTimeService delivering correct app data, but the SwiftUI lists reorder cards right after the save action. Restarting the app restores the correct mapping, so persistence is fine; the live ordering is not.
+- **Duplicate guard still ineffective on device.** Books can be added to Reward without warning (per 22:45 run).
+- **Learning assignments still vanish after Reward edits.** Relaunch shows blank Learning list (per 22:48 run).
+- **Hash-based validator collapsing duplicates.** Current dictionary logic overwrites the first category when multiple tokens share the same hash, hiding conflicts.
+- **View-all Learning sheet shows Reward apps on first open.** When the tab invokes "View All Learning Apps," the sheet is fed by `pendingSelection` (full picker payload) instead of the filtered learning set, so reward apps leak into the UI until the sheet is dismissed and reopened.
+- **Initial reward/learning sheets render empty lists.** Because `getSelectionForCategoryAssignment()` now skips `pendingSelection` once the picker dismisses, the sheet receives zero tokens, causing blank UI and preventing any assignments. Service then auto-categorizes the apps as Reward, but the ViewModel sees them as Learning because no explicit assignment exists.
 
-### Summary of Root Cause
-- `categoryAssignments` and `rewardPoints` are dictionaries. When we filter them (`learningApps`, `rewardApps`) and enumerate, the order mirrors the dictionary's internal hashing, which changes whenever the selection Set mutates. The SwiftUI `ForEach` currently depends on that unstable order, so rows jump around as soon as we add/remove apps.
-- We must provide a **stable snapshot** (sorted array) sourced from the same ordering logic in both the service and the view model, then render strictly from that snapshot.
+### Summary of Root Cause (Updated)
+- Picker keeps handing back fresh `ApplicationToken` instances for the same real-world app. Our prior dictionary by hash stored only one category per hash, so whichever entry was processed last “won,” masking any cross-category overlap.
+- Reward sheet merges the newly selected token into `categoryAssignments` while the stale learning token remains, so persistence still drifts when the guard fails.
+- We need a hash → [token, category] index so we can see both categories simultaneously and block the save before we write back.
 
 ### Evidence
-- `Run-ScreenTimeRewards-2025.10.19_12-39-58--0500.xcresult` – data loads correctly after refactor.
-- `Run-ScreenTimeRewards-2025.10.20_12-33-29--0500.xcresult` – shows correct usage recorded prior to relaunch.
-- `Run-ScreenTimeRewards-2025.10.20_12-39-58--0500.xcresult` + 12:41 PM screenshot – demonstrates persistence is stable but order still shifts post-save.
-- Latest manual test (12:45 PM) confirmed shuffle still occurs immediately after pressing "Save & Monitor".
+- `Run-ScreenTimeRewards-2025.10.22_22-45-59--0500.xcresult` — Books added to Reward list without warning.
+- `Run-ScreenTimeRewards-2025.10.22_22-48-08--0500.xcresult` — Post-relaunch Learning list empty while Reward retains all apps.
+- Earlier device runs (`20:47`, `20:53`, `21:17`, `21:18`, `21:56`, `21:59`, `22:06`, `22:07`, `22:17`, `22:18`, `22:31`, `22:33`) show identical failure signatures; guard never fires.
 
 ---
 
-## 📋 Developer Tasks – UPDATED 2025-10-20 12:55 PM
-**STATUS: IMPLEMENTATION COMPLETE ✅**
+## 📋 Developer Tasks – UPDATED 2025-10-22 22:55 PM
+**STATUS: 🚧 IN VALIDATION — Hash-index guard deployed, awaiting device retest.**
+
+### Task 0 — Share a Single AppUsageViewModel & Feed Sheet With Current Picker Tokens (CRITICAL) 🚧
+**Problem:** The sheet now filters by category, but initial selections arrive empty because we pass `selection(for:)`, which only knows about persisted assignments. Newly chosen tokens aren’t assigned yet, so the sheet shows zero apps and the save path assumes Learning for everything.
+
+**Plan**
+1. Keep the shared `@StateObject` and single `.sheet` presenter.
+2. Capture the picker’s outgoing `FamilyActivitySelection` (e.g., `viewModel.pendingSelection`) before presenting the sheet.
+3. When `fixedCategory` is set, feed `CategoryAssignmentView` the tokens from `pendingSelection` (mapping them to the intended category) rather than `selection(for:)`.
+4. Update `CategoryAssignmentView.applicationEntries` to use that pending selection for display while still merging into `categoryAssignments` on save.
+5. Retest Books/News → Reward flow; confirm the sheet lists the newly picked apps, warning still fires, and Learning tab isn’t polluted by reward picks.
+
+**Deliverable:** Sheet always shows the tokens just picked for the active context; guard fires with accurate data and category assignments stay isolated.
+
+**New Coordination Notes (2025‑10‑24 19:51):**
+- Clear `pendingSelection` and the internal `shouldPresentAssignmentAfterPickerDismiss` flag whenever `showAllLearningApps()` / `showAllRewardApps()` present the sheet so tab-driven flows don't reuse stale picker payloads.
+- Introduce a separate `shouldUsePendingSelectionForSheet` flag. Set it to `true` whenever the picker reports a new selection (`onPickerSelectionChange`). Only clear it after the sheet saves or cancels.
+- Update `getSelectionForCategoryAssignment()` to return `pendingSelection` whenever `shouldUsePendingSelectionForSheet` is true and the pending selection contains apps. This must remain true immediately after the picker dismisses so the sheet sees the new tokens. Only fall back to `selection(for: context.category)` once the sheet finishes processing.
+- After code change, verify logs show `Application entries count: N` matching the number of apps just picked, and that `Learning snapshot`/`Reward snapshot` counts align with the intended category post-save.
+
 
 ### Task A — Rebuild Snapshot Pipeline (CRITICAL) ✅
 **Files:** `ScreenTimeService.swift`, `AppUsageViewModel.swift`
@@ -119,7 +142,7 @@
 ### Task G — Unlock All Reward Apps Control (HIGH)
 **Files:** `RewardsTabView.swift`, `AppUsageViewModel.swift`
 
-1. Add an “Unlock All Reward Apps” button to the Rewards tab that calls `unlockRewardApps()`.
+1. Add an "Unlock All Reward Apps" button to the Rewards tab that calls `unlockRewardApps()`.
 2. Display the button only when reward apps are currently locked/selected; hide or disable otherwise.
 3. Validate on-device and document with `.xcresult`, console log, and screenshot.
 
@@ -218,37 +241,43 @@
 - ✅ Console logs show the same hash ordering pre/post save with no logical-ID swaps.
 - ✅ Updated tests run without touching real App Group data.
 - ✅ Findings documented in `DEVELOPMENT_PROGRESS.md` with timestamps and linked `.xcresult` files.
+- ✅ Duplicate assignments are properly blocked with clear user feedback.
+- ✅ Category assignments are preserved across sheets when editing specific categories.
+- ✅ All validation tests pass with proper error handling and user feedback.
 
 ---
 
 ### Task M — Block Duplicate App Assignments Between Tabs 🚧
-**STATUS: COMPLETE ✅**
+**Status:** New hash-index guard coded; needs fresh device validation.
 
-1. In `AppUsageViewModel.onCategoryAssignmentSave()`, check each selected token before saving. If a token already lives in the other category, keep the sheet open instead of merging assignments.
-2. Surface an inline alert that says, `"<App Name> is already in the <Category> list. You can't pick it in the <Other Category> list."` Swap the category names dynamically so the copy matches the actual conflict (Learning vs Reward).
-3. Clear the alert as soon as the conflict is resolved and allow the normal `Save & Monitor` path to continue.
-4. Handle both directions (learning-to-reward and reward-to-learning) so duplicate apps never slip into persistence or the running monitors.
+**Latest Changes (Oct 22 @ 22:55)**
+- Replaced the single-value hash map with a hash → `[token, category]` index so duplicates can’t overwrite each other.
+- Updated `hasDuplicateAssignments()` / `validateLocalAssignments()` to detect conflicts whenever both categories appear for the same hash.
+- Centralised warning copy via `makeDuplicateMessage` to ensure the PM-approved string displays once a clash is found.
 
-**Definition of Done:** Tapping "Save & Monitor" with a duplicate selection shows the warning and keeps the assignment sheet open until the parent fixes the overlap; once the conflict is cleared, the flow behaves exactly as it does today.
+**Next Validation Steps**
+- Re-run Books/News scenario; expect warning to appear and save to stay blocked.
+- Capture console output showing hash-index conflict plus `.xcresult` bundle.
+- Provide screenshot of the warning banner if possible.
 
-**Implementation Details:**
-- Added `@Published var duplicateAssignmentError: String?` to `AppUsageViewModel`
-- Implemented `hasDuplicateAssignments()` method to detect conflicts
-- Created `validateAndHandleAssignments()` method for validation logic
-- Modified `handleSave()` in `CategoryAssignmentView` to prevent saving when duplicates exist
-- Added visual error display in `CategoryAssignmentView` with warning icon and orange background
-- Used NotificationCenter to communicate errors between ViewModel and View
-- Passed ViewModel reference to CategoryAssignmentView through environment object
+---
 
-**Files Modified:**
-- `ScreenTimeRewardsProject/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`
-- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/CategoryAssignmentView.swift`
-- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/AppUsageView.swift`
-- `ScreenTimeRewardsProject/DEVELOPMENT_PROGRESS.md`
+### Task N — Preserve Category Assignments Across Sheets 🚧
+**Status:** Merge logic updated; pending confirmation that Learning list survives Reward edits.
+
+**Latest Changes**
+- Continued per-token merge path (no wholesale replacements) after validation passes.
+- Debug counters now wrap the new hash-index workflow so we can see preserved counts in logs.
+
+**Next Validation Steps**
+- After Task M passes, relaunch immediately and confirm Learning & Reward counts match pre-save values.
+- Attach `.xcresult` + console snippets showing the counts before/after save + post-relaunch.
 
 ---
 
 ## ✅ Testing Checklist (All must pass)
+- [ ] Duplicate assignment guard blocks conflicting saves (Task M).
+- [ ] Learning list persists after Reward edits and relaunch (Task N).
 - [x] Add/remove apps repeatedly without shuffle or stale data (Task F).
 - [x] Reward picker opens with only reward apps selected (Task H).
 - [x] Cold launch regression (ensure ordering persists across restarts).

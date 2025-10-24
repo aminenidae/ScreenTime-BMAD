@@ -25,25 +25,71 @@ struct CategoryAssignmentView: View {
     @State private var localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @State private var localRewardPoints: [ApplicationToken: Int] = [:]
     
-    // Task M: Access the view model to get duplicate assignment errors
+    // Task M: Use @Published state for duplicate assignment errors instead of NotificationCenter
     @State private var duplicateAssignmentError: String?
 
     private let usagePersistence = UsagePersistence()
 
+    private var pointsSummaryTitle: String {
+        switch fixedCategory {
+        case .learning:
+            return "Learning Points Summary"
+        case .reward:
+            return "Reward Points Summary"
+        case .none:
+            return "Reward Points Summary"
+        }
+    }
+
+    private var totalPointsLabel: String {
+        switch fixedCategory {
+        case .learning:
+            return "Total Learning Points:"
+        case .reward:
+            return "Total Reward Points:"
+        case .none:
+            return "Total Reward Points:"
+        }
+    }
+
     private var applicationEntries: [CategoryAssignmentEntry] {
-        selection.applications.compactMap { application in
-            guard let token = application.token else { return nil }
+        // Task 0: When fixedCategory is set, build entries from the passed selection
+        // The selection now includes the pending tokens from the picker, but can still carry
+        // cached applications from other tabs. Filter by the active token set so each sheet
+        // only shows the apps relevant to the current category.
+        let tokenSet = Set(selection.applicationTokens)
+
+        // When the selection contains explicit tokens (e.g., filtered learning/reward lists)
+        // prefer those. Otherwise fall back to any hydrated applications we received from the
+        // picker to keep manual categorization working.
+        let baseTokens: [ApplicationToken]
+        if !tokenSet.isEmpty {
+            baseTokens = Array(tokenSet)
+        } else {
+            baseTokens = selection.applications.compactMap { $0.token }
+        }
+
+        let entries = baseTokens.compactMap { token -> CategoryAssignmentEntry? in
             let sortKey = usagePersistence.getTokenArchiveHash(for: token)
-            let name = application.localizedDisplayName ?? "Unknown App"
-            return CategoryAssignmentEntry(token: token, displayName: name, sortKey: sortKey)
-        }.sorted { $0.sortKey < $1.sortKey }
+
+            // Pull the localized name from the selection when available, otherwise fall back
+            // to cached names from the ViewModel/service.
+            let selectionName = selection.applications.first { $0.token == token }?.localizedDisplayName
+            let displayName = selectionName
+                ?? viewModel.resolvedDisplayName(for: token)
+                ?? "Unknown App"
+
+            return CategoryAssignmentEntry(token: token, displayName: displayName, sortKey: sortKey)
+        }
+
+        return entries.sorted { $0.sortKey < $1.sortKey }
     }
 
     var body: some View {
         NavigationView {
             List {
                 headerSection
-                // Task M: Add duplicate assignment error display
+                // Task M: Add duplicate assignment error display using @Published state
                 if let error = duplicateAssignmentError {
                     errorSection(error)
                 }
@@ -55,12 +101,8 @@ struct CategoryAssignmentView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar { toolbarContent }
             .onAppear(perform: initializeAssignments)
-            // Task M: Listen for duplicate assignment errors
-            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("DuplicateAssignmentError"))) { notification in
-                if let errorMessage = notification.object as? String {
-                    duplicateAssignmentError = errorMessage
-                }
-            }
+            // Task M: Listen for duplicate assignment errors through @Published state
+            // Removed NotificationCenter observer since we're using @Published state directly
         }
     }
     
@@ -106,12 +148,12 @@ struct CategoryAssignmentView: View {
     
     private var rewardPointsSummary: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Reward Points Summary")
+            Text(pointsSummaryTitle)
                 .font(.headline)
                 
             let totalPoints = localRewardPoints.values.reduce(0, +)
             HStack {
-                Text("Total Reward Points:")
+                Text(totalPointsLabel)
                 Spacer()
                 Text("\(totalPoints)")
                     .foregroundColor(.secondary)
@@ -138,6 +180,8 @@ struct CategoryAssignmentView: View {
 
     private func initializeAssignments() {
         for entry in applicationEntries {
+            // When fixedCategory is set, use that category for all entries
+            // Otherwise, use existing assignments or default to .learning
             let category = fixedCategory ?? categoryAssignments[entry.token] ?? .learning
             localCategoryAssignments[entry.token] = category
             localRewardPoints[entry.token] = rewardPoints[entry.token] ?? getDefaultRewardPoints(for: category)
@@ -246,7 +290,11 @@ private extension CategoryAssignmentView {
     func categoryPicker(for entry: CategoryAssignmentEntry) -> some View {
         Picker("Category", selection: Binding(
             get: { localCategoryAssignments[entry.token] ?? .learning },
-            set: { localCategoryAssignments[entry.token] = $0 }
+            set: { 
+                localCategoryAssignments[entry.token] = $0
+                // Task M: Validate assignments immediately when category changes using @Published state
+                validateAssignments()
+            }
         )) {
             ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
                 HStack {
@@ -284,7 +332,11 @@ private extension CategoryAssignmentView {
                 "\(localRewardPoints[entry.token] ?? minPoints)",
                 value: Binding(
                     get: { localRewardPoints[entry.token] ?? minPoints },
-                    set: { localRewardPoints[entry.token] = $0 }
+                    set: { 
+                        localRewardPoints[entry.token] = $0
+                        // Task M: Validate assignments immediately when points change using @Published state
+                        validateAssignments()
+                    }
                 ),
                 in: minPoints...maxPoints,
                 step: stepValue
@@ -305,16 +357,146 @@ private extension CategoryAssignmentView {
         }
     }
 
-    func handleSave() {
-        categoryAssignments = localCategoryAssignments
-        rewardPoints = localRewardPoints
+    // Task M: Add validation method with detailed instrumentation
+    private func validateAssignments() {
+        #if DEBUG
+        print("[CategoryAssignmentView] 🔍 VALIDATION TRIGGERED")
+        print("[CategoryAssignmentView]   Local assignments count: \(localCategoryAssignments.count)")
+        for (token, category) in localCategoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[CategoryAssignmentView]     Local: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
         
-        // Task M: Validate assignments before saving
-        if !viewModel.validateAndHandleAssignments() {
+        print("[CategoryAssignmentView]   Stored assignments count: \(categoryAssignments.count)")
+        for (token, category) in categoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[CategoryAssignmentView]     Stored: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        #endif
+        
+        // Validate local assignments and update error state through @Published property
+        let isValid = viewModel.validateLocalAssignments(localCategoryAssignments)
+        if !isValid, let error = viewModel.duplicateAssignmentError {
+            duplicateAssignmentError = error
+        } else {
+            duplicateAssignmentError = nil
+        }
+    }
+
+    func handleSave() {
+        #if DEBUG
+        print("[CategoryAssignmentView] 🔄 HANDLE SAVE STARTED")
+        print("[CategoryAssignmentView]   Fixed category: \(fixedCategory?.rawValue ?? "nil")")
+        print("[CategoryAssignmentView]   Application entries count: \(applicationEntries.count)")
+        print("[CategoryAssignmentView]   Local assignments count: \(localCategoryAssignments.count)")
+        for (token, category) in localCategoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[CategoryAssignmentView]     Local: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        
+        print("[CategoryAssignmentView]   Stored assignments count: \(categoryAssignments.count)")
+        for (token, category) in categoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[CategoryAssignmentView]     Stored: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        #endif
+        
+        // Task M: Validate assignments before saving using @Published state
+        if !viewModel.validateLocalAssignments(localCategoryAssignments) {
             // Validation failed due to duplicates - don't dismiss the sheet
-            // The error message will be shown in the UI
+            // The error message will be shown in the UI through @Published state
+            if let error = viewModel.duplicateAssignmentError {
+                duplicateAssignmentError = error
+            }
+            
+            #if DEBUG
+            print("[CategoryAssignmentView] ❌ VALIDATION FAILED - DUPLICATE ASSIGNMENTS DETECTED")
+            #endif
+            
             return
         }
+        
+        #if DEBUG
+        print("[CategoryAssignmentView] ✅ VALIDATION PASSED - NO DUPLICATE ASSIGNMENTS")
+        #endif
+        
+        // Task N: Preserve Category Assignments Across Sheets
+        // Create a copy of the current assignments to merge into
+        var mergedCategoryAssignments = categoryAssignments
+        var mergedRewardPoints = rewardPoints
+        
+        #if DEBUG
+        let initialLearningCount = mergedCategoryAssignments.filter { $0.value == .learning }.count
+        let initialRewardCount = mergedCategoryAssignments.filter { $0.value == .reward }.count
+        print("[CategoryAssignmentView] 🔄 Preserving category assignments across sheets")
+        print("[CategoryAssignmentView]   Initial counts - Learning: \(initialLearningCount), Reward: \(initialRewardCount)")
+        print("[CategoryAssignmentView]   Current selection has \(applicationEntries.count) apps")
+        #endif
+        
+        if let fixedCategory = fixedCategory {
+            // When fixedCategory is specified (Learning or Reward tabs), only update assignments for apps in the current selection
+            // Preserve existing assignments for apps not in the current selection
+            for entry in applicationEntries {
+                mergedCategoryAssignments[entry.token] = fixedCategory
+                if let points = localRewardPoints[entry.token] {
+                    mergedRewardPoints[entry.token] = points
+                }
+            }
+        } else {
+            // When no fixedCategory is specified (manual categorization), update all local assignments
+            // But still preserve assignments for tokens not in the current selection
+            for (token, category) in localCategoryAssignments {
+                mergedCategoryAssignments[token] = category
+            }
+            for (token, points) in localRewardPoints {
+                mergedRewardPoints[token] = points
+            }
+        }
+        
+        #if DEBUG
+        let finalLearningCount = mergedCategoryAssignments.filter { $0.value == .learning }.count
+        let finalRewardCount = mergedCategoryAssignments.filter { $0.value == .reward }.count
+        print("[CategoryAssignmentView]   Final counts - Learning: \(finalLearningCount), Reward: \(finalRewardCount)")
+        print("[CategoryAssignmentView]   ✅ Preserved \(abs(finalLearningCount - initialLearningCount)) learning apps")
+        print("[CategoryAssignmentView]   ✅ Preserved \(abs(finalRewardCount - initialRewardCount)) reward apps")
+        
+        // Detailed logging of what changed
+        print("[CategoryAssignmentView]   MERGE DETAILS:")
+        for (token, category) in mergedCategoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            if let oldCategory = categoryAssignments[token] {
+                if oldCategory != category {
+                    print("[CategoryAssignmentView]     Updated: \(appName) (token: \(token.hashValue)) from \(oldCategory.rawValue) to \(category.rawValue)")
+                }
+            } else {
+                print("[CategoryAssignmentView]     Added: \(appName) (token: \(token.hashValue)) as \(category.rawValue)")
+            }
+        }
+        
+        // Check for removed assignments
+        for (token, oldCategory) in categoryAssignments {
+            if mergedCategoryAssignments[token] == nil {
+                let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+                print("[CategoryAssignmentView]     Removed: \(appName) (token: \(token.hashValue)) previously \(oldCategory.rawValue)")
+            }
+        }
+        #endif
+        
+        // Update the bindings with merged data
+        categoryAssignments = mergedCategoryAssignments
+        rewardPoints = mergedRewardPoints
+        
+        // Task 0: Clear the pending selection after successful save
+        viewModel.pendingSelection = FamilyActivitySelection()
+        
+        #if DEBUG
+        print("[CategoryAssignmentView] 🔄 HANDLE SAVE COMPLETED")
+        print("[CategoryAssignmentView]   Final stored assignments count: \(categoryAssignments.count)")
+        for (token, category) in categoryAssignments {
+            let appName = selection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+            print("[CategoryAssignmentView]     Final: \(appName) (token: \(token.hashValue)) → \(category.rawValue)")
+        }
+        #endif
         
         onSave()
         dismiss()

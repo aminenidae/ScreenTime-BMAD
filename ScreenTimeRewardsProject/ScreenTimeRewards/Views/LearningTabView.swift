@@ -3,7 +3,7 @@ import FamilyControls
 import ManagedSettings
 
 struct LearningTabView: View {
-    @StateObject private var viewModel = AppUsageViewModel()
+    @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
 
     private var hasLearningApps: Bool {
         !viewModel.learningSnapshots.isEmpty
@@ -30,29 +30,15 @@ struct LearningTabView: View {
         }
         .navigationViewStyle(.stack)
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { newSelection in
+        .onChange(of: viewModel.familySelection) { _ in
             viewModel.onPickerSelectionChange()
-
-            if viewModel.isFamilyPickerPresented && !newSelection.applications.isEmpty {
-                viewModel.isCategoryAssignmentPresented = true
+        }
+        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+            if !isPresented {
+                viewModel.onFamilyPickerDismissed()
             }
         }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            CategoryAssignmentView(
-                selection: viewModel.familySelection,
-                categoryAssignments: $viewModel.categoryAssignments,
-                rewardPoints: $viewModel.rewardPoints,
-                fixedCategory: .learning,
-                usageTimes: viewModel.getUsageTimes(),
-                onSave: {
-                    viewModel.onCategoryAssignmentSave()
-                    viewModel.startMonitoring()
-                },
-                onCancel: {
-                    viewModel.cancelCategoryAssignment()
-                }
-            )
-        }
+        // Task 0: Sheet moved to MainTabView
     }
 }
 
@@ -125,7 +111,7 @@ private extension LearningTabView {
     @ViewBuilder
     var viewAllLearningAppsButton: some View {
         if hasLearningApps {
-            Button(action: { viewModel.isCategoryAssignmentPresented = true }) {
+            Button(action: { viewModel.showAllLearningApps() }) {
                 HStack {
                     Image(systemName: "list.bullet.rectangle")
                     Text("View All Learning Apps")
@@ -192,5 +178,6 @@ private extension LearningTabView {
 struct LearningTabView_Previews: PreviewProvider {
     static var previews: some View {
         LearningTabView()
+            .environmentObject(AppUsageViewModel())  // Provide a view model for previews
     }
 }
