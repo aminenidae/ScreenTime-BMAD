@@ -7,7 +7,7 @@ import ManagedSettings
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
 @available(iOS 16.0, *)
-class ScreenTimeService: NSObject {
+class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     static let shared = ScreenTimeService()
     static let usageDidChangeNotification = Notification.Name("ScreenTimeService.usageDidChange")
     
@@ -1510,6 +1510,48 @@ func configureWithTestApplications() {
 
 }  // Closing brace for ScreenTimeService class
 
+// MARK: - ScreenTimeActivityMonitorDelegate
+extension ScreenTimeService {
+    func activityMonitorDidStartInterval(_ activity: DeviceActivityName) {
+        handleIntervalDidStart(for: activity)
+    }
+
+    func activityMonitorWillStartInterval(_ activity: DeviceActivityName) {
+        handleIntervalWillStartWarning(for: activity)
+    }
+
+    func activityMonitorDidEndInterval(_ activity: DeviceActivityName) {
+        handleIntervalDidEnd(for: activity)
+    }
+
+    func activityMonitorWillEndInterval(_ activity: DeviceActivityName) {
+        handleIntervalWillEndWarning(for: activity)
+    }
+
+    func activityMonitorDidReachThreshold(for event: DeviceActivityEvent.Name) {
+        handleEventThresholdReached(event)
+    }
+
+    func activityMonitorWillReachThreshold(for event: DeviceActivityEvent.Name) {
+        handleEventWillReachThresholdWarning(event)
+    }
+}
+
+// MARK: - FamilyActivitySelection Extension for Consistent Sorting
+extension FamilyActivitySelection {
+    /// Returns applications sorted by token hash for consistent iteration order
+    /// This fixes the Set reordering bug that causes data shuffling when adding new apps
+    /// TASK L: Ensure deterministic sorting using token hash
+    func sortedApplications(using usagePersistence: UsagePersistence) -> [Application] {
+        return self.applications.sorted { app1, app2 in
+            guard let token1 = app1.token, let token2 = app2.token else { return false }
+            let hash1 = usagePersistence.tokenHash(for: token1)
+            let hash2 = usagePersistence.tokenHash(for: token2)
+            return hash1 < hash2
+        }
+    }
+}
+
 extension ScreenTimeService {
     /// Get display name for a given token (for debugging purposes)
     func getDisplayName(for token: ApplicationToken) -> String? {
@@ -1596,5 +1638,70 @@ extension ScreenTimeService {
         
         // Notify that usage has changed
         notifyUsageChange()
+    }
+}
+
+// MARK: - ScreenTimeActivityMonitor
+@MainActor
+private protocol ScreenTimeActivityMonitorDelegate: AnyObject {
+    func activityMonitorDidStartInterval(_ activity: DeviceActivityName)
+    func activityMonitorWillStartInterval(_ activity: DeviceActivityName)
+    func activityMonitorDidEndInterval(_ activity: DeviceActivityName)
+    func activityMonitorWillEndInterval(_ activity: DeviceActivityName)
+    func activityMonitorDidReachThreshold(for event: DeviceActivityEvent.Name)
+    func activityMonitorWillReachThreshold(for event: DeviceActivityEvent.Name)
+}
+
+private final class ScreenTimeActivityMonitor: DeviceActivityMonitor {
+    nonisolated(unsafe) weak var delegate: ScreenTimeActivityMonitorDelegate?
+
+    private nonisolated func deliverToMain(_ handler: @escaping @MainActor (ScreenTimeActivityMonitorDelegate) -> Void) {
+        Task { [weak self] in
+            guard let self else { return }
+            await MainActor.run {
+                guard let delegate = self.delegate else { return }
+                handler(delegate)
+            }
+        }
+    }
+
+    override nonisolated init() {
+        super.init()
+    }
+
+    override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorDidStartInterval(activity)
+        }
+    }
+
+    override nonisolated func intervalWillStartWarning(for activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorWillStartInterval(activity)
+        }
+    }
+
+    override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorDidEndInterval(activity)
+        }
+    }
+
+    override nonisolated func intervalWillEndWarning(for activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorWillEndInterval(activity)
+        }
+    }
+
+    override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorDidReachThreshold(for: event)
+        }
+    }
+
+    override nonisolated func eventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
+        deliverToMain { delegate in
+            delegate.activityMonitorWillReachThreshold(for: event)
+        }
     }
 }
