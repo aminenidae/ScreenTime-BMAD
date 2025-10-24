@@ -3,7 +3,7 @@
 **Author:** Code Agent
 
 ## Overview
-All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been completed successfully. The main focus was eliminating the UI shuffle issue that occurred after "Save & Monitor" operations, which has now been fully resolved.
+Shuffle regressions remain resolved, but duplicate-assignment prevention (Tasks M/N) is still pending successful device validation. Latest device runs (`23-01-45`, `23-03-16`) show the guard never sees learning assignments because each tab owns its own `AppUsageViewModel`. Sharing a single instance across the app is now the next critical step before revalidating.
 
 ## Completed Tasks
 
@@ -78,18 +78,14 @@ All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been complete
 - Enhanced snapshot updates with proper timing to prevent temporary inconsistencies
 - Re-ran instrumentation and validation to confirm fix effectiveness
 
-### Task M — Block Duplicate App Assignments Between Tabs ✅
-- Implemented validation logic to detect apps assigned to both Learning and Reward categories
-- Added user-friendly error messages that specify which app is duplicated and in which categories
-- Created visual error display in CategoryAssignmentView with warning icon and orange background
-- Prevented "Save & Monitor" action when duplicates are detected, keeping the assignment sheet open
-- Implemented automatic error clearing when conflicts are resolved
-- Added `@Published var duplicateAssignmentError: String?` to `AppUsageViewModel`
-- Created `hasDuplicateAssignments()` method to detect conflicts
-- Implemented `validateAndHandleAssignments()` method for validation logic
-- Modified `handleSave()` in `CategoryAssignmentView` to prevent saving when duplicates exist
-- Used NotificationCenter to communicate errors between ViewModel and View
-- Passed ViewModel reference to CategoryAssignmentView through environment object
+### Task M — Block Duplicate App Assignments Between Tabs 🚧 (Final Validation)
+- Hash-index validator firing on device (`12-39-57`).
+- Warning copy matches PM string.
+- **Pending:** Feed pending picker tokens into the sheet so the guard sees new selections before they’re persisted; retest once implemented.
+
+### Task N — Preserve Category Assignments Across Sheets 🚧 (Awaiting Validation)
+- Merge path ready, but verification requires the sheet to receive pending tokens; latest build moved reward picks into Learning because the sheet listed none.
+- Retest after Task 0 fix to ensure assignments stay in their categories across saves and relaunches.
 
 ## Key Technical Improvements
 
@@ -115,11 +111,12 @@ All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been complete
 
 ## Validation Results
 
-### No Shuffle Issues
+### Shuffle & Duplicate Checklist
 - ✅ No card reordering after saving category assignments
 - ✅ Pull-to-refresh preserves order on both tabs
 - ✅ Stable logical ID and token hash ordering across save cycles
 - ✅ Consistent ordering pre/post save without requiring app restart
+- ❌ Duplicate guard still failing on device (`Run-ScreenTimeRewards-2025.10.22_22-45-59--0500.xcresult`)
 
 ### Data Persistence
 - ✅ Cold launch retention - usage data persists correctly across app restarts
@@ -131,7 +128,8 @@ All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been complete
 - ✅ Correct visibility of "Unlock All Reward Apps" button based on actual shield status
 - ✅ Isolated picker selection per category preventing data contamination
 - ✅ Clean compilation with no type-checking timeouts
-- ✅ Duplicate assignment prevention with clear error messaging
+- ❌ Duplicate assignment prevention still missing warning banner on device
+- ❌ Category assignments not preserved after Reward edits (`Run-ScreenTimeRewards-2025.10.22_22-48-08--0500.xcresult`)
 
 ## Files Modified
 
@@ -140,12 +138,12 @@ All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been complete
 3. `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` - Snapshot management, sequencing fixes, and duplicate assignment validation
 4. `ScreenTimeRewards/Views/LearningTabView.swift` - Snapshot-based rendering and helper refactoring
 5. `ScreenTimeRewards/Views/RewardsTabView.swift` - Snapshot-based rendering and isolated selection
-6. `ScreenTimeRewards/Views/CategoryAssignmentView.swift` - Compilation fixes, helper refactoring, and duplicate assignment error display
+6. `ScreenTimeRewards/Views/CategoryAssignmentView.swift` - Compilation fixes, helper refactoring, duplicate assignment error display, and selective assignment updating
 7. `ScreenTimeRewards/Views/AppUsageView.swift` - Environment object passing for ViewModel access
 8. `ScreenTimeRewardsProject/DEVELOPMENT_PROGRESS.md` - Documentation updates
 9. `HANDOFF-BRIEF.md` - Technical summary and validation results
 10. `PM-DEVELOPER-BRIEFING.md` - Task completion status updates
-11. `TASK_COMPLETION_SUMMARY.md` - Current file with Task M completion details
+11. `TASK_COMPLETION_SUMMARY.md` - Current file with Task N completion details
 
 ## Next Steps
 
@@ -156,4 +154,4 @@ All critical tasks identified in the PM-DEVELOPER-BRIEFING.md have been complete
 
 ## Conclusion
 
-All critical shuffle issues have been successfully resolved through a combination of deterministic snapshot-based ordering, stable token hash identifiers, proper operation sequencing, and robust data validation. The application now provides a consistent and reliable user experience with no unexpected UI reordering and prevents data conflicts through duplicate assignment validation.
+Shuffle regressions remain fixed, but Tasks M/N are still open until the hash-index validator blocks the conflict on real hardware. Once QA confirms the warning fires and Learning assignments persist after relaunch, we can promote this branch; until then, keep it in regression mode.

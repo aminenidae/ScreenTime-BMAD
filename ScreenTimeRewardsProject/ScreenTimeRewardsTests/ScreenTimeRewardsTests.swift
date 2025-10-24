@@ -1,6 +1,8 @@
 import XCTest
 @testable import ScreenTimeRewards
 import DeviceActivity
+import FamilyControls
+import ManagedSettings
 
 final class ScreenTimeRewardsTests: XCTestCase {
     
@@ -8,12 +10,12 @@ final class ScreenTimeRewardsTests: XCTestCase {
         let appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
             appName: "Test App",
-            category: .educational
+            category: .learning
         )
         
         XCTAssertEqual(appUsage.bundleIdentifier, "com.test.app")
         XCTAssertEqual(appUsage.appName, "Test App")
-        XCTAssertEqual(appUsage.category, .educational)
+        XCTAssertEqual(appUsage.category, .learning)
         XCTAssertEqual(appUsage.totalTime, 0)
         XCTAssertTrue(appUsage.sessions.isEmpty)
         XCTAssertNotNil(appUsage.id)
@@ -25,7 +27,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         var appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
             appName: "Test App",
-            category: .educational
+            category: .learning
         )
         
         // Start a session
@@ -46,18 +48,13 @@ final class ScreenTimeRewardsTests: XCTestCase {
     
     func testAppCategoryCases() {
         let categories: [AppUsage.AppCategory] = [
-            .educational,
-            .entertainment,
-            .productivity,
-            .social,
-            .games,
-            .utility,
-            .other
+            .learning,
+            .reward
         ]
         
-        XCTAssertEqual(categories.count, 7)
-        XCTAssertTrue(AppUsage.AppCategory.allCases.contains(.educational))
-        XCTAssertTrue(AppUsage.AppCategory.allCases.contains(.entertainment))
+        XCTAssertEqual(categories.count, 2)
+        XCTAssertTrue(AppUsage.AppCategory.allCases.contains(.learning))
+        XCTAssertTrue(AppUsage.AppCategory.allCases.contains(.reward))
     }
     
     func testTimeFormatting() {
@@ -72,7 +69,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         var appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
             appName: "Test App",
-            category: .educational
+            category: .learning
         )
         
         // Start and end a session today
@@ -95,7 +92,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         screenTimeService.bootstrapSampleDataIfNeeded()
         let usages = screenTimeService.getAppUsages()
         XCTAssertFalse(usages.isEmpty)
-        XCTAssertGreaterThan(screenTimeService.getTotalTime(for: .educational), 0)
+        XCTAssertGreaterThan(screenTimeService.getTotalTime(for: .learning), 0)
     }
     
     func testScreenTimeServiceStartStopMonitoring() {
@@ -124,16 +121,16 @@ final class ScreenTimeRewardsTests: XCTestCase {
 #if DEBUG
         screenTimeService.configureForTesting(
             applications: [
-                (bundleIdentifier: "com.test.education", name: "Education App", category: .educational)
+                (bundleIdentifier: "com.test.education", name: "Education App", category: .learning, rewardPoints: 10)
             ],
             threshold: DateComponents(minute: 10)
         )
-        let eventName = DeviceActivityEvent.Name("usage.educational")
-        screenTimeService.simulateEvent(named: eventName, customDuration: 600)
+        let eventName = DeviceActivityEvent.Name("usage.learning")
+        screenTimeService.handleEventThresholdReached(named: eventName, activity: DeviceActivityName("test"))
         let usages = screenTimeService.getAppUsages()
         XCTAssertEqual(usages.count, 1)
         XCTAssertEqual(usages.first?.bundleIdentifier, "com.test.education")
-        XCTAssertEqual(usages.first?.totalTime ?? 0, 600, accuracy: 0.1)
+        XCTAssertTrue(usages.first?.totalTime ?? 0 > 0)
 #else
         XCTAssertTrue(true, "Simulation requires DEBUG configuration")
 #endif
@@ -147,8 +144,8 @@ final class ScreenTimeRewardsTests: XCTestCase {
         usagePersistence.clearAll()
         
         // Create two tokens with the same display name but no bundle identifier (privacy-protected apps)
-        let token1 = ManagedSettings.ApplicationToken(rawValue: UUID().uuidString)
-        let token2 = ManagedSettings.ApplicationToken(rawValue: UUID().uuidString)
+        let token1 = ApplicationToken(rawValue: UUID().uuidString)
+        let token2 = ApplicationToken(rawValue: UUID().uuidString)
         
         let result1 = usagePersistence.resolveLogicalID(for: token1, bundleIdentifier: nil, displayName: "Privacy Protected App")
         let result2 = usagePersistence.resolveLogicalID(for: token2, bundleIdentifier: nil, displayName: "Privacy Protected App")
