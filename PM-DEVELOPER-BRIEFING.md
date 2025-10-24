@@ -1,6 +1,6 @@
 # PM-Developer Briefing Document
 **Project:** ScreenTime Rewards App
-**Date:** 2025-10-20 (12:55 PM)
+**Date:** 2025-10-24 (20:15 PM)
 **PM:** GPT-5 (acting PM)
 **Developer:** Code Agent (implementation only)
 
@@ -8,54 +8,56 @@
 
 ## 🎯 Current Sprint Goal
 
-**Block cross-category duplicates at save time and keep Learning/Reward assignments intact across picker sessions and app relaunches.**
+**Lock in the duplicate-prevention guard and polish the picker-driven sheets so category assignments stay isolated and presentation is stable from first launch.**
 
 ---
 
 ## 📊 Current State Analysis
 
 ### What's Working ✅
-1. **Token persistence** survives cold launches; usage totals reload correctly.
-2. **Background tracking** records usage while the UI is closed.
-3. **Monitoring auto-restart** (DeviceActivity) continues after relaunches.
-4. **UUID collision** was resolved on Oct 19; new apps now start at 0 s / 0 pts.
-5. **Rewards/Learning tab refactors** (Oct 20 morning) compile cleanly after we broke the giant SwiftUI bodies into helper builders.
+1. **Duplicate guard holds on device.** Oct 24 validation confirms Reward flows cannot grab Learning apps and vice versa.
+2. **Category sheets populate immediately** after picker dismiss; both tabs refresh without app relaunches.
+3. **Monitoring + persistence pipeline stays stable** — background restart timer, blocking, and reward point storage still function after saves.
+4. **Privacy-token shuffle fix persists** — unique logical IDs for privacy-protected apps across sessions.
+5. **Refactored sheet coordination compiles cleanly** and keeps pending selections alive through the assignment flow.
 
 ### What's Broken 🔴
-- **Duplicate guard still ineffective on device.** Books can be added to Reward without warning (per 22:45 run).
-- **Learning assignments still vanish after Reward edits.** Relaunch shows blank Learning list (per 22:48 run).
-- **Hash-based validator collapsing duplicates.** Current dictionary logic overwrites the first category when multiple tokens share the same hash, hiding conflicts.
-- **View-all Learning sheet shows Reward apps on first open.** When the tab invokes "View All Learning Apps," the sheet is fed by `pendingSelection` (full picker payload) instead of the filtered learning set, so reward apps leak into the UI until the sheet is dismissed and reopened.
-- **Initial reward/learning sheets render empty lists.** Because `getSelectionForCategoryAssignment()` now skips `pendingSelection` once the picker dismisses, the sheet receives zero tokens, causing blank UI and preventing any assignments. Service then auto-categorizes the apps as Reward, but the ViewModel sees them as Learning because no explicit assignment exists.
+- **Picker presentation still flickers on first launch.** Console logs repeated `Label is already or no longer part of the view hierarchy` warnings; agreed to tackle only if a fast fix surfaces.
+- **SwiftUI reports double-presentation warnings** (`Attempt to present … while a presentation is in progress`) when sheets open rapidly; tied to the same flicker behaviour.
 
 ### Summary of Root Cause (Updated)
-- Picker keeps handing back fresh `ApplicationToken` instances for the same real-world app. Our prior dictionary by hash stored only one category per hash, so whichever entry was processed last “won,” masking any cross-category overlap.
-- Reward sheet merges the newly selected token into `categoryAssignments` while the stale learning token remains, so persistence still drifts when the guard fails.
-- We need a hash → [token, category] index so we can see both categories simultaneously and block the save before we write back.
+- Presentation flow still races between the TabView host and the sheet presenter, causing transient dismissals and stale header binding.
+- New selection flags keep category data accurate; remaining issues are limited to SwiftUI presentation ordering.
 
 ### Evidence
-- `Run-ScreenTimeRewards-2025.10.22_22-45-59--0500.xcresult` — Books added to Reward list without warning.
-- `Run-ScreenTimeRewards-2025.10.22_22-48-08--0500.xcresult` — Post-relaunch Learning list empty while Reward retains all apps.
-- Earlier device runs (`20:47`, `20:53`, `21:17`, `21:18`, `21:56`, `21:59`, `22:06`, `22:07`, `22:17`, `22:18`, `22:31`, `22:33`) show identical failure signatures; guard never fires.
+- `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` — Confirms duplicate guard enforcement and correct Learning/Reward tab population after successive picker sessions.
+- Console log (Oct 24 19:53) repeatedly reports `Label is already or no longer part of the view hierarchy` and double-presentation warnings; illustrates the remaining presentation race.
+- Debug build transcripts (`Debug Reports/Build ScreenTimeRewards_2025-10-24T14-20-28.txt`, `…14-22-47.txt`, `…14-23-25.txt`) track the successful builds used for the latest validation run.
 
 ---
 
-## 📋 Developer Tasks – UPDATED 2025-10-22 22:55 PM
-**STATUS: 🚧 IN VALIDATION — Hash-index guard deployed, awaiting device retest.**
+## 📋 Developer Tasks – UPDATED 2025-10-24 20:15 PM
+**STATUS: ✅ Guard validated — polishing picker presentation and copy.**
 
-### Task 0 — Share a Single AppUsageViewModel & Feed Sheet With Current Picker Tokens (CRITICAL) 🚧
-**Problem:** The sheet now filters by category, but initial selections arrive empty because we pass `selection(for:)`, which only knows about persisted assignments. Newly chosen tokens aren’t assigned yet, so the sheet shows zero apps and the save path assumes Learning for everything.
+### Task 0 — Share a Single AppUsageViewModel & Feed Sheet With Current Picker Tokens (COMPLETED ✅)
+**Status:** Completed Oct 24. Shared `AppUsageViewModel` + `shouldUsePendingSelectionForSheet` keep pending picks alive until the sheet saves or cancels.
 
-**Plan**
-1. Keep the shared `@StateObject` and single `.sheet` presenter.
-2. Capture the picker’s outgoing `FamilyActivitySelection` (e.g., `viewModel.pendingSelection`) before presenting the sheet.
-3. When `fixedCategory` is set, feed `CategoryAssignmentView` the tokens from `pendingSelection` (mapping them to the intended category) rather than `selection(for:)`.
-4. Update `CategoryAssignmentView.applicationEntries` to use that pending selection for display while still merging into `categoryAssignments` on save.
-5. Retest Books/News → Reward flow; confirm the sheet lists the newly picked apps, warning still fires, and Learning tab isn’t polluted by reward picks.
+**Result:** Reward/Learning sheets now open populated immediately after the picker dismisses, category assignments persist, and guard validation succeeds across relaunches.
 
-**Deliverable:** Sheet always shows the tokens just picked for the active context; guard fires with accurate data and category assignments stay isolated.
+**Follow-up:** Continue to monitor multi-step flows while polishing the presentation order.
+
+### Task M — Picker Presentation Flicker (IN PROGRESS 🚧, LOW PRIORITY)
+**Files:** `ScreenTimeRewards/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/LearningTabView.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/RewardsTabView.swift`
+
+1. Gate sheet presentation until the picker dismissal completes to eliminate flicker and stop double-present warnings.
+2. Ensure `TabHostingController` stays attached before presenting assignment sheets (`showAllLearningApps` / `showAllRewardApps`).
+3. Only pursue if the fix proves quick; otherwise document and defer to a later sprint.
+4. When addressed, capture a follow-up device run verifying clean console output.
+
+**Deliverable:** (Timeboxed) First-open assignment sheets remain visible without auto-dismiss and console is free of presentation warnings. If not achievable quickly, leave notes for future sprint.
 
 **New Coordination Notes (2025‑10‑24 19:51):**
+- Oct 24 validation confirms the new flags keep sheets populated immediately after picker dismissal; retain them while we decide when to tackle the presentation flicker.
 - Clear `pendingSelection` and the internal `shouldPresentAssignmentAfterPickerDismiss` flag whenever `showAllLearningApps()` / `showAllRewardApps()` present the sheet so tab-driven flows don't reuse stale picker payloads.
 - Introduce a separate `shouldUsePendingSelectionForSheet` flag. Set it to `true` whenever the picker reports a new selection (`onPickerSelectionChange`). Only clear it after the sheet saves or cancels.
 - Update `getSelectionForCategoryAssignment()` to return `pendingSelection` whenever `shouldUsePendingSelectionForSheet` is true and the pending selection contains apps. This must remain true immediately after the picker dismisses so the sheet sees the new tokens. Only fall back to `selection(for: context.category)` once the sheet finishes processing.

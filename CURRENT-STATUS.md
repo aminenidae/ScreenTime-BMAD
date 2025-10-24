@@ -1,49 +1,39 @@
 # Current Status Summary
-**Date:** 2025-10-21
+**Date:** 2025-10-24
 **Project:** ScreenTime-BMAD / ScreenTimeRewards
 
 ---
 
 ## 🎯 Active Work
 
-- **Shuffle regression (Oct 21 20:07)** – Snapshot logs show two learning apps resolving to the same logical ID (`AD6095BE…`). Fix `UsagePersistence.resolveLogicalID` so privacy-protected apps always get a fresh UUID.
-- **Reward picker context (Task H)** – Reward picker should preselect only reward apps and clear `pendingSelection` before tab-driven sheets so learning assignments stop showing reward tokens on first open. New regression: after the picker dismisses the sheet, `pendingSelection` is ignored, so no apps appear.
-- **CategoryAssignmentView build fix (Task I)** – Finish refactor / `using:` updates.
-- **Removal & unlock validations (Tasks F & G)** – Pending once the above are stable.
+- **Picker presentation flicker (Oct 24 evening)** – First launch still flashes the picker sheet and logs repeated “Label is already or no longer part of the view hierarchy” warnings. We agreed to defer unless a quick fix surfaces.
+- **Awaiting new QA tickets** – PM will provide the next set of issues once documentation is updated with the latest validation.
 
 ---
 
 ## 🔍 Latest Findings
 
-- `Run-ScreenTimeRewards-2025.10.21_20-07-18--0500.xcresult` shows duplicate logical IDs after adding Translate/Weather:
-  ```
-  [AppUsageViewModel]   1: tokenHash=-7479… logicalID=AD6095BE…
-  [AppUsageViewModel]   3: tokenHash=-8924… logicalID=AD6095BE…
-  ```
-  This reintroduces the original "Unknown App" collision when displayName fallback is used.
-- Reward picker still shares `familySelection`; needs isolated selection snapshots before/after save. Tab-driven "View All Learning Apps" continues to show reward tokens on the first open because `pendingSelection` isn’t cleared. Latest device run also shows the sheet opening empty after picker dismiss because the new guard refuses to use `pendingSelection`. Need a flag to use pending results exactly once per picker flow.
-- CategoryAssignmentView refactor compiles in isolation but full project build still pending after these fixes.
+- `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` re-run confirms category guard behaviour: reward tokens stay in Reward, learning tokens remain isolated, and the app blocks cross-category duplicates even after multiple picker sessions.
+- Immediate post-picker sheet presentations now display the expected apps, but the console still reports presentation warnings (`Attempt to present … while a presentation is in progress`) indicating the presentation flicker remains.
 
 ---
 
 ## ✅ What's Working
 
-- Deterministic ordering logic remains intact in the repo (no changes from commit `a9863cd`).
-- Live usage refresh works post-clean build.
-- Token persistence, background tracking, cold launch retention remain stable.
-- **UI shuffle issue RESOLVED in initial testing** – No card reordering after saving category assignments. Pull-to-refresh preserves order on both tabs. Console logs show stable logical ID and token hash ordering across save cycles. 
-- **Pending additional validation tests** to confirm long-term stability.
+- Duplicate-prevention guard validated on-device; Reward flows can no longer claim Learning apps and vice versa.
+- Learning and Reward tab snapshots refresh immediately after picker save, showing the correct apps without relaunches.
+- Master selection merges persist across monitor restarts; blocking/unblocking still behaves as expected.
+- Previous shuffle regression remains resolved — logical IDs stay unique for privacy-protected apps.
+- Background monitoring loop (restart timer + Darwin notifications) continues to function after category changes.
 
 ---
 
 ## 🔧 Next Steps
 
-1. Update `UsagePersistence.resolveLogicalID` to remove the displayName reuse path and always generate a new UUID when no bundle ID exists.
-2. Revalidate the shuffle scenario after the fix (Books/News → add Translate/Weather).
-3. Continue with Tasks H, I, F, G once the shuffle is resolved.
-4. Tag `v0.0.7-alpha` after validation.
+1. Timebox a spike on picker presentation sequencing; if the flicker fix is quick, land it, otherwise park for a later sprint.
+2. Capture an updated device run once any presentation tweaks land, then sync with PM for the next backlog items.
 
-Refer to `/Users/ameen/Documents/ScreenTime-BMAD/PM-DEVELOPER-BRIEFING.md` (Tasks F–J) for detailed instructions and upcoming actions.
+Refer to `/Users/ameen/Documents/ScreenTime-BMAD/PM-DEVELOPER-BRIEFING.md` for task breakdowns and coordination notes.
 
 ---
 

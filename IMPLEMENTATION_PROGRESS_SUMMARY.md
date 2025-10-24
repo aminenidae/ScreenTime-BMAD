@@ -1,16 +1,15 @@
 # ScreenTime Rewards - Implementation Progress Summary
 
 ## Current Status
-🔴 **BLOCKED** – Duplicate guard regressions plus "View All Learning Apps" sheet leaking Reward picks on initial open.
+🟡 **STABILIZING** – Duplicate guard validated on device; remaining work focuses on picker presentation polish and Learning header copy.
 
-### Latest Validation (Oct 23, 2025)
-- ✅ Duplicate guard now fires when Reward flows attempt to add a learning app (`12-39-57`).
-- ❌ Sheet renders zero rows because we pass only persisted assignments; newly picked tokens aren’t included (`21-46-57`).
-- ❌ Latest build regressed the initial sheet again — reward/learning picker dismiss leaves `pendingSelection` unused, so the assignment view opens empty and the service auto-categorizes everything as Reward (`Oct 24 19:51 run`).
-- ❌ First "View All Learning Apps" open still shows reward apps; `pendingSelection` is reused instead of the filtered learning tokens (`Oct 24 19:27 run`). Second open succeeds after `pendingSelection` is cleared.
-- ❌ Reward picks still land in the Learning list after save; need to feed pending selection into the sheet before persisting.
+### Latest Validation (Oct 24, 2025)
+- ✅ Duplicate guard holds across back-to-back picker sessions; Reward flows cannot retain Learning apps.
+- ✅ Learning and Reward tabs refresh instantly after save; correct apps show without relaunching.
+- ⚠️ Initial picker presentation still flickers and logs `Label is already or no longer part of the view hierarchy` warnings.
+- ✅ Learning sheet header now renders the correct copy after the latest fix.
 
-See `PM-DEVELOPER-BRIEFING.md` Tasks M & N for the reopened debugging plan.
+See `PM-DEVELOPER-BRIEFING.md` Task M for the remaining polish plan.
 
 ## Features Implemented
 
@@ -64,7 +63,7 @@ See `PM-DEVELOPER-BRIEFING.md` Tasks M & N for the reopened debugging plan.
 - ✅ Category totals update correctly
 - ✅ Data persists across app restarts
 - ✅ Category adjustment workflow functions
-- ⚠️ Duplicate assignment prevention — guard fires; pending-selection handling still required to keep categories isolated and to stop stale reward tokens from reaching the learning sheet.
+- ⚠️ Picker presentation polish — guard validated; first-open flicker remains on the backlog.
 
 ## Key Technical Decisions
 
