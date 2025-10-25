@@ -66,6 +66,9 @@ class AppUsageViewModel: ObservableObject {
     // MARK: - Task M: Duplicate Assignment Prevention
     @Published var duplicateAssignmentError: String?
 
+    // Flag to track when we're resetting picker state
+    private var isResettingPickerState = false
+
     private let service: ScreenTimeService
     private var masterSelection: FamilyActivitySelection
     private var activePickerContext: PickerContext?
@@ -325,17 +328,19 @@ class AppUsageViewModel: ObservableObject {
     private func updateSnapshots() {
         var newLearningSnapshots: [LearningAppSnapshot] = []
         var newRewardSnapshots: [RewardAppSnapshot] = []
-        
+
         // Use a set to track token hashes we've already processed to avoid duplicates
         var processedTokenHashes: Set<String> = []
-        
+
         // Single pass over sorted applications
         for application in sortedApplications {
             guard let token = application.token else { continue }
-            
-            // TASK M FIX: Confirm the token still exists in familySelection before processing
-            // If it's not selected anymore, skip the entry so orphaned tokens never render
-            if !familySelection.applicationTokens.contains(token) {
+
+            // FIX: Check against masterSelection instead of familySelection to prevent
+            // apps from disappearing when opening a different category's picker
+            // masterSelection contains all apps across all categories, while familySelection
+            // may be filtered to only show apps for the current picker context
+            if !masterSelection.applicationTokens.contains(token) {
                 #if DEBUG
                 print("[AppUsageViewModel] Skipping orphaned token: \(token.hashValue)")
                 #endif
@@ -1908,25 +1913,31 @@ extension AppUsageViewModel {
         #if DEBUG
         print("[AppUsageViewModel] 🔁 Resetting picker state for new presentation")
         #endif
-        
+
+        // Set flag to prevent snapshot updates during reset
+        isResettingPickerState = true
+
         // Reset picker presentation state
         isFamilyPickerPresented = false
         isCategoryAssignmentPresented = false
         shouldPresentAssignmentAfterPickerDismiss = false
         shouldUsePendingSelectionForSheet = false
         activePickerContext = nil  // Clear the context
-        
+
         // Clear any picker errors
         pickerError = nil
         pickerLoadingTimeout = false
         pickerRetryCount = 0
         cancelPickerTimeout()
-        
+
         // REHYDRATION FIX: Restore familySelection to full merged selection
-        // Set familySelection = masterSelection so everyday UI and future picker launches 
+        // Set familySelection = masterSelection so everyday UI and future picker launches
         // start from the full, consistent selection instead of the context-specific subset
         familySelection = masterSelection
-        
+
+        // Clear flag after reset is complete
+        isResettingPickerState = false
+
         #if DEBUG
         print("[AppUsageViewModel] ✅ Picker state reset for new presentation completed")
         #endif
