@@ -65,6 +65,20 @@ _To be detailed once PT-1 is signed off._
 
 **Deliverable:** Reward/Learning sheets show apps even when “All Apps” is picked; behaviour is documented and validated on device.
 
+
+
+### Task PT-3 — Experimental Expansion Tab (IN PROGRESS 🚧)
+**Purpose:** Prototype Option 1 (category token expansion) in isolation so the main Learning/Reward tabs remain stable.
+
+**Plan**
+1. Add a DEBUG-only “Experiments” tab containing a minimal picker flow.
+2. Implement `expandCategoryTokens(_:)` in `ScreenTimeService` to translate category tokens into full app lists using `masterSelection`/persistence.
+3. Wire the experimental view to log before/after state (tokens, expanded count) so we can verify behaviour.
+4. Keep production tabs unchanged until the experiment passes on device; remove the tab once validated.
+
+**Deliverable:** Demonstration log showing category token → app expansion working in the experimental tab without affecting existing flows.
+
+
 ## Coordination Notes
 - Keep logging instrumentation around picker and removal flows until point-transfer work is stable (helps detect regressions).
 - Archive docs now live under `documentation_archive/2025-10-25/`; reintroduce only if required.
