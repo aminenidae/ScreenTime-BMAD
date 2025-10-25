@@ -120,6 +120,7 @@ class AppUsageViewModel: ObservableObject {
         
         activePickerContext = .learning
         shouldPresentAssignmentAfterPickerDismiss = false
+        // Set familySelection to the learning category selection AFTER resetting state
         familySelection = selection(for: AppUsage.AppCategory.learning)
         requestAuthorizationAndOpenPicker()
     }
@@ -130,6 +131,7 @@ class AppUsageViewModel: ObservableObject {
         
         activePickerContext = .reward
         shouldPresentAssignmentAfterPickerDismiss = false
+        // Set familySelection to the reward category selection AFTER resetting state
         familySelection = selection(for: AppUsage.AppCategory.reward)
         requestAuthorizationAndOpenPicker()
     }
@@ -1692,34 +1694,11 @@ extension AppUsageViewModel {
         cancelPickerTimeout()
         
         // Reinitialize familySelection with current masterSelection to ensure consistency
+        // BUT only if we're not in the middle of a picker presentation
         familySelection = masterSelection
         
         #if DEBUG
         print("[AppUsageViewModel] ✅ Picker state reset completed")
-        #endif
-    }
-    
-    // FIX: Add method to reset picker state for new presentation
-    /// Reset picker state specifically for new presentation to prevent ActivityPickerRemoteViewError
-    private func resetPickerStateForNewPresentation() {
-        #if DEBUG
-        print("[AppUsageViewModel] 🔁 Resetting picker state for new presentation")
-        #endif
-        
-        // Reset picker presentation state
-        isFamilyPickerPresented = false
-        isCategoryAssignmentPresented = false
-        shouldPresentAssignmentAfterPickerDismiss = false
-        shouldUsePendingSelectionForSheet = false
-        
-        // Clear any picker errors
-        pickerError = nil
-        pickerLoadingTimeout = false
-        pickerRetryCount = 0
-        cancelPickerTimeout()
-        
-        #if DEBUG
-        print("[AppUsageViewModel] ✅ Picker state reset for new presentation completed")
         #endif
     }
     
