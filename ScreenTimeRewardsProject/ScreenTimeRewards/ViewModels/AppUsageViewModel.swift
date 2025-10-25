@@ -172,6 +172,7 @@ class AppUsageViewModel: ObservableObject {
         }
     }
 
+    @MainActor
     init(service: ScreenTimeService = ScreenTimeService.shared) {
         self.service = service
 
@@ -1699,6 +1700,34 @@ extension AppUsageViewModel {
         
         #if DEBUG
         print("[AppUsageViewModel] ✅ Picker state reset completed")
+        #endif
+    }
+    
+    // FIX: Add method to reset picker state for new presentation
+    /// Reset picker state specifically for new presentation to prevent ActivityPickerRemoteViewError
+    private func resetPickerStateForNewPresentation() {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔁 Resetting picker state for new presentation")
+        #endif
+        
+        // Reset picker presentation state
+        isFamilyPickerPresented = false
+        isCategoryAssignmentPresented = false
+        shouldPresentAssignmentAfterPickerDismiss = false
+        shouldUsePendingSelectionForSheet = false
+        activePickerContext = nil  // Clear the context
+        
+        // Clear any picker errors
+        pickerError = nil
+        pickerLoadingTimeout = false
+        pickerRetryCount = 0
+        cancelPickerTimeout()
+        
+        // Don't reset familySelection here - it should be set appropriately after this method
+        // based on the category we're presenting for
+        
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Picker state reset for new presentation completed")
         #endif
     }
     
