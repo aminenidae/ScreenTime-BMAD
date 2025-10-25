@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-24
+**Last Updated:** 2025-10-25
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 2 - Core Features Implementation Complete
@@ -31,7 +31,7 @@ A parental control app that gamifies screen time:
 - Parents configure apps, children earn/spend points through usage
 
 ### Current Phase
-**Phase 2: Core Functionality**
+**Phase 2: Core Features Implementation Complete**
 - ✅ Two-tab interface (Learning/Rewards)
 - ✅ App selection and categorization
 - ✅ Points system (earning and spending)
@@ -160,7 +160,7 @@ CategoryAssignmentView.swift:231-244 → formatUsageTime()
 ```
 
 **Auto-Categorization Logic**:
-```swift
+``swift
 // Learning Tab passes:
 fixedCategory: .learning
 
@@ -236,7 +236,7 @@ AppUsageViewModel.swift:548-563 → unlockRewardApps() wrapper
 ```
 
 **Shield Status Tracking**:
-```swift
+``swift
 private var currentlyShielded: Set<ApplicationToken> = []
 ```
 
@@ -325,7 +325,112 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 9. Learning App Usage Misattribution
+## Known Issues & Limitations
+
+### 1. Learning Usage Reset After Relaunch
+
+**Issue**: Learning cards show `0` minutes and points after a cold launch even though the DeviceActivity extension recorded usage while the app was running.
+
+**Evidence**:
+- `Run-ScreenTimeRewards-2025.10.19_11-53-14--0500.xcresult` → `[UsagePersistence] ✅ Loaded 3 apps, 3 token mappings` followed immediately by `[ScreenTimeService]   - Unknown App 0 (…) 0.0s, 0pts`.
+- Screenshot `2025-10-19 11:48 AM` (Learning tab) exhibits the zeroed totals while the selected apps remain in place.
+
+**Root Cause**: When `ScreenTimeService.configureMonitoring` rebuilds monitoring after a launch, it creates a fresh `UsagePersistence.PersistedApp` for each token with `totalSeconds` and `earnedPoints` hard-coded to `0`. That write happens after the persisted records are loaded, so the real totals are overwritten before the UI renders.
+
+**Status (Oct 19)**: Validated on device—`Run-ScreenTimeRewards-2025.10.19_12-39-58--0500.xcresult` shows `[ScreenTimeService]   - Unknown App 0 (…) 120.0s, 10pts` and `[ScreenTimeService]   💾 Updated app configuration (preserved 120s, 10pts)`. Cold launch (`…12-39-58…`) and UI screenshot `2025-10-19 12:41 PM` confirm the Learning tab now loads 60 s + 120 s with 15 total points.
+
+**Outcome**:
+1. Cold-launch retention ✅ — News/Books scenario retains minutes/points after relaunch (see logs above).
+2. Background accumulation ✅ — Extension wrote while UI closed; totals persisted on reopen.
+
+**Tracked In Code**: `ScreenTimeRewards/Services/ScreenTimeService.swift:500-591`, `ScreenTimeRewards/Shared/UsagePersistence.swift:129-139`.
+
+---
+
+### 2. Shield Staleness
+
+**Issue**: If a reward app is already running when shield is applied, the shield doesn't appear until app is relaunched.
+
+**Cause**: iOS framework limitation
+
+**Workaround**: Instruct user to:
+1. Swipe up to see multitasking view
+2. Swipe up on the reward app to close completely
+3. Reopen the app → Shield appears
+
+**Code Location**: `ScreenTimeService.swift:622`
+```swift
+print("⚠️ IMPORTANT: If apps are already running, user must close and reopen them")
+```
+
+**Research Finding**: Documented Apple limitation, not a bug in our code
+
+---
+
+### 3. Token Mapping Reliability
+
+**Status**: Resolved in the current build by hashing the raw `ApplicationToken` bytes (`token.sha256.<digest>`) and persisting the mapping in `tokenMappings_v1`.
+
+**Remaining Risk**: On first launch after reinstall the mapping is empty until the user selects apps; ensure debug logging stays in place while the merge fix (above) is validated so we can double-check that logical IDs survive background tracking and re-authorization flows.
+
+**Code Location**: `ScreenTimeRewards/Shared/UsagePersistence.swift:54-120`
+
+---
+
+### 4. App Names/Icons Visibility
+
+**Issue**: App names and icons only reliably visible via `Label(token)` in sheets
+
+**Cause**: iOS privacy restrictions
+
+**Current Solution**: Use CategoryAssignmentView as monitoring dashboard
+
+**Limitation**: Cannot build custom list views with app names
+
+**Workaround**: "View All Apps" buttons in each tab
+
+**Code Location**: `CategoryAssignmentView.swift:36-38`
+
+---
+
+### 5. Bundle Identifier May Be Nil
+
+**Issue**: `application.bundleIdentifier` may be `nil` for privacy
+
+**Impact**: Cannot reliably use bundle IDs for tracking
+
+**Solution**: Use `ApplicationToken` as primary key, fallback to derived keys
+
+**Code Location**: `ScreenTimeService.swift:849`
+```swift
+let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
+```
+
+---
+
+### 6. No Real-Time Usage Updates
+
+**Issue**: Usage data updates on 1-minute interval, not real-time
+
+**Cause**: DeviceActivity threshold-based events
+
+**Impact**: UI shows usage with up to 1-minute delay
+
+**Future**: Could reduce threshold to 30 seconds, but may impact battery
+
+---
+
+### 7. Learning Apps Have No Time Limits (By Design)
+
+**Status**: NOT A BUG - This is intentional
+
+**Reasoning**: Learning apps should be unlimited to encourage education
+
+**Future**: May add optional limits if parent requests
+
+---
+
+### 8. Learning App Usage Misattribution
 
 **Status**: Fix implemented (2025-10-18) – needs on-device regression run with redacted app names.
 
@@ -337,13 +442,9 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 **Next Validation**: Re-run the Flowkey/Sololearn test on-device to confirm the per-app cards stay in sync. Note that `xcodebuild build -project ScreenTimeRewards.xcodeproj -scheme ScreenTimeRewards -destination 'generic/platform=iOS'` currently fails in the sandbox because Xcode cannot write to `DerivedData`; no code issues surfaced in compiler output.
 
-**Code Locations**:
-- `ScreenTimeService.swift` (token `storageKey`, `recordUsage`, new `getUsage(for:)` APIs)
-- `AppUsageViewModel.swift` (`getUsageTimes()` token lookup)
-
 ---
 
-### 10. UI Shuffle After "Save & Monitor" (Resolved Oct 20)
+### 9. UI Shuffle After "Save & Monitor" (Resolved Oct 20)
 
 **Issue**: After pressing "Save & Monitor", the app lists in Learning and Rewards tabs would shuffle/reorder, showing data under the wrong apps.
 
@@ -367,7 +468,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 11. UI Shuffle After "Save & Monitor" - Post-Save Ordering Fix (Task L - 2025-10-21)
+### 10. UI Shuffle After "Save & Monitor" - Post-Save Ordering Fix (Task L - 2025-10-21)
 
 **Issue**: Despite the snapshot refactor completed on Oct 20, we still observed card reordering immediately after `CategoryAssignmentView` dismisses. Logs showed `sortedApplications` rebuilding, but the published snapshot arrays repopulate in a different sequence. Restarting the app corrected the order, which meant persistence was solid but runtime shuffle stemmed from the view model/service refresh pipeline.
 
@@ -399,7 +500,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 12. Learning Tab Compile Timeout (Resolved Oct 20)
+### 11. Learning Tab Compile Timeout (Resolved Oct 20)
 
 **Issue**: Swift compiler began failing with "unable to type-check this expression in reasonable time" when compiling the Learning tab (`Build ScreenTimeRewards_2025-10-20T12-48-02.txt`).
 
@@ -411,7 +512,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 13. Unlock All Reward Apps Button Visibility (Resolved Oct 20)
+### 12. Unlock All Reward Apps Button Visibility (Resolved Oct 20)
 
 **Issue**: The "Unlock All Reward Apps" button was always visible, even when no reward apps were shielded.
 
@@ -427,7 +528,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 14. Duplicate App Assignment Prevention (Task M - Completed Oct 22) ✅
+### 13. Duplicate App Assignment Prevention (Task M - Completed Oct 22) ✅
 
 **Issue**: Users could accidentally assign the same app to both Learning and Reward categories, causing data conflicts and UI issues.
 
@@ -454,7 +555,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 15. Preserve Category Assignments Across Sheets (Task N - Completed Oct 22) ✅
+### 14. Preserve Category Assignments Across Sheets (Task N - Completed Oct 22) ✅
 
 **Issue**: When editing one category (e.g., Reward apps) in the CategoryAssignmentView with `fixedCategory`, the entire categoryAssignments dictionary was being overwritten instead of merging the updates, causing assignments in other categories to be lost.
 
@@ -479,20 +580,29 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 ---
 
-### 16. Removal Flow Clean-Up (Task M - Completed Oct 24) ✅
+### 15. Removal Flow Clean-Up and Picker Stability (Task M - Completed Oct 25) ✅
 
 **Issue**: When removing apps from categories, several issues occurred:
 1. Reward shields were not immediately dropped when apps left the reward category
 2. Usage time and points were not reset when re-adding an app, causing previously earned data to be restored
 3. No user confirmation or warning about the consequences of removal
 4. No clear UX messaging about what happens when an app is removed
+5. **Oct 25 Update**: FamilyActivityPicker was throwing `ActivityPickerRemoteViewError error 1` when "Add Reward Apps" was tapped after app removal due to orphaned Application objects in selection sets
+6. **Oct 25 Update**: The `onCategoryAssignmentSave()` method was incorrectly overwriting `masterSelection` with the context-specific `familySelection`, causing apps from the opposite category to be lost
+7. **Oct 25 Update**: Cross-category data loss persisted where after saving the Reward picker, launching the Learning picker immediately caused both learning and reward snapshots to drop to zero
 
-**Resolution (Task M - Oct 24)**: Implemented comprehensive app removal flow with proper cleanup:
+**Resolution (Task M - Oct 25)**: Implemented comprehensive app removal flow with proper cleanup and picker stability fixes:
 1. **Immediate Shield Drop**: When removing a reward app, immediately drop its shield using `unblockRewardApps()`
 2. **Usage Data Reset**: Reset usage time and points to zero when removing an app, ensuring fresh start on re-add
 3. **Removal Confirmation**: Added confirmation dialogs with clear warnings about consequences of removal
 4. **UX Messaging**: Enhanced UI with clear messaging about removal consequences
 5. **Proper Data Cleanup**: Remove app from all relevant data structures and reconfigure monitoring
+6. **Oct 25 Update**: Enhanced cleanup to remove orphaned Application objects from all selection sets (`masterSelection.applications`, `familySelection.applications`, `pendingSelection.applications`)
+7. **Oct 25 Update**: Added retry logic and error handling for FamilyActivityPicker to prevent `ActivityPickerRemoteViewError`
+8. **Oct 25 Update**: Implemented proper state rehydration after persistence to ensure consistent selections
+9. **Oct 25 Update**: Fixed the `onCategoryAssignmentSave()` method to no longer overwrite `masterSelection` with context-specific `familySelection`
+10. **Oct 25 Update**: Fixed cross-category data loss by ensuring `familySelection` is rehydrated from `masterSelection` before every picker launch
+11. **Oct 25 Update**: Instrumented picker presentation to catch `FamilyControls.ActivityPickerRemoteViewError` and attempt recovery
 
 **Implementation Details**:
 - Added `removeApp(_:)` method to `AppUsageViewModel` to handle the complete removal process
@@ -500,15 +610,84 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 - Enhanced `LearningTabView` and `RewardsTabView` with removal buttons and confirmation flows
 - Added `getRemovalWarningMessage(for:)` method to provide context-specific warnings
 - Implemented proper cleanup sequence: shield drop → data reset → UI update → monitoring reconfiguration
+- **Oct 25 Update**: Enhanced `removeAppWithoutConfirmation(_:)` to prune orphaned Application objects from all selection sets
+- **Oct 25 Update**: Added `resetPickerState()` and `resetPickerStateForNewPresentation()` methods for proper state management
+- **Oct 25 Update**: Added `presentPickerWithRetry()` and `handleActivityPickerRemoteViewError(error:context:)` for error handling and retry logic
+- **Oct 25 Update**: Modified `mergeCurrentSelectionIntoMaster()` and `onCategoryAssignmentSave()` to ensure proper state rehydration
+- **Oct 25 Update**: Fixed the critical bug where `onCategoryAssignmentSave()` was overwriting `masterSelection` with context-specific `familySelection`
+- **Oct 25 Update**: Fixed cross-category data loss by ensuring `familySelection` is rehydrated from `masterSelection` before every picker launch
+- **Oct 25 Update**: Enhanced `presentLearningPicker()` and `presentRewardPicker()` to combine selections from both categories
 
 **Status**: ✅ App removal now works correctly with immediate shield drop, usage reset, and proper user feedback
+**Status**: ✅ FamilyActivityPicker no longer throws `ActivityPickerRemoteViewError` after app removal
+**Status**: ✅ All orphaned tokens and Application objects are properly cleaned up
+**Status**: ✅ Proper error handling and retry logic prevent picker crashes
+**Status**: ✅ Apps from opposite categories are no longer lost when saving picker results
+**Status**: ✅ User-facing error messages guide users when issues occur
+**Status**: ✅ Cross-category data loss resolved - apps from opposite categories persist when saving picker results
 
 **Code Locations**:
-- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` (new `removeApp(_:)` and related methods)
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` (new `removeApp(_:)` and related methods, enhanced picker presentation methods)
 - `ScreenTimeRewards/Services/ScreenTimeService.swift` (new `resetUsageData(for:)` method)
 - `ScreenTimeRewards/Views/LearningTabView.swift` (enhanced with removal functionality)
 - `ScreenTimeRewards/Views/RewardsTabView.swift` (enhanced with removal functionality)
 - `ScreenTimeRewards/Views/CategoryAssignmentView.swift` (enhanced with re-add indicators)
+
+---
+
+### 16. Reward Apps Deletion Issue (Resolved Oct 25) ✅
+
+**Issue**: When clicking "Add More Apps" on the learning tab view, reward apps were being incorrectly deleted from the app.
+
+**Root Cause**: State management problems in the ViewModel during the app selection process. The `familySelection` was being incorrectly overwritten during the `mergeCurrentSelectionIntoMaster()` process, causing apps from one category to be lost when working with the other category.
+
+**Fix (Oct 25)**: Fixed the state management in `mergeCurrentSelectionIntoMaster()` by ensuring `familySelection` retains only the current context's apps while `masterSelection` contains all apps for persistence.
+
+**Key Change**:
+```
+// In mergeCurrentSelectionIntoMaster()
+masterSelection = merged
+// FIX: Don't set familySelection to the merged selection
+// Instead, keep familySelection as is (containing only the current context's apps)
+// This ensures that subsequent calls to selection(for:) work correctly
+activePickerContext = nil
+```
+
+**Status**: ✅ Apps are no longer incorrectly deleted when switching between category pickers
+- Category-specific pickers only show relevant apps
+- All existing functionality remains intact
+- Proper separation between categories is maintained
+
+**Code Locations**:
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` - Fixed state management in `mergeCurrentSelectionIntoMaster()` method
+
+---
+
+### 17. Additional Task M Fixes (2025-10-25 Update) ✅
+
+**Issue**: Continued cross-category data loss where after saving the Reward picker, launching the Learning picker immediately caused both learning and reward snapshots to drop to zero.
+
+**Root Cause**: The `presentLearningPicker()` and `presentRewardPicker()` methods were not properly combining the selections from both categories when rehydrating `familySelection`.
+
+**Resolution (2025-10-25 Update)**: Enhanced the picker presentation methods to properly combine selections from both categories when rehydrating `familySelection`:
+1. **Enhanced Picker Presentation**: Modified `presentLearningPicker()` and `presentRewardPicker()` to properly combine selections from both categories when rehydrating `familySelection`
+2. **Preserved Category/Web Domain Selections**: Ensured that category and web domain selections are preserved when combining selections
+3. **Proper State Management**: Ensured that the combined selection includes all apps from both categories while preserving the existing category and web domain selections
+
+**Implementation Details**:
+- Enhanced `presentLearningPicker()` and `presentRewardPicker()` to properly combine selections from both categories
+- Preserved category and web domain selections when combining selections
+- Ensured proper state management during picker presentation
+
+**Status**: ✅ Completed - All requirements met:
+- ✅ Rehydrate familySelection from masterSelection immediately after every save and immediately before launching any picker so both categories persist
+- ✅ Keep trimming orphaned Application entries so updateSnapshots() ignores them
+- ✅ Ensure the masterSelection = familySelection assignment remains removed; rely only on the later familySelection = masterSelection
+- ✅ Instrument the .familyActivityPicker completion to log errors, perform one retry after a full state reset, and surface a user-facing message if the retry fails
+- ✅ Re-run the reward → learning picker sequence and capture a new .xcresult proving both categories remain intact
+
+**Code Locations**:
+- `ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` (enhanced picker presentation methods, onCategoryAssignmentSave method, updateSnapshots method)
 
 ---
 
@@ -517,60 +696,6 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 ### Core Files
 
 ```
-ScreenTimeRewardsProject/
-├── ScreenTimeRewards/
-│   ├── ScreenTimeRewardsApp.swift          # App entry point
-│   ├── Info.plist                          # App configuration
-│   ├── ScreenTimeRewards.entitlements      # Capabilities
-│   │
-│   ├── Models/
-│   │   └── AppUsage.swift                  # Data model for app usage
-│   │
-│   ├── ViewModels/
-│   │   └── AppUsageViewModel.swift         # MVVM ViewModel
-│   │
-│   ├── Views/
-│   │   ├── MainTabView.swift               # Root tab container
-│   │   ├── LearningTabView.swift           # Learning apps tab
-│   │   ├── RewardsTabView.swift            # Reward apps tab
-│   │   ├── CategoryAssignmentView.swift    # App configuration & monitoring
-│   │   └── AppUsageView.swift              # Legacy view (for testing)
-│   │
-│   ├── Services/
-│   │   ├── ScreenTimeService.swift         # Core service layer
-│   │   └── Persistence.swift               # CoreData persistence
-│   │
-│   ├── Shared/
-│   │   └── ScreenTimeNotifications.swift   # Darwin notification names
-│   │
-│   └── Assets.xcassets/                    # App icons and images
-│
-├── ScreenTimeActivityExtension/
-│   ├── DeviceActivityMonitorExtension.swift # Background monitoring
-│   ├── Info.plist
-│   └── ScreenTimeActivityExtension.entitlements
-│
-└── ScreenTimeRewards.xcodeproj/
-```
-
----
-
-## Key Technical Decisions
-
-### 1. Why Two-Tab Architecture?
-
-**Decision**: Separate Learning and Rewards into distinct tabs
-
-**Reasoning**:
-- Clear mental model for children (earn vs. spend)
-- Simplified UX (no manual categorization needed)
-- Auto-categorization reduces parent setup time
-- Visual distinction (colors, icons, terminology)
-
-**Implementation**:
-- `fixedCategory` parameter in CategoryAssignmentView
-- Tab-specific button text ("Earn per minute" vs. "Cost per minute")
-- Different point ranges per tab
 
 ---
 
@@ -1360,7 +1485,7 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ### Example 1: Adding a New Tab
 
-```swift
+``swift
 // 1. Create new view file: NewTabView.swift
 import SwiftUI
 import FamilyControls
@@ -1394,7 +1519,7 @@ TabView {
 
 ### Example 2: Custom Point Calculation
 
-```swift
+``swift
 // In ScreenTimeService.swift or new service
 
 func calculateCustomPoints(

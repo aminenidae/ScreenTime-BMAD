@@ -97,7 +97,8 @@ private extension LearningTabView {
         Button(action: { 
             // FIX: Ensure picker state is clean before presenting
             viewModel.pendingSelection = FamilyActivitySelection()
-            viewModel.presentLearningPicker() 
+            // HARDENING FIX: Use retry logic for picker presentation with learning context
+            viewModel.presentPickerWithRetry(for: .learning)
         }) {
             HStack {
                 Image(systemName: "plus.circle.fill")

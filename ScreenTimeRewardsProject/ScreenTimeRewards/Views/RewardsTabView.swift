@@ -27,7 +27,8 @@ struct RewardsTabView: View {
                     Button(action: {
                         // FIX: Ensure picker state is clean before presenting
                         viewModel.pendingSelection = FamilyActivitySelection()
-                        viewModel.presentRewardPicker()
+                        // HARDENING FIX: Use retry logic for picker presentation with reward context
+                        viewModel.presentPickerWithRetry(for: .reward)
                     }) {
                         HStack {
                             Image(systemName: "plus.circle.fill")

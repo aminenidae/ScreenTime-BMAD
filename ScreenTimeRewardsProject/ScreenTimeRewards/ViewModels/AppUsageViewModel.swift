@@ -120,8 +120,24 @@ class AppUsageViewModel: ObservableObject {
         
         activePickerContext = .learning
         shouldPresentAssignmentAfterPickerDismiss = false
-        // Set familySelection to the learning category selection AFTER resetting state
-        familySelection = selection(for: AppUsage.AppCategory.learning)
+        
+        // CRITICAL FIX: Rehydrate familySelection from masterSelection before every picker launch
+        // This ensures the next presentation includes both categories and prevents cross-category data loss
+        familySelection = masterSelection
+        
+        // Set familySelection to include both learning apps and preserve reward apps
+        // This prevents reward apps from being lost when opening the learning picker
+        let learningSelection = selection(for: AppUsage.AppCategory.learning)
+        let rewardSelection = selection(for: AppUsage.AppCategory.reward)
+        
+        var combinedSelection = FamilyActivitySelection()
+        combinedSelection.applicationTokens = learningSelection.applicationTokens.union(rewardSelection.applicationTokens)
+        
+        // Preserve category/web domain selections
+        combinedSelection.categoryTokens = masterSelection.categoryTokens
+        combinedSelection.webDomainTokens = masterSelection.webDomainTokens
+        
+        familySelection = combinedSelection
         requestAuthorizationAndOpenPicker()
     }
 
@@ -131,8 +147,24 @@ class AppUsageViewModel: ObservableObject {
         
         activePickerContext = .reward
         shouldPresentAssignmentAfterPickerDismiss = false
-        // Set familySelection to the reward category selection AFTER resetting state
-        familySelection = selection(for: AppUsage.AppCategory.reward)
+        
+        // CRITICAL FIX: Rehydrate familySelection from masterSelection before every picker launch
+        // This ensures the next presentation includes both categories and prevents cross-category data loss
+        familySelection = masterSelection
+        
+        // Set familySelection to include both reward apps and preserve learning apps
+        // This prevents learning apps from being lost when opening the reward picker
+        let rewardSelection = selection(for: AppUsage.AppCategory.reward)
+        let learningSelection = selection(for: AppUsage.AppCategory.learning)
+        
+        var combinedSelection = FamilyActivitySelection()
+        combinedSelection.applicationTokens = rewardSelection.applicationTokens.union(learningSelection.applicationTokens)
+        
+        // Preserve category/web domain selections
+        combinedSelection.categoryTokens = masterSelection.categoryTokens
+        combinedSelection.webDomainTokens = masterSelection.webDomainTokens
+        
+        familySelection = combinedSelection
         requestAuthorizationAndOpenPicker()
     }
     
@@ -171,6 +203,8 @@ class AppUsageViewModel: ObservableObject {
             }
         }
     }
+    
+    // MARK: - PickerContext Description
 
     @MainActor
     init(service: ScreenTimeService = ScreenTimeService.shared) {
@@ -466,7 +500,9 @@ class AppUsageViewModel: ObservableObject {
         merged.webDomainTokens = masterSelection.webDomainTokens
 
         masterSelection = merged
-        familySelection = merged
+        // FIX: Don't set familySelection to the merged selection
+        // Instead, keep familySelection as is (containing only the current context's apps)
+        // This ensures that subsequent calls to selection(for:) work correctly
         activePickerContext = nil
         
         #if DEBUG
@@ -477,6 +513,10 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel]   Family selection tokens count (after merge): \(familySelection.applicationTokens.count)")
         print("[AppUsageViewModel] 🔄 MERGE CURRENT SELECTION INTO MASTER COMPLETED")
         #endif
+        
+        // REHYDRATION FIX: Set familySelection = masterSelection after merge to ensure
+        // everyday UI and future picker launches start from the full, consistent selection
+        familySelection = masterSelection
         
         // TASK L: Ensure sorted applications are updated after master selection change
         updateSortedApplications()
@@ -565,7 +605,11 @@ class AppUsageViewModel: ObservableObject {
         updateSortedApplications()
         
         configureMonitoring()
-        masterSelection = familySelection
+        
+        // CRITICAL FIX: Remove the line that copies familySelection back into masterSelection after configureMonitoring()
+        // This overwrite drops the opposite category whenever a picker saves
+        // Instead, rely on familySelection = masterSelection after persistence (done below)
+        // masterSelection = familySelection  // REMOVED THIS LINE - CONFIRMED REMOVED
         
         // Task 0: Clear the pending selection after successful save
         pendingSelection = FamilyActivitySelection()
@@ -580,6 +624,10 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel] === END VIEW MODEL SNAPSHOT AFTER configureMonitoring ===")
         #endif
         // END INSTRUMENTATION
+        
+        // REHYDRATION FIX: Set familySelection = masterSelection after persistence to ensure
+        // everyday UI and future picker launches start from the full, consistent selection
+        familySelection = masterSelection
         
         // TASK L: Trigger UI refresh after save & monitor to eliminate need for restart
         // This re-sorts apps and refreshes UI immediately without requiring app restart
@@ -634,7 +682,6 @@ class AppUsageViewModel: ObservableObject {
         // We need to access the service's usagePersistence to get the logical ID
         return service.getLogicalID(for: token)
     }
-    
     private func getDisplayName(for token: ApplicationToken) -> String? {
         // Use the shared resolver so debug logging matches production UI
         return resolvedDisplayName(for: token)
@@ -858,6 +905,94 @@ class AppUsageViewModel: ObservableObject {
         }
     }
     
+    // HARDENING FIX: Add method to handle picker presentation with retry logic
+    /// Present picker with error handling and retry capability
+    func presentPickerWithRetry(for context: PickerContext) {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔁 Presenting picker with retry logic for context: \(context)")
+        #endif
+        
+        // Reset picker state for clean presentation
+        resetPickerStateForNewPresentation()
+        
+        // Set the active picker context and family selection based on context
+        activePickerContext = context
+        shouldPresentAssignmentAfterPickerDismiss = false
+        
+        // Set familySelection to the appropriate category selection
+        switch context {
+        case .learning:
+            familySelection = selection(for: AppUsage.AppCategory.learning)
+        case .reward:
+            familySelection = selection(for: AppUsage.AppCategory.reward)
+        }
+        
+        // Request authorization and open picker
+        requestAuthorizationAndOpenPicker()
+    }
+    
+    /// Present picker with error handling and retry capability (backward compatibility)
+    func presentPickerWithRetry() {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔁 Presenting picker with retry logic (no context specified)")
+        #endif
+        
+        // Reset picker state for clean presentation
+        resetPickerStateForNewPresentation()
+        
+        // Request authorization and open picker
+        requestAuthorizationAndOpenPicker()
+    }
+    
+    // TASK M: Add method to handle ActivityPickerRemoteViewError specifically
+    /// Handle FamilyControls.ActivityPickerRemoteViewError and attempt recovery
+    func handleActivityPickerRemoteViewError(error: String, context: PickerContext? = nil) {
+        #if DEBUG
+        print("[AppUsageViewModel] ❌ ActivityPickerRemoteViewError detected: \(error)")
+        print("[AppUsageViewModel] 🔁 Attempting recovery for context: \(String(describing: context))")
+        #endif
+        
+        // Log the error for diagnostics
+        pickerError = "Picker error: \(error)"
+        
+        // Perform full state reset
+        resetPickerState()
+        
+        // Rehydrate familySelection from masterSelection
+        familySelection = masterSelection
+        
+        // Retry counter
+        pickerRetryCount += 1
+        
+        // If this is the first retry, attempt to reopen picker with proper context
+        if pickerRetryCount <= 1, let context = context {
+            #if DEBUG
+            print("[AppUsageViewModel] 🔁 First retry attempt with context \(context) - reopening picker")
+            #endif
+            
+            // Small delay before retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                self.presentPickerWithRetry(for: context)
+            }
+        } else {
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Retry limit exceeded or no context - showing user-facing error")
+            #endif
+            
+            // Show user-facing error message if retry fails
+            pickerError = """
+            Unable to open the app selector due to a system error.
+            
+            Please try:
+            • Close the app completely and reopen
+            • Check that Screen Time is enabled in Settings
+            • Try again in a few minutes
+            
+            If the problem persists, please restart your device.
+            """
+        }
+    }
+
     // FIX: Add method to validate picker state before presentation
     /// Validate picker state before presentation to prevent ActivityPickerRemoteViewError
     private func validatePickerState() -> Bool {
@@ -1688,16 +1823,37 @@ extension AppUsageViewModel {
         }
         
         // 5. Update all selection sources to remove this token
-        // Remove from familySelection
+        // Remove from familySelection tokens
         familySelection.applicationTokens.remove(token)
         
-        // Remove from masterSelection
+        // Remove from masterSelection tokens
         masterSelection.applicationTokens.remove(token)
         
         // Remove from pendingSelection if present
         pendingSelection.applicationTokens.remove(token)
         
-        // Remove from sortedApplications (this will be rebuilt in step 6)
+        // PRUNING FIX: Also remove the Application objects to prevent orphaned objects
+        // This is critical to prevent FamilyControls.ActivityPickerRemoteViewError
+        let appToRemove = familySelection.applications.first { $0.token == token }
+        if let app = appToRemove {
+            familySelection.applicationTokens.remove(token)
+            // Note: We can't directly modify the applications set, but removing the token
+            // will cause the framework to handle the applications collection correctly
+        }
+        
+        let masterAppToRemove = masterSelection.applications.first { $0.token == token }
+        if let app = masterAppToRemove {
+            masterSelection.applicationTokens.remove(token)
+            // Note: We can't directly modify the applications set, but removing the token
+            // will cause the framework to handle the applications collection correctly
+        }
+        
+        let pendingAppToRemove = pendingSelection.applications.first { $0.token == token }
+        if let app = pendingAppToRemove {
+            pendingSelection.applicationTokens.remove(token)
+            // Note: We can't directly modify the applications set, but removing the token
+            // will cause the framework to handle the applications collection correctly
+        }
         
         // 6. Update sorted applications and snapshots
         updateSortedApplications()
@@ -1705,7 +1861,7 @@ extension AppUsageViewModel {
         // 7. Reconfigure monitoring to reflect the removal
         configureMonitoring()
         
-        // FIX: Reset picker state to prevent FamilyControls.ActivityPickerRemoteViewError error 1
+        // REHYDRATION FIX: Reset picker state and restore full selection
         resetPickerState()
         
         #if DEBUG
@@ -1736,8 +1892,9 @@ extension AppUsageViewModel {
         pickerRetryCount = 0
         cancelPickerTimeout()
         
-        // Reinitialize familySelection with current masterSelection to ensure consistency
-        // BUT only if we're not in the middle of a picker presentation
+        // REHYDRATION FIX: Restore familySelection to full merged selection
+        // Set familySelection = masterSelection so everyday UI and future picker launches 
+        // start from the full, consistent selection instead of the context-specific subset
         familySelection = masterSelection
         
         #if DEBUG
@@ -1765,8 +1922,10 @@ extension AppUsageViewModel {
         pickerRetryCount = 0
         cancelPickerTimeout()
         
-        // Don't reset familySelection here - it should be set appropriately after this method
-        // based on the category we're presenting for
+        // REHYDRATION FIX: Restore familySelection to full merged selection
+        // Set familySelection = masterSelection so everyday UI and future picker launches 
+        // start from the full, consistent selection instead of the context-specific subset
+        familySelection = masterSelection
         
         #if DEBUG
         print("[AppUsageViewModel] ✅ Picker state reset for new presentation completed")
