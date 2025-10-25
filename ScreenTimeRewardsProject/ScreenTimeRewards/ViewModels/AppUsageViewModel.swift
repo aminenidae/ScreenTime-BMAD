@@ -290,6 +290,15 @@ class AppUsageViewModel: ObservableObject {
         for application in sortedApplications {
             guard let token = application.token else { continue }
             
+            // TASK M FIX: Confirm the token still exists in familySelection before processing
+            // If it's not selected anymore, skip the entry so orphaned tokens never render
+            if !familySelection.applicationTokens.contains(token) {
+                #if DEBUG
+                print("[AppUsageViewModel] Skipping orphaned token: \(token.hashValue)")
+                #endif
+                continue
+            }
+            
             // Resolve stable identifiers via usagePersistence
             let tokenHash = service.usagePersistence.tokenHash(for: token)
             let logicalID = service.usagePersistence.logicalID(for: tokenHash) ?? tokenHash
@@ -1585,23 +1594,21 @@ extension AppUsageViewModel {
             // Remove from service's appUsages
             service.resetUsageData(for: logicalID)
             
-            // Reset the persisted data for this app
-            let now = Date()
-            let persistedApp = UsagePersistence.PersistedApp(
-                logicalID: logicalID,
-                displayName: appName,
-                category: category.rawValue,
-                rewardPoints: getDefaultRewardPoints(for: category),
-                totalSeconds: 0,  // Reset to zero
-                earnedPoints: 0,  // Reset to zero
-                createdAt: now,
-                lastUpdated: now
-            )
-            service.usagePersistence.saveApp(persistedApp)
+            // Delete the persisted data for this app instead of re-saving it
+            service.usagePersistence.deleteApp(logicalID: logicalID)
         }
         
-        // 5. Update the family selection to remove this token
+        // 5. Update all selection sources to remove this token
+        // Remove from familySelection
         familySelection.applicationTokens.remove(token)
+        
+        // Remove from masterSelection
+        masterSelection.applicationTokens.remove(token)
+        
+        // Remove from pendingSelection if present
+        pendingSelection.applicationTokens.remove(token)
+        
+        // Remove from sortedApplications (this will be rebuilt in step 6)
         
         // 6. Update sorted applications and snapshots
         updateSortedApplications()

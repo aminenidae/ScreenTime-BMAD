@@ -163,6 +163,17 @@ final class UsagePersistence {
         persistMappings()
     }
 
+    /// Delete a persisted app by its logical ID
+    /// - Parameter logicalID: The logical ID of the app to delete
+    func deleteApp(logicalID: LogicalAppID) {
+        cachedApps.removeValue(forKey: logicalID)
+        persistApps()
+        
+        #if DEBUG
+        print("[UsagePersistence] 🗑️ Deleted app with logicalID: \(logicalID)")
+        #endif
+    }
+
     #if DEBUG
     func printDebugInfo() {
         print("[UsagePersistence] 📊 Cached apps: \(cachedApps.count)")

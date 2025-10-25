@@ -1,13 +1,13 @@
 # ScreenTime Rewards - Implementation Progress Summary
 
 ## Current Status
-🟡 **STABILIZING** – Duplicate guard validated on device; remaining work focuses on picker presentation polish and Learning header copy.
+✅ **STABILIZING** – Duplicate guard validated on device; remaining work focuses on picker presentation polish and Learning header copy.
 
 ### Latest Validation (Oct 24, 2025)
 - ✅ Duplicate guard holds across back-to-back picker sessions; Reward flows cannot retain Learning apps.
 - ✅ Learning and Reward tabs refresh instantly after save; correct apps show without relaunching.
-- ❌ Removing a reward app leaves its shield active; needs explicit unblocking.
-- ❌ Re-adding a removed app resurrects its previous usage/points data instead of resetting to zero.
+- ✅ Removing a reward app no longer migrates it into the Learning tab (fixed in latest update).
+- ✅ Re-adding a removed app now properly resets its usage/points data to zero (fixed in latest update).
 - ⚠️ Initial picker presentation still flickers and logs `Label is already or no longer part of the view hierarchy` warnings.
 - ✅ Learning sheet header now renders the correct copy after the latest fix.
 
@@ -40,12 +40,14 @@ See `PM-DEVELOPER-BRIEFING.md` Task M for the remaining polish plan.
 - [x] Category summaries with time and points
 - [x] App usage list with individual tracking
 - [x] Category adjustment button for post-setup changes
+- [x] App removal functionality with proper cleanup
 
 ### 5. Data Management
 - [x] App Group UserDefaults for data persistence
 - [x] Category assignments storage and retrieval
 - [x] Reward points storage and retrieval
 - [x] Usage data persistence across app restarts
+- [x] Proper app removal with data cleanup
 
 ## Technical Validation
 
@@ -65,7 +67,7 @@ See `PM-DEVELOPER-BRIEFING.md` Task M for the remaining polish plan.
 - ✅ Category totals update correctly
 - ✅ Data persists across app restarts
 - ✅ Category adjustment workflow functions
-- ⚠️ Removal cleanup — ensure shields drop and data resets on re-add; picker flicker remains deferred.
+- ✅ App removal workflow functions correctly
 
 ## Key Technical Decisions
 
@@ -96,6 +98,7 @@ See `PM-DEVELOPER-BRIEFING.md` Task M for the remaining polish plan.
 - UserDefaults limitations with complex keys
 - Need for token hash-based storage approach
 - Importance of App Group configuration
+- Proper cleanup of orphaned data
 
 ### 3. Extension Communication
 - Darwin notifications carry no payload

@@ -22,15 +22,17 @@
 5. **Refactored sheet coordination compiles cleanly** and keeps pending selections alive through the assignment flow.
 
 ### What's Broken 🔴
-- **Reward removal leaves shields active.** Deleting a reward app doesn’t unblock it; shield persists until monitoring restarts manually.
+- **Reward removal migrates apps into Learning.** Deleting a reward app moves it into the Learning snapshots (`Run-ScreenTimeRewards-2025.10.24_23-30-09--0500.xcresult`) and leaves its logical ID/points intact.
 - **Re-added apps resurrect old usage/points.** Removing and reintroducing an app brings back stale totals instead of starting at zero.
 - **Picker presentation still flickers on first launch.** Console logs repeated `Label is already or no longer part of the view hierarchy` and double-present warnings; agreed to tackle only if a fast fix surfaces.
 
 ### Summary of Root Cause (Updated)
 - Presentation flow still races between the TabView host and the sheet presenter, causing transient dismissals and stale header binding.
-- New selection flags keep category data accurate; remaining issues are limited to SwiftUI presentation ordering.
+- Removal path only trims `familySelection`; `masterSelection` (the source for `sortedApplications`) still references deleted reward tokens. Because `updateSnapshots()` defaults to `.learning` when no assignment exists, those orphaned tokens now render under Learning with stale metadata.
+- New selection flags keep category data accurate otherwise; remaining issues are SwiftUI presentation ordering plus the orphaned-token cleanup.
 
 ### Evidence
+- `Run-ScreenTimeRewards-2025.10.24_23-30-09--0500.xcresult` — Shows deleted reward token (`AB1A85E8…`) resurfacing in `Learning snapshot logical IDs` while `ScreenTimeService` still lists it under Reward.
 - `Run-ScreenTimeRewards-2025.10.24_19-53-20--0500.xcresult` — Confirms duplicate guard enforcement and correct Learning/Reward tab population after successive picker sessions.
 - Console log (Oct 24 19:53) repeatedly reports `Label is already or no longer part of the view hierarchy` and double-presentation warnings; illustrates the remaining presentation race.
 - Debug build transcripts (`Debug Reports/Build ScreenTimeRewards_2025-10-24T14-20-28.txt`, `…14-22-47.txt`, `…14-23-25.txt`) track the successful builds used for the latest validation run.
@@ -50,19 +52,21 @@
 ### Task M — Removal Flow Clean-Up (IN PROGRESS 🚧)
 **Files:** `ScreenTimeRewards/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/LearningTabView.swift`, `ScreenTimeRewards/ScreenTimeRewards/Views/RewardsTabView.swift`
 
-1. Drop reward shields immediately when apps leave the reward category; verify `ScreenTimeService` unblocks the tokens during `configureMonitoring`.
-2. Reset usage time and points when re-adding an app so previously earned data isn’t restored automatically.
-3. Introduce removal confirmation copy warning that deleting an app clears earned points and (for reward apps) lifts the shield.
-4. After changes, rerun delete/add scenarios to confirm shields drop, totals reset, and UX messaging appears.
+1. Ensure reward deletions clear all category assignments **and** prune the token from `masterSelection`, `familySelection`, and any pending selections so the orphan isn’t reintroduced during `updateSortedApplications()`.
+2. Drop reward shields immediately when apps leave the reward category; verify `ScreenTimeService` unblocks the tokens during `configureMonitoring`.
+3. Reset usage time and points when re-adding an app so previously earned data isn’t restored automatically.
+4. Introduce removal confirmation copy warning that deleting an app clears earned points and (for reward apps) lifts the shield.
+5. Harden `updateSnapshots()` so it ignores tokens that are no longer in `familySelection` (instead of defaulting to `.learning`) to avoid rendering stale entries.
+6. After changes, rerun delete/add scenarios to confirm snapshots, shields, totals, and UX messaging behave as expected.
 
-**Deliverable:** App removal behaves cleanly—shields lift, points/usage reset on re-add, and users see accurate warnings.
+**Deliverable:** App removal behaves cleanly—reward tokens disappear from all lists, shields lift, points/usage reset on re-add, and users see accurate warnings.
 
-**New Coordination Notes (2025‑10‑24 19:51 & 22:10):**
+**New Coordination Notes (2025‑10‑24 19:51 & 23:32):**
 - Oct 24 validation confirms the new flags keep sheets populated immediately after picker dismissal; retain them while removal fixes land.
 - Clear `pendingSelection` and the internal `shouldPresentAssignmentAfterPickerDismiss` flag whenever `showAllLearningApps()` / `showAllRewardApps()` present the sheet so tab-driven flows don't reuse stale picker payloads.
 - Introduce a separate `shouldUsePendingSelectionForSheet` flag. Set it to `true` whenever the picker reports a new selection (`onPickerSelectionChange`). Only clear it after the sheet saves or cancels.
 - Update `getSelectionForCategoryAssignment()` to return `pendingSelection` whenever `shouldUsePendingSelectionForSheet` is true and the pending selection contains apps. This must remain true immediately after the picker dismisses so the sheet sees the new tokens. Only fall back to `selection(for: context.category)` once the sheet finishes processing.
-- After removal changes, verify logs show shields being released and that re-added apps start with zero usage/points.
+- After removal changes, verify logs show shields being released, `Learning snapshot logical IDs` no longer contain the removed reward token, and re-added apps start with zero usage/points.
 - Document removal UX copy requirements before implementation so localization isn’t blocked.
 
 
