@@ -94,7 +94,11 @@ private extension LearningTabView {
     }
 
     var addLearningAppsButton: some View {
-        Button(action: { viewModel.presentLearningPicker() }) {
+        Button(action: { 
+            // FIX: Ensure picker state is clean before presenting
+            viewModel.pendingSelection = FamilyActivitySelection()
+            viewModel.presentLearningPicker() 
+        }) {
             HStack {
                 Image(systemName: "plus.circle.fill")
                 Text(hasLearningApps ? "Add More Apps" : "Select Learning Apps")

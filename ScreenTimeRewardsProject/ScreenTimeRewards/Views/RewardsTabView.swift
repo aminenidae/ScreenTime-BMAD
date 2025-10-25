@@ -25,6 +25,8 @@ struct RewardsTabView: View {
 
                     // Add reward apps button
                     Button(action: {
+                        // FIX: Ensure picker state is clean before presenting
+                        viewModel.pendingSelection = FamilyActivitySelection()
                         viewModel.presentRewardPicker()
                     }) {
                         HStack {

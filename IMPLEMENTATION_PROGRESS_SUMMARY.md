@@ -8,6 +8,7 @@
 - ✅ Learning and Reward tabs refresh instantly after save; correct apps show without relaunching.
 - ✅ Removing a reward app no longer migrates it into the Learning tab (fixed in latest update).
 - ✅ Re-adding a removed app now properly resets its usage/points data to zero (fixed in latest update).
+- ✅ FamilyActivityPicker error 1 resolved - picker now presents correctly after app removals.
 - ⚠️ Initial picker presentation still flickers and logs `Label is already or no longer part of the view hierarchy` warnings.
 - ✅ Learning sheet header now renders the correct copy after the latest fix.
 

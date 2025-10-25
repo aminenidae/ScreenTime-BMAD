@@ -115,6 +115,9 @@ class AppUsageViewModel: ObservableObject {
     }
     
     func presentLearningPicker() {
+        // FIX: Reset picker state before presenting to prevent ActivityPickerRemoteViewError
+        resetPickerStateForNewPresentation()
+        
         activePickerContext = .learning
         shouldPresentAssignmentAfterPickerDismiss = false
         familySelection = selection(for: AppUsage.AppCategory.learning)
@@ -122,6 +125,9 @@ class AppUsageViewModel: ObservableObject {
     }
 
     func presentRewardPicker() {
+        // FIX: Reset picker state before presenting to prevent ActivityPickerRemoteViewError
+        resetPickerStateForNewPresentation()
+        
         activePickerContext = .reward
         shouldPresentAssignmentAfterPickerDismiss = false
         familySelection = selection(for: AppUsage.AppCategory.reward)
@@ -221,7 +227,7 @@ class AppUsageViewModel: ObservableObject {
                 // Just access the value directly (we're not using it but need to avoid unused variable warning)
                 _ = entry.value
                 // For now, just track the category mapping logic
-                // Real implementation would need token persistence strategy
+                // Real implementation would need need token persistence strategy
             }
 
             #if DEBUG
@@ -763,6 +769,15 @@ class AppUsageViewModel: ObservableObject {
         #if DEBUG
         print("[AppUsageViewModel] Requesting FamilyControls authorization before opening picker")
 
+        // Validate picker state before proceeding
+        guard validatePickerState() else {
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Picker state validation failed - aborting picker presentation")
+            #endif
+            errorMessage = "Unable to present app selector. Please try again."
+            return
+        }
+
         // Check current authorization status
         let currentStatus = AuthorizationCenter.shared.authorizationStatus
         print("[AppUsageViewModel] Current authorization status: \(currentStatus.rawValue)")
@@ -809,8 +824,37 @@ class AppUsageViewModel: ObservableObject {
             }
         }
     }
-
     
+    // FIX: Add method to validate picker state before presentation
+    /// Validate picker state before presentation to prevent ActivityPickerRemoteViewError
+    private func validatePickerState() -> Bool {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔍 Validating picker state before presentation")
+        #endif
+        
+        // Check if we have a valid active picker context
+        guard activePickerContext != nil else {
+            #if DEBUG
+            print("[AppUsageViewModel] ⚠️ No active picker context - cannot present picker")
+            #endif
+            return false
+        }
+        
+        // Check if family selection is in a valid state
+        if familySelection.applicationTokens.isEmpty && 
+           familySelection.categoryTokens.isEmpty && 
+           familySelection.webDomainTokens.isEmpty {
+            #if DEBUG
+            print("[AppUsageViewModel] ℹ️ Family selection is empty - this is normal for new picker presentation")
+            #endif
+        }
+        
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Picker state validation passed")
+        #endif
+        return true
+    }
+
     /// Start timeout timer for picker loading
     private func startPickerTimeout() {
         #if DEBUG
@@ -1616,8 +1660,42 @@ extension AppUsageViewModel {
         // 7. Reconfigure monitoring to reflect the removal
         configureMonitoring()
         
+        // FIX: Reset picker state to prevent FamilyControls.ActivityPickerRemoteViewError error 1
+        resetPickerState()
+        
         #if DEBUG
         print("[AppUsageViewModel] ✅ App removal completed for: \(appName)")
+        #endif
+    }
+    
+    // FIX: Add method to reset picker state after app removal
+    /// Reset the picker state to prevent FamilyControls.ActivityPickerRemoteViewError
+    /// This error typically occurs when the picker's internal state becomes inconsistent
+    /// after selection changes, especially after app removals
+    private func resetPickerState() {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔁 Resetting picker state to prevent ActivityPickerRemoteViewError")
+        #endif
+        
+        // Reset all picker-related state
+        isFamilyPickerPresented = false
+        isCategoryAssignmentPresented = false
+        activePickerContext = nil
+        pendingSelection = FamilyActivitySelection()
+        shouldUsePendingSelectionForSheet = false
+        shouldPresentAssignmentAfterPickerDismiss = false
+        
+        // Clear any picker errors
+        pickerError = nil
+        pickerLoadingTimeout = false
+        pickerRetryCount = 0
+        cancelPickerTimeout()
+        
+        // Reinitialize familySelection with current masterSelection to ensure consistency
+        familySelection = masterSelection
+        
+        #if DEBUG
+        print("[AppUsageViewModel] ✅ Picker state reset completed")
         #endif
     }
     
