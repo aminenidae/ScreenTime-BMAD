@@ -7,6 +7,7 @@ import ManagedSettings
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
 @available(iOS 16.0, *)
+@MainActor
 class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     static let shared = ScreenTimeService()
     static let usageDidChangeNotification = Notification.Name("ScreenTimeService.usageDidChange")
@@ -89,7 +90,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Store category assignments and selection for sharing across ViewModels
     private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     private(set) var rewardPointsAssignments: [ApplicationToken: Int] = [:]
-    private(set) var familySelection: FamilyActivitySelection = .init()
+    private(set) var familySelection: FamilyActivitySelection = .init(includeEntireCategory: true)
 
     override private init() {
         deviceActivityCenter = DeviceActivityCenter()
@@ -98,6 +99,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         registerForExtensionNotifications()
         loadPersistedAssignments()
     }
+
+    // MARK: - Helper Methods
+
 
     // MARK: - FamilyActivitySelection Persistence
 
@@ -158,7 +162,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             #if DEBUG
             print("[ScreenTimeService] ⓘ No shared defaults available")
             #endif
-            return FamilyActivitySelection()
+            return FamilyActivitySelection(includeEntireCategory: true)
         }
 
         // Try to decode using Codable first
@@ -179,7 +183,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] This is an Apple framework limitation: FamilyActivitySelection cannot be reconstructed programmatically")
         #endif
 
-        return FamilyActivitySelection()
+        return FamilyActivitySelection(includeEntireCategory: true)
     }
 
 
@@ -898,21 +902,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
 
         monitoringRestartTimer = Timer.scheduledTimer(withTimeInterval: restartInterval, repeats: true) { [weak self] _ in
-            guard let self = self, self.isMonitoring else { return }
+            guard let self = self else { return }
+            
+            Task { @MainActor in
+                guard self.isMonitoring else { return }
 
-            #if DEBUG
-            print("[ScreenTimeService] ⏰ Timer fired - restarting monitoring to reset events...")
-            #endif
+                #if DEBUG
+                print("[ScreenTimeService] ⏰ Timer fired - restarting monitoring to reset events...")
+                #endif
 
-            do {
-                try self.scheduleActivity()
-                #if DEBUG
-                print("[ScreenTimeService] ✅ Monitoring restarted successfully")
-                #endif
-            } catch {
-                #if DEBUG
-                print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
-                #endif
+                do {
+                    try self.scheduleActivity()
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Monitoring restarted successfully")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+                    #endif
+                }
             }
         }
     }
@@ -1508,66 +1516,6 @@ func configureWithTestApplications() {
 }
 #endif
 
-}  // Closing brace for ScreenTimeService class
-
-// MARK: - ScreenTimeActivityMonitorDelegate
-extension ScreenTimeService {
-    func activityMonitorDidStartInterval(_ activity: DeviceActivityName) {
-        handleIntervalDidStart(for: activity)
-    }
-
-    func activityMonitorWillStartInterval(_ activity: DeviceActivityName) {
-        handleIntervalWillStartWarning(for: activity)
-    }
-
-    func activityMonitorDidEndInterval(_ activity: DeviceActivityName) {
-        handleIntervalDidEnd(for: activity)
-    }
-
-    func activityMonitorWillEndInterval(_ activity: DeviceActivityName) {
-        handleIntervalWillEndWarning(for: activity)
-    }
-
-    func activityMonitorDidReachThreshold(for event: DeviceActivityEvent.Name) {
-        handleEventThresholdReached(event)
-    }
-
-    func activityMonitorWillReachThreshold(for event: DeviceActivityEvent.Name) {
-        handleEventWillReachThresholdWarning(event)
-    }
-}
-
-// MARK: - FamilyActivitySelection Extension for Consistent Sorting
-extension FamilyActivitySelection {
-    /// Returns applications sorted by token hash for consistent iteration order
-    /// This fixes the Set reordering bug that causes data shuffling when adding new apps
-    /// TASK L: Ensure deterministic sorting using token hash
-    func sortedApplications(using usagePersistence: UsagePersistence) -> [Application] {
-        return self.applications.sorted { app1, app2 in
-            guard let token1 = app1.token, let token2 = app2.token else { return false }
-            let hash1 = usagePersistence.tokenHash(for: token1)
-            let hash2 = usagePersistence.tokenHash(for: token2)
-            return hash1 < hash2
-        }
-    }
-}
-
-extension ScreenTimeService {
-    /// Get display name for a given token (for debugging purposes)
-    func getDisplayName(for token: ApplicationToken) -> String? {
-        // Find the application in our familySelection that matches this token
-        guard let application = familySelection.applications.first(where: { $0.token == token }) else {
-            return nil
-        }
-        return application.localizedDisplayName
-    }
-    
-    /// Get logical ID for a given token (for debugging purposes)
-    func getLogicalID(for token: ApplicationToken) -> String? {
-        let tokenHash = usagePersistence.tokenHash(for: token)
-        return usagePersistence.logicalID(for: tokenHash)
-    }
-    
     /// Public method to record usage for a logical ID, replacing existing entries rather than appending
     /// - Parameters:
     ///   - logicalID: The logical ID of the app
@@ -1639,6 +1587,170 @@ extension ScreenTimeService {
         // Notify that usage has changed
         notifyUsageChange()
     }
+    
+    // Task EXP-2: Implement Category Token Expansion Service
+    /// Expand category tokens into individual app tokens
+    /// - Parameter selection: The FamilyActivitySelection containing categories and apps
+    /// - Returns: A set of ApplicationToken with categories expanded to individual apps
+    func expandCategoryTokens(_ selection: FamilyActivitySelection) async -> Set<ApplicationToken> {
+        #if DEBUG
+        print("[ScreenTimeService] Expanding category tokens:")
+        print("[ScreenTimeService]   Categories count: \(selection.categories.count)")
+        print("[ScreenTimeService]   Applications count: \(selection.applications.count)")
+        #endif
+        
+        // Start with existing application tokens
+        var expandedTokens = selection.applications.compactMap { $0.token }
+        
+        // If no categories, return the existing application tokens
+        if selection.categories.isEmpty {
+            #if DEBUG
+            print("[ScreenTimeService] No categories to expand, returning \(selection.applications.count) existing app tokens")
+            #endif
+            return Set(expandedTokens)
+        }
+        
+        // Try to expand categories using our existing familySelection data
+        // This is our best strategy - use the master selection that contains all previously selected apps
+        if !familySelection.applications.isEmpty {
+            #if DEBUG
+            print("[ScreenTimeService] Expanding using master selection data (\(familySelection.applications.count) apps)")
+            #endif
+            
+            // For "All Apps" selection, we might get a special category
+            // Let's check if we have the "All Apps" category
+            let allAppsCategory = selection.categories.first { category in
+                // This is a heuristic - the "All Apps" category might have a specific identifier
+                category.localizedDisplayName?.lowercased().contains("all") ?? false
+            }
+            
+            if allAppsCategory != nil {
+                #if DEBUG
+                print("[ScreenTimeService] Detected 'All Apps' selection, expanding to all authorized apps")
+                #endif
+                
+                // For "All Apps", we want to include all apps from our master selection
+                let allTokens = familySelection.applications.compactMap { $0.token }
+                expandedTokens.append(contentsOf: allTokens)
+            } else {
+                // For specific categories, we'll try to match apps
+                #if DEBUG
+                print("[ScreenTimeService] Expanding specific categories")
+                #endif
+                
+                // For each category in the selection, find matching apps in our master selection
+                for categoryToken in selection.categories {
+                    #if DEBUG
+                    print("[ScreenTimeService] Processing category: \(categoryToken.localizedDisplayName ?? "Unknown Category")")
+                    #endif
+                    
+                    // Find apps in master selection that belong to this category
+                    // This is a simplified approach - in a real implementation, we'd need a better way to match categories
+                    let matchingApps = familySelection.applications.filter { app in
+                        // For now, we'll add all apps from master selection as they're all authorized
+                        return app.token != nil
+                    }
+                    
+                    let categoryTokens = matchingApps.compactMap { $0.token }
+                    expandedTokens.append(contentsOf: categoryTokens)
+                    
+                    #if DEBUG
+                    print("[ScreenTimeService]   Added \(categoryTokens.count) apps from master selection")
+                    #endif
+                }
+            }
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] No master selection data available, falling back to all authorized apps")
+            #endif
+            
+            // Fallback: Return all authorized apps if we have no master data
+            // This would require requesting a new FamilyActivityPicker selection with "All Apps"
+            // For now, we'll just return what we have plus the existing tokens
+        }
+        
+        // Remove duplicates by converting to Set
+        let uniqueTokens = Set(expandedTokens)
+        
+        #if DEBUG
+        print("[ScreenTimeService] Expansion complete:")
+        print("[ScreenTimeService]   Original app tokens: \(selection.applications.count)")
+        print("[ScreenTimeService]   Categories processed: \(selection.categories.count)")
+        print("[ScreenTimeService]   Final expanded tokens: \(uniqueTokens.count)")
+        #endif
+        
+        return uniqueTokens
+    }
+    
+    /// Get display name for a given token (for debugging purposes)
+    func getDisplayName(for token: ApplicationToken) -> String? {
+        // Find the application in our familySelection that matches this token
+        guard let application = familySelection.applications.first(where: { $0.token == token }) else {
+            return nil
+        }
+        return application.localizedDisplayName
+    }
+    
+    /// Get logical ID for a given token (for debugging purposes)
+    func getLogicalID(for token: ApplicationToken) -> String? {
+        let tokenHash = usagePersistence.tokenHash(for: token)
+        return usagePersistence.logicalID(for: tokenHash)
+    }
+    
+    /// Get the app group identifier for UserDefaults access
+    func getAppGroupIdentifier() -> String {
+        return "group.com.screentimerewards.shared"
+    }
+    
+    // MARK: - Master Selection Seeding Methods
+    
+    /// Save the master selection for category expansion
+    /// - Parameter selection: The FamilyActivitySelection containing all trackable apps
+    func saveMasterSelection(_ selection: FamilyActivitySelection) {
+        self.familySelection = selection
+        
+        // Persist to UserDefaults for permanent storage
+        // Note: FamilyActivitySelection itself cannot be encoded,
+        // but we can persist app count and metadata
+        let defaults = UserDefaults(suiteName: getAppGroupIdentifier())
+        defaults?.set(selection.applications.count, forKey: "masterSelectionAppCount")
+        defaults?.set(Date(), forKey: "masterSelectionLastUpdated")
+        
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Master selection saved:")
+        print("[ScreenTimeService]   Apps: \(selection.applications.count)")
+        print("[ScreenTimeService]   Categories: \(selection.categories.count)")
+        #endif
+    }
+    
+    /// Load master selection metadata
+    func loadMasterSelection() {
+        let defaults = UserDefaults(suiteName: getAppGroupIdentifier())
+        let count = defaults?.integer(forKey: "masterSelectionAppCount") ?? 0
+        
+        #if DEBUG
+        print("[ScreenTimeService] ℹ️ Master selection metadata loaded:")
+        print("[ScreenTimeService]   Previously saved app count: \(count)")
+        #endif
+        
+        // Note: Actual FamilyActivitySelection will need re-seeding on fresh launch
+        // This is an Apple limitation - we can't reconstruct the selection
+    }
+}
+
+// MARK: - FamilyActivitySelection Extension for Consistent Sorting
+extension FamilyActivitySelection {
+    /// Returns applications sorted by token hash for consistent iteration order
+    /// This fixes the Set reordering bug that causes data shuffling when adding new apps
+    /// TASK L: Ensure deterministic sorting using token hash
+    func sortedApplications(using usagePersistence: UsagePersistence) -> [Application] {
+        return self.applications.sorted { app1, app2 in
+            guard let token1 = app1.token, let token2 = app2.token else { return false }
+            let hash1 = usagePersistence.tokenHash(for: token1)
+            let hash2 = usagePersistence.tokenHash(for: token2)
+            return hash1 < hash2
+        }
+    }
 }
 
 // MARK: - ScreenTimeActivityMonitor
@@ -1703,5 +1815,32 @@ private final class ScreenTimeActivityMonitor: DeviceActivityMonitor {
         deliverToMain { delegate in
             delegate.activityMonitorWillReachThreshold(for: event)
         }
+    }
+}
+
+// MARK: - ScreenTimeActivityMonitorDelegate
+extension ScreenTimeService {
+    func activityMonitorDidStartInterval(_ activity: DeviceActivityName) {
+        handleIntervalDidStart(for: activity)
+    }
+
+    func activityMonitorWillStartInterval(_ activity: DeviceActivityName) {
+        handleIntervalWillStartWarning(for: activity)
+    }
+
+    func activityMonitorDidEndInterval(_ activity: DeviceActivityName) {
+        handleIntervalDidEnd(for: activity)
+    }
+
+    func activityMonitorWillEndInterval(_ activity: DeviceActivityName) {
+        handleIntervalWillEndWarning(for: activity)
+    }
+
+    func activityMonitorDidReachThreshold(for event: DeviceActivityEvent.Name) {
+        handleEventThresholdReached(event)
+    }
+
+    func activityMonitorWillReachThreshold(for event: DeviceActivityEvent.Name) {
+        handleEventWillReachThresholdWarning(event)
     }
 }

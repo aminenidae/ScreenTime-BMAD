@@ -94,9 +94,9 @@ private extension LearningTabView {
     }
 
     var addLearningAppsButton: some View {
-        Button(action: { 
+        Button(action: {
             // FIX: Ensure picker state is clean before presenting
-            viewModel.pendingSelection = FamilyActivitySelection()
+            viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
             // HARDENING FIX: Use retry logic for picker presentation with learning context
             viewModel.presentPickerWithRetry(for: .learning)
         }) {

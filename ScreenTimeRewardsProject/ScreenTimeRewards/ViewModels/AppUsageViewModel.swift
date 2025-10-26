@@ -28,6 +28,7 @@ struct RewardAppSnapshot: Identifiable {
 }
 
 /// View model to manage app usage data for the UI
+@MainActor
 class AppUsageViewModel: ObservableObject {
     @Published var appUsages: [AppUsage] = []
     @Published var isMonitoring = false
@@ -37,16 +38,15 @@ class AppUsageViewModel: ObservableObject {
     @Published var learningRewardPoints: Int = 0
     @Published var rewardRewardPoints: Int = 0
     @Published var errorMessage: String?
-    @Published var familySelection: FamilyActivitySelection = .init()
+    @Published var familySelection: FamilyActivitySelection = .init(includeEntireCategory: true)
     @Published var thresholdMinutes: [AppUsage.AppCategory: Int] = [:]
     @Published var isFamilyPickerPresented = false
     @Published var isAuthorizationGranted = false
     @Published var isCategoryAssignmentPresented = false
     @Published var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @Published var rewardPoints: [ApplicationToken: Int] = [:]
-
     // Task 0: Add pending selection to capture picker results before they're merged
-    @Published var pendingSelection: FamilyActivitySelection = .init()
+    @Published var pendingSelection: FamilyActivitySelection = .init(includeEntireCategory: true)
     
     // Fix: Add dedicated flag to control when to use pendingSelection for sheet
     @Published private var shouldUsePendingSelectionForSheet = false
@@ -132,8 +132,8 @@ class AppUsageViewModel: ObservableObject {
         // This prevents reward apps from being lost when opening the learning picker
         let learningSelection = selection(for: AppUsage.AppCategory.learning)
         let rewardSelection = selection(for: AppUsage.AppCategory.reward)
-        
-        var combinedSelection = FamilyActivitySelection()
+
+        var combinedSelection = FamilyActivitySelection(includeEntireCategory: true)
         combinedSelection.applicationTokens = learningSelection.applicationTokens.union(rewardSelection.applicationTokens)
         
         // Preserve category/web domain selections
@@ -159,8 +159,8 @@ class AppUsageViewModel: ObservableObject {
         // This prevents learning apps from being lost when opening the reward picker
         let rewardSelection = selection(for: AppUsage.AppCategory.reward)
         let learningSelection = selection(for: AppUsage.AppCategory.learning)
-        
-        var combinedSelection = FamilyActivitySelection()
+
+        var combinedSelection = FamilyActivitySelection(includeEntireCategory: true)
         combinedSelection.applicationTokens = rewardSelection.applicationTokens.union(learningSelection.applicationTokens)
         
         // Preserve category/web domain selections
@@ -175,17 +175,17 @@ class AppUsageViewModel: ObservableObject {
     func showAllLearningApps() {
         activePickerContext = .learning
         // Task 0: Clear pending selection and flag when showing from tabs to prevent stale data
-        pendingSelection = .init()
+        pendingSelection = .init(includeEntireCategory: true)
         shouldPresentAssignmentAfterPickerDismiss = false
         // Fix: Reset the flag for tab-driven sheets
         shouldUsePendingSelectionForSheet = false
         isCategoryAssignmentPresented = true
     }
-    
+
     func showAllRewardApps() {
         activePickerContext = .reward
         // Task 0: Clear pending selection and flag when showing from tabs to prevent stale data
-        pendingSelection = .init()
+        pendingSelection = .init(includeEntireCategory: true)
         shouldPresentAssignmentAfterPickerDismiss = false
         // Fix: Reset the flag for tab-driven sheets
         shouldUsePendingSelectionForSheet = false
@@ -210,8 +210,8 @@ class AppUsageViewModel: ObservableObject {
     // MARK: - PickerContext Description
 
     @MainActor
-    init(service: ScreenTimeService = ScreenTimeService.shared) {
-        self.service = service
+    init() {
+        self.service = ScreenTimeService.shared
 
         // Load from shared service
         self.familySelection = service.familySelection
@@ -531,8 +531,8 @@ class AppUsageViewModel: ObservableObject {
         // Task 0: If we have a pending selection, use that for filtering
         // Otherwise, use the master selection
         let sourceSelection = !pendingSelection.applications.isEmpty ? pendingSelection : masterSelection
-        
-        var result = FamilyActivitySelection()
+
+        var result = FamilyActivitySelection(includeEntireCategory: true)
         let filteredTokens = sourceSelection.applicationTokens.filter { token in
             categoryAssignments[token] == category
         }
@@ -615,9 +615,9 @@ class AppUsageViewModel: ObservableObject {
         // This overwrite drops the opposite category whenever a picker saves
         // Instead, rely on familySelection = masterSelection after persistence (done below)
         // masterSelection = familySelection  // REMOVED THIS LINE - CONFIRMED REMOVED
-        
+
         // Task 0: Clear the pending selection after successful save
-        pendingSelection = FamilyActivitySelection()
+        pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
         shouldPresentAssignmentAfterPickerDismiss = false
         // Fix: Reset the flag when sheet finishes
         shouldUsePendingSelectionForSheet = false
@@ -650,7 +650,7 @@ class AppUsageViewModel: ObservableObject {
     func cancelCategoryAssignment() {
         familySelection = masterSelection
         activePickerContext = nil
-        pendingSelection = FamilyActivitySelection()  // Task 0: Clear pending selection on cancel
+        pendingSelection = FamilyActivitySelection(includeEntireCategory: true)  // Task 0: Clear pending selection on cancel
         shouldPresentAssignmentAfterPickerDismiss = false
         // Fix: Reset the flag when sheet is cancelled
         shouldUsePendingSelectionForSheet = false
@@ -841,12 +841,12 @@ class AppUsageViewModel: ObservableObject {
         isMonitoring = false
         errorMessage = nil
         // Reset the family selection to allow re-picking
-        familySelection = .init()
-        masterSelection = .init()
+        familySelection = .init(includeEntireCategory: true)
+        masterSelection = .init(includeEntireCategory: true)
         // TASK 12 REVISED: Update sorted applications snapshot after reset
         updateSortedApplications()
         // Task 0: Clear pending selection on reset
-        pendingSelection = .init()
+        pendingSelection = .init(includeEntireCategory: true)
     }
 
     /// Request authorization BEFORE opening FamilyActivityPicker
@@ -1887,7 +1887,7 @@ extension AppUsageViewModel {
         isFamilyPickerPresented = false
         isCategoryAssignmentPresented = false
         activePickerContext = nil
-        pendingSelection = FamilyActivitySelection()
+        pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
         shouldUsePendingSelectionForSheet = false
         shouldPresentAssignmentAfterPickerDismiss = false
         

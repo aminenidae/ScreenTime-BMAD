@@ -12,6 +12,10 @@ Debug Reports/
 *.xcuserstate
 project.xcworkspace
 
+# Xcode user data
+*.xcuserdatad
+UserInterfaceState.xcuserstate
+
 # Validation scripts
 validate_task_k.*
 

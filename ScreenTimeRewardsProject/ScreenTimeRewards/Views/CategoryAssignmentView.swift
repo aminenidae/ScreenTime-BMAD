@@ -517,10 +517,10 @@ private extension CategoryAssignmentView {
         // Update the bindings with merged data
         categoryAssignments = mergedCategoryAssignments
         rewardPoints = mergedRewardPoints
-        
+
         // Task 0: Clear the pending selection after successful save
-        viewModel.pendingSelection = FamilyActivitySelection()
-        
+        viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
+
         #if DEBUG
         print("[CategoryAssignmentView] 🔄 HANDLE SAVE COMPLETED")
         print("[CategoryAssignmentView]   Final stored assignments count: \(categoryAssignments.count)")

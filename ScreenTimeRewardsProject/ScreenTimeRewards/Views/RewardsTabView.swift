@@ -26,7 +26,7 @@ struct RewardsTabView: View {
                     // Add reward apps button
                     Button(action: {
                         // FIX: Ensure picker state is clean before presenting
-                        viewModel.pendingSelection = FamilyActivitySelection()
+                        viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
                         // HARDENING FIX: Use retry logic for picker presentation with reward context
                         viewModel.presentPickerWithRetry(for: .reward)
                     }) {
