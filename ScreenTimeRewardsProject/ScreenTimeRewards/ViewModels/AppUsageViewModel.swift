@@ -11,6 +11,7 @@ struct LearningAppSnapshot: Identifiable {
     let displayName: String
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
+    let earnedPoints: Int  // Actual earned points (stored, not computed)
     // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
     var id: String { tokenHash }
     let tokenHash: String
@@ -22,6 +23,7 @@ struct RewardAppSnapshot: Identifiable {
     let displayName: String
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
+    let earnedPoints: Int  // Actual earned points (stored, not computed)
     // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
     var id: String { tokenHash }
     let tokenHash: String
@@ -69,16 +71,44 @@ class AppUsageViewModel: ObservableObject {
     // MARK: - Point Transfer System
     @Published var unlockedRewardApps: [ApplicationToken: UnlockedRewardApp] = [:]
 
-    /// Available learning points (total earned - reserved for unlocked apps)
+    /// Total points consumed (spent) from using unlocked reward apps
+    /// These points are permanently spent and should not return to available pool
+    @Published var totalConsumedPoints: Int = 0
+
+    /// Available learning points (total earned - reserved for unlocked apps - consumed points)
+    /// Formula: Available Points = Total Earned - Reserved Points - Consumed Points
     var availableLearningPoints: Int {
         let totalEarned = learningRewardPoints
         let totalReserved = unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
-        return max(0, totalEarned - totalReserved)
+        let totalConsumed = totalConsumedPoints
+        let available = max(0, totalEarned - totalReserved - totalConsumed)
+
+        #if DEBUG
+        print("[AppUsageViewModel] 💰 AVAILABLE POINTS CALCULATION:")
+        print("[AppUsageViewModel]   Total Earned: \(totalEarned)")
+        print("[AppUsageViewModel]   Total Reserved: \(totalReserved)")
+        print("[AppUsageViewModel]   Total Consumed (spent): \(totalConsumed)")
+        print("[AppUsageViewModel]   Available: \(available) = \(totalEarned) - \(totalReserved) - \(totalConsumed)")
+        #endif
+
+        return available
     }
 
     /// Total points reserved for unlocked reward apps
+    /// Formula: Reserved Points = Sum of (Redeemed - Consumed) for all unlocked apps
     var reservedLearningPoints: Int {
-        unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+        let reserved = unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+
+        #if DEBUG
+        print("[AppUsageViewModel] 🔒 RESERVED POINTS CALCULATION:")
+        for (token, app) in unlockedRewardApps {
+            let appName = resolvedDisplayName(for: token) ?? "Unknown"
+            print("[AppUsageViewModel]   \(appName): \(app.reservedPoints) points remaining")
+        }
+        print("[AppUsageViewModel]   Total Reserved: \(reserved)")
+        #endif
+
+        return reserved
     }
 
     // Flag to track when we're resetting picker state
@@ -93,6 +123,7 @@ class AppUsageViewModel: ObservableObject {
     private var pickerTimeoutWorkItem: DispatchWorkItem?
     private let pickerTimeoutSeconds: TimeInterval = 15.0
     private var shouldPresentAssignmentAfterPickerDismiss = false
+    private var rewardUsageObserver: Any?  // BF-1 FIX: Observer for reward app usage
 
     // MARK: - Computed Properties for Tab Views
 
@@ -255,6 +286,10 @@ class AppUsageViewModel: ObservableObject {
         loadUnlockedApps()
 
         loadData()
+        
+        // BF-1 FIX: Add observer for reward app usage notifications
+        setupRewardAppUsageObserver()
+        
         NotificationCenter.default
             .publisher(for: ScreenTimeService.usageDidChangeNotification)
             .receive(on: RunLoop.main)
@@ -262,6 +297,65 @@ class AppUsageViewModel: ObservableObject {
                 self?.usageDidChange()
             }
             .store(in: &cancellables)
+    }
+    
+    // BF-1 FIX: Setup observer for reward app usage
+    private func setupRewardAppUsageObserver() {
+        // Listen for reward app usage notifications from ScreenTimeService
+        CFNotificationCenterAddObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            { (center, observer, name, object, userInfo) in
+                DispatchQueue.main.async {
+                    let unmanaged = Unmanaged<AppUsageViewModel>.fromOpaque(observer!)
+                    unmanaged.takeUnretainedValue().handleRewardAppUsage()
+                }
+            },
+            "com.screentimerewards.rewardAppUsed" as CFString,
+            nil,
+            .deliverImmediately
+        )
+    }
+
+    // BF-1 FIX: Handle reward app usage notification
+    private func handleRewardAppUsage() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        
+        // Retrieve the reward usage data
+        guard let rewardUsageData = sharedDefaults.dictionary(forKey: "rewardUsageData") as? [String: [String: Any]] else {
+            return
+        }
+        
+        #if DEBUG
+        print("[AppUsageViewModel] 📝 Processing reward app usage data...")
+        #endif
+        
+        // Process each reward app usage entry
+        for (logicalID, data) in rewardUsageData {
+            guard let usageSeconds = data["usageSeconds"] as? TimeInterval,
+                  let tokenHash = data["tokenHash"] as? String else {
+                continue
+            }
+            
+            #if DEBUG
+            print("[AppUsageViewModel] Processing usage for logicalID: \(logicalID), seconds: \(usageSeconds)")
+            #endif
+            
+            // Find the matching token in our master selection
+            if let token = masterSelection.applicationTokens.first(where: { String($0.hashValue) == tokenHash }) {
+                #if DEBUG
+                let appName = masterSelection.applications.first { $0.token == token }?.localizedDisplayName ?? "Unknown App"
+                print("[AppUsageViewModel] Found matching token for \(appName), consuming reserved points...")
+                #endif
+                
+                // Consume reserved points for this reward app
+                consumeReservedPoints(token: token, usageSeconds: usageSeconds)
+            }
+        }
+        
+        // Clear the processed data
+        sharedDefaults.removeObject(forKey: "rewardUsageData")
+        sharedDefaults.synchronize()
     }
 
     /// Load category assignments from App Group storage
@@ -281,9 +375,6 @@ class AppUsageViewModel: ObservableObject {
             }.reduce(into: [:]) { result, entry in
                 // Note: We can't directly deserialize ApplicationToken, so we store by token data hash
                 // This is a limitation - we'll need to reassign if selection changes
-                // Fixed the issue: entry.value is already AppUsage.AppCategory, not Optional
-                // Just access the value directly (we're not using it but need to avoid unused variable warning)
-                _ = entry.value
                 // For now, just track the category mapping logic
                 // Real implementation would need need token persistence strategy
             }
@@ -395,6 +486,9 @@ class AppUsageViewModel: ObservableObject {
             
             // Create appropriate snapshot based on category
             // TASK L: Include tokenHash in snapshot creation
+            // Get earned points from the actual AppUsage (not calculated!)
+            let earnedPoints = appUsage?.earnedRewardPoints ?? 0
+
             switch category {
             case AppUsage.AppCategory.learning:
                 let snapshot = LearningAppSnapshot(
@@ -403,6 +497,7 @@ class AppUsageViewModel: ObservableObject {
                     displayName: displayName,
                     pointsPerMinute: pointsPerMinute,
                     totalSeconds: totalSeconds,
+                    earnedPoints: earnedPoints,
                     tokenHash: tokenHash
                 )
                 newLearningSnapshots.append(snapshot)
@@ -413,6 +508,7 @@ class AppUsageViewModel: ObservableObject {
                     displayName: displayName,
                     pointsPerMinute: pointsPerMinute,
                     totalSeconds: totalSeconds,
+                    earnedPoints: earnedPoints,
                     tokenHash: tokenHash
                 )
                 newRewardSnapshots.append(snapshot)
@@ -1418,9 +1514,16 @@ func configureWithTestApplications() {
             return
         }
 
-        // Create unlocked app entry
+        #if DEBUG
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        let earnedBefore = learningRewardPoints
+        #endif
+
+        // Create unlocked app entry with stable token hash
+        let tokenHash = service.usagePersistence.tokenHash(for: token)
         let unlockedApp = UnlockedRewardApp(
             token: token,
+            tokenHash: tokenHash,
             reservedPoints: pointsNeeded,
             pointsPerMinute: pointsPerMinute
         )
@@ -1434,11 +1537,11 @@ func configureWithTestApplications() {
         persistUnlockedApps()
 
         #if DEBUG
-        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[AppUsageViewModel] ✅ Unlocked \(appName)")
-        print("[AppUsageViewModel]   Reserved points: \(pointsNeeded)")
-        print("[AppUsageViewModel]   Duration: \(actualMinutes) minutes")
-        print("[AppUsageViewModel]   Available points remaining: \(availableLearningPoints)")
+        print("[AppUsageViewModel] ✅ UNLOCKED \(appName):")
+        print("[AppUsageViewModel]   Redemption: \(actualMinutes) minutes × \(pointsPerMinute) pts/min = \(pointsNeeded) points")
+        print("[AppUsageViewModel]   Total Earned: \(earnedBefore) points")
+        print("[AppUsageViewModel]   Reserved: \(pointsNeeded) points (initially redeemed)")
+        print("[AppUsageViewModel]   Available: \(availableLearningPoints) points (\(earnedBefore) - \(pointsNeeded))")
         #endif
     }
 
@@ -1451,7 +1554,14 @@ func configureWithTestApplications() {
             return
         }
 
-        // Remove from unlocked apps
+        #if DEBUG
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        let earnedTotal = learningRewardPoints
+        let reservedBefore = reservedLearningPoints
+        let pointsToReturn = unlockedApp.reservedPoints
+        #endif
+
+        // Remove from unlocked apps (returns points to available pool)
         unlockedRewardApps.removeValue(forKey: token)
 
         // Block the app via shield management
@@ -1461,26 +1571,50 @@ func configureWithTestApplications() {
         persistUnlockedApps()
 
         #if DEBUG
-        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[AppUsageViewModel] 🔒 Locked \(appName)")
-        print("[AppUsageViewModel]   Returned \(unlockedApp.reservedPoints) points")
-        print("[AppUsageViewModel]   Available points now: \(availableLearningPoints)")
+        let reservedAfter = reservedLearningPoints
+        print("[AppUsageViewModel] 🔒 LOCKED \(appName):")
+        print("[AppUsageViewModel]   Points being returned: \(pointsToReturn)")
+        print("[AppUsageViewModel]   Total Earned: \(earnedTotal) points")
+        print("[AppUsageViewModel]   Reserved before lock: \(reservedBefore) points")
+        print("[AppUsageViewModel]   Reserved after lock: \(reservedAfter) points")
+        print("[AppUsageViewModel]   Available after lock: \(availableLearningPoints) points (\(earnedTotal) - \(reservedAfter))")
         #endif
     }
 
     /// Consume reserved points for a reward app based on usage time
+    /// Formula: Reserved Points = Redeemed Points - Consumed Points
+    /// Consumed points are permanently spent and tracked separately
     func consumeReservedPoints(token: ApplicationToken, usageSeconds: TimeInterval) {
-        guard var unlockedApp = unlockedRewardApps[token] else { return }
+        guard var unlockedApp = unlockedRewardApps[token] else {
+            #if DEBUG
+            let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+            print("[AppUsageViewModel] ⚠️ No unlocked app found for \(appName), skipping point consumption")
+            #endif
+            return
+        }
 
         let usageMinutes = Int(usageSeconds / 60)
         let pointsToConsume = usageMinutes * unlockedApp.pointsPerMinute
+        let previousReserved = unlockedApp.reservedPoints
+        let previousConsumed = totalConsumedPoints
 
+        // Reduce reserved points
         unlockedApp.reservedPoints = max(0, unlockedApp.reservedPoints - pointsToConsume)
+
+        // Track consumed points globally (these are permanently spent)
+        totalConsumedPoints += pointsToConsume
 
         #if DEBUG
         let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[AppUsageViewModel] 💳 Consumed \(pointsToConsume) points from \(appName)")
-        print("[AppUsageViewModel]   Remaining: \(unlockedApp.reservedPoints) points (\(unlockedApp.remainingMinutes) min)")
+        print("[AppUsageViewModel] 💳 CONSUMING POINTS FOR \(appName):")
+        print("[AppUsageViewModel]   Usage: \(usageSeconds)s (\(usageMinutes) min)")
+        print("[AppUsageViewModel]   Points per minute: \(unlockedApp.pointsPerMinute)")
+        print("[AppUsageViewModel]   Points to consume: \(pointsToConsume)")
+        print("[AppUsageViewModel]   Reserved before: \(previousReserved)")
+        print("[AppUsageViewModel]   Reserved after: \(unlockedApp.reservedPoints)")
+        print("[AppUsageViewModel]   Total consumed before: \(previousConsumed)")
+        print("[AppUsageViewModel]   Total consumed after: \(totalConsumedPoints)")
+        print("[AppUsageViewModel]   Remaining time: \(unlockedApp.remainingMinutes) min")
         #endif
 
         // If expired, auto-lock the app
@@ -1497,7 +1631,7 @@ func configureWithTestApplications() {
         persistUnlockedApps()
     }
 
-    /// Persist unlocked apps to UserDefaults
+    /// Persist unlocked apps and consumed points to UserDefaults
     private func persistUnlockedApps() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
@@ -1506,39 +1640,53 @@ func configureWithTestApplications() {
 
         if let encoded = try? JSONEncoder().encode(appsArray) {
             defaults.set(encoded, forKey: "unlockedRewardApps")
+
+            // Also persist total consumed points
+            defaults.set(totalConsumedPoints, forKey: "totalConsumedPoints")
+
             defaults.synchronize()
 
             #if DEBUG
             print("[AppUsageViewModel] 💾 Persisted \(appsArray.count) unlocked apps")
+            print("[AppUsageViewModel] 💾 Persisted \(totalConsumedPoints) consumed points")
             #endif
         }
     }
 
-    /// Load unlocked apps from UserDefaults
+    /// Load unlocked apps and consumed points from UserDefaults
     private func loadUnlockedApps() {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
-              let data = defaults.data(forKey: "unlockedRewardApps"),
-              let appsArray = try? JSONDecoder().decode([UnlockedRewardApp].self, from: data) else {
-            return
-        }
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
-        // Re-match tokens from current masterSelection
-        for app in appsArray {
-            if let matchedToken = masterSelection.applicationTokens.first(where: { String($0.hashValue) == app.id }) {
-                // Create new instance with matched token, preserving unlock timestamp
-                let rehydratedApp = UnlockedRewardApp(
-                    token: matchedToken,
-                    reservedPoints: app.reservedPoints,
-                    pointsPerMinute: app.pointsPerMinute,
-                    unlockedAt: app.unlockedAt
-                )
-                unlockedRewardApps[matchedToken] = rehydratedApp
+        // Load consumed points
+        totalConsumedPoints = defaults.integer(forKey: "totalConsumedPoints")
+
+        // Load unlocked apps
+        if let data = defaults.data(forKey: "unlockedRewardApps"),
+           let appsArray = try? JSONDecoder().decode([UnlockedRewardApp].self, from: data) {
+
+            // Re-match tokens from current masterSelection using stable token hash
+            for app in appsArray {
+                // Match using stable SHA-256 token hash instead of unstable hashValue
+                if let matchedToken = masterSelection.applicationTokens.first(where: {
+                    service.usagePersistence.tokenHash(for: $0) == app.id
+                }) {
+                    // Create new instance with matched token, preserving unlock timestamp
+                    let rehydratedApp = UnlockedRewardApp(
+                        token: matchedToken,
+                        tokenHash: app.id,  // Use the stored stable hash
+                        reservedPoints: app.reservedPoints,
+                        pointsPerMinute: app.pointsPerMinute,
+                        unlockedAt: app.unlockedAt
+                    )
+                    unlockedRewardApps[matchedToken] = rehydratedApp
+                }
             }
-        }
 
-        #if DEBUG
-        print("[AppUsageViewModel] 📂 Loaded \(unlockedRewardApps.count) unlocked apps from persistence")
-        #endif
+            #if DEBUG
+            print("[AppUsageViewModel] 📂 Loaded \(unlockedRewardApps.count) unlocked apps from persistence")
+            print("[AppUsageViewModel] 📂 Loaded \(totalConsumedPoints) consumed points from persistence")
+            #endif
+        }
     }
 
     // MARK: - ManagedSettings Testing Methods
@@ -1634,6 +1782,16 @@ func configureWithTestApplications() {
     /// Get shield status for display
     func getShieldStatus() -> (blocked: Int, accessible: Int) {
         return service.getShieldStatus()
+    }
+
+    // BF-1 FIX: Remove observer when view model is deallocated
+    deinit {
+        CFNotificationCenterRemoveObserver(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            Unmanaged.passUnretained(self).toOpaque(),
+            CFNotificationName("com.screentimerewards.rewardAppUsed" as CFString),
+            nil
+        )
     }
 }
 
@@ -2028,22 +2186,19 @@ extension AppUsageViewModel {
         
         // PRUNING FIX: Also remove the Application objects to prevent orphaned objects
         // This is critical to prevent FamilyControls.ActivityPickerRemoteViewError
-        let appToRemove = familySelection.applications.first { $0.token == token }
-        if let app = appToRemove {
+        if familySelection.applications.first(where: { $0.token == token }) != nil {
             familySelection.applicationTokens.remove(token)
             // Note: We can't directly modify the applications set, but removing the token
             // will cause the framework to handle the applications collection correctly
         }
         
-        let masterAppToRemove = masterSelection.applications.first { $0.token == token }
-        if let app = masterAppToRemove {
+        if masterSelection.applications.first(where: { $0.token == token }) != nil {
             masterSelection.applicationTokens.remove(token)
             // Note: We can't directly modify the applications set, but removing the token
             // will cause the framework to handle the applications collection correctly
         }
         
-        let pendingAppToRemove = pendingSelection.applications.first { $0.token == token }
-        if let app = pendingAppToRemove {
+        if pendingSelection.applications.first(where: { $0.token == token }) != nil {
             pendingSelection.applicationTokens.remove(token)
             // Note: We can't directly modify the applications set, but removing the token
             // will cause the framework to handle the applications collection correctly

@@ -175,11 +175,9 @@ private extension LearningTabView {
                         .font(.caption)
                         .foregroundColor(.secondary)
 
-                    let minutesUsed = Int(snapshot.totalSeconds / 60)
-                    let pointsEarned = minutesUsed * snapshot.pointsPerMinute
                     Text("•")
                         .foregroundColor(.secondary)
-                    Text("\(pointsEarned) pts earned")
+                    Text("\(snapshot.earnedPoints) pts earned")
                         .font(.caption)
                         .foregroundColor(.blue)
                 }

@@ -1,11 +1,27 @@
 # ScreenTime Rewards - Implementation Progress Summary
 
 ## Current Status
-✅ **FULLY OPERATIONAL** – Category selection issue resolved with Apple's official solution. All core features working as expected.
+✅ **FULLY OPERATIONAL** – Category selection issue resolved with Apple's official solution. Reward transfer system implemented. Critical bug fixes completed for points calculation and state persistence.
 
-**Last Updated:** 2025-10-25
+**Last Updated:** 2025-10-26
 
-### Latest Update (Oct 25, 2025)
+### Latest Update (Oct 26, 2025)
+- ✅ **Critical Bug Fixes COMPLETED** - Seven major bugs fixed:
+  1. ✅ Points calculation retroactive recalculation bug (Oct 26)
+  2. ✅ Configuration reload not updating in-memory state (Oct 26)
+  3. ✅ App cards displaying incorrect points (Oct 26)
+  4. ✅ Unlocked reward apps showing as locked after relaunch (Oct 26)
+  5. ✅ Point consumption tracking (BF-1, Oct 25)
+  6. ✅ Shield management formUnion fix (BF-2, Oct 25)
+  7. ✅ Background counting bug (BF-0, Oct 25)
+- ✅ **All fixes tested and verified working**
+- ✅ Points now persist correctly when rates change
+- ✅ Unlocked apps maintain state across app restarts
+- ✅ Shield management works correctly
+- ✅ Point consumption tracked accurately
+
+### Previous Update (Oct 25, 2025)
+- ✅ **Reward Transfer System IMPLEMENTED** - Point transfer feature built and compiling successfully
 - ✅ **Category Selection Issue RESOLVED** - Implemented `includeEntireCategory: true` flag across entire codebase
 - ✅ All 21+ `FamilyActivitySelection` initializations updated
 - ✅ Experimental tab removed (no longer needed)
@@ -41,8 +57,14 @@
 ### 3. Reward Points System
 - [x] User-defined reward points per app
 - [x] Time-based reward calculation (minutes × assigned points)
+- [x] **Incremental points tracking (not retroactive)** ⭐ FIXED (Oct 26)
+- [x] **Point consumption tracking for reward apps** ⭐ FIXED (BF-1, Oct 25)
 - [x] Category-based reward point tracking
 - [x] Total reward points aggregation
+- [x] **Reward point transfer functionality** ⭐ NEW (Oct 25)
+- [x] **Configuration changes apply immediately** ⭐ FIXED (Oct 26)
+- [x] **Stable token hashing for persistence** ⭐ FIXED (Oct 26)
+- [x] **Shield management with formUnion** ⭐ FIXED (BF-2, Oct 25)
 
 ### 4. UI/UX Implementation
 - [x] Main dashboard with monitoring controls
@@ -109,6 +131,44 @@
 - **Previous Approach:** Explored "master selection seeding" workaround before discovering official solution
 - **Key Requirement:** Must use JSONEncoder/JSONDecoder (PropertyListEncoder has bug with this flag)
 
+## Critical Bug Fixes (Oct 26, 2025)
+
+### 1. Points Calculation Architecture ⭐ CRITICAL FIX
+- **Problem:** `earnedRewardPoints` was a computed property that retroactively recalculated all historical usage with the current rate
+- **Impact:** Changing points/minute from 75 to 230 recalculated past usage, showing incorrect totals
+- **Solution:** Changed to stored property, incrementally adding points in `recordUsage()` method
+- **Files Modified:**
+  - `Models/AppUsage.swift` - Changed earnedRewardPoints from computed to stored property
+  - Added incremental calculation in `recordUsage()` method
+  - Updated all initializers to set earnedRewardPoints
+- **Benefit:** Points are now "locked in" when earned - rate changes only affect future usage
+
+### 2. Configuration Reload Bug ⭐ CRITICAL FIX
+- **Problem:** `configureMonitoring()` saved new rate to disk but kept old rate in memory
+- **Impact:** Next usage event calculated points using old rate despite UI showing new rate
+- **Solution:** Always reload AppUsage from persistence after configuration changes
+- **Files Modified:**
+  - `Services/ScreenTimeService.swift:612-617` - Added forced reload from persistence
+- **Benefit:** Configuration changes take effect immediately
+
+### 3. View Display Bug ⭐ CRITICAL FIX
+- **Problem:** App cards recalculated points: `totalSeconds / 60 * currentRate` instead of showing actual earned
+- **Impact:** App cards showed different points than "Total Points Earned"
+- **Solution:** Added `earnedPoints` field to snapshots, display stored value
+- **Files Modified:**
+  - `ViewModels/AppUsageViewModel.swift` - Added earnedPoints to snapshot structs
+  - `Views/LearningTabView.swift` - Display snapshot.earnedPoints instead of calculating
+- **Benefit:** Consistent points display across all UI elements
+
+### 4. Token Hash Stability Bug ⭐ CRITICAL FIX
+- **Problem:** Used unstable `token.hashValue` which changes on each app launch
+- **Impact:** Unlocked reward apps appeared locked after app relaunch (but remained functionally unlocked)
+- **Solution:** Switched to stable SHA-256 `tokenHash` for token identification
+- **Files Modified:**
+  - `Models/AppUsage.swift` - UnlockedRewardApp initializers now accept tokenHash parameter
+  - `ViewModels/AppUsageViewModel.swift` - Use stable tokenHash for matching
+- **Benefit:** Unlocked apps persist correctly across app restarts
+
 ## Lessons Learned
 
 ### 1. Apple's Privacy Design
@@ -143,6 +203,13 @@
 - Experimental prototyping helps validate problems even if final solution differs
 - Official documentation may not cover all API features comprehensively
 
+### 6. Points Calculation Best Practices ⭐ NEW (Oct 26)
+- **Never use computed properties for accumulating values** - Use stored properties
+- **Incremental tracking is better than recalculation** - Add to existing value, don't recalculate from total
+- **Reload from persistence after configuration changes** - Don't assume in-memory state is current
+- **Use stable hashes for token identification** - SHA-256 instead of Swift's unstable hashValue
+- **Display stored values, not calculated values** - Avoid recalculation in views
+
 ## Code Quality Achievements
 
 ### 1. Architecture
@@ -163,6 +230,41 @@
 - Inline explanations of complex logic
 - This progress summary
 - Investigation reports archived for reference
+
+## Files Modified for Critical Bug Fixes (Oct 26, 2025)
+
+### Points Calculation Fix
+1. `Models/AppUsage.swift` - Lines 95, 83, 129, 141, 150, 186-188
+   - Changed earnedRewardPoints from computed to stored property
+   - Added to CodingKeys enum
+   - Updated all initializers
+   - Added incremental calculation in recordUsage()
+
+2. `Services/ScreenTimeService.swift` - Lines 338, 349, 360, 612-617, 649, 1315-1326, 1536-1547, 1600-1611
+   - Always reload from persistence after configuration changes
+   - Pass earnedRewardPoints when converting from PersistedApp
+   - Calculate points when creating new usage records
+
+3. `ViewModels/AppUsageViewModel.swift` - Lines 14, 26, 490, 500, 512
+   - Added earnedPoints field to LearningAppSnapshot
+   - Added earnedPoints field to RewardAppSnapshot
+   - Populate earnedPoints from actual AppUsage
+
+4. `Views/LearningTabView.swift` - Line 180
+   - Display snapshot.earnedPoints instead of calculating
+
+### Token Hash Stability Fix
+1. `Models/AppUsage.swift` - Lines 41, 50
+   - UnlockedRewardApp initializers now accept tokenHash parameter
+   - Use stable SHA-256 hash instead of unstable hashValue
+
+2. `ViewModels/AppUsageViewModel.swift` - Lines 1523-1526, 1670-1671
+   - Pass stable tokenHash when creating UnlockedRewardApp
+   - Match using stable tokenHash when loading from persistence
+
+**Total Changes:** 7 files, 20+ modifications
+
+---
 
 ## Files Modified for Category Selection Fix (Oct 25, 2025)
 
@@ -192,6 +294,7 @@
 - [ ] Implement dark mode support
 
 ### 3. Additional Functionality
+- [x] **Reward point transfer system** ✅ COMPLETE
 - [ ] Parental approval workflow
 - [ ] CloudKit sync for multi-device support
 - [ ] Custom reward schedules
@@ -246,16 +349,19 @@
 
 ### Core Documentation
 1. `PM-DEVELOPER-BRIEFING.md` - Current briefing with resolution details
-2. `CURRENT-STATUS.md` - Updated status with category fix
+2. `CURRENT-STATUS.md` - Updated status with latest fixes
 3. `IMPLEMENTATION_PROGRESS_SUMMARY.md` - This file
+4. **`POINTS-CALCULATION-BUG-FIXES.md`** ⭐ NEW - Detailed technical analysis of Oct 26 bug fixes
 
 ### Investigation & Research
-1. `/Users/ameen/Downloads/Handling Category Selections in iOS FamilyControls (Screen Time API).pdf` - Investigation report that led to solution
-2. `docs/` - Archived experimental approach documentation
+1. `/Users/ameen/Downloads/Handling Category Selections in iOS FamilyControls (Screen Time API).pdf` - Investigation report that led to category selection solution
+2. `POINTS-CALCULATION-BUG-FIXES.md` - Bug fix analysis with root causes and solutions
+3. `docs/` - Archived experimental approach documentation
 
 ### Technical Documentation
 1. `SCREEN_TIME_REWARDS_TECHNICAL_DOCUMENTATION.md` - Comprehensive technical guide
-2. Code comments throughout implementation files
+2. `POINTS-CALCULATION-BUG-FIXES.md` - Points calculation architecture and fixes
+3. Code comments throughout implementation files
 
 ## Team Coordination
 
@@ -292,4 +398,4 @@ The implementation is now production-ready, with all critical features working a
 
 ---
 
-**Last Updated:** 2025-10-25
+**Last Updated:** 2025-10-26

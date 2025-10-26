@@ -193,7 +193,7 @@ struct CategoryAssignmentView: View {
         case .learning:
             return 5  // Learning: minimum 5 points
         case .reward:
-            return 50  // Reward: minimum 50 points
+            return 5  // Reward: minimum 5 points
         }
     }
 
@@ -202,7 +202,7 @@ struct CategoryAssignmentView: View {
         case .learning:
             return (5, 500, 5)  // Learning: 5-500, step by 5
         case .reward:
-            return (50, 1000, 10)  // Reward: 50-1000, step by 10
+            return (5, 1000, 5)  // Reward: 5-1000, step by 5
         }
     }
 

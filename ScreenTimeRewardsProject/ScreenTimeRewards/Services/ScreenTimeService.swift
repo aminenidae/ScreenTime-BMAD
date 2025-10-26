@@ -334,7 +334,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sessions: booksSessions,
             firstAccess: now.addingTimeInterval(-86400),
             lastAccess: now.addingTimeInterval(-hour),
-            rewardPoints: 20
+            rewardPoints: 20,
+            earnedRewardPoints: Int(hour / 60) * 20  // 60 min * 20 pts/min = 1200
         )
         let calculator = AppUsage(
             bundleIdentifier: "com.apple.calculator",
@@ -344,7 +345,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sessions: calculatorSessions,
             firstAccess: now.addingTimeInterval(-172800),
             lastAccess: now.addingTimeInterval(-hour * 6 + 600),
-            rewardPoints: 20
+            rewardPoints: 20,
+            earnedRewardPoints: Int(600 / 60) * 20  // 10 min * 20 pts/min = 200
         )
         let music = AppUsage(
             bundleIdentifier: "com.apple.Music",
@@ -354,7 +356,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sessions: musicSessions,
             firstAccess: now.addingTimeInterval(-432000),
             lastAccess: now.addingTimeInterval(-halfHour),
-            rewardPoints: 10
+            rewardPoints: 10,
+            earnedRewardPoints: Int(halfHour / 60) * 10  // 30 min * 10 pts/min = 300
         )
         
         appUsages = [
@@ -599,14 +602,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         hasSeededSampleData = false
 
-        // Keep existing usage totals for monitored apps (and drop anything no longer selected)
+        // CRITICAL FIX: Always reload from persistence to get updated rewardPoints configuration
+        // When user changes points/minute, we save the new config above (line 508-521)
+        // but we must reload it here to ensure in-memory AppUsage uses the NEW rate
         var refreshedUsages: [String: AppUsage] = [:]
         for apps in groupedApplications.values {
             for app in apps {
-                if let existing = appUsages[app.logicalID] {
-                    refreshedUsages[app.logicalID] = existing
-                } else if let persisted = usagePersistence.app(for: app.logicalID) {
+                // Always reload from persistence to get the latest configuration
+                if let persisted = usagePersistence.app(for: app.logicalID) {
                     refreshedUsages[app.logicalID] = appUsage(from: persisted)
+                    #if DEBUG
+                    print("[ScreenTimeService] Reloaded \(app.displayName): \(persisted.rewardPoints) pts/min, \(persisted.earnedPoints) earned, \(persisted.totalSeconds)s total")
+                    #endif
                 }
             }
         }
@@ -645,7 +652,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sessions: [session],
             firstAccess: persisted.createdAt,
             lastAccess: persisted.lastUpdated,
-            rewardPoints: persisted.rewardPoints
+            rewardPoints: persisted.rewardPoints,
+            earnedRewardPoints: persisted.earnedPoints
         )
     }
 
@@ -911,6 +919,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] ⏰ Timer fired - restarting monitoring to reset events...")
                 #endif
 
+                // BUG FIX: Stop monitoring first to clear accumulated state
+                // This prevents spurious events from firing for background apps
+                self.deviceActivityCenter.stopMonitoring([self.activityName])
+
+                #if DEBUG
+                print("[ScreenTimeService] 🛑 Stopped monitoring to clear accumulated state")
+                #endif
+
                 do {
                     try self.scheduleActivity()
                     #if DEBUG
@@ -1038,8 +1054,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let startTime = Date()
         #endif
 
-        currentlyShielded = tokens
-        managedSettingsStore.shield.applications = tokens
+        // BF-2 FIX: Change from assignment to formUnion to properly add tokens to existing set
+        // Previously: currentlyShielded = tokens (which replaced the entire set)
+        // Now: currentlyShielded.formUnion(tokens) (which adds tokens to existing set)
+        currentlyShielded.formUnion(tokens)
+        managedSettingsStore.shield.applications = currentlyShielded
 
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
@@ -1255,7 +1274,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // If blocked, this is shield time (not real usage) - skip recording
         var recordedCount = 0
         var skippedCount = 0
-        
+    
         // Use a set to track logical IDs we've already processed to avoid duplicates
         var processedLogicalIDs: Set<String> = []
 
@@ -1268,9 +1287,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 skippedCount += 1
                 continue  // Skip this app - it's shield time!
             }
-            
+        
             let logicalID = application.logicalID
-            
+        
             // Skip if we've already processed this logical ID
             if processedLogicalIDs.contains(logicalID) {
                 #if DEBUG
@@ -1278,7 +1297,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
                 continue
             }
-            
+        
             // Mark this logical ID as processed
             processedLogicalIDs.insert(logicalID)
 
@@ -1297,6 +1316,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] Creating new usage record for \(logicalID)")
                 #endif
                 let session = AppUsage.UsageSession(startTime: endDate.addingTimeInterval(-duration), endTime: endDate)
+                let minutes = Int(duration / 60)
+                let calculatedPoints = minutes * application.rewardPoints
                 let usage = AppUsage(
                     bundleIdentifier: logicalID,  // Use logicalID as bundleIdentifier for storage
                     appName: application.displayName,
@@ -1305,7 +1326,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     sessions: [session],
                     firstAccess: session.startTime,
                     lastAccess: endDate,
-                    rewardPoints: application.rewardPoints
+                    rewardPoints: application.rewardPoints,
+                    earnedRewardPoints: calculatedPoints
                 )
                 appUsages[logicalID] = usage
             }
@@ -1323,6 +1345,41 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 lastUpdated: appUsage.lastAccess
             )
             usagePersistence.saveApp(persistedApp)
+
+            // BF-1 FIX: Consume reserved points for reward apps when usage is recorded
+            // Check if this is a reward app and consume reserved points
+            if application.category == .reward {
+                #if DEBUG
+                print("[ScreenTimeService] 🔍 Checking if \(application.displayName) is an unlocked reward app...")
+                #endif
+                
+                // Notify the main app to consume reserved points for this reward app
+                // We'll use a Darwin notification since this might be called from the extension
+                if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                    // Store the usage data for the main app to process
+                    var rewardUsageData = sharedDefaults.dictionary(forKey: "rewardUsageData") ?? [:]
+                    rewardUsageData[logicalID] = [
+                        "tokenHash": String(application.token.hashValue),
+                        "usageSeconds": duration,
+                        "timestamp": Date().timeIntervalSince1970
+                    ]
+                    sharedDefaults.set(rewardUsageData, forKey: "rewardUsageData")
+                    sharedDefaults.synchronize()
+                    
+                    #if DEBUG
+                    print("[ScreenTimeService] 📝 Stored reward usage data for \(application.displayName)")
+                    #endif
+                }
+                
+                // Post notification so AppUsageViewModel can consume the reserved points
+                CFNotificationCenterPostNotification(
+                    CFNotificationCenterGetDarwinNotifyCenter(),
+                    CFNotificationName("com.screentimerewards.rewardAppUsed" as CFString),
+                    nil,
+                    nil,
+                    true
+                )
+            }
 
             recordedCount += 1
         }
@@ -1480,6 +1537,8 @@ func recordTestUsage(
             startTime: endDate.addingTimeInterval(-duration),
             endTime: endDate
         )
+        let minutes = Int(duration / 60)
+        let calculatedPoints = minutes * rewardPoints
         let usage = AppUsage(
             bundleIdentifier: storageKey,
             appName: appName,
@@ -1488,7 +1547,8 @@ func recordTestUsage(
             sessions: [session],
             firstAccess: session.startTime,
             lastAccess: endDate,
-            rewardPoints: rewardPoints
+            rewardPoints: rewardPoints,
+            earnedRewardPoints: calculatedPoints
         )
         appUsages[storageKey] = usage
     }
@@ -1541,6 +1601,8 @@ func configureWithTestApplications() {
             // Create a new entry if one doesn't exist
             let now = Date()
             let session = AppUsage.UsageSession(startTime: now.addingTimeInterval(-additionalSeconds), endTime: now)
+            let minutes = Int(additionalSeconds / 60)
+            let calculatedPoints = minutes * rewardPointsPerMinute
             let usage = AppUsage(
                 bundleIdentifier: logicalID,
                 appName: "Unknown App",
@@ -1549,7 +1611,8 @@ func configureWithTestApplications() {
                 sessions: [session],
                 firstAccess: session.startTime,
                 lastAccess: now,
-                rewardPoints: rewardPointsPerMinute
+                rewardPoints: rewardPointsPerMinute,
+                earnedRewardPoints: calculatedPoints
             )
             appUsages[logicalID] = usage
         }

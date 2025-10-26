@@ -3,18 +3,32 @@ import FamilyControls
 import ManagedSettings
 
 /// Represents an unlocked reward app with reserved learning points
+///
+/// Point Calculation Formula:
+/// - reservedPoints = Initial Redeemed Points - Consumed Points
+/// - As the app is used, points are consumed and reservedPoints decreases
+/// - When reservedPoints reaches 0, the app is automatically locked
 struct UnlockedRewardApp: Codable, Identifiable {
     let id: String  // Token hash
     var token: ApplicationToken?
+
+    /// Remaining reserved points (Redeemed - Consumed)
+    /// This value decreases as the app is used
     var reservedPoints: Int
+
+    /// Cost per minute of usage
     let pointsPerMinute: Int
+
+    /// When this app was unlocked
     let unlockedAt: Date
 
+    /// How many minutes of usage remain based on reserved points
     var remainingMinutes: Int {
         guard pointsPerMinute > 0 else { return 0 }
         return reservedPoints / pointsPerMinute
     }
 
+    /// Whether the reserved points have been exhausted
     var isExpired: Bool {
         reservedPoints <= 0
     }
@@ -23,8 +37,8 @@ struct UnlockedRewardApp: Codable, Identifiable {
         case id, reservedPoints, pointsPerMinute, unlockedAt
     }
 
-    init(token: ApplicationToken, reservedPoints: Int, pointsPerMinute: Int) {
-        self.id = String(token.hashValue)
+    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int) {
+        self.id = tokenHash  // Use stable SHA-256 hash instead of unstable hashValue
         self.token = token
         self.reservedPoints = reservedPoints
         self.pointsPerMinute = pointsPerMinute
@@ -32,8 +46,8 @@ struct UnlockedRewardApp: Codable, Identifiable {
     }
 
     // Initializer for rehydration with preserved unlock time
-    init(token: ApplicationToken, reservedPoints: Int, pointsPerMinute: Int, unlockedAt: Date) {
-        self.id = String(token.hashValue)
+    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int, unlockedAt: Date) {
+        self.id = tokenHash  // Use stable SHA-256 hash instead of unstable hashValue
         self.token = token
         self.reservedPoints = reservedPoints
         self.pointsPerMinute = pointsPerMinute
@@ -66,7 +80,7 @@ struct UnlockedRewardApp: Codable, Identifiable {
 struct AppUsage: Codable, Identifiable {
     // Explicitly define CodingKeys to exclude id from decoding since it's computed
     enum CodingKeys: String, CodingKey {
-        case bundleIdentifier, appName, category, totalTime, sessions, firstAccess, lastAccess, rewardPoints
+        case bundleIdentifier, appName, category, totalTime, sessions, firstAccess, lastAccess, rewardPoints, earnedRewardPoints
     }
     
     let id = UUID()
@@ -78,6 +92,7 @@ struct AppUsage: Codable, Identifiable {
     let firstAccess: Date
     var lastAccess: Date
     var rewardPoints: Int // Reward points assigned to this app
+    private(set) var earnedRewardPoints: Int // Accumulated points (stored, not computed)
     
     enum AppCategory: String, Codable, CaseIterable {
         case learning = "Learning"
@@ -111,6 +126,7 @@ struct AppUsage: Codable, Identifiable {
         self.sessions = []
         self.firstAccess = Date()
         self.lastAccess = Date()
+        self.earnedRewardPoints = 0
     }
     
     /// Convenience initializer for creating an app usage record with predetermined values
@@ -121,7 +137,8 @@ struct AppUsage: Codable, Identifiable {
          sessions: [UsageSession],
          firstAccess: Date,
          lastAccess: Date,
-         rewardPoints: Int = 10) {
+         rewardPoints: Int = 10,
+         earnedRewardPoints: Int = 0) {
         self.bundleIdentifier = bundleIdentifier
         self.appName = appName
         self.category = category
@@ -130,6 +147,7 @@ struct AppUsage: Codable, Identifiable {
         self.sessions = sessions
         self.firstAccess = firstAccess
         self.lastAccess = lastAccess
+        self.earnedRewardPoints = earnedRewardPoints
     }
     
     /// Start a new usage session
@@ -163,6 +181,11 @@ struct AppUsage: Codable, Identifiable {
         sessions.append(session)
         totalTime += duration
         lastAccess = adjustedEnd
+
+        // Calculate and add points for ONLY the new duration (incremental tracking)
+        let newMinutes = Int(duration / 60)
+        let newPoints = newMinutes * rewardPoints
+        earnedRewardPoints += newPoints
     }
     
     /// Get today's usage time
@@ -172,13 +195,5 @@ struct AppUsage: Codable, Identifiable {
             guard let sessionDate = session.endTime ?? session.startTime as Date? else { return false }
             return Calendar.current.isDate(sessionDate, inSameDayAs: today)
         }.reduce(0) { $0 + $1.duration }
-    }
-    
-    /// Calculate reward points earned based on usage time and assigned reward points
-    var earnedRewardPoints: Int {
-        let minutes = Int(totalTime / 60)
-        // Calculate earned points based on assigned reward points and usage time
-        // For example: If 80 points are assigned and user used app for 1 minute, they earn 80 points
-        return minutes * rewardPoints
     }
 }
