@@ -23,7 +23,7 @@ private struct ExtensionUsagePersistence {
 
     let appGroupIdentifier = "group.com.screentimerewards.shared"
 
-    func recordUsage(logicalID: LogicalAppID, additionalSeconds: Int, rewardPointsPerMinute: Int) {
+    nonisolated func recordUsage(logicalID: LogicalAppID, additionalSeconds: Int, rewardPointsPerMinute: Int) {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
         // Load existing apps
@@ -56,7 +56,7 @@ private struct ExtensionUsagePersistence {
         }
     }
 
-    private func loadAllApps() -> [LogicalAppID: PersistedApp] {
+    private nonisolated func loadAllApps() -> [LogicalAppID: PersistedApp] {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
               let data = defaults.data(forKey: "persistedApps_v3"),
               let apps = try? JSONDecoder().decode([LogicalAppID: PersistedApp].self, from: data) else {

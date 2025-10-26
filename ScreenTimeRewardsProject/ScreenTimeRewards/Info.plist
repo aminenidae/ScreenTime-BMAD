@@ -3,7 +3,9 @@
 <plist version="1.0">
 <dict>
 	<key>MinimumOSVersion</key>
-	<string>16.0</string>
+	<string>16.6</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Parent mode requires authentication to access app settings and controls</string>
 	<key>NSFamilyControlsUsageDescription</key>
 	<string>This app needs access to Screen Time data to track educational app usage and reward learning activities.</string>
 	<key>UIApplicationSceneManifest</key>
