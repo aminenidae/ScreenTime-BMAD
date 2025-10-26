@@ -1,4 +1,66 @@
 import Foundation
+import FamilyControls
+import ManagedSettings
+
+/// Represents an unlocked reward app with reserved learning points
+struct UnlockedRewardApp: Codable, Identifiable {
+    let id: String  // Token hash
+    var token: ApplicationToken?
+    var reservedPoints: Int
+    let pointsPerMinute: Int
+    let unlockedAt: Date
+
+    var remainingMinutes: Int {
+        guard pointsPerMinute > 0 else { return 0 }
+        return reservedPoints / pointsPerMinute
+    }
+
+    var isExpired: Bool {
+        reservedPoints <= 0
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case id, reservedPoints, pointsPerMinute, unlockedAt
+    }
+
+    init(token: ApplicationToken, reservedPoints: Int, pointsPerMinute: Int) {
+        self.id = String(token.hashValue)
+        self.token = token
+        self.reservedPoints = reservedPoints
+        self.pointsPerMinute = pointsPerMinute
+        self.unlockedAt = Date()
+    }
+
+    // Initializer for rehydration with preserved unlock time
+    init(token: ApplicationToken, reservedPoints: Int, pointsPerMinute: Int, unlockedAt: Date) {
+        self.id = String(token.hashValue)
+        self.token = token
+        self.reservedPoints = reservedPoints
+        self.pointsPerMinute = pointsPerMinute
+        self.unlockedAt = unlockedAt
+    }
+
+    // Custom decoding to handle token reconstruction limitation
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.id = try container.decode(String.self, forKey: .id)
+        self.reservedPoints = try container.decode(Int.self, forKey: .reservedPoints)
+        self.pointsPerMinute = try container.decode(Int.self, forKey: .pointsPerMinute)
+        self.unlockedAt = try container.decode(Date.self, forKey: .unlockedAt)
+        // Note: token cannot be reconstructed from persistence
+        // It must be re-matched from the current familySelection
+        self.token = nil
+    }
+
+    // Custom encoding
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(reservedPoints, forKey: .reservedPoints)
+        try container.encode(pointsPerMinute, forKey: .pointsPerMinute)
+        try container.encode(unlockedAt, forKey: .unlockedAt)
+    }
+}
 
 /// Represents an app usage record for tracking purposes
 struct AppUsage: Codable, Identifiable {

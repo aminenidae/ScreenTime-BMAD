@@ -66,6 +66,21 @@ class AppUsageViewModel: ObservableObject {
     // MARK: - Task M: Duplicate Assignment Prevention
     @Published var duplicateAssignmentError: String?
 
+    // MARK: - Point Transfer System
+    @Published var unlockedRewardApps: [ApplicationToken: UnlockedRewardApp] = [:]
+
+    /// Available learning points (total earned - reserved for unlocked apps)
+    var availableLearningPoints: Int {
+        let totalEarned = learningRewardPoints
+        let totalReserved = unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+        return max(0, totalEarned - totalReserved)
+    }
+
+    /// Total points reserved for unlocked reward apps
+    var reservedLearningPoints: Int {
+        unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+    }
+
     // Flag to track when we're resetting picker state
     private var isResettingPickerState = false
 
@@ -235,6 +250,9 @@ class AppUsageViewModel: ObservableObject {
 
         // TASK 12 REVISED: Update sorted applications snapshot after initialization
         updateSortedApplications()
+
+        // Load unlocked reward apps from persistence
+        loadUnlockedApps()
 
         loadData()
         NotificationCenter.default
@@ -1350,6 +1368,177 @@ func configureWithTestApplications() {
         #endif
 
         service.clearAllShields()
+    }
+
+    // MARK: - Point Transfer System Methods
+
+    /// Check if a reward app can be unlocked (minimum 15 minutes worth of points required)
+    func canUnlockRewardApp(token: ApplicationToken) -> (canUnlock: Bool, reason: String?) {
+        // Check if already unlocked
+        if unlockedRewardApps[token] != nil {
+            return (false, "App is already unlocked")
+        }
+
+        // Get points per minute for this app
+        guard let pointsPerMinute = rewardPoints[token], pointsPerMinute > 0 else {
+            return (false, "Reward points not configured for this app")
+        }
+
+        // Calculate minimum points needed (15 minutes)
+        let minimumPoints = pointsPerMinute * 15
+
+        // Check if user has enough available points
+        if availableLearningPoints < minimumPoints {
+            return (false, "Need \(minimumPoints) points (15 min minimum). You have \(availableLearningPoints) available.")
+        }
+
+        return (true, nil)
+    }
+
+    /// Unlock a reward app by reserving learning points
+    func unlockRewardApp(token: ApplicationToken, minutes: Int) {
+        guard let pointsPerMinute = rewardPoints[token], pointsPerMinute > 0 else {
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Cannot unlock - no points configured for app")
+            #endif
+            return
+        }
+
+        // Ensure minimum 15 minutes
+        let actualMinutes = max(15, minutes)
+        let pointsNeeded = pointsPerMinute * actualMinutes
+
+        // Check if user has enough available points
+        guard availableLearningPoints >= pointsNeeded else {
+            #if DEBUG
+            print("[AppUsageViewModel] ❌ Cannot unlock - insufficient points")
+            print("[AppUsageViewModel]   Need: \(pointsNeeded), Available: \(availableLearningPoints)")
+            #endif
+            errorMessage = "Insufficient points. Need \(pointsNeeded) points for \(actualMinutes) minutes."
+            return
+        }
+
+        // Create unlocked app entry
+        let unlockedApp = UnlockedRewardApp(
+            token: token,
+            reservedPoints: pointsNeeded,
+            pointsPerMinute: pointsPerMinute
+        )
+
+        unlockedRewardApps[token] = unlockedApp
+
+        // Unblock the app via shield management
+        service.unblockRewardApps(tokens: [token])
+
+        // Persist the unlock state
+        persistUnlockedApps()
+
+        #if DEBUG
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[AppUsageViewModel] ✅ Unlocked \(appName)")
+        print("[AppUsageViewModel]   Reserved points: \(pointsNeeded)")
+        print("[AppUsageViewModel]   Duration: \(actualMinutes) minutes")
+        print("[AppUsageViewModel]   Available points remaining: \(availableLearningPoints)")
+        #endif
+    }
+
+    /// Lock a reward app and return unused reserved points
+    func lockRewardApp(token: ApplicationToken) {
+        guard let unlockedApp = unlockedRewardApps[token] else {
+            #if DEBUG
+            print("[AppUsageViewModel] ⚠️ App not unlocked")
+            #endif
+            return
+        }
+
+        // Remove from unlocked apps
+        unlockedRewardApps.removeValue(forKey: token)
+
+        // Block the app via shield management
+        service.blockRewardApps(tokens: [token])
+
+        // Persist the state
+        persistUnlockedApps()
+
+        #if DEBUG
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[AppUsageViewModel] 🔒 Locked \(appName)")
+        print("[AppUsageViewModel]   Returned \(unlockedApp.reservedPoints) points")
+        print("[AppUsageViewModel]   Available points now: \(availableLearningPoints)")
+        #endif
+    }
+
+    /// Consume reserved points for a reward app based on usage time
+    func consumeReservedPoints(token: ApplicationToken, usageSeconds: TimeInterval) {
+        guard var unlockedApp = unlockedRewardApps[token] else { return }
+
+        let usageMinutes = Int(usageSeconds / 60)
+        let pointsToConsume = usageMinutes * unlockedApp.pointsPerMinute
+
+        unlockedApp.reservedPoints = max(0, unlockedApp.reservedPoints - pointsToConsume)
+
+        #if DEBUG
+        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[AppUsageViewModel] 💳 Consumed \(pointsToConsume) points from \(appName)")
+        print("[AppUsageViewModel]   Remaining: \(unlockedApp.reservedPoints) points (\(unlockedApp.remainingMinutes) min)")
+        #endif
+
+        // If expired, auto-lock the app
+        if unlockedApp.isExpired {
+            #if DEBUG
+            print("[AppUsageViewModel] ⏰ \(appName) time expired - auto-locking")
+            #endif
+            unlockedRewardApps.removeValue(forKey: token)
+            service.blockRewardApps(tokens: [token])
+        } else {
+            unlockedRewardApps[token] = unlockedApp
+        }
+
+        persistUnlockedApps()
+    }
+
+    /// Persist unlocked apps to UserDefaults
+    private func persistUnlockedApps() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        // Convert to array for encoding
+        let appsArray = Array(unlockedRewardApps.values)
+
+        if let encoded = try? JSONEncoder().encode(appsArray) {
+            defaults.set(encoded, forKey: "unlockedRewardApps")
+            defaults.synchronize()
+
+            #if DEBUG
+            print("[AppUsageViewModel] 💾 Persisted \(appsArray.count) unlocked apps")
+            #endif
+        }
+    }
+
+    /// Load unlocked apps from UserDefaults
+    private func loadUnlockedApps() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = defaults.data(forKey: "unlockedRewardApps"),
+              let appsArray = try? JSONDecoder().decode([UnlockedRewardApp].self, from: data) else {
+            return
+        }
+
+        // Re-match tokens from current masterSelection
+        for app in appsArray {
+            if let matchedToken = masterSelection.applicationTokens.first(where: { String($0.hashValue) == app.id }) {
+                // Create new instance with matched token, preserving unlock timestamp
+                let rehydratedApp = UnlockedRewardApp(
+                    token: matchedToken,
+                    reservedPoints: app.reservedPoints,
+                    pointsPerMinute: app.pointsPerMinute,
+                    unlockedAt: app.unlockedAt
+                )
+                unlockedRewardApps[matchedToken] = rehydratedApp
+            }
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] 📂 Loaded \(unlockedRewardApps.count) unlocked apps from persistence")
+        #endif
     }
 
     // MARK: - ManagedSettings Testing Methods

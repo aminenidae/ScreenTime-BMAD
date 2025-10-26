@@ -4,12 +4,13 @@ import ManagedSettings
 
 struct RewardsTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
+    @State private var unlockMinutes: [ApplicationToken: Int] = [:]  // Track minutes for each app
 
     var body: some View {
         NavigationView {
             ScrollView {
                 VStack(spacing: 16) {
-                    // Header info
+                    // Header info with points display
                     VStack(spacing: 8) {
                         Text("Reward Apps")
                             .font(.title2)
@@ -18,6 +19,32 @@ struct RewardsTabView: View {
                         Text("Apps that cost points to use")
                             .font(.subheadline)
                             .foregroundColor(.secondary)
+
+                        // Points display
+                        HStack(spacing: 20) {
+                            VStack {
+                                Text("\(viewModel.availableLearningPoints)")
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.green)
+                                Text("Available Points")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            VStack {
+                                Text("\(viewModel.reservedLearningPoints)")
+                                    .font(.title)
+                                    .fontWeight(.bold)
+                                    .foregroundColor(.orange)
+                                Text("Reserved Points")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+                        }
+                        .padding()
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(12)
                     }
                     .padding()
 
@@ -54,24 +81,6 @@ struct RewardsTabView: View {
                             .frame(maxWidth: .infinity)
                             .padding()
                             .background(Color.orange.opacity(0.7))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    // Unlock all reward apps button - only show if there are reward apps
-                    if !viewModel.rewardSnapshots.isEmpty {
-                        Button(action: {
-                            viewModel.unlockRewardApps()
-                        }) {
-                            HStack {
-                                Image(systemName: "lock.open.fill")
-                                Text("Unlock All Reward Apps")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.green)
                             .foregroundColor(.white)
                             .cornerRadius(10)
                         }
@@ -125,8 +134,13 @@ private extension RewardsTabView {
 
     @ViewBuilder
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 12) {
             HStack {
+                // Lock status icon
+                Image(systemName: isUnlocked(snapshot.token) ? "lock.open.fill" : "lock.fill")
+                    .foregroundColor(isUnlocked(snapshot.token) ? .green : .red)
+                    .font(.title3)
+
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .font(.body)
@@ -136,7 +150,7 @@ private extension RewardsTabView {
                 }
 
                 Spacer()
-                
+
                 // Task M: Add remove button for reward apps
                 Button(action: {
                     // Show confirmation and remove app
@@ -157,6 +171,88 @@ private extension RewardsTabView {
                     .cornerRadius(8)
             }
 
+            // Unlocked status display
+            if let unlockedApp = viewModel.unlockedRewardApps[snapshot.token] {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        Image(systemName: "timer")
+                            .foregroundColor(.green)
+                        Text("\(unlockedApp.remainingMinutes) min remaining")
+                            .font(.subheadline)
+                            .foregroundColor(.green)
+                        Spacer()
+                        Text("\(unlockedApp.reservedPoints) pts reserved")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                    }
+                    .padding(8)
+                    .background(Color.green.opacity(0.1))
+                    .cornerRadius(8)
+
+                    Button(action: {
+                        viewModel.lockRewardApp(token: snapshot.token)
+                    }) {
+                        HStack {
+                            Image(systemName: "lock.fill")
+                            Text("Lock & Return Points")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(Color.red)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                }
+            } else {
+                // Locked status - show unlock button
+                let canUnlock = viewModel.canUnlockRewardApp(token: snapshot.token)
+                let minimumPoints = snapshot.pointsPerMinute * 15
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack {
+                        VStack(alignment: .leading) {
+                            Text("Minimum: 15 min (\(minimumPoints) pts)")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        Spacer()
+                        Stepper("", value: Binding(
+                            get: { unlockMinutes[snapshot.token] ?? 15 },
+                            set: { unlockMinutes[snapshot.token] = max(15, $0) }
+                        ), in: 15...120, step: 5)
+                        Text("\(unlockMinutes[snapshot.token] ?? 15) min")
+                            .font(.caption)
+                            .frame(minWidth: 50)
+                    }
+
+                    Button(action: {
+                        let minutes = unlockMinutes[snapshot.token] ?? 15
+                        viewModel.unlockRewardApp(token: snapshot.token, minutes: minutes)
+                    }) {
+                        HStack {
+                            Image(systemName: "lock.open.fill")
+                            let minutes = unlockMinutes[snapshot.token] ?? 15
+                            let cost = snapshot.pointsPerMinute * minutes
+                            Text("Unlock • \(cost) pts for \(minutes) min")
+                        }
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 8)
+                        .background(canUnlock.canUnlock ? Color.green : Color.gray)
+                        .foregroundColor(.white)
+                        .cornerRadius(8)
+                    }
+                    .disabled(!canUnlock.canUnlock)
+
+                    if !canUnlock.canUnlock, let reason = canUnlock.reason {
+                        Text(reason)
+                            .font(.caption)
+                            .foregroundColor(.red)
+                            .padding(.top, 4)
+                    }
+                }
+            }
+
+            // Usage stats
             if snapshot.totalSeconds > 0 {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
@@ -178,21 +274,25 @@ private extension RewardsTabView {
             }
         }
     }
-    
+
+    private func isUnlocked(_ token: ApplicationToken) -> Bool {
+        viewModel.unlockedRewardApps[token] != nil
+    }
+
     // Task M: Add method to remove a reward app
     private func removeRewardApp(_ token: ApplicationToken) {
         #if DEBUG
         let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
         print("[RewardsTabView] Requesting removal of reward app: \(appName)")
         #endif
-        
+
         // Show confirmation alert
         // In a real implementation, this would show an alert dialog
         let warningMessage = viewModel.getRemovalWarningMessage(for: token)
         #if DEBUG
         print("[RewardsTabView] Removal warning: \(warningMessage)")
         #endif
-        
+
         // Proceed with removal
         viewModel.removeApp(token)
     }

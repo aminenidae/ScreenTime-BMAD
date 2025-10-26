@@ -206,7 +206,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         print("[ScreenTimeActivityExtension]   Reward points/min: \(rewardPointsPerMinute)")
         #endif
 
-        // Record usage using UsagePersistence
+        // Record usage using ExtensionUsagePersistence instead of UsagePersistence
         usagePersistence.recordUsage(
             logicalID: logicalID,
             additionalSeconds: thresholdSeconds,
