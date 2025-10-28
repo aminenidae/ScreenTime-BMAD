@@ -362,7 +362,13 @@ override func eventDidReachThreshold(...) async {
 2. **iOS 17.0+ deployment target**
 3. **Apple Developer Account** (for CloudKit entitlement)
 4. **Two test devices** (iPhone/iPad with iOS 17+)
-5. **iCloud account** (for testing sync)
+5. **Two different iCloud accounts** ⚠️ CRITICAL:
+   - Parent account (e.g., `parent@family.com`)
+   - Child account (e.g., `child@family.com`)
+   - MUST be different accounts for CloudKit sharing to work
+6. **Family Sharing configured** between the two accounts
+   - Parent as organizer/parent role
+   - Child as family member
 
 ### Initial Setup Steps
 
@@ -626,20 +632,45 @@ If you encounter issues:
 
 ### Common Questions
 
+#### iCloud & Family Sharing
+
+**Q: Do parent and child need the same iCloud account?**
+A: **NO!** Parent and child MUST have DIFFERENT iCloud accounts. This is required for CloudKit sharing to work. Example:
+- Parent: `parent@family.com`
+- Child: `child@family.com`
+Both access the same shared data via CKShare.
+
+**Q: Can I use this without Family Sharing?**
+A: CloudKit sharing technically works without Family Sharing, BUT Screen Time API requires Family Sharing for .child authorization. So yes, Family Sharing is required.
+
+**Q: What if child doesn't have their own iCloud account?**
+A: You need to create one. For children under 13, create a child account in Family Sharing settings on parent's device. This gives them their own Apple ID managed by the parent.
+
+**Q: Does the child see parent's iCloud data (photos, emails, etc.)?**
+A: No. Only the ScreenTime Rewards app data is shared via CKShare. All other iCloud data remains private to each account.
+
+**Q: What happens if child is not in Family Sharing?**
+A: CloudKit sync will work, but Screen Time API won't work properly. The child device needs .child authorization which requires Family Sharing.
+
+#### Technical Questions
+
 **Q: Can parent device use FamilyActivityPicker?**
 A: No. Picker must be on child device. Parent sees app list from CloudKit.
 
 **Q: How to handle multiple children?**
-A: Each child device registers separately. Parent fetches by deviceID.
+A: Each child device registers separately with their own iCloud account. Parent fetches by deviceID.
 
 **Q: What if CloudKit sync fails?**
-A: Operations go to offline queue. Auto-retry when online.
+A: Operations go to offline queue. Auto-retry when online (max 3 retries).
 
 **Q: Can we get real-time (< 1 second) monitoring?**
 A: No. Best possible is 1-minute granularity via DeviceActivity thresholds.
 
 **Q: Do we need MDM?**
 A: No. CloudKit approach is fully sufficient and App Store compliant.
+
+**Q: Does this work with multiple parents?**
+A: Yes. Each parent device can accept the CKShare. All parents with access see the same data.
 
 ---
 

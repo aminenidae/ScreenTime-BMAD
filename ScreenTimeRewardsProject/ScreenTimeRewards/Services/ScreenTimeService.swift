@@ -1789,6 +1789,36 @@ func configureWithTestApplications() {
     }
 }
 
+// MARK: - CloudKit Integration Helpers
+extension ScreenTimeService {
+    /// Get category assignments for CloudKit integration
+    func getCategoryAssignments() -> [ApplicationToken: AppUsage.AppCategory] {
+        return categoryAssignments
+    }
+    
+    /// Get reward points assignments for CloudKit integration
+    func getRewardPointsAssignments() -> [ApplicationToken: Int] {
+        return rewardPointsAssignments
+    }
+    
+    /// Get category for a specific token
+    func getCategory(for token: ApplicationToken) -> AppUsage.AppCategory? {
+        return categoryAssignments[token]
+    }
+    
+    /// Get reward points for a specific token
+    func getRewardPoints(for token: ApplicationToken) -> Int {
+        return rewardPointsAssignments[token] ?? 0
+    }
+    
+    /// Check if an app is currently blocked
+    func isAppBlocked(_ token: ApplicationToken) -> Bool {
+        // This would need to check the current shielded applications
+        // For now, we'll return false as we don't have access to the shielded apps here
+        return false
+    }
+}
+
 // MARK: - FamilyActivitySelection Extension for Consistent Sorting
 extension FamilyActivitySelection {
     /// Returns applications sorted by token hash for consistent iteration order

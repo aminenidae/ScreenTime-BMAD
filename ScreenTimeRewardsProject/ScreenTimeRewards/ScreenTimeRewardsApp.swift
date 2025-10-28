@@ -11,6 +11,8 @@ import CoreData
 
 @main
 struct ScreenTimeRewardsApp: App {
+    @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
+    
     let persistenceController = PersistenceController.shared
     @StateObject private var viewModel = AppUsageViewModel()
     @StateObject private var sessionManager = SessionManager.shared

@@ -405,11 +405,11 @@ struct PersistenceController {
 6. Move generated files to Models/CoreData/
 
 **Acceptance Criteria:**
-- [x] All 6 entities created
+- [x] All 6 entities documented
 - [x] All attributes defined with correct types
-- [x] Indexes configured
-- [x] NSManagedObject subclasses generated
-- [x] CloudKit compatibility verified
+- [x] Indexes specified
+- [x] NSManagedObject subclasses generated (Manual Step)
+- [x] CloudKit compatibility verified (Manual Step)
 
 **Testing:**
 - Build project successfully
@@ -586,7 +586,7 @@ class CloudKitSyncService: ObservableObject {
 
 - ✅ CloudKit capability enabled
 - ✅ Persistence.swift updated for CloudKit
-- ✅ Core Data entities created
+- ✅ Core Data entities documented
 - ✅ CloudKit debug tools
 - ✅ Basic sync test successful
 - ✅ Documentation of setup process
@@ -648,13 +648,13 @@ func processOfflineQueue() async
 #### Task 2.2: Implement Push Notification Setup (4 hours)
 
 **Files:**
-- `AppDelegate.swift` (modify)
+- `AppDelegate.swift` (NEW)
 - `ScreenTimeRewardsApp.swift` (modify)
 
 **Implementation:**
 ```swift
 // AppDelegate.swift
-extension AppDelegate: UNUserNotificationCenterDelegate {
+class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -881,7 +881,7 @@ func mergeConfigurations(
 
 #### Task 2.5: Integrate with ScreenTimeService (6 hours)
 
-**File:** `ScreenTimeRewards/Services/ScreenTimeService.swift` (modify)
+**File:** `ScreenTimeRewards/Services/ScreenTimeService+CloudKit.swift` (NEW)
 
 **Add Methods:**
 ```swift
@@ -992,14 +992,3 @@ private func isAppBlocked(_ token: ApplicationToken) -> Bool {
 - ✅ Integration tests
 
 ---
-
-## Phases 3-8 (Continued in Next Document)
-
-Due to length, remaining phases (3-8) are detailed in:
-- `DEV_ROADMAP_PHASES_3_8.md`
-
----
-
-**Document Version:** 1.0
-**Status:** Ready for Implementation
-**Next Document:** DEV_ROADMAP_PHASES_3_8.md

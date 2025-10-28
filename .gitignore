@@ -30,3 +30,7 @@ ScreenTime-BMAD/
 **/*.xcuserstate
 **/*.xcuserdata
 **/UserInterfaceState.xcuserstate
+
+# Backup files
+*.backup
+**/*.backup

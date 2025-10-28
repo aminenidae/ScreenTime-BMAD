@@ -3,7 +3,89 @@
     <entity name="Item" representedClassName="Item" syncable="YES" codeGenerationType="class">
         <attribute name="timestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
     </entity>
+
+    <!-- CloudKit Sync Entities -->
+
+    <entity name="AppConfiguration" representedClassName="AppConfiguration" syncable="YES">
+        <attribute name="logicalID" optional="YES" attributeType="String"/>
+        <attribute name="tokenHash" optional="YES" attributeType="String"/>
+        <attribute name="bundleIdentifier" optional="YES" attributeType="String"/>
+        <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="sfSymbolName" optional="YES" attributeType="String"/>
+        <attribute name="category" optional="YES" attributeType="String"/>
+        <attribute name="pointsPerMinute" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="isEnabled" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="blockingEnabled" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="dateAdded" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="deviceID" optional="YES" attributeType="String"/>
+        <attribute name="syncStatus" optional="YES" attributeType="String"/>
+    </entity>
+
+    <entity name="UsageRecord" representedClassName="UsageRecord" syncable="YES">
+        <attribute name="recordID" optional="YES" attributeType="String"/>
+        <attribute name="logicalID" optional="YES" attributeType="String"/>
+        <attribute name="displayName" optional="YES" attributeType="String"/>
+        <attribute name="sessionStart" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="sessionEnd" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="totalSeconds" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="earnedPoints" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="category" optional="YES" attributeType="String"/>
+        <attribute name="deviceID" optional="YES" attributeType="String"/>
+        <attribute name="syncTimestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isSynced" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+    </entity>
+
+    <entity name="DailySummary" representedClassName="DailySummary" syncable="YES">
+        <attribute name="summaryID" optional="YES" attributeType="String"/>
+        <attribute name="date" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="deviceID" optional="YES" attributeType="String"/>
+        <attribute name="totalLearningSeconds" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="totalRewardSeconds" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="totalPointsEarned" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="appsUsedJSON" optional="YES" attributeType="String"/>
+        <attribute name="lastUpdated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    </entity>
+
+    <entity name="RegisteredDevice" representedClassName="RegisteredDevice" syncable="YES">
+        <attribute name="deviceID" optional="YES" attributeType="String"/>
+        <attribute name="deviceName" optional="YES" attributeType="String"/>
+        <attribute name="deviceType" optional="YES" attributeType="String"/>
+        <attribute name="childName" optional="YES" attributeType="String"/>
+        <attribute name="parentDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="registrationDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastSyncDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isActive" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+    </entity>
+
+    <entity name="ConfigurationCommand" representedClassName="ConfigurationCommand" syncable="YES">
+        <attribute name="commandID" optional="YES" attributeType="String"/>
+        <attribute name="targetDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="commandType" optional="YES" attributeType="String"/>
+        <attribute name="payloadJSON" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="executedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+        <attribute name="errorMessage" optional="YES" attributeType="String"/>
+    </entity>
+
+    <entity name="SyncQueueItem" representedClassName="SyncQueueItem" syncable="YES">
+        <attribute name="queueID" optional="YES" attributeType="String"/>
+        <attribute name="operation" optional="YES" attributeType="String"/>
+        <attribute name="payloadJSON" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="retryCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="lastAttempt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="status" optional="YES" attributeType="String"/>
+    </entity>
+
     <elements>
         <element name="Item" positionX="-63" positionY="-18" width="128" height="44"/>
+        <element name="AppConfiguration" positionX="-54" positionY="-9" width="128" height="224"/>
+        <element name="UsageRecord" positionX="-36" positionY="9" width="128" height="194"/>
+        <element name="DailySummary" positionX="-18" positionY="27" width="128" height="149"/>
+        <element name="RegisteredDevice" positionX="0" positionY="45" width="128" height="149"/>
+        <element name="ConfigurationCommand" positionX="18" positionY="63" width="128" height="149"/>
+        <element name="SyncQueueItem" positionX="36" positionY="81" width="128" height="134"/>
     </elements>
 </model>

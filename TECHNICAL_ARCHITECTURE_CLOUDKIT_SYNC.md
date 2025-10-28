@@ -8,13 +8,118 @@
 
 ## Table of Contents
 
-1. [Device Mode Architecture](#device-mode-architecture)
-2. [CloudKit Schema Design](#cloudkit-schema-design)
-3. [Sync Service Architecture](#sync-service-architecture)
-4. [Push Notification System](#push-notification-system)
-5. [Offline Queue Management](#offline-queue-management)
-6. [Code Structure](#code-structure)
-7. [Integration Points](#integration-points)
+1. [iCloud Account Requirements](#icloud-account-requirements)
+2. [Device Mode Architecture](#device-mode-architecture)
+3. [CloudKit Schema Design](#cloudkit-schema-design)
+4. [Sync Service Architecture](#sync-service-architecture)
+5. [Push Notification System](#push-notification-system)
+6. [Offline Queue Management](#offline-queue-management)
+7. [Code Structure](#code-structure)
+8. [Integration Points](#integration-points)
+
+---
+
+## iCloud Account Requirements
+
+### ⚠️ Critical: Different iCloud Accounts Required
+
+**Parent and child MUST use DIFFERENT iCloud accounts.** This architecture relies on CloudKit's CKShare feature, which enables cross-account data sharing.
+
+```
+✅ CORRECT Configuration:
+
+Parent Device                              Child Device
+├─ Apple ID: parent@family.com            ├─ Apple ID: child@family.com
+├─ Family Sharing: Organizer              ├─ Family Sharing: Child member
+├─ Private CloudKit Database              ├─ Private CloudKit Database
+│  └─ Creates CKShare                     │  └─ Accepts CKShare
+│                                         │
+└─ Shared Zone (via CKShare) ←─────────────→ Shared Zone (via CKShare)
+   (Read/Write access)                       (Read/Write access)
+```
+
+### How CKShare Works Technically
+
+**CKShare enables cross-account sharing in CloudKit:**
+
+1. **Parent's Private Database:**
+   ```swift
+   // Parent creates a shared zone
+   let share = CKShare(rootRecord: configRecord)
+   share[CKShare.SystemFieldKey.title] = "ScreenTime Rewards Data"
+
+   // Set permissions
+   share.publicPermission = .none
+   share.participants = [childParticipant]  // Child's Apple ID
+
+   // Save share to CloudKit
+   privateDatabase.save(share) { (savedShare, error) in
+       // Generate share URL for QR code
+       let shareURL = savedShare.url
+   }
+   ```
+
+2. **Child Accepts Share:**
+   ```swift
+   // Child scans QR code containing share URL
+   // iOS prompts: "Accept CloudKit sharing from parent@family.com?"
+
+   // Programmatic acceptance
+   container.accept(share) { (acceptedShare, error) in
+       // Child can now access parent's shared zone
+   }
+   ```
+
+3. **Bidirectional Sync:**
+   ```swift
+   // Both accounts can now read/write to shared zone
+
+   // Child uploads usage data to shared zone
+   let usageRecord = CKRecord(recordType: "UsageRecord")
+   sharedDatabase.save(usageRecord)
+
+   // Parent reads usage data from shared zone
+   sharedDatabase.fetch(withRecordID: recordID) { (record, error) in
+       // Parent sees child's usage data
+   }
+   ```
+
+### Privacy & Security
+
+**What each account accesses:**
+
+| Data Location | Parent Access | Child Access |
+|---------------|---------------|--------------|
+| Parent's Private Database | ✅ Full access | ❌ No access |
+| Child's Private Database | ❌ No access | ✅ Full access |
+| Shared Zone (via CKShare) | ✅ Read/Write | ✅ Read/Write |
+| Parent's iCloud (photos, mail, etc.) | ✅ Private | ❌ No access |
+| Child's iCloud (photos, mail, etc.) | ❌ No access | ✅ Private |
+
+**Key security features:**
+- 🔒 Parent's personal data remains private
+- 🔒 Child's personal data remains private
+- ✅ Only app-specific records are shared
+- ✅ Share can be revoked by either party
+- ✅ Permissions controlled by CKShare settings
+
+### Implementation Notes
+
+**In CloudKitSyncService.swift:**
+```swift
+// Use sharedDatabase for cross-account access
+private let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+private let privateDatabase: CKDatabase  // For own data
+private let sharedDatabase: CKDatabase   // For shared data (via CKShare)
+
+init() {
+    privateDatabase = container.privateCloudDatabase
+    sharedDatabase = container.sharedCloudDatabase
+
+    // Records saved to sharedDatabase are accessible by both accounts
+    // (after CKShare is accepted)
+}
+```
 
 ---
 

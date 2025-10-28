@@ -6,6 +6,7 @@
 //
 
 import CoreData
+import CloudKit
 
 struct PersistenceController {
     static let shared = PersistenceController()
@@ -14,10 +15,7 @@ struct PersistenceController {
     static let preview: PersistenceController = {
         let result = PersistenceController(inMemory: true)
         let viewContext = result.container.viewContext
-        for _ in 0..<10 {
-            let newItem = Item(context: viewContext)
-            newItem.timestamp = Date()
-        }
+        // No preview data needed for CloudKit entities
         do {
             try viewContext.save()
         } catch {
@@ -33,9 +31,27 @@ struct PersistenceController {
 
     init(inMemory: Bool = false) {
         container = NSPersistentCloudKitContainer(name: "ScreenTimeRewards")
+        
         if inMemory {
             container.persistentStoreDescriptions.first!.url = URL(fileURLWithPath: "/dev/null")
+        } else {
+            // Configure CloudKit
+            guard let description = container.persistentStoreDescriptions.first else {
+                fatalError("No persistent store description")
+            }
+            
+            // Enable CloudKit sync
+            description.cloudKitContainerOptions = NSPersistentCloudKitContainerOptions(
+                containerIdentifier: "iCloud.com.screentimerewards"
+            )
+            
+            // Enable history tracking for sync
+            description.setOption(true as NSNumber,
+                                 forKey: NSPersistentHistoryTrackingKey)
+            description.setOption(true as NSNumber,
+                                 forKey: NSPersistentStoreRemoteChangeNotificationPostOptionKey)
         }
+        
         container.loadPersistentStores(completionHandler: { (storeDescription, error) in
             if let error = error as NSError? {
                 // Replace this implementation with code to handle the error appropriately.
@@ -51,7 +67,13 @@ struct PersistenceController {
                  */
                 fatalError("Unresolved error \(error), \(error.userInfo)")
             }
+
+            #if DEBUG
+            print("[Persistence] CloudKit container: iCloud.com.screentimerewards")
+            print("[Persistence] Store URL: \(storeDescription.url?.absoluteString ?? "unknown")")
+            #endif
         })
         container.viewContext.automaticallyMergesChangesFromParent = true
+        container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy
     }
 }
