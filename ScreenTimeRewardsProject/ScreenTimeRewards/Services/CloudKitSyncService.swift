@@ -135,7 +135,15 @@ class CloudKitSyncService: ObservableObject {
         let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "deviceID == %@", DeviceModeManager.shared.deviceID)
         
-        return try context.fetch(fetchRequest)
+        let configurations = try context.fetch(fetchRequest)
+        
+        // Apply each configuration to the local ScreenTimeService
+        let screenTimeService = ScreenTimeService.shared
+        for config in configurations {
+            screenTimeService.applyCloudKitConfiguration(config)
+        }
+        
+        return configurations
     }
 
     func uploadUsageRecords(_ records: [UsageRecord]) async throws {

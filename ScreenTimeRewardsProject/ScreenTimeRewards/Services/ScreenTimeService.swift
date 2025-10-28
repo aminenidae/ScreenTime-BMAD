@@ -1791,12 +1791,36 @@ func configureWithTestApplications() {
 
 // MARK: - CloudKit Integration Helpers
 extension ScreenTimeService {
-    /// Get category assignments for CloudKit integration
+    /// Assign a category to an application token
+    /// This method provides a way for external code to modify category assignments
+    func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
+        // Update the internal category assignments
+        categoryAssignments[token] = category
+        
+        #if DEBUG
+        let appName = getDisplayName(for: token) ?? "Unknown App"
+        print("[ScreenTimeService] Assigned category \(category.rawValue) to \(appName)")
+        #endif
+    }
+    
+    /// Assign reward points to an application token
+    /// This method provides a way for external code to modify reward point assignments
+    func assignRewardPoints(_ points: Int, to token: ApplicationToken) {
+        // Update the internal reward points assignments
+        rewardPointsAssignments[token] = points
+        
+        #if DEBUG
+        let appName = getDisplayName(for: token) ?? "Unknown App"
+        print("[ScreenTimeService] Assigned \(points) reward points to \(appName)")
+        #endif
+    }
+    
+    /// Get category assignments for external access
     func getCategoryAssignments() -> [ApplicationToken: AppUsage.AppCategory] {
         return categoryAssignments
     }
     
-    /// Get reward points assignments for CloudKit integration
+    /// Get reward points assignments for external access
     func getRewardPointsAssignments() -> [ApplicationToken: Int] {
         return rewardPointsAssignments
     }
@@ -1810,7 +1834,7 @@ extension ScreenTimeService {
     func getRewardPoints(for token: ApplicationToken) -> Int {
         return rewardPointsAssignments[token] ?? 0
     }
-    
+
     /// Check if an app is currently blocked
     func isAppBlocked(_ token: ApplicationToken) -> Bool {
         // This would need to check the current shielded applications

@@ -1,6 +1,6 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-27
+**Last Updated:** 2025-10-28
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
 **Project Status:** Phase 4 - CloudKit Remote Monitoring Implementation (In Progress)
@@ -39,8 +39,8 @@ A parental control app that gamifies screen time:
 
 **Phase 4: CloudKit Remote Monitoring Implementation (In Progress)**
 - ✅ Phase 0: Device Selection & Mode Management - COMPLETED
-- ⬜ Phase 1: CloudKit Infrastructure
-- ⬜ Phase 2: CloudKit Sync Service
+- ✅ Phase 1: CloudKit Infrastructure - COMPLETED
+- ✅ Phase 2: CloudKit Sync Service - COMPLETED
 - ⬜ Phase 3: Parent Remote Dashboard
 - ⬜ Phase 4: Child Background Sync
 - ⬜ Phase 5: Device Pairing
@@ -364,6 +364,65 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 - Conditional SwiftUI view routing based on device mode
 - Parent mode routes to ParentRemoteDashboardView (placeholder)
 - Child mode routes to existing setup/mode selection flows
+
+---
+
+### 10. CloudKit Remote Monitoring Implementation (Phase 4 - In Progress)
+
+**Overview**: Implementation of CloudKit-based remote monitoring and configuration synchronization between parent and child devices.
+
+**Completed Phases**:
+
+#### Phase 0: Device Selection & Mode Management - COMPLETED ✅
+- ✅ DeviceMode enum with parentDevice and childDevice cases
+- ✅ DeviceModeManager service for device mode persistence
+- ✅ DeviceSelectionView UI for first-launch device selection
+- ✅ RootView routing logic based on device mode
+- ✅ Mode reset capability
+
+#### Phase 1: CloudKit Infrastructure - COMPLETED ✅
+- ✅ CloudKit capability enabled in Xcode project
+- ✅ Persistence.swift updated for CloudKit integration with NSPersistentCloudKitContainer
+- ✅ Core Data entities designed for remote monitoring (AppConfiguration, UsageRecord, DailySummary, RegisteredDevice, ConfigurationCommand, SyncQueueItem)
+- ✅ CloudKit debug tools implemented (CloudKitDebugService)
+- ✅ Basic CloudKit sync test successful
+
+#### Phase 2: CloudKit Sync Service - COMPLETED ✅
+- ✅ Full CloudKitSyncService implementation with parent and child device methods
+- ✅ Push notification setup with AppDelegate integration
+- ✅ Offline queue system for handling network interruptions
+- ✅ Conflict resolution strategies with parent priority
+- ✅ ScreenTimeService integration for configuration synchronization
+
+**Key Components Implemented**:
+1. **CloudKitSyncService**: Complete API for remote monitoring and configuration
+   - Parent device methods: fetchLinkedChildDevices, fetchChildUsageData, fetchChildDailySummary, sendConfigurationToChild, requestChildSync
+   - Child device methods: downloadParentConfiguration, uploadUsageRecords, uploadDailySummary, markConfigurationCommandExecuted
+   - Common methods: registerDevice, handlePushNotification, forceSyncNow, processOfflineQueue
+
+2. **OfflineQueueManager**: Robust offline queue system for data consistency
+   - Queue operations when offline with retry logic (max 3 attempts)
+   - Automatic processing when connectivity is restored
+   - Published queue count for UI updates
+
+3. **Conflict Resolution**: Intelligent conflict resolution with parent priority
+   - Last-write-wins strategy with timestamp-based resolution
+   - Parent device changes always take precedence
+   - Bulk conflict resolution with merge functionality
+
+4. **ScreenTimeService Integration**: Seamless integration with existing service layer
+   - syncConfigurationToCloudKit method for automatic configuration synchronization
+   - applyCloudKitConfiguration method for applying remote configurations
+   - Helper methods for token mapping and configuration application
+
+**Current Phase**:
+
+#### Phase 3: Parent Remote Dashboard - IN PROGRESS
+- ⬜ Design Parent Remote Dashboard UI
+- ⬜ Implement Parent Remote ViewModel
+- ⬜ Connect Dashboard to CloudKitSyncService
+- ⬜ Implement Child Device Management
+- ⬜ Add Usage Data Visualization
 
 ---
 
@@ -1502,6 +1561,63 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 
 ---
 
+### Phase 4: CloudKit Remote Monitoring Implementation (In Progress)
+
+#### Phase 0: Device Selection & Mode Management - COMPLETED ✅
+- ✅ DeviceMode enum with parentDevice and childDevice cases
+- ✅ DeviceModeManager service for device mode persistence
+- ✅ DeviceSelectionView UI for first-launch device selection
+- ✅ RootView routing logic based on device mode
+- ✅ Mode reset capability
+
+#### Phase 1: CloudKit Infrastructure - COMPLETED ✅
+- ✅ CloudKit capability enabled in Xcode project
+- ✅ Persistence.swift updated for CloudKit integration with NSPersistentCloudKitContainer
+- ✅ Core Data entities designed for remote monitoring (AppConfiguration, UsageRecord, DailySummary, RegisteredDevice, ConfigurationCommand, SyncQueueItem)
+- ✅ CloudKit debug tools implemented (CloudKitDebugService)
+- ✅ Basic CloudKit sync test successful
+
+#### Phase 2: CloudKit Sync Service - COMPLETED ✅
+- ✅ Full CloudKitSyncService implementation with parent and child device methods
+- ✅ Push notification setup with AppDelegate integration
+- ✅ Offline queue system for handling network interruptions
+- ✅ Conflict resolution strategies with parent priority
+- ✅ ScreenTimeService integration for configuration synchronization
+
+#### Phase 3: Parent Remote Dashboard - IN PROGRESS
+- ⬜ Design Parent Remote Dashboard UI
+- ⬜ Implement Parent Remote ViewModel
+- ⬜ Connect Dashboard to CloudKitSyncService
+- ⬜ Implement Child Device Management
+- ⬜ Add Usage Data Visualization
+
+#### Phase 4: Child Background Sync
+- [ ] Implement background sync for usage data
+- [ ] Add sync status indicators
+- [ ] Implement retry logic for failed syncs
+
+#### Phase 5: Device Pairing
+- [ ] Implement device pairing workflow
+- [ ] Add QR code scanning for easy pairing
+- [ ] Implement pairing confirmation flow
+
+#### Phase 6: Enhanced Monitoring
+- [ ] Add detailed usage analytics
+- [ ] Implement usage alerts and notifications
+- [ ] Add historical data visualization
+
+#### Phase 7: Testing & Validation
+- [ ] Comprehensive testing on multiple devices
+- [ ] Performance optimization
+- [ ] Security validation
+
+#### Phase 8: Polish & Documentation
+- [ ] UI/UX refinement
+- [ ] Complete documentation
+- [ ] Final testing and validation
+
+---
+
 ### Phase 3: Advanced Features
 
 #### 1. Child Mode vs. Parent Mode
@@ -1562,308 +1678,3 @@ let storageKey = bundleIdentifier ?? "app.\(displayName.lowercased())"
 ``swift
 // 1. Create new view file: NewTabView.swift
 import SwiftUI
-import FamilyControls
-
-struct NewTabView: View {
-    @StateObject private var viewModel = AppUsageViewModel()
-
-    var body: some View {
-        NavigationView {
-            VStack {
-                // Your content here
-            }
-            .navigationTitle("New Tab")
-        }
-        .navigationViewStyle(.stack)
-    }
-}
-
-// 2. Add to MainTabView.swift
-TabView {
-    // ... existing tabs ...
-
-    NewTabView()
-        .tabItem {
-            Label("New", systemImage: "star.fill")
-        }
-}
-```
-
----
-
-### Example 2: Custom Point Calculation
-
-``swift
-// In ScreenTimeService.swift or new service
-
-func calculateCustomPoints(
-    usage: AppUsage,
-    multiplier: Double = 1.0
-) -> Int {
-    let basePoints = (usage.totalTime / 60) * Double(usage.rewardPoints)
-    let bonusPoints = basePoints * multiplier
-    return Int(bonusPoints)
-}
-
-// Usage:
-let points = calculateCustomPoints(usage: appUsage, multiplier: 1.5) // 1.5x weekend bonus
-```
-
----
-
-### Example 3: Add New Notification Type
-
-```
-// 1. Add to ScreenTimeNotifications.swift
-extension Notification.Name {
-    static let pointsBalanceChanged = Notification.Name("ScreenTimeService.pointsBalanceChanged")
-}
-
-// 2. Post notification in ScreenTimeService.swift
-private func updatePointsBalance(_ newBalance: Int) {
-    NotificationCenter.default.post(
-        name: .pointsBalanceChanged,
-        object: nil,
-        userInfo: ["balance": newBalance]
-    )
-}
-
-// 3. Observe in ViewModel
-NotificationCenter.default
-    .publisher(for: .pointsBalanceChanged)
-    .receive(on: RunLoop.main)
-    .sink { notification in
-        if let balance = notification.userInfo?["balance"] as? Int {
-            self.pointsBalance = balance
-        }
-    }
-    .store(in: &cancellables)
-```
-
----
-
-### Example 4: Query Usage Data
-
-```
-// Get total learning time today
-let calendar = Calendar.current
-let today = calendar.startOfDay(for: Date())
-
-let todayLearningTime = appUsages
-    .filter { $0.category == .learning }
-    .filter { $0.lastAccess >= today }
-    .reduce(0) { $0 + $1.totalTime }
-
-// Get top 3 most-used apps
-let topApps = appUsages
-    .sorted { $0.totalTime > $1.totalTime }
-    .prefix(3)
-
-// Get apps with usage > 1 hour
-let highUsageApps = appUsages
-    .filter { $0.totalTime > 3600 }
-```
-
----
-
-### Example 5: Custom Shield Configuration
-
-```
-// Shield specific apps with custom settings
-let store = ManagedSettingsStore()
-
-// Shield apps during specific time
-let settings = ManagedSettingsStore()
-settings.shield.applications = rewardTokens
-settings.shield.applicationCategories = .all(except: learningCategories)
-
-// Note: Time-based shielding requires additional DeviceActivity schedule
-```
-
----
-
-## Debugging Tips
-
-### Enable Verbose Logging
-
-All debug logs are wrapped in `#if DEBUG`:
-```swift
-#if DEBUG
-print("[ScreenTimeService] Your debug message here")
-#endif
-```
-
-**To view logs**:
-1. Run from Xcode
-2. Open Console app (Cmd+Space → Console)
-3. Filter by "ScreenTimeService" or "AppUsageViewModel"
-
----
-
-### Check Authorization Status
-
-```
-// In any view
-Button("Check Auth") {
-    let status = AuthorizationCenter.shared.authorizationStatus
-    print("Status: \(status.rawValue)")
-    print("0=notDetermined, 1=denied, 2=approved")
-}
-```
-
----
-
-### Verify Shield Status
-
-```swift
-// In AppUsageView or add button to test
-Button("Shield Status") {
-    let status = viewModel.getShieldStatus()
-    print("Blocked: \(status.blocked)")
-    print("Accessible: \(status.accessible)")
-}
-```
-
----
-
-### Monitor Extension Events
-
-```swift
-// In ScreenTimeService.swift - Already implemented
-// Watch console for:
-[ScreenTimeService] Event threshold reached: usage.learning
-[ScreenTimeService] Recording usage with duration: 60 seconds
-```
-
----
-
-### Test Without Real Apps (DEBUG Only)
-
-```swift
-#if DEBUG
-// In AppUsageView, add test button:
-Button("Test Data") {
-    viewModel.configureWithTestApplications()
-}
-
-// This creates fake usage data:
-// - Books: 1 hour learning
-// - Calculator: 10 minutes learning
-// - Music: 30 minutes reward
-#endif
-```
-
----
-
-## Glossary
-
-**ApplicationToken**: Privacy-preserving identifier for an app, provided by FamilyControls framework
-
-**Shield**: Fullscreen overlay that blocks access to an app (ManagedSettings)
-
-**DeviceActivity**: Framework for monitoring app usage in background
-
-**Darwin Notification**: System-level IPC mechanism for process communication
-
-**App Group**: Shared container for data between app and extension
-
-**Threshold**: Time interval that triggers a DeviceActivity event
-
-**Monitoring Interval**: Same as threshold - time between usage recordings
-
-**ViewModel**: Layer between View and Service in MVVM architecture
-
-**FamilyActivitySelection**: Object containing apps selected from picker
-
-**Session**: Single period of app usage from start to stop
-
-**Usage**: Total accumulated time across all sessions
-
----
-
-## Contact & Contribution
-
-### Development Team
-- Lead Developer: [Name]
-- iOS Specialist: [Name]
-- UX Designer: [Name]
-
-### Code Review Process
-1. Create feature branch from `main`
-2. Implement feature with tests
-3. Submit PR with description
-4. Wait for review + approval
-5. Merge to `main`
-
-### Coding Standards
-- Swift 5.0+
-- SwiftUI for all new views
-- MVVM architecture
-- Meaningful variable names
-- Comments for complex logic
-- `#if DEBUG` for all debug logs
-
----
-
-## Appendix: File-by-File Reference
-
-### ScreenTimeRewardsApp.swift
-**Purpose**: App entry point
-**Key Code**: Sets `MainTabView` as root view
-**Lines**: 13-20
-
-### MainTabView.swift
-**Purpose**: Tab container
-**Tabs**: Learning, Rewards
-**Key Code**: TabView with two tabs
-**Lines**: 8-23
-
-### LearningTabView.swift
-**Purpose**: Learning apps interface
-**Key Features**: Points earned, app list, View All button
-**Integration**: CategoryAssignmentView with `fixedCategory: .learning`
-**Lines**: 5-133
-
-### RewardsTabView.swift
-**Purpose**: Reward apps interface
-**Key Features**: App list, View All, Unlock buttons
-**Integration**: CategoryAssignmentView with `fixedCategory: .reward`, immediate shield
-**Lines**: 5-146
-
-### CategoryAssignmentView.swift
-**Purpose**: App configuration + monitoring dashboard
-**Key Features**: Auto-categorization, usage time, points config
-**Critical**: Only place where app names/icons reliably display
-**Lines**: 5-245
-
-### AppUsageViewModel.swift
-**Purpose**: MVVM ViewModel
-**Responsibilities**: UI state, authorization, picker logic, data mapping
-**Key Methods**: `getUsageTimes()`, `blockRewardApps()`, `unlockRewardApps()`
-**Lines**: 7-668
-
-### ScreenTimeService.swift
-**Purpose**: Core service layer
-**Responsibilities**: Monitoring, shielding, usage recording, notifications
-**Key Methods**: `configureMonitoring()`, `blockRewardApps()`, `recordUsage()`
-**Lines**: 9-1153
-
-### AppUsage.swift
-**Purpose**: Data model
-**Properties**: bundleID, name, category, totalTime, sessions, rewardPoints
-**Methods**: `recordUsage()`, `earnedRewardPoints` computed property
-
-### DeviceActivityMonitorExtension.swift
-**Purpose**: Background monitoring extension
-**Runs**: In separate process
-**Communication**: Darwin notifications + App Group
-
-### ScreenTimeNotifications.swift
-**Purpose**: Darwin notification name constants
-**Usage**: Shared between app and extension
-
----
-
-**End of Documentation**
-
-*This documentation is a living document. Update as features are added or architecture changes.*

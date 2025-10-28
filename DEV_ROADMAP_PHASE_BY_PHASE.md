@@ -992,3 +992,120 @@ private func isAppBlocked(_ token: ApplicationToken) -> Bool {
 - ✅ Integration tests
 
 ---
+
+## Phase 3: Parent Remote Dashboard
+**Duration:** 5-6 days
+**Priority:** P1
+**Dependencies:** Phase 2 complete
+
+### Overview
+Implement the parent remote dashboard UI and connect it to the CloudKit sync service to enable remote monitoring and configuration of child devices.
+
+### Tasks
+
+#### Task 3.1: Design Parent Remote Dashboard UI (6 hours)
+**Files:**
+- `ScreenTimeRewards/Views/ParentRemoteDashboardView.swift`
+- `ScreenTimeRewards/Views/ParentRemote/`
+
+**Components to Create:**
+1. Dashboard overview with device status
+2. Child device list with connection status
+3. Usage statistics visualization
+4. Configuration management interface
+5. Remote sync controls
+
+**Acceptance Criteria:**
+- [ ] Clean, intuitive dashboard layout
+- [ ] Device status indicators
+- [ ] Usage data visualization
+- [ ] Configuration management UI
+- [ ] Responsive design for iPad
+
+---
+
+#### Task 3.2: Implement Parent Remote ViewModel (4 hours)
+**File:** `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+
+**Functionality:**
+1. Fetch and display linked child devices
+2. Retrieve usage data from CloudKit
+3. Manage configuration updates
+4. Handle sync operations
+
+**Acceptance Criteria:**
+- [ ] Child device data binding
+- [ ] Usage statistics processing
+- [ ] Configuration update handling
+- [ ] Error state management
+
+---
+
+#### Task 3.3: Connect Dashboard to CloudKitSyncService (4 hours)
+**Files:**
+- `ScreenTimeRewards/Views/ParentRemoteDashboardView.swift`
+- `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+
+**Integration Points:**
+1. Fetch linked devices using `fetchLinkedChildDevices()`
+2. Retrieve usage data with `fetchChildUsageData()`
+3. Send configurations via `sendConfigurationToChild()`
+4. Trigger sync with `requestChildSync()`
+
+**Acceptance Criteria:**
+- [ ] Real-time device data display
+- [ ] Usage statistics visualization
+- [ ] Configuration sending capability
+- [ ] Sync trigger functionality
+
+---
+
+#### Task 3.4: Implement Child Device Management (3 hours)
+**Files:**
+- `ScreenTimeRewards/Views/ParentRemote/ChildDeviceManagementView.swift`
+- `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+
+**Features:**
+1. Add/remove child devices
+2. Device renaming
+3. Connection status monitoring
+4. Offline device handling
+
+**Acceptance Criteria:**
+- [ ] Device management interface
+- [ ] Device renaming capability
+- [ ] Connection status display
+- [ ] Offline device indicators
+
+---
+
+#### Task 3.5: Add Usage Data Visualization (5 hours)
+**Files:**
+- `ScreenTimeRewards/Views/ParentRemote/UsageStatisticsView.swift`
+- `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+
+**Visualization Types:**
+1. Daily usage charts
+2. Category breakdown (learning vs reward)
+3. Points earned tracking
+4. Time-based trends
+
+**Acceptance Criteria:**
+- [ ] Interactive charts and graphs
+- [ ] Category-based visualization
+- [ ] Points tracking display
+- [ ] Time range selection
+
+---
+
+### Phase 3 Deliverables
+
+- [ ] Parent remote dashboard UI
+- [ ] Parent remote view model
+- [ ] CloudKit integration
+- [ ] Child device management
+- [ ] Usage data visualization
+- [ ] Unit tests (>80% coverage)
+- [ ] UI tests for dashboard interactions
+
+---

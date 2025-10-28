@@ -78,10 +78,77 @@ extension ScreenTimeService {
 
     /// Apply CloudKit configuration to local settings (child device only)
     func applyCloudKitConfiguration(_ config: AppConfiguration) {
-        // Note: We can't directly modify private properties from extension
-        // This functionality would need to be implemented in the main class
+        guard DeviceModeManager.shared.isChildDevice else {
+            #if DEBUG
+            print("[ScreenTimeService] Not a child device, skipping CloudKit config application")
+            #endif
+            return
+        }
+        
+        guard let logicalID = config.logicalID else {
+            #if DEBUG
+            print("[ScreenTimeService] Invalid configuration - missing logicalID")
+            #endif
+            return
+        }
+        
+        // Find local token that matches this configuration
+        guard let token = findLocalToken(for: logicalID) else {
+            #if DEBUG
+            print("[ScreenTimeService] No local token found for logicalID: \(logicalID)")
+            #endif
+            return
+        }
+        
         #if DEBUG
-        print("[ScreenTimeService] Would apply config for \(config.displayName ?? "Unknown")")
+        print("[ScreenTimeService] Applying CloudKit config for \(config.displayName ?? "Unknown")")
+        #endif
+        
+        // Apply category assignment
+        if let categoryString = config.category,
+           let category = AppUsage.AppCategory(rawValue: categoryString) {
+            // Update the service's category assignments
+            self.assignCategory(category, to: token)
+        }
+        
+        // Apply reward points
+        if config.category == "reward" {
+            let points = Int(config.pointsPerMinute)
+            // Update the service's reward points assignments
+            self.assignRewardPoints(points, to: token)
+        }
+        
+        // Apply blocking state
+        if config.blockingEnabled {
+            self.blockRewardApps(tokens: [token])
+        } else {
+            self.unblockRewardApps(tokens: [token])
+        }
+        
+        #if DEBUG
+        print("[ScreenTimeService] Applied config for \(config.displayName ?? "Unknown")")
+        #endif
+    }
+    
+    /// Assign a category to an application token
+    /// This method provides a way for extensions to modify category assignments
+    func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
+        // Update the internal category assignments
+        categoryAssignments[token] = category
+        
+        #if DEBUG
+        print("[ScreenTimeService] Assigned category \(category.rawValue) to token")
+        #endif
+    }
+    
+    /// Assign reward points to an application token
+    /// This method provides a way for extensions to modify reward point assignments
+    func assignRewardPoints(_ points: Int, to token: ApplicationToken) {
+        // Update the internal reward points assignments
+        rewardPointsAssignments[token] = points
+        
+        #if DEBUG
+        print("[ScreenTimeService] Assigned \(points) reward points to token")
         #endif
     }
 
@@ -94,5 +161,32 @@ extension ScreenTimeService {
             }
         }
         return nil
+    }
+    
+    /// Find local token that matches the given logical ID
+    private func findLocalToken(for logicalID: String) -> ApplicationToken? {
+        // Search through the current family selection for a matching token
+        for application in familySelection.applications {
+            guard let token = application.token else { continue }
+            
+            let mapping = usagePersistence.resolveLogicalID(
+                for: token,
+                bundleIdentifier: application.bundleIdentifier,
+                displayName: application.localizedDisplayName ?? "Unknown"
+            )
+            
+            if mapping.logicalID == logicalID {
+                return token
+            }
+        }
+        
+        return nil
+    }
+    
+    /// Check if an app is currently blocked
+    private func isAppBlocked(_ token: ApplicationToken) -> Bool {
+        // This would check if the app is currently in the shielded applications
+        // For now, we'll return false as we don't have direct access to the shielded applications
+        return false
     }
 }

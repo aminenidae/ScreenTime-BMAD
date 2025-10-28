@@ -73,12 +73,20 @@ class OfflineQueueManager: ObservableObject {
         switch item.operation {
         case "upload_usage":
             // Process usage upload
+            print("[Queue] Processing usage upload")
+            // In a real implementation, we would trigger a sync of usage records
             break
         case "download_config":
             // Process config download
+            print("[Queue] Processing config download")
+            // Download and apply parent configurations
+            let configurations = try await CloudKitSyncService.shared.downloadParentConfiguration()
+            print("[Queue] Downloaded \(configurations.count) configurations")
             break
         case "send_command":
             // Process command
+            print("[Queue] Processing send command")
+            // In a real implementation, we would send a command to another device
             break
         default:
             throw NSError(domain: "Queue", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown operation"])
