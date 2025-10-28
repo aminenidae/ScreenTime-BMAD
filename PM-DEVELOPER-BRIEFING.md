@@ -1,12 +1,18 @@
 # PM-Developer Briefing Document
 # ScreenTime Rewards App
-**Date:** 2025-10-26 (Updated)
+**Date:** 2025-10-27 (Updated)
 **PM:** GPT-5 (acting PM)
 **Developer:** Code Agent (implementation only)
 
 ---
 
 ## 🎯 Current Sprint Status
+
+**✅ PHASE 0: DEVICE SELECTION & MODE MANAGEMENT COMPLETED** ⭐ NEW
+
+**Completion Date:** 2025-10-27
+
+Phase 0 of the CloudKit Remote Monitoring implementation has been successfully completed. This foundational phase implemented device selection and mode management, which is essential for all subsequent phases.
 
 **✅ CRITICAL BUG FIXES COMPLETED** ⭐ NEW
 
@@ -37,6 +43,7 @@ After exploring experimental approaches, we discovered the official Apple soluti
 ## 📊 Current State Snapshot
 
 ### What's Working ✅
+- **Phase 0 completed** ⭐ Device selection and mode management implemented
 - **All critical bugs fixed** ⭐ Points calculation, configuration reload, UI display, and state persistence working correctly
 - **Reward transfer system operational** - Point transfer feature builds successfully
 - **Category selection fully operational** - Users can now select entire categories and the system automatically expands them to individual app tokens
@@ -62,7 +69,7 @@ According to Apple's FamilyControls documentation and developer community findin
 - This is the **official, supported** Apple approach for handling category selections
 
 **Implementation Pattern:**
-```swift
+``swift
 @State var selection = FamilyActivitySelection(includeEntireCategory: true)
 ```
 
@@ -87,6 +94,67 @@ According to Apple's FamilyControls documentation and developer community findin
 ---
 
 ## 📋 COMPLETED WORK
+
+### ✅ Phase 0: Device Selection & Mode Management (2025-10-27) ⭐ NEW
+
+**Status:** COMPLETED AND VERIFIED WORKING
+
+**Summary:** Implemented the foundational device selection and mode management system required for CloudKit Remote Monitoring.
+
+#### Task 0.1: Create DeviceMode Model ✅ COMPLETED
+- **File:** `ScreenTimeRewards/Models/DeviceMode.swift`
+- Created DeviceMode enum with parentDevice and childDevice cases
+- Added display names, descriptions, and ScreenTime authorization requirements
+
+#### Task 0.2: Implement DeviceModeManager ✅ COMPLETED
+- **File:** `ScreenTimeRewards/Services/DeviceModeManager.swift`
+- Implemented singleton service for device mode persistence
+- Added device ID generation and persistence using UUID
+- Added device name capture and persistence
+- Implemented mode reset capability
+- Added ObservableObject for SwiftUI integration
+
+#### Task 0.3: Build DeviceSelectionView UI ✅ COMPLETED
+- **File:** `ScreenTimeRewards/Views/DeviceSelection/DeviceSelectionView.swift`
+- Created first-launch device selection UI
+- Implemented parent/child device option cards
+- Added optional device name input
+- Added confirmation dialog for mode selection
+
+#### Task 0.4: Implement RootView Routing Logic ✅ COMPLETED
+- **File:** `ScreenTimeRewards/ScreenTimeRewardsApp.swift`
+- Modified app entry point to implement conditional routing
+- Added routing for first-launch device selection
+- Added routing for parent mode to ParentRemoteDashboardView
+- Added routing for child mode to existing flows
+
+#### Task 0.5: Add Mode Reset Capability ✅ COMPLETED
+- **File:** `ScreenTimeRewards/Views/ModeSelectionView.swift`
+- Added device configuration section showing current mode
+- Added reset button with destructive styling
+- Added confirmation dialog for mode reset
+
+**Files Created:**
+- `ScreenTimeRewards/Models/DeviceMode.swift`
+- `ScreenTimeRewards/Services/DeviceModeManager.swift`
+- `ScreenTimeRewards/Views/DeviceSelection/DeviceSelectionView.swift`
+- `ScreenTimeRewards/Views/ParentRemoteDashboardView.swift` (placeholder)
+
+**Files Modified:**
+- `ScreenTimeRewards/ScreenTimeRewardsApp.swift`
+- `ScreenTimeRewards/Views/ModeSelectionView.swift`
+
+**Impact:**
+- ✅ Users can now choose between parent device and child device modes
+- ✅ Device mode, ID, and name are persisted across app launches
+- ✅ App flow is dynamically routed based on device mode
+- ✅ Users can reset their device mode selection if needed
+- ✅ All components are built with SwiftUI and follow modern iOS design patterns
+
+**Documentation:**
+- Phase 0 Completion Report: `/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/docs/PHASE0_COMPLETION_REPORT.md`
+
+---
 
 ### ✅ Points Calculation Bug Fixes (2025-10-26) ⭐ NEW
 
@@ -313,7 +381,7 @@ All known critical bugs have been fixed. The app is now in a stable state with:
 The `consumeReservedPoints()` function exists (line 1472) but is **NEVER CALLED**. When a reward app is used, the system tracks usage but doesn't decrement the reserved points.
 
 **Evidence:**
-```bash
+``bash
 grep -rn "consumeReservedPoints" ScreenTimeRewardsProject/ScreenTimeRewards/ --include="*.swift"
 # Result: Only the function definition, no call sites
 ```
@@ -327,7 +395,7 @@ grep -rn "consumeReservedPoints" ScreenTimeRewardsProject/ScreenTimeRewards/ --i
 Added call to `consumeReservedPoints()` in `handleRewardAppUsage()` method:
 
 **Location:** `AppUsageViewModel.swift:352`
-```swift
+``swift
 // BF-1 FIX: Handle reward app usage notification
 private func handleRewardAppUsage() {
     // Process each reward app usage entry
@@ -372,7 +440,7 @@ func blockRewardApps(tokens: Set<ApplicationToken>) {
 Changed assignment to formUnion operation:
 
 **Location:** `ScreenTimeService.swift:1060`
-```swift
+``swift
 // BF-2 FIX: Change from assignment to formUnion to properly add tokens to existing set
 // Previously: currentlyShielded = tokens (which replaced the entire set)
 // Now: currentlyShielded.formUnion(tokens) (which adds tokens to existing set)
@@ -495,7 +563,7 @@ The monitoring restart timer calls `startMonitoring()` WITHOUT first calling `st
 - False usage counting
 
 ### The Bug:
-```swift
+``swift
 // Lines 904-925: Monitoring restart timer
 monitoringRestartTimer = Timer.scheduledTimer(withTimeInterval: restartInterval, repeats: true) {
     do {
@@ -513,7 +581,7 @@ When `startMonitoring()` is called on an already-active session:
 ### The Fix:
 Add `stopMonitoring()` before `startMonitoring()` to clear accumulated state:
 
-```swift
+``swift
 // Stop monitoring first to clear accumulated state
 self.deviceActivityCenter.stopMonitoring([self.activityName])
 

@@ -14,44 +14,48 @@ struct ScreenTimeRewardsApp: App {
     let persistenceController = PersistenceController.shared
     @StateObject private var viewModel = AppUsageViewModel()
     @StateObject private var sessionManager = SessionManager.shared
+    @StateObject private var modeManager = DeviceModeManager.shared
 
     // Check if user has completed one-time setup
     @AppStorage("hasCompletedSetup") private var hasCompletedSetup = false
 
     var body: some Scene {
         WindowGroup {
-            Group {
-                if hasCompletedSetup {
-                    // Setup completed - show normal app flow
-                    mainAppView
-                } else {
-                    // First launch - show setup flow
-                    setupFlowView
-                }
-            }
-            .environment(\.managedObjectContext, persistenceController.container.viewContext)
-            .environmentObject(viewModel)
-            .environmentObject(sessionManager)
+            RootView()
+                .environment(\.managedObjectContext, persistenceController.container.viewContext)
+                .environmentObject(viewModel)
+                .environmentObject(sessionManager)
         }
     }
+}
 
-    // MARK: - Setup Flow View
+struct RootView: View {
+    @StateObject private var modeManager = DeviceModeManager.shared
+    @StateObject private var sessionManager = SessionManager.shared
+    @AppStorage("hasCompletedSetup") private var hasCompletedSetup = false
 
-    private var setupFlowView: some View {
-        SetupFlowView()
-    }
-
-    // MARK: - Main App View
-
-    private var mainAppView: some View {
+    var body: some View {
         Group {
-            switch sessionManager.currentMode {
-            case .none:
-                ModeSelectionView()
-            case .parent:
-                MainTabView()
-            case .child:
-                ChildModeView()
+            if modeManager.needsDeviceSelection {
+                DeviceSelectionView()
+            } else if modeManager.isParentDevice {
+                ParentRemoteDashboardView()  // NEW - Will be implemented in Phase 3
+            } else if modeManager.isChildDevice {
+                // Existing flow
+                if !hasCompletedSetup {
+                    SetupFlowView()
+                } else {
+                    Group {
+                        switch sessionManager.currentMode {
+                        case .none:
+                            ModeSelectionView()
+                        case .parent:
+                            MainTabView()
+                        case .child:
+                            ChildModeView()
+                        }
+                    }
+                }
             }
         }
     }

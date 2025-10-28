@@ -1,9 +1,9 @@
 # ScreenTime Rewards App - Development Progress Documentation
 
-**Last Updated:** 2025-10-25
+**Last Updated:** 2025-10-27
 **iOS Version:** 16.6+
 **Xcode Version:** 15.0+
-**Project Status:** Phase 3 - User Session Implementation (In Progress)
+**Project Status:** Phase 4 - CloudKit Remote Monitoring Implementation (In Progress)
 
 ---
 
@@ -31,22 +31,22 @@ A parental control app that gamifies screen time:
 - Parents configure apps, children earn/spend points through usage
 
 ### Current Phase
-**Phase 2: Core Features Implementation Complete**
-- ✅ Two-tab interface (Learning/Rewards)
-- ✅ App selection and categorization
-- ✅ Points system (earning and spending)
-- ✅ App blocking (shielding) for reward apps
-- ✅ Usage time tracking
-- ✅ Real-time monitoring
-
-**Phase 3: User Session Implementation (In Progress)**
+**Phase 3: User Session Implementation Complete**
 - ✅ Foundation Components (SessionManager, AuthenticationService, AuthError) - COMPLETED
 - ✅ Mode Selection UI - COMPLETED
 - ✅ Child Mode Dashboard - COMPLETED
 - ✅ Parent Mode Integration - COMPLETED
 
-**Phase 4: UI/UX Improvements (In Progress)**
-- ✅ iPad Layout Fix - COMPLETED
+**Phase 4: CloudKit Remote Monitoring Implementation (In Progress)**
+- ✅ Phase 0: Device Selection & Mode Management - COMPLETED
+- ⬜ Phase 1: CloudKit Infrastructure
+- ⬜ Phase 2: CloudKit Sync Service
+- ⬜ Phase 3: Parent Remote Dashboard
+- ⬜ Phase 4: Child Background Sync
+- ⬜ Phase 5: Device Pairing
+- ⬜ Phase 6: Enhanced Monitoring
+- ⬜ Phase 7: Testing & Validation
+- ⬜ Phase 8: Polish & Documentation
 
 ---
 
@@ -54,10 +54,10 @@ A parental control app that gamifies screen time:
 
 ### Design Pattern
 **MVVM (Model-View-ViewModel)**
-- **Models**: `AppUsage`, `AppCategory`
-- **Views**: `MainTabView`, `LearningTabView`, `RewardsTabView`, `CategoryAssignmentView`
+- **Models**: `AppUsage`, `AppCategory`, `DeviceMode`
+- **Views**: `MainTabView`, `LearningTabView`, `RewardsTabView`, `CategoryAssignmentView`, `DeviceSelectionView`
 - **ViewModels**: `AppUsageViewModel`
-- **Services**: `ScreenTimeService`
+- **Services**: `ScreenTimeService`, `DeviceModeManager`
 
 ### Data Flow
 ```
@@ -72,6 +72,7 @@ User Action → View → ViewModel → Service → Apple Frameworks
 3. **DeviceActivity**: Usage monitoring, event tracking
 4. **SwiftUI**: Modern UI framework
 5. **Combine**: Reactive data flow
+6. **CloudKit**: Remote data synchronization (Phase 4)
 
 ---
 
@@ -180,7 +181,7 @@ fixedCategory: .reward
 - Category picker is hidden
 - All apps auto-assigned to that category
 - User only sets points, not category
-```
+``
 
 ---
 
@@ -209,7 +210,7 @@ fixedCategory: .reward
 AppUsageViewModel.swift:320-369 → requestAuthorizationAndOpenPicker()
 AppUsageViewModel.swift:372-404 → Picker timeout logic
 AppUsageViewModel.swift:419-440 → Retry mechanism
-```
+``
 
 ---
 
@@ -247,7 +248,7 @@ AppUsageViewModel.swift:548-563 → unlockRewardApps() wrapper
 **Shield Status Tracking**:
 ``swift
 private var currentlyShielded: Set<ApplicationToken> = []
-```
+``
 
 ---
 
@@ -304,7 +305,7 @@ ScreenTimeService.swift:814-885     → recordUsage()
 ScreenTimeService.swift:919-945     → handleEventThresholdReached()
 ScreenTimeService.swift:887-893     → seconds() - converts threshold to duration
 AppUsageViewModel.swift:529-586     → getUsageTimes() - maps tokens to usage
-```
+``
 
 ---
 
@@ -331,6 +332,38 @@ CategoryAssignmentView.swift:193-200 → pointsRange()
 CategoryAssignmentView.swift:184-191 → getDefaultRewardPoints()
 CategoryAssignmentView.swift:202-209 → pointsLabel()
 ``
+
+---
+
+### 9. Device Selection & Mode Management (Phase 0 - Completed)
+
+**Files**: 
+- `ScreenTimeRewards/Models/DeviceMode.swift`
+- `ScreenTimeRewards/Services/DeviceModeManager.swift`
+- `ScreenTimeRewards/Views/DeviceSelection/DeviceSelectionView.swift`
+- `ScreenTimeRewards/ScreenTimeRewardsApp.swift`
+- `ScreenTimeRewards/Views/ModeSelectionView.swift`
+
+**Features**:
+- ✅ DeviceMode enum with parentDevice and childDevice cases
+- ✅ DeviceModeManager service for device mode persistence
+- ✅ DeviceSelectionView UI for first-launch device selection
+- ✅ RootView routing logic based on device mode
+- ✅ Mode reset capability in ModeSelectionView
+
+**Key Components**:
+1. **DeviceMode Enum**: Defines parentDevice and childDevice modes with display names and descriptions
+2. **DeviceModeManager**: Singleton service managing device mode, ID, and name persistence
+3. **DeviceSelectionView**: First-launch UI for device mode selection
+4. **RootView Routing**: Conditional app routing based on device mode
+5. **Mode Reset**: Ability to reset device mode selection
+
+**Implementation Details**:
+- Device mode, ID, and name persisted using UserDefaults
+- UUID-based device ID generation for unique identification
+- Conditional SwiftUI view routing based on device mode
+- Parent mode routes to ParentRemoteDashboardView (placeholder)
+- Child mode routes to existing setup/mode selection flows
 
 ---
 
@@ -369,6 +402,7 @@ CategoryAssignmentView.swift:202-209 → pointsLabel()
 
 **Code Location**: `ScreenTimeService.swift:622`
 ```swift
+
 print("⚠️ IMPORTANT: If apps are already running, user must close and reopen them")
 ```
 

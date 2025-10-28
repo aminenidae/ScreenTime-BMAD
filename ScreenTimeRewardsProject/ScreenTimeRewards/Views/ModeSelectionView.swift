@@ -2,10 +2,12 @@ import SwiftUI
 
 struct ModeSelectionView: View {
     @ObservedObject private var sessionManager = SessionManager.shared
+    @StateObject private var modeManager = DeviceModeManager.shared
     @State private var authService = AuthenticationService()
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var isAuthenticating: Bool = false
+    @State private var showResetConfirmation: Bool = false
     
     // PIN-related state
     @State private var showPINEntry: Bool = false
@@ -105,6 +107,34 @@ struct ModeSelectionView: View {
                         .shadow(radius: 5)
                     }
                     .disabled(isAuthenticating)
+                    
+                    // Reset Device Mode button
+                    Button(action: {
+                        showResetConfirmation = true
+                    }) {
+                        HStack {
+                            Image(systemName: "arrow.counterclockwise")
+                            Text("Reset Device Mode")
+                        }
+                        .padding()
+                        .frame(maxWidth: .infinity)
+                        .background(Color.red.opacity(0.2))
+                        .foregroundColor(.red)
+                        .cornerRadius(16)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(Color.red, lineWidth: 1)
+                        )
+                    }
+                    .confirmationDialog("Reset Device Mode?",
+                                      isPresented: $showResetConfirmation) {
+                        Button("Reset", role: .destructive) {
+                            modeManager.resetDeviceMode()
+                        }
+                        Button("Cancel", role: .cancel) { }
+                    } message: {
+                        Text("This will reset your device mode selection and return you to the device selection screen.")
+                    }
                     
                     // DEBUG: Button to show debug view
                     #if DEBUG
