@@ -2,30 +2,37 @@
 //  AuthError.swift
 //  ScreenTimeRewards
 //
-//  Created by Ameen on 26/10/2025.
+//  Phase 4B: Security Enhancement - CORRECTED VERSION
+//  Removed biometric-related errors
 //
 
 import Foundation
 
 enum AuthError: Error, LocalizedError {
-    case notAvailable
     case authenticationFailed
     case userCancel
-    case biometryNotAvailable
-    case biometryNotEnrolled
-    
+    case parentalApprovalRequired
+    case pinRequired
+    case pinValidationFailed
+    case pinNotConfigured
+    case pinInvalid(String)  // Added for weak PIN or invalid format errors
+
     var errorDescription: String? {
         switch self {
-        case .notAvailable:
-            return "Authentication is not available on this device."
         case .authenticationFailed:
             return "Authentication failed. Please try again."
         case .userCancel:
             return "Authentication was cancelled."
-        case .biometryNotAvailable:
-            return "Biometric authentication is not available on this device."
-        case .biometryNotEnrolled:
-            return "No biometric authentication is enrolled. Please set up Face ID or Touch ID in Settings."
+        case .parentalApprovalRequired:
+            return "Parental approval is required to access Parent Mode."
+        case .pinRequired:
+            return "Parent PIN is required to access Parent Mode."
+        case .pinValidationFailed:
+            return "Incorrect PIN. Please try again."
+        case .pinNotConfigured:
+            return "Parent PIN has not been configured. Please set up a PIN."
+        case .pinInvalid(let message):
+            return message
         }
     }
 }

@@ -137,6 +137,18 @@ class AppUsageViewModel: ObservableObject {
         categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
     }
     
+    // MARK: - Child Mode Filtering
+    
+    /// Filtered learning apps with usage > 0 for Child Mode
+    var usedLearningApps: [LearningAppSnapshot] {
+        learningSnapshots.filter { $0.totalSeconds > 0 }
+    }
+    
+    /// Filtered reward apps with usage > 0 for Child Mode
+    var usedRewardApps: [RewardAppSnapshot] {
+        rewardSnapshots.filter { $0.totalSeconds > 0 }
+    }
+    
     // Task 0: Expose active picker context for sheet presentation
     var currentPickerContext: PickerContext? {
         activePickerContext

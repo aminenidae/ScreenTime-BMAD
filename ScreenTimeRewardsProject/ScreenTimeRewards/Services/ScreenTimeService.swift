@@ -817,20 +817,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #else
         Task { [weak self] in
             do {
-                if #available(iOS 16.0, *) {
-                    try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
-                } else {
-                    try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
-                        AuthorizationCenter.shared.requestAuthorization { result in
-                            switch result {
-                            case .success:
-                                continuation.resume()
-                            case .failure(let error):
-                                continuation.resume(throwing: error)
-                            }
-                        }
-                    }
-                }
+                // Since our minimum deployment target is iOS 16.6, we can use the async version directly
+                try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
                 await MainActor.run {
                     self?.authorizationGranted = true
                     completion(.success(()))

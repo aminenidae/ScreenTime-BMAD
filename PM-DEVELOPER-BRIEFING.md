@@ -572,3 +572,105 @@ do {
 ---
 
 **End of Briefing**
+
+---
+
+## 🆕 Dev Tasking — Challenges & Non‑App Rewards (Draft Plan)
+
+This section defines concrete, incremental tasks to implement gamified Challenges and parent‑defined Non‑App Rewards. Keep scope tight and integrate with current points and unlocking model.
+
+### CH-1: Data Models (Models/)
+- Add `Models/Challenge.swift`:
+  - `struct Challenge: Codable, Identifiable { id, title, metric, target, period, startAt, endAt, repeats, status, reward }`
+  - `enum ChallengeMetric { case learningMinutes, earnedPoints, streakDays(minPerDay:Int) }`
+  - `enum ChallengePeriod { case daily, weekly, monthly, custom(DateInterval) }`
+  - `enum ChallengeStatus { case active, completed(Date), expired(Date) }`
+  - `enum ChallengeReward { case bonusPoints(Int), extraTimeMinutes(Int) }`
+- Add `Models/CustomReward.swift`:
+  - `struct CustomReward: Codable, Identifiable { id, title, description, emoji, costPoints, availableFrom, expiresAt, requiresApproval }`
+  - `struct Redemption: Codable, Identifiable { id, type, rewardID, costPoints, createdAt, status }` with `enum RedemptionStatus { pending, approved, rejected, completed }` and `enum RedemptionType { customReward, extraTimeVoucher }`
+- Add `Models/BonusVoucher.swift` (optional, if modeling extra time separately):
+  - `struct BonusTimeVoucher: Codable, Identifiable { id, minutes, createdAt, expiresAt?, status }`
+
+Acceptance:
+- Models compile, Codable round‑trip works, and basic initializers exist.
+
+### CH-2: Persistence (Services/)
+- Create `Services/GamificationPersistence.swift` handling App Group storage for challenges, rewards, vouchers, and redemptions.
+  - Functions: `saveChallenges([Challenge])`, `loadChallenges()`, `saveRewards([CustomReward])`, `loadRewards()`, `appendRedemption(_:)`, `saveVouchers([BonusTimeVoucher])`, `loadVouchers()`.
+- Use existing app group identifier `group.com.screentimerewards.shared`.
+
+Acceptance:
+- Data persists across app restarts; simple migration path (versioned keys) is documented.
+
+### CH-3: Challenge Engine (Services/)
+- Add `Services/ChallengeService.swift` to compute progress and detect completion:
+  - Subscribes to `ScreenTimeService.usageDidChangeNotification`.
+  - Public API:
+    - `func progress(for challenge: Challenge, using usage: [AppUsage]) -> (current: Int, target: Int)`
+    - `func evaluateAllChallenges()` → issues `ChallengeAward` when newly completed (ensures idempotency per period).
+    - `var onChallengesUpdated: PassthroughSubject<Void, Never>` for UI refresh.
+  - Use `AppUsage.sessions` to aggregate minutes/points inside the active period window; handle day/week/month boundaries and timezones.
+- On completion: emit `ChallengeAward { challengeID, issuedAt, reward }` and persist via `GamificationPersistence`.
+
+Acceptance:
+- Deterministic progress for daily/weekly/monthly; no double awards on re‑evaluation; handles overlapping challenges.
+
+### CH-4: Bonus Handling Integration (ViewModels/)
+- Extend `AppUsageViewModel` with:
+  - `@Published var bonusPoints: Int` (persisted via App Group) and include in available points calculation: `available = (earned + bonusPoints) - reserved - consumed`.
+  - Method: `func applyChallengeAward(_ award: ChallengeReward)`:
+    - `.bonusPoints(x)`: increment `bonusPoints` and persist.
+    - `.extraTimeMinutes(m)`: create/add `BonusTimeVoucher(minutes:m)` to persistence.
+- Add method `func redeemBonusTime(_ voucherID: UUID, for token: ApplicationToken, minutes: Int)`:
+  - Validate minutes ≤ voucher balance; convert to reserved points `minutes * pointsPerMinute(token)` and call existing unlock path; reduce voucher minutes; mark voucher completed when zero.
+
+Acceptance:
+- Available points reflect `bonusPoints`; vouchers convert to reserved points correctly across different `pointsPerMinute` apps.
+
+### CH-5: Non‑App Rewards Integration (ViewModels/)
+- Extend `AppUsageViewModel` with:
+  - `@Published var customRewards: [CustomReward]`
+  - `func redeemCustomReward(_ rewardID: UUID)`:
+    - Ensure `availableLearningPoints ≥ cost`.
+    - Increment `totalConsumedPoints` by `cost` (reuse existing consumed ledger).
+    - Persist a `Redemption` record with status: `.completed` or `.pending` if approval required.
+
+Acceptance:
+- Redemption reduces available points immediately; records appear in history; approval flag respected (pending path stub acceptable in first pass).
+
+### CH-6: Parent UI (Views/)
+- Add `Views/ParentChallengesView.swift` to create/edit/delete challenges.
+- Add `Views/CustomRewardsAdminView.swift` to manage non‑app rewards and view redemption history.
+- Navigation: from Settings or a new “Gamification” section.
+
+Acceptance:
+- Can add a daily learning‑minutes challenge and a custom reward; lists update and persist; basic validation (non‑empty title, positive target/cost).
+
+### CH-7: Child Mode UI (Views/)
+- Add `Views/ChildModeView.swift`:
+  - Displays available points, active challenges with progress, available custom rewards (sorted by affordability), and voucher balances.
+  - Actions: redeem custom reward; redeem voucher as extra time for a chosen app (flow selects app from reward category list).
+- Gate exit with parent PIN if Parental Controls are enabled (reuse planned PIN from roadmap; for now, a simple prompt can be stubbed behind a flag).
+
+Acceptance:
+- Child can see progress and redeem; redemption updates balances immediately and survives relaunch.
+
+### CH-8: Notifications (Optional for v1)
+- Local notifications when a challenge is completed; deep‑link to Child Mode to redeem.
+
+Acceptance:
+- Completing a challenge triggers one notification; tapping opens the app to the relevant screen.
+
+### CH-9: Minimal Tests (Optional, lightweight)
+- Model round‑trip (Codable) tests for `Challenge`, `CustomReward`, `BonusTimeVoucher`.
+- Challenge engine progress tests for daily and weekly windows with synthetic sessions.
+
+Acceptance:
+- Tests compile and pass locally; skip if test infra isn’t ready.
+
+---
+
+Notes:
+- Keep the first slice minimal: a single daily challenge metric (learning minutes) and basic custom rewards without approval flow is acceptable; iterate next.
+- Align data keys with existing App Group identifiers; document any migrations.

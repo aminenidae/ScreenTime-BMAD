@@ -6,6 +6,17 @@ struct ModeSelectionView: View {
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var isAuthenticating: Bool = false
+    
+    // PIN-related state
+    @State private var showPINEntry: Bool = false
+    @State private var showPINSetup: Bool = false
+    @State private var pin: String = ""
+    @State private var confirmPIN: String = ""
+    @State private var pinErrorMessage: String? = nil
+    @State private var isConfirmingPIN: Bool = false
+    
+    // DEBUG: Show debug view
+    @State private var showDebugView: Bool = false
 
     var body: some View {
         ZStack {
@@ -94,6 +105,17 @@ struct ModeSelectionView: View {
                         .shadow(radius: 5)
                     }
                     .disabled(isAuthenticating)
+                    
+                    // DEBUG: Button to show debug view
+                    #if DEBUG
+                    Button("Show Authentication Debug") {
+                        showDebugView = true
+                    }
+                    .padding()
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                    #endif
                 }
                 .padding(.horizontal, 30)
             }
@@ -113,6 +135,56 @@ struct ModeSelectionView: View {
         } message: {
             Text(errorMessage)
         }
+        .sheet(isPresented: $showPINEntry) {
+            ParentPINEntryView(
+                pin: $pin,
+                errorMessage: $pinErrorMessage,
+                onPINVerified: {
+                    // PIN verified successfully
+                    showPINEntry = false
+                    sessionManager.enterParentMode(authenticated: true)
+                },
+                onDismiss: {
+                    showPINEntry = false
+                    pin = ""
+                }
+            )
+            .onDisappear {
+                // Clear PIN when sheet is dismissed
+                pin = ""
+                pinErrorMessage = nil
+            }
+        }
+        .sheet(isPresented: $showPINSetup) {
+            ParentPINSetupView(
+                pin: $pin,
+                confirmPIN: $confirmPIN,
+                errorMessage: $pinErrorMessage,
+                isConfirming: $isConfirmingPIN,
+                onPINSetup: {
+                    // PIN setup successfully
+                    showPINSetup = false
+                    sessionManager.enterParentMode(authenticated: true)
+                },
+                onDismiss: {
+                    showPINSetup = false
+                    pin = ""
+                    confirmPIN = ""
+                    isConfirmingPIN = false
+                }
+            )
+            .onDisappear {
+                // Clear PINs when sheet is dismissed
+                pin = ""
+                confirmPIN = ""
+                isConfirmingPIN = false
+                pinErrorMessage = nil
+            }
+        }
+        // DEBUG: Sheet for debug view
+        .sheet(isPresented: $showDebugView) {
+            DebugAuthView()
+        }
     }
 
     private func handleParentModeSelection() {
@@ -126,14 +198,63 @@ struct ModeSelectionView: View {
                 sessionManager.enterParentMode(authenticated: true)
 
             case .failure(let error):
-                errorMessage = error.localizedDescription
-                showError = true
+                switch error {
+                case .pinRequired:
+                    // Show PIN entry view
+                    showPINEntry = true
+                    pin = ""
+                    pinErrorMessage = nil
+                    
+                case .pinNotConfigured:
+                    // Show PIN setup view
+                    showPINSetup = true
+                    pin = ""
+                    confirmPIN = ""
+                    isConfirmingPIN = false
+                    pinErrorMessage = nil
+                    
+                default:
+                    errorMessage = error.localizedDescription
+                    showError = true
+                }
             }
         }
     }
 
     private func handleChildModeSelection() {
         sessionManager.enterChildMode()
+    }
+    
+    // MARK: - PIN Validation Methods
+    
+    private func validatePIN() {
+        authService.validateParentPIN(pin) { result in
+            switch result {
+            case .success:
+                showPINEntry = false
+                sessionManager.enterParentMode(authenticated: true)
+                
+            case .failure(let error):
+                pinErrorMessage = error.localizedDescription
+                pin = ""  // Clear the PIN field
+            }
+        }
+    }
+    
+    private func setupPIN() {
+        authService.setupParentPIN(pin) { result in
+            switch result {
+            case .success:
+                showPINSetup = false
+                sessionManager.enterParentMode(authenticated: true)
+                
+            case .failure(let error):
+                pinErrorMessage = error.localizedDescription
+                pin = ""  // Clear the PIN field
+                confirmPIN = ""
+                isConfirmingPIN = false
+            }
+        }
     }
 }
 

@@ -6,6 +6,7 @@ import ManagedSettings
 
 final class ScreenTimeRewardsTests: XCTestCase {
     
+    @MainActor
     func testAppUsageInitialization() {
         let appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
@@ -23,6 +24,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         XCTAssertNotNil(appUsage.lastAccess)
     }
     
+    @MainActor
     func testAppUsageSessionTracking() {
         var appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
@@ -57,6 +59,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         XCTAssertTrue(AppUsage.AppCategory.allCases.contains(.reward))
     }
     
+    @MainActor
     func testTimeFormatting() {
         let viewModel = AppUsageViewModel()
         
@@ -65,6 +68,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
         XCTAssertEqual(viewModel.formatTime(7265), "02:01:05")
     }
     
+    @MainActor
     func testTodayUsageCalculation() {
         var appUsage = AppUsage(
             bundleIdentifier: "com.test.app",
@@ -81,21 +85,24 @@ final class ScreenTimeRewardsTests: XCTestCase {
     }
     
     // New test to verify ScreenTimeService DeviceActivity integration
+    @MainActor
     func testScreenTimeServiceInitialization() {
         let screenTimeService = ScreenTimeService.shared
         XCTAssertNotNil(screenTimeService)
     }
     
-    func testScreenTimeServiceBootstrapSampleData() {
+    @MainActor
+    func testScreenTimeServiceBootstrapSampleData() async {
         let screenTimeService = ScreenTimeService.shared
-        screenTimeService.resetData()
+        await screenTimeService.resetData()
         screenTimeService.bootstrapSampleDataIfNeeded()
         let usages = screenTimeService.getAppUsages()
         XCTAssertFalse(usages.isEmpty)
         XCTAssertGreaterThan(screenTimeService.getTotalTime(for: .learning), 0)
     }
     
-    func testScreenTimeServiceStartStopMonitoring() {
+    @MainActor
+    func testScreenTimeServiceStartStopMonitoring() async {
         let screenTimeService = ScreenTimeService.shared
         let expectation = expectation(description: "Monitoring completion")
 
@@ -108,13 +115,14 @@ final class ScreenTimeRewardsTests: XCTestCase {
             }
         }
 
-        waitForExpectations(timeout: 2.0)
+        await fulfillment(of: [expectation], timeout: 2.0)
         XCTAssertTrue(screenTimeService.isMonitoring)
 
         screenTimeService.stopMonitoring()
         XCTAssertFalse(screenTimeService.isMonitoring)
     }
 
+    @MainActor
     func testScreenTimeServiceSimulatedEventRecordsUsage() {
         let screenTimeService = ScreenTimeService.shared
         screenTimeService.resetData()
@@ -137,6 +145,7 @@ final class ScreenTimeRewardsTests: XCTestCase {
     }
     
     // Test to verify that privacy-protected apps receive unique logical IDs
+    @MainActor
     func testUsagePersistenceGeneratesUniqueIDsForPrivacyProtectedApps() {
         let usagePersistence = UsagePersistence()
         
@@ -144,8 +153,8 @@ final class ScreenTimeRewardsTests: XCTestCase {
         usagePersistence.clearAll()
         
         // Create two tokens with the same display name but no bundle identifier (privacy-protected apps)
-        let token1 = ApplicationToken(rawValue: UUID().uuidString)
-        let token2 = ApplicationToken(rawValue: UUID().uuidString)
+        let token1 = ApplicationToken(from: UUID().uuidString)
+        let token2 = ApplicationToken(from: UUID().uuidString)
         
         let result1 = usagePersistence.resolveLogicalID(for: token1, bundleIdentifier: nil, displayName: "Privacy Protected App")
         let result2 = usagePersistence.resolveLogicalID(for: token2, bundleIdentifier: nil, displayName: "Privacy Protected App")
@@ -156,5 +165,70 @@ final class ScreenTimeRewardsTests: XCTestCase {
         // Verify that the same token always gets the same logical ID
         let result3 = usagePersistence.resolveLogicalID(for: token1, bundleIdentifier: nil, displayName: "Privacy Protected App")
         XCTAssertEqual(result1.logicalID, result3.logicalID, "Same token should always resolve to the same logical ID")
+    }
+    
+    // MARK: - Phase 4B Tests
+    
+    // Test ParentPINService functionality
+    func testParentPINServiceWeakPINDetection() {
+        // Create a temporary instance for testing
+        let pinService = ParentPINService()
+        
+        // Test weak PINs that should be rejected
+        XCTAssertTrue(pinService.isWeakPIN("1234"), "Sequential PIN should be weak")
+        XCTAssertTrue(pinService.isWeakPIN("0000"), "Repeated digits PIN should be weak")
+        XCTAssertTrue(pinService.isWeakPIN("1111"), "Repeated digits PIN should be weak")
+        XCTAssertTrue(pinService.isWeakPIN("2345"), "Sequential PIN should be weak")
+        XCTAssertTrue(pinService.isWeakPIN("5432"), "Reverse sequential PIN should be weak")
+        
+        // Test strong PINs that should be accepted
+        XCTAssertFalse(pinService.isWeakPIN("1235"), "Non-sequential PIN should not be weak")
+        XCTAssertFalse(pinService.isWeakPIN("5678"), "Non-sequential PIN should not be weak")
+        XCTAssertFalse(pinService.isWeakPIN("1357"), "Non-sequential PIN should not be weak")
+    }
+    
+    func testParentPINServicePINValidation() {
+        // Create a temporary instance for testing
+        let pinService = ParentPINService()
+        
+        // Test PIN length validation
+        switch pinService.setParentPIN("123") {
+        case .success:
+            XCTFail("PIN with less than 4 digits should be rejected")
+        case .failure(let error):
+            XCTAssertEqual(error, PINError.invalidLength, "Should return invalid length error")
+        }
+        
+        switch pinService.setParentPIN("12345") {
+        case .success:
+            XCTFail("PIN with more than 4 digits should be rejected")
+        case .failure(let error):
+            XCTAssertEqual(error, PINError.invalidLength, "Should return invalid length error")
+        }
+        
+        // Test weak PIN rejection
+        switch pinService.setParentPIN("1234") {
+        case .success:
+            XCTFail("Weak PIN should be rejected")
+        case .failure(let error):
+            XCTAssertEqual(error, PINError.weakPIN, "Should return weak PIN error")
+        }
+        
+        // Test valid PIN acceptance
+        switch pinService.setParentPIN("1235") {
+        case .success:
+            // PIN should be accepted
+            XCTAssertTrue(pinService.validatePIN("1235"), "Valid PIN should be accepted")
+            XCTAssertFalse(pinService.validatePIN("5432"), "Invalid PIN should be rejected")
+        case .failure(let error):
+            XCTFail("Valid PIN should be accepted, but got error: \(error)")
+        }
+    }
+    
+    // Test ParentalApprovalService (basic functionality)
+    @MainActor
+    func testParentalApprovalServiceInitialization() {
+        let approvalService = ParentalApprovalService()
+        XCTAssertNotNil(approvalService, "ParentalApprovalService should be initialized")
     }
 }

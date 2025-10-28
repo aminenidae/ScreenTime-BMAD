@@ -2,20 +2,40 @@ import SwiftUI
 
 struct MainTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Receive shared view model
+    var isParentMode: Bool = false  // Add parameter to indicate parent mode
+    @EnvironmentObject var sessionManager: SessionManager  // Add session manager
     
     var body: some View {
-        TabView {
-            RewardsTabView()
-                .tabItem {
-                    Label("Rewards", systemImage: "gamecontroller.fill")
-                }
+        NavigationView {
+            TabView {
+                RewardsTabView()
+                    .tabItem {
+                        Label("Rewards", systemImage: "gamecontroller.fill")
+                    }
+                    .navigationTitle("Rewards")
 
-            LearningTabView()
-                .tabItem {
-                    Label("Learning", systemImage: "book.fill")
+                LearningTabView()
+                    .tabItem {
+                        Label("Learning", systemImage: "book.fill")
+                    }
+                    .navigationTitle("Learning")
+            }
+            .environmentObject(viewModel)  // Task 0: Pass shared view model to tabs
+            .navigationViewStyle(.stack)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                // Conditionally show Exit Parent Mode button
+                if isParentMode {
+                    ToolbarItem(placement: .navigationBarTrailing) {
+                        Button("Exit Parent Mode") {
+                            sessionManager.exitToSelection()
+                        }
+                        .foregroundColor(.red)
+                    }
                 }
+            }
         }
-        .environmentObject(viewModel)  // Task 0: Pass shared view model to tabs
+        .navigationViewStyle(.stack)
         .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
             // Task 0: Consolidated sheet based on activePickerContext
             Group {
@@ -65,5 +85,6 @@ struct MainTabView_Previews: PreviewProvider {
     static var previews: some View {
         MainTabView()
             .environmentObject(AppUsageViewModel())  // Provide a view model for previews
+            .environmentObject(SessionManager.shared)  // Provide a session manager for previews
     }
 }

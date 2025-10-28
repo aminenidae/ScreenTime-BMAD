@@ -7,97 +7,92 @@ struct RewardsTabView: View {
     @State private var unlockMinutes: [ApplicationToken: Int] = [:]  // Track minutes for each app
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    // Header info with points display
-                    VStack(spacing: 8) {
-                        Text("Reward Apps")
-                            .font(.title2)
-                            .fontWeight(.bold)
+        ScrollView {
+            VStack(spacing: 16) {
+                // Header info with points display
+                VStack(spacing: 8) {
+                    Text("Reward Apps")
+                        .font(.title2)
+                        .fontWeight(.bold)
 
-                        Text("Apps that cost points to use")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
+                    Text("Apps that cost points to use")
+                        .font(.subheadline)
+                        .foregroundColor(.secondary)
 
-                        // Points display
-                        HStack(spacing: 20) {
-                            VStack {
-                                Text("\(viewModel.availableLearningPoints)")
-                                    .font(.title)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.green)
-                                Text("Available Points")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
-
-                            VStack {
-                                Text("\(viewModel.reservedLearningPoints)")
-                                    .font(.title)
-                                    .fontWeight(.bold)
-                                    .foregroundColor(.orange)
-                                Text("Reserved Points")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                    // Points display
+                    HStack(spacing: 20) {
+                        VStack {
+                            Text("\(viewModel.availableLearningPoints)")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.green)
+                            Text("Available Points")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
                         }
-                        .padding()
-                        .background(Color(UIColor.secondarySystemBackground))
-                        .cornerRadius(12)
+
+                        VStack {
+                            Text("\(viewModel.reservedLearningPoints)")
+                                .font(.title)
+                                .fontWeight(.bold)
+                                .foregroundColor(.orange)
+                            Text("Reserved Points")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
                     }
                     .padding()
+                    .background(Color(UIColor.secondarySystemBackground))
+                    .cornerRadius(12)
+                }
+                .padding()
 
-                    rewardAppsSection
+                rewardAppsSection
 
-                    // Add reward apps button
+                // Add reward apps button
+                Button(action: {
+                    // FIX: Ensure picker state is clean before presenting
+                    viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
+                    // HARDENING FIX: Use retry logic for picker presentation with reward context
+                    viewModel.presentPickerWithRetry(for: .reward)
+                }) {
+                    HStack {
+                        Image(systemName: "plus.circle.fill")
+                        Text(viewModel.rewardSnapshots.isEmpty ? "Select Reward Apps" : "Add More Apps")
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding()
+                    .background(Color.orange)
+                    .foregroundColor(.white)
+                    .cornerRadius(10)
+                }
+                .padding(.horizontal)
+
+                // View all reward apps button - only show if there are reward apps
+                if !viewModel.rewardSnapshots.isEmpty {
                     Button(action: {
-                        // FIX: Ensure picker state is clean before presenting
-                        viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
-                        // HARDENING FIX: Use retry logic for picker presentation with reward context
-                        viewModel.presentPickerWithRetry(for: .reward)
+                        viewModel.showAllRewardApps()
                     }) {
                         HStack {
-                            Image(systemName: "plus.circle.fill")
-                            Text(viewModel.rewardSnapshots.isEmpty ? "Select Reward Apps" : "Add More Apps")
+                            Image(systemName: "list.bullet.rectangle")
+                            Text("View All Reward Apps")
                         }
                         .frame(maxWidth: .infinity)
                         .padding()
-                        .background(Color.orange)
+                        .background(Color.orange.opacity(0.7))
                         .foregroundColor(.white)
                         .cornerRadius(10)
                     }
                     .padding(.horizontal)
-
-                    // View all reward apps button - only show if there are reward apps
-                    if !viewModel.rewardSnapshots.isEmpty {
-                        Button(action: {
-                            viewModel.showAllRewardApps()
-                        }) {
-                            HStack {
-                                Image(systemName: "list.bullet.rectangle")
-                                Text("View All Reward Apps")
-                            }
-                            .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.orange.opacity(0.7))
-                            .foregroundColor(.white)
-                            .cornerRadius(10)
-                        }
-                        .padding(.horizontal)
-                    }
-
-                    Spacer()
                 }
-                .padding(.vertical)
+
+                Spacer()
             }
-            .refreshable {
-                await viewModel.refresh()
-            }
-            .navigationTitle("Rewards")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding(.vertical)
         }
-        .navigationViewStyle(.stack)
+        .refreshable {
+            await viewModel.refresh()
+        }
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
         .onChange(of: viewModel.familySelection) { _ in
             viewModel.onPickerSelectionChange()

@@ -10,25 +10,20 @@ struct LearningTabView: View {
     }
 
     var body: some View {
-        NavigationView {
-            ScrollView {
-                VStack(spacing: 16) {
-                    headerSection
-                    totalPointsCard
-                    learningAppsSection
-                    addLearningAppsButton
-                    viewAllLearningAppsButton
-                    Spacer()
-                }
-                .padding(.vertical)
+        ScrollView {
+            VStack(spacing: 16) {
+                headerSection
+                totalPointsCard
+                learningAppsSection
+                addLearningAppsButton
+                viewAllLearningAppsButton
+                Spacer()
             }
-            .refreshable {
-                await viewModel.refresh()
-            }
-            .navigationTitle("Learning")
-            .navigationBarTitleDisplayMode(.inline)
+            .padding(.vertical)
         }
-        .navigationViewStyle(.stack)
+        .refreshable {
+            await viewModel.refresh()
+        }
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
         .onChange(of: viewModel.familySelection) { _ in
             viewModel.onPickerSelectionChange()
