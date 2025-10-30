@@ -63,6 +63,41 @@ class OfflineQueueManager: ObservableObject {
         updateQueueCount()
     }
 
+    /// Process queue with enhanced retry logic and exponential backoff
+    func processQueueWithRetry() async {
+        let context = persistenceController.container.viewContext
+        let fetchRequest: NSFetchRequest<SyncQueueItem> = SyncQueueItem.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "status == %@", "queued")
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+
+        guard let items = try? context.fetch(fetchRequest), !items.isEmpty else {
+            return
+        }
+
+        print("[Queue] Processing \(items.count) items with retry logic")
+
+        for item in items {
+            item.status = "processing"
+            item.lastAttempt = Date()
+
+            do {
+                try await processItemWithExponentialBackoff(item)
+                context.delete(item)  // Success - remove from queue
+            } catch {
+                item.retryCount += 1
+                item.status = item.retryCount >= maxRetries ? "failed" : "queued"
+                
+                // Calculate exponential backoff delay
+                let delay = pow(2.0, Double(item.retryCount)) * 1000 // milliseconds
+                print("[Queue] Item failed (attempt \(item.retryCount)): \(error.localizedDescription). Retry in \(Int(delay))ms")
+            }
+
+            try? context.save()
+        }
+
+        updateQueueCount()
+    }
+
     private func processItem(_ item: SyncQueueItem) async throws {
         guard let payloadJSON = item.payloadJSON,
               let payloadData = Data(base64Encoded: payloadJSON),
@@ -91,6 +126,19 @@ class OfflineQueueManager: ObservableObject {
         default:
             throw NSError(domain: "Queue", code: -1, userInfo: [NSLocalizedDescriptionKey: "Unknown operation"])
         }
+    }
+
+    /// Process item with exponential backoff
+    private func processItemWithExponentialBackoff(_ item: SyncQueueItem) async throws {
+        // Calculate delay based on retry count (exponential backoff)
+        if item.retryCount > 0 {
+            let delay = pow(2.0, Double(item.retryCount)) * 1000 // milliseconds
+            print("[Queue] Waiting \(Int(delay))ms before retry \(item.retryCount)")
+            try await Task.sleep(nanoseconds: UInt64(delay * 1_000_000)) // Convert to nanoseconds
+        }
+        
+        // Process the item normally
+        try await processItem(item)
     }
 
     private func updateQueueCount() {

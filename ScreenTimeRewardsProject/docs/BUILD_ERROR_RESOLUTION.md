@@ -1,4 +1,38 @@
 # Build Error Resolution
+## Function Redeclaration Errors
+
+**Date:** October 28, 2025
+**Issue:** Invalid redeclaration of functions in ScreenTimeService extensions
+
+## Problem Description
+During the build process, the following errors were encountered:
+- Invalid redeclaration of 'assignCategory(_:to:)'
+- Invalid redeclaration of 'assignRewardPoints(_:to:)'
+- Invalid redeclaration of 'isAppBlocked'
+
+## Root Cause
+The functions `assignCategory`, `assignRewardPoints`, and `isAppBlocked` were declared in two places:
+1. In `ScreenTimeRewards/Services/ScreenTimeService.swift` in a CloudKit Integration Helpers extension (lines 1796, 1808, and 1839)
+2. In `ScreenTimeRewards/Services/ScreenTimeService+CloudKit.swift` as duplicate declarations
+
+This caused compilation errors due to function redeclaration.
+
+## Solution
+Removed the duplicate function declarations from `ScreenTimeRewards/Services/ScreenTimeService+CloudKit.swift` since these functions already exist in the main `ScreenTimeService.swift` file and are accessible to the CloudKit extension.
+
+The CloudKit extension can directly use these public methods without redeclaring them.
+
+## Verification
+After removing the duplicate declarations, the project builds successfully without any redeclaration errors.
+
+## Prevention
+To prevent similar issues in the future:
+1. Check for existing method declarations before adding new ones
+2. Use grep or search tools to verify if methods already exist
+3. Maintain a clear separation of concerns between different extensions
+4. Document public APIs that are intended for cross-extension use
+
+# Build Error Resolution
 ## Function Name Collision Fix
 
 **Date:** October 28, 2025

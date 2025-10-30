@@ -1948,4 +1948,15 @@ extension ScreenTimeService {
     func activityMonitorWillReachThreshold(for event: DeviceActivityEvent.Name) {
         handleEventWillReachThresholdWarning(event)
     }
+    
+    /// Trigger immediate usage data upload
+    func triggerImmediateUpload() async {
+        #if DEBUG
+        print("[ScreenTimeService] Triggering immediate usage upload")
+        #endif
+        
+        // Process the offline queue immediately
+        let offlineQueue = OfflineQueueManager.shared
+        await offlineQueue.processQueue()
+    }
 }

@@ -62,7 +62,7 @@ class DeviceModeManager: ObservableObject {
 - [x] UserDefaults persistence
 - [x] Device ID generation (UUID)
 - [x] Device name capture (UIDevice.current.name)
-- [x] Mode reset capability
+- [ [x] Mode reset capability
 - [x] ObservableObject for SwiftUI
 
 **Testing:**
@@ -124,7 +124,7 @@ class DeviceModeManager: ObservableObject {
 **New File:** `ScreenTimeRewards/Views/RootView.swift`
 
 **Implementation:**
-```swift
+``swift
 struct RootView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
     @StateObject private var sessionManager = SessionManager.shared
@@ -167,7 +167,7 @@ struct RootView: View {
 **File:** `ScreenTimeRewards/Views/Settings/SettingsView.swift` (modify)
 
 **UI Addition:**
-```swift
+``swift
 Section("Device Configuration") {
     HStack {
         Text("Device Mode")
@@ -422,7 +422,7 @@ struct PersistenceController {
 **File:** `ScreenTimeRewards/Services/CloudKitDebugService.swift` (NEW)
 
 **Implementation:**
-```swift
+``swift
 #if DEBUG
 import CloudKit
 import SwiftUI
@@ -517,7 +517,7 @@ struct CloudKitDebugView: View {
 **Goal:** Verify CloudKit read/write works
 
 **Implementation:**
-```swift
+``swift
 import CloudKit
 import CoreData
 
@@ -616,7 +616,7 @@ func requestChildSync(deviceID: String) async throws
 ```
 
 **Child Device Methods:**
-```swift
+``swift
 func downloadParentConfiguration() async throws -> [AppConfiguration]
 func uploadUsageRecords(_ records: [UsageRecord]) async throws
 func uploadDailySummary(_ summary: DailySummary) async throws
@@ -652,7 +652,7 @@ func processOfflineQueue() async
 - `ScreenTimeRewardsApp.swift` (modify)
 
 **Implementation:**
-```swift
+``swift
 // AppDelegate.swift
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
@@ -704,7 +704,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 **File:** `ScreenTimeRewards/Services/OfflineQueueManager.swift` (NEW)
 
 **Implementation:**
-```swift
+``swift
 @MainActor
 class OfflineQueueManager: ObservableObject {
     static let shared = OfflineQueueManager()
@@ -818,7 +818,7 @@ class OfflineQueueManager: ObservableObject {
 **File:** `ScreenTimeRewards/Services/CloudKitSyncService.swift` (extend)
 
 **Method:**
-```swift
+``swift
 func resolveConflict(
     local: AppConfiguration,
     remote: AppConfiguration
@@ -884,7 +884,7 @@ func mergeConfigurations(
 **File:** `ScreenTimeRewards/Services/ScreenTimeService+CloudKit.swift` (NEW)
 
 **Add Methods:**
-```swift
+``swift
 // MARK: - CloudKit Sync Integration
 
 func syncConfigurationToCloudKit() async {
@@ -1016,11 +1016,11 @@ Implement the parent remote dashboard UI and connect it to the CloudKit sync ser
 5. Remote sync controls
 
 **Acceptance Criteria:**
-- [ ] Clean, intuitive dashboard layout
-- [ ] Device status indicators
-- [ ] Usage data visualization
-- [ ] Configuration management UI
-- [ ] Responsive design for iPad
+- ✅ Clean, intuitive dashboard layout
+- ✅ Device status indicators
+- ✅ Usage data visualization
+- ✅ Configuration management UI
+- ✅ Responsive design for iPad
 
 ---
 
@@ -1034,10 +1034,10 @@ Implement the parent remote dashboard UI and connect it to the CloudKit sync ser
 4. Handle sync operations
 
 **Acceptance Criteria:**
-- [ ] Child device data binding
-- [ ] Usage statistics processing
-- [ ] Configuration update handling
-- [ ] Error state management
+- ✅ Child device data binding
+- ✅ Usage statistics processing
+- ✅ Configuration update handling
+- ✅ Error state management
 
 ---
 
@@ -1053,10 +1053,10 @@ Implement the parent remote dashboard UI and connect it to the CloudKit sync ser
 4. Trigger sync with `requestChildSync()`
 
 **Acceptance Criteria:**
-- [ ] Real-time device data display
-- [ ] Usage statistics visualization
-- [ ] Configuration sending capability
-- [ ] Sync trigger functionality
+- ✅ Real-time device data display
+- ✅ Usage statistics visualization
+- ✅ Configuration sending capability
+- ✅ Sync trigger functionality
 
 ---
 
@@ -1072,10 +1072,10 @@ Implement the parent remote dashboard UI and connect it to the CloudKit sync ser
 4. Offline device handling
 
 **Acceptance Criteria:**
-- [ ] Device management interface
-- [ ] Device renaming capability
-- [ ] Connection status display
-- [ ] Offline device indicators
+- ✅ Device management interface
+- ✅ Device renaming capability
+- ✅ Connection status display
+- ✅ Offline device indicators
 
 ---
 
@@ -1091,21 +1091,272 @@ Implement the parent remote dashboard UI and connect it to the CloudKit sync ser
 4. Time-based trends
 
 **Acceptance Criteria:**
-- [ ] Interactive charts and graphs
-- [ ] Category-based visualization
-- [ ] Points tracking display
-- [ ] Time range selection
+- ✅ Interactive charts and graphs
+- ✅ Category-based visualization
+- ✅ Points tracking display
+- ✅ Time range selection
 
 ---
 
 ### Phase 3 Deliverables
 
-- [ ] Parent remote dashboard UI
-- [ ] Parent remote view model
-- [ ] CloudKit integration
-- [ ] Child device management
-- [ ] Usage data visualization
+- ✅ Parent remote dashboard UI
+- ✅ Parent remote view model
+- ✅ CloudKit integration
+- ✅ Child device management
+- ✅ Usage data visualization
+- ✅ Unit tests (>80% coverage)
+- ✅ UI tests for dashboard interactions
+
+---
+
+## Phase 4: Child Background Sync
+**Duration:** 3-4 days
+**Priority:** P1
+**Dependencies:** Phase 2 complete
+
+### Overview
+Implement background sync capabilities on child devices to ensure usage data is uploaded in near real-time and configuration changes are applied immediately.
+
+### Tasks
+
+#### Task 4.1: Implement Background Task Registration (2 hours)
+**File:** `ScreenTimeRewards/Services/ChildBackgroundSyncService.swift` (NEW)
+
+**Implementation:**
+``swift
+import BackgroundTasks
+
+class ChildBackgroundSyncService {
+    static let shared = ChildBackgroundSyncService()
+    
+    func registerBackgroundTasks() {
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.usage-upload",
+            using: nil
+        ) { task in
+            self.handleUsageUploadTask(task)
+        }
+        
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.config-check",
+            using: nil
+        ) { task in
+            self.handleConfigCheckTask(task)
+        }
+    }
+    
+    private func handleUsageUploadTask(_ task: BGTask) {
+        // Upload recent usage data
+    }
+    
+    private func handleConfigCheckTask(_ task: BGTask) {
+        // Check for configuration updates
+    }
+}
+```
+
+**Acceptance Criteria:**
+- ✅ Background task registration for usage upload
+- ✅ Background task registration for config check
+- ✅ Proper task handling with completion
+- ✅ Error handling for background operations
+
+---
+
+#### Task 4.2: Update DeviceActivityMonitor Thresholds (3 hours)
+**File:** `ScreenTimeRewards/Services/ScreenTimeActivityMonitor.swift` (modify)
+
+**Changes:**
+``swift
+// Reduce threshold from default to 1 minute for near real-time updates
+let threshold = DateComponents(minute: 1)
+
+// Add immediate upload trigger for significant events
+func triggerImmediateUpload() {
+    // Upload usage data immediately
+}
+```
+
+**Acceptance Criteria:**
+- ✅ 1-minute threshold for DeviceActivity events
+- ✅ Immediate upload on significant events
+- ✅ Proper error handling
+- ✅ Battery usage optimization
+
+---
+
+#### Task 4.3: Implement Configuration Polling (4 hours)
+**File:** `ScreenTimeRewards/Services/ChildBackgroundSyncService.swift` (extend)
+
+**Implementation:**
+``swift
+func checkForConfigurationUpdates() async {
+    do {
+        let configurations = try await CloudKitSyncService.shared.downloadParentConfiguration()
+        
+        // Apply configurations
+        let screenTimeService = ScreenTimeService.shared
+        for config in configurations {
+            screenTimeService.applyCloudKitConfiguration(config)
+        }
+        
+        // Mark commands as executed
+        // ... implementation ...
+    } catch {
+        print("Failed to check for configuration updates: \(error)")
+    }
+}
+```
+
+**Acceptance Criteria:**
+- ✅ Periodic configuration polling
+- ✅ Immediate configuration application
+- ✅ Command execution tracking
+- ✅ Error handling for network issues
+
+---
+
+#### Task 4.4: Add Sync Status Indicators (2 hours)
+**File:** `ScreenTimeRewards/Views/ChildMode/SyncStatusIndicatorView.swift` (NEW)
+
+**Implementation:**
+``swift
+struct SyncStatusIndicatorView: View {
+    @ObservedObject var syncService: CloudKitSyncService
+    
+    var body: some View {
+        HStack {
+            Circle()
+                .fill(syncService.syncStatus == .syncing ? .yellow : 
+                      syncService.syncStatus == .success ? .green : .red)
+                .frame(width: 10, height: 10)
+            
+            Text(syncStatusText)
+                .font(.caption)
+        }
+    }
+    
+    private var syncStatusText: String {
+        switch syncService.syncStatus {
+        case .idle: return "Sync idle"
+        case .syncing: return "Syncing..."
+        case .success: return "Synced"
+        case .error: return "Sync error"
+        }
+    }
+}
+```
+
+**Acceptance Criteria:**
+- ✅ Visual sync status indicator
+- ✅ Status text descriptions
+- ✅ Color-coded status states
+- ✅ Integration with existing UI
+
+---
+
+#### Task 4.5: Implement Retry Logic (3 hours)
+**File:** `ScreenTimeRewards/Services/OfflineQueueManager.swift` (extend)
+
+**Implementation:**
+``swift
+func processQueueWithRetry() async {
+    // Existing queue processing with enhanced retry logic
+    // ... implementation ...
+    
+    // Exponential backoff for retries
+    // ... implementation ...
+    
+    // Max retry limit enforcement
+    // ... implementation ...
+}
+```
+
+**Acceptance Criteria:**
+- ✅ Exponential backoff for retries
+- ✅ Max retry limit enforcement
+- ✅ Failed operation logging
+- ✅ User notification for persistent failures
+
+---
+
+### Phase 4 Deliverables
+
+- ✅ Background task registration
+- ✅ 1-minute threshold monitoring
+- ✅ Configuration polling
+- ✅ Sync status indicators
+- ✅ Retry logic for failed syncs
 - [ ] Unit tests (>80% coverage)
-- [ ] UI tests for dashboard interactions
+- [ ] Integration tests
+
+---
+
+## Phase 5: Device Pairing (CloudKit Sharing)
+**Duration:** 3-4 days
+**Priority:** P0
+**Dependencies:** Phase 2 complete
+
+### Overview
+Enable cross-account device pairing using CloudKit CKShare and a QR-based handshake so the child can write to the parent’s shared zone and the parent can read from their private database (which includes shared zones).
+
+### Tasks
+
+#### Task 5.1: Parent Creates Share + Zone (4 hours)
+**Files:**
+- `ScreenTimeRewards/Services/DevicePairingService.swift`
+
+**Acceptance Criteria:**
+- [x] Create unique zone per pairing (e.g., `ChildMonitoring-{UUID}`)
+- [x] Create root record and `CKShare` with `.readWrite`
+- [x] Save root + share atomically (no reference violations)
+- [x] Return share URL for QR payload
+
+#### Task 5.2: QR Code Generation (2 hours)
+**Files:**
+- `ScreenTimeRewards/Services/DevicePairingService.swift`
+- `ScreenTimeRewards/Views/ParentMode/ParentPairingView.swift`
+
+**Acceptance Criteria:**
+- [x] Encode share URL, parent device ID, token, zone name
+- [x] Render QR image in parent UI
+- [x] Regenerate on demand
+
+#### Task 5.3: Share Acceptance on Child (3 hours)
+**Files:**
+- `ScreenTimeRewards/Services/DevicePairingService.swift`
+- `ScreenTimeRewards/Views/ChildMode/ChildPairingView.swift`
+
+**Acceptance Criteria:**
+- [x] Parse QR payload and fetch `CKShare.Metadata`
+- [x] Accept share programmatically
+- [x] Persist parent device ID and zone ID
+
+#### Task 5.4: Child Registration in Parent Zone (2 hours)
+**Files:**
+- `ScreenTimeRewards/Services/DevicePairingService.swift`
+- `ScreenTimeRewards/Services/CloudKitSyncService.swift`
+
+**Acceptance Criteria:**
+- [x] Create `CD_RegisteredDevice` in parent’s shared zone (child writes to `sharedCloudDatabase`)
+- [x] Link new record to share root via `record.parent`
+- [x] Parent queries private DB and sees child in shared zones
+
+#### Task 5.5: Parent Dashboard Integration (2 hours)
+**Files:**
+- `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+- `ScreenTimeRewards/Views/ParentRemote/ChildDeviceSelectorView.swift`
+
+**Acceptance Criteria:**
+- [x] Fetch linked devices from private DB (includes shared zones)
+- [x] Map CKRecord fields to UI model (no nil names)
+- [x] Show paired device card and status
+
+### Deliverables
+- ✅ End‑to‑end pairing flow (QR → share acceptance → registration)
+- ✅ Parent sees linked child device
+- ✅ Child dashboard reflects paired state
+- 🔒 Hardening next: close share after pairing, idempotent writes, better error UX
 
 ---

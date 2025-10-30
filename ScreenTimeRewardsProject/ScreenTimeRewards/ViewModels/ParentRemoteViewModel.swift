@@ -12,36 +12,83 @@ class ParentRemoteViewModel: ObservableObject {
     @Published var appConfigurations: [AppConfiguration] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    
+
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
-    
+    private var cancellables = Set<AnyCancellable>()
+
     init() {
+        setupCloudKitNotifications()
         Task {
             await loadLinkedChildDevices()
         }
     }
+
+    deinit {
+        cancellables.removeAll()
+    }
+
+    /// Setup CloudKit notifications to auto-refresh when data syncs
+    private func setupCloudKitNotifications() {
+        NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)
+            .sink { [weak self] notification in
+                guard let self = self,
+                      let event = notification.userInfo?["event"] as? NSPersistentCloudKitContainer.Event else {
+                    return
+                }
+
+                #if DEBUG
+                print("[ParentRemoteViewModel] CloudKit event: \(event)")
+                #endif
+
+                // Auto-refresh when import completes successfully
+                if event.type == .import && event.succeeded {
+                    #if DEBUG
+                    print("[ParentRemoteViewModel] CloudKit import succeeded, refreshing child devices...")
+                    #endif
+
+                    Task { @MainActor in
+                        await self.loadLinkedChildDevices()
+                    }
+                }
+            }
+            .store(in: &cancellables)
+    }
     
     /// Load all linked child devices for the parent
     func loadLinkedChildDevices() async {
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Loading Linked Child Devices =====")
+        #endif
+
         isLoading = true
         errorMessage = nil
-        
+
         do {
             linkedChildDevices = try await cloudKitService.fetchLinkedChildDevices()
-            
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Loaded \(linkedChildDevices.count) child devices")
+            #endif
+
             // If no device is selected and we have devices, select the first one
             if selectedChildDevice == nil, let firstDevice = linkedChildDevices.first {
+                #if DEBUG
+                print("[ParentRemoteViewModel] Auto-selecting first device: \(firstDevice.deviceID ?? "nil")")
+                #endif
                 selectedChildDevice = firstDevice
                 await loadChildData(for: firstDevice)
             }
         } catch let error as CKError {
+            #if DEBUG
+            print("[ParentRemoteViewModel] CloudKit error: \(error)")
+            #endif
             handleCloudKitError(error)
         } catch {
             errorMessage = "Failed to load child devices: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error loading child devices: \(error)")
         }
-        
+
         isLoading = false
     }
     

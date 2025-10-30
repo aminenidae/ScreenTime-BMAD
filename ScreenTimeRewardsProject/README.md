@@ -1,6 +1,6 @@
 # ScreenTime Rewards
 
-A SwiftUI-based iOS application that demonstrates Screen Time API integration for monitoring app usage and implementing reward mechanisms.
+A SwiftUI-based iOS application that demonstrates Screen Time API integration for monitoring app usage and implementing reward mechanisms with CloudKit synchronization between parent and child devices.
 
 ## Setup & Configuration
 
@@ -9,18 +9,22 @@ A SwiftUI-based iOS application that demonstrates Screen Time API integration fo
    - `DeviceActivity.framework`
    - `FamilyControls.framework`
    - `ManagedSettings.framework`
+   - `CloudKit.framework`
 3. Under **Signing & Capabilities**, ensure the `Family Controls` capability and **App Groups** (e.g. `group.com.screentimerewards.shared`) are enabled for both the app and the **ScreenTimeActivityExtension** target.
-4. Sign the new app extension target (`ScreenTimeActivityExtension`) with the same team.
-5. Set the deployment target to **iOS 15.0** or later.
-6. Build and run on a physical device (Screen Time APIs do not function in Simulator).
+4. Enable **iCloud** capability with CloudKit container (e.g. `iCloud.com.screentimerewards`)
+5. Sign the new app extension target (`ScreenTimeActivityExtension`) with the same team.
+6. Set the deployment target to **iOS 16.6** or later.
+7. Build and run on a physical device (Screen Time APIs do not function in Simulator).
 
 ## Key Features
 
 - Configurable monitoring of apps selected via the Family Activity picker
 - Per-category threshold controls that determine when usage events register
-- Real-time updates of educational vs. entertainment totals (demo data until the DeviceActivity extension is completed)
+- Real-time updates of educational vs. entertainment totals
 - Start/Stop monitoring controls and data reset
-- **Experimental category expansion for "All Apps" edge case resolution** (DEBUG only)
+- **Parent-Child device synchronization via CloudKit**
+- **Automatic background sync for usage data and configurations**
+- **Remote monitoring dashboard for parents**
 
 ## Implementation Details
 
@@ -38,7 +42,23 @@ Handles Screen Time API integration:
 - Responds to DeviceActivity events through a custom monitor bridge
 - Broadcasts usage updates via NotificationCenter
 - Provides debug helpers (`configureForTesting`, `simulateEvent`) for unit tests
-- **Includes experimental `expandCategoryTokens` method for category expansion** (DEBUG only)
+- **Integrates with CloudKitSyncService for remote configuration**
+
+### CloudKitSyncService
+Manages CloudKit synchronization between parent and child devices:
+- Device registration and pairing
+- Parent configuration distribution to child devices
+- Child usage data upload to parent devices
+- Conflict resolution with parent priority
+- Offline queue management for network interruptions
+
+### ChildBackgroundSyncService
+Handles background synchronization for child devices:
+- Automatic background task scheduling
+- Usage data upload every 30 minutes
+- Configuration updates every 15 minutes
+- Immediate sync capability
+- Visual sync status indicator
 
 ### AppUsageViewModel
 - Maintains monitoring state, picker selections, and threshold values
@@ -52,13 +72,6 @@ Handles Screen Time API integration:
 - Allows per-category threshold adjustment with steppers
 - Shows a live list of recorded usage sessions
 
-### ExperimentalCategoryExpansionView (DEBUG only)
-- **Isolated experimental environment to test category expansion without affecting production flows**
-- Button to trigger FamilyActivityPicker
-- Display area for before/after state (category tokens → expanded apps)
-- User confirmation flow for category selections
-- Comprehensive logging for debugging
-
 ## Testing
 
 ### Unit Tests
@@ -67,14 +80,17 @@ Execute with **Product ▸ Test** (⌘U). Suites cover:
 - View-model formatting and reset behaviour
 - Service configuration/monitoring flows (including simulated DeviceActivity events)
 - Framework import verification
+- **CloudKitSyncService functionality**
+- **ChildBackgroundSyncService operations**
 
 ### On-Device Manual Testing
-1. Build & run on an iOS 15+ physical device with Screen Time enabled and the extension installed (look for the "ScreenTimeActivityExtension" bundle under Settings ▶ Screen Time ▶ App & Website Activity).
+1. Build & run on an iOS 16.6+ physical device with Screen Time enabled and the extension installed (look for the "ScreenTimeActivityExtension" bundle under Settings ▶ Screen Time ▶ App & Website Activity).
 2. Tap the slider icon to open the Family Activity picker; select educational/entertainment apps.
 3. Adjust thresholds (1–120 minutes) and tap **Apply Monitoring Configuration**.
 4. Start/Stop monitoring and confirm status changes and configuration persistence.
 5. Use the device normally; when thresholds are reached the extension posts events and the totals update in real time (watch the category tiles and app list).
-6. Use the `Reset Data` button between runs to clear accumulated sessions.
+6. **Test parent-child synchronization by configuring one device as parent and another as child**
+7. **Verify background sync operations continue when app is not running**
 
 For command-line testing/CI:
 ```bash
@@ -85,19 +101,6 @@ xcodebuild test \
   -destination 'platform=iOS,id=<device-udid>'
 ```
 Replace `<device-udid>` with the identifier from `xcrun xctrace list devices`.
-
-### Experimental Testing (DEBUG only)
-1. Build & run on an iOS 15+ physical device with DEBUG configuration
-2. Navigate to the "🔬 Experimental" tab
-3. Tap "Select Apps/Categories" to open the FamilyActivityPicker
-4. Test various selection scenarios:
-   - Individual app selection
-   - "All Apps" selection
-   - Single category selection
-   - Multiple category selection
-   - Mixed selection (apps + categories)
-5. Observe the confirmation flow for category selections
-6. Verify proper handling of cancel and confirm actions
 
 ## Deployment Scripts
 
@@ -120,29 +123,44 @@ cd ScreenTimeRewardsProject
 4. **Build errors about ScreenTime frameworks**: ensure you are building for a physical device on iOS 15+ and that all required frameworks are linked.
 5. **Extension builds but data doesn't change**: confirm both targets share the same App Group (`group.com.screentimerewards.shared`) and reinstall the app after toggling entitlements.
 6. **Installation Error 3002**: This typically indicates provisioning profile or entitlements issues. Run `./fix_installation_issues.sh` for detailed steps to resolve.
+7. **CloudKit sync issues**: Ensure both devices are signed into the same iCloud account and that the CloudKit container is properly configured.
 
 ## Documentation
 
 ### Core Documentation
 1. `SCREEN_TIME_REWARDS_TECHNICAL_DOCUMENTATION.md` - Comprehensive technical guide
-2. `IMPLEMENTATION_PROGRESS_SUMMARY.md` - Progress summary with features implemented
-3. `PATH1_TESTING_GUIDE.md` - Original testing guide
-4. `IMPLEMENTATION_OPTIONS.md` - Alternative implementation paths
+2. `DEVELOPMENT_PROGRESS.md` - Progress summary with features implemented
+3. `TESTING_PLAN.md` - Comprehensive testing guide
+4. `DEV_ROADMAP_PHASE_BY_PHASE.md` - Detailed roadmap by phase
 
-### Phase 1 Documentation
-1. `docs/EXPERIMENTAL_CATEGORY_EXPANSION_RESULTS.md` - Results of experimental prototype
-2. `docs/expansion_test_logs.txt` - Test logs for category expansion
-3. `docs/PHASE1_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 1
-4. `docs/PHASE1_COMPLETION_REPORT.md` - Completion report for Phase 1
+### Phase Documentation
+1. `docs/PHASE1_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 1
+2. `docs/PHASE1_COMPLETION_REPORT.md` - Completion report for Phase 1
+3. `docs/PHASE2_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 2
+4. `docs/PHASE2_COMPLETION_REPORT.md` - Completion report for Phase 2
+5. `docs/PHASE3_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 3
+6. `docs/PHASE3_COMPLETION_REPORT.md` - Completion report for Phase 3
+7. `docs/PHASE4_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 4
+8. `docs/PHASE4_COMPLETION_SUMMARY.md` - Completion summary for Phase 4
+9. `docs/PHASE4_PROGRESS_REPORT.md` - Progress report for Phase 4
+10. `docs/PHASE5_IMPLEMENTATION_PLAN.md` - Implementation plan for Phase 5
+11. `docs/PHASE5_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 5
+12. `docs/PHASE5_PROGRESS_REPORT.md` - Progress report for Phase 5
 
 ## Roadmap
 - Implement DeviceActivity monitor app extension to receive live Screen Time events
 - Persist usage sessions (Core Data/CloudKit) and sync thresholds across devices
 - Build parental approval and reward workflows on top of collected data
-- **Refine and productionize category expansion solution for "All Apps" edge case**
+- Implement device pairing workflow
+- Add enhanced monitoring features
+- Complete comprehensive testing and validation
 
 ## References
 - `ScreenTimeRewards/PHASE2_IMPLEMENTATION_PLAN.md`
 - `ScreenTimeRewards/PHASE2_PROGRESS_REPORT.md`
+- `ScreenTimeRewards/PHASE3_IMPLEMENTATION_PLAN.md`
+- `ScreenTimeRewards/PHASE3_PROGRESS_REPORT.md`
+- `ScreenTimeRewards/PHASE4_IMPLEMENTATION_PLAN.md`
+- `ScreenTimeRewards/PHASE4_PROGRESS_REPORT.md`
 - `ScreenTimeRewards/TESTING_PLAN.md`
-- Apple Developer Documentation: Screen Time APIs, Family Controls, Managed Settings
+- Apple Developer Documentation: Screen Time APIs, Family Controls, Managed Settings, CloudKit

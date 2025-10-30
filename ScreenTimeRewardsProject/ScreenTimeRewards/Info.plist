@@ -4,6 +4,8 @@
 <dict>
 	<key>MinimumOSVersion</key>
 	<string>16.6</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to the camera to scan QR codes for device pairing with parent devices.</string>
 	<key>NSFaceIDUsageDescription</key>
 	<string>Parent mode requires authentication to access app settings and controls</string>
 	<key>NSFamilyControlsUsageDescription</key>
@@ -23,6 +25,16 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>background-processing</string>
+		<string>remote-notification</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.screentimerewards.usage-upload</string>
+		<string>com.screentimerewards.config-check</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

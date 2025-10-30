@@ -4,6 +4,7 @@ struct ParentRemoteDashboardView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var showingRefreshIndicator = false
+    @State private var showingPairingView = false
     
     var body: some View {
         NavigationView {
@@ -90,7 +91,7 @@ struct ParentRemoteDashboardView: View {
                                 .multilineTextAlignment(.center)
                             
                             Button("Learn How to Pair Devices") {
-                                // TODO: Navigate to pairing instructions
+                                showingPairingView = true
                             }
                             .buttonStyle(.borderedProminent)
                         }
@@ -107,9 +108,23 @@ struct ParentRemoteDashboardView: View {
             .refreshable {
                 await refreshData()
             }
+            .onAppear {
+                Task {
+                    await refreshData()
+                }
+            }
             .navigationTitle("Remote Dashboard")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
+                #if DEBUG
+                ToolbarItem(placement: .navigationBarLeading) {
+                    NavigationLink(destination: CloudKitDebugView()) {
+                        Image(systemName: "gear")
+                            .imageScale(.large)
+                    }
+                }
+                #endif
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
                         Task {
@@ -120,6 +135,20 @@ struct ParentRemoteDashboardView: View {
                             .imageScale(.large)
                     }
                     .disabled(showingRefreshIndicator)
+                }
+            }
+            // Move the sheet outside of conditional views to ensure it's always available
+            .sheet(isPresented: $showingPairingView) {
+                ParentPairingView()
+            }
+            .onChange(of: showingPairingView) { isShowing in
+                // When pairing view is dismissed, refresh to check for newly paired devices
+                if !isShowing {
+                    Task {
+                        // Add a small delay to allow CloudKit sync to complete
+                        try? await Task.sleep(nanoseconds: 1_000_000_000) // 1 second
+                        await refreshData()
+                    }
                 }
             }
         }

@@ -3,6 +3,8 @@ import FamilyControls
 
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
+    @State private var showingPairingView = false
+    @StateObject private var pairingService = DevicePairingService.shared
 
     var body: some View {
         ScrollView {
@@ -20,6 +22,13 @@ struct ChildDashboardView: View {
                     rewardAppsSection
                 }
 
+                // Pairing section (only when not paired)
+                if !pairingService.isPaired() {
+                    pairingSection
+                } else {
+                    pairedStatusSection
+                }
+
                 // Empty state
                 if viewModel.usedLearningApps.isEmpty && viewModel.usedRewardApps.isEmpty {
                     emptyStateView
@@ -31,6 +40,9 @@ struct ChildDashboardView: View {
         }
         .refreshable {
             await viewModel.refresh()
+        }
+        .sheet(isPresented: $showingPairingView) {
+            ChildPairingView()
         }
     }
 }
@@ -196,6 +208,58 @@ private extension ChildDashboardView {
         }
         .padding()
         .background(Color(UIColor.secondarySystemBackground))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+
+    var pairingSection: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "iphone.and.arrow.forward")
+                .font(.largeTitle)
+                .foregroundColor(.blue)
+            
+            Text("Pair with Parent Device")
+                .font(.title3)
+                .multilineTextAlignment(.center)
+            
+            Text("Scan your parent's QR code to link this device")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            
+            Button("Scan Parent's QR Code") {
+                showingPairingView = true
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .padding()
+        .background(Color.blue.opacity(0.1))
+        .cornerRadius(12)
+        .padding(.horizontal)
+    }
+
+    var pairedStatusSection: some View {
+        VStack(spacing: 12) {
+            HStack(spacing: 10) {
+                Image(systemName: "link.circle.fill")
+                    .font(.title2)
+                    .foregroundColor(.green)
+                Text("Paired with Parent")
+                    .font(.headline)
+            }
+            if let parentID = DevicePairingService.shared.getParentDeviceID() {
+                Text("Parent Device ID: \(parentID)")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+            }
+            Button("Unpair") {
+                DevicePairingService.shared.unpairDevice()
+            }
+            .buttonStyle(.bordered)
+        }
+        .padding()
+        .frame(maxWidth: .infinity)
+        .background(Color.green.opacity(0.1))
         .cornerRadius(12)
         .padding(.horizontal)
     }

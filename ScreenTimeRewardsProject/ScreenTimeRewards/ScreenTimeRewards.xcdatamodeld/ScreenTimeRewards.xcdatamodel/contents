@@ -20,6 +20,12 @@
         <attribute name="lastModified" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="deviceID" optional="YES" attributeType="String"/>
         <attribute name="syncStatus" optional="YES" attributeType="String"/>
+        <fetchIndex name="byLogicalID">
+            <fetchIndexElement property="logicalID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byDeviceID">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <entity name="UsageRecord" representedClassName="UsageRecord" syncable="YES">
@@ -34,6 +40,16 @@
         <attribute name="deviceID" optional="YES" attributeType="String"/>
         <attribute name="syncTimestamp" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="isSynced" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <fetchIndex name="byDeviceID">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="bySessionStart">
+            <fetchIndexElement property="sessionStart" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byDeviceAndDate">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="sessionStart" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <entity name="DailySummary" representedClassName="DailySummary" syncable="YES">
@@ -45,6 +61,16 @@
         <attribute name="totalPointsEarned" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="appsUsedJSON" optional="YES" attributeType="String"/>
         <attribute name="lastUpdated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <fetchIndex name="byDeviceID">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byDate">
+            <fetchIndexElement property="date" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byDeviceAndDate">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="date" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <entity name="RegisteredDevice" representedClassName="RegisteredDevice" syncable="YES">
@@ -56,6 +82,36 @@
         <attribute name="registrationDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="lastSyncDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="isActive" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <fetchIndex name="byDeviceID">
+            <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byParentDeviceID">
+            <fetchIndexElement property="parentDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byDeviceType">
+            <fetchIndexElement property="deviceType" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byParentAndType">
+            <fetchIndexElement property="parentDeviceID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="deviceType" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+
+    <entity name="PairingCode" representedClassName="PairingCode" syncable="YES">
+        <attribute name="code" optional="YES" attributeType="String"/>
+        <attribute name="parentDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="parentDeviceName" optional="YES" attributeType="String"/>
+        <attribute name="childDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="expiresAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="usedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="isUsed" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <fetchIndex name="byCode">
+            <fetchIndexElement property="code" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byParentDeviceID">
+            <fetchIndexElement property="parentDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <entity name="ConfigurationCommand" representedClassName="ConfigurationCommand" syncable="YES">
@@ -67,6 +123,19 @@
         <attribute name="executedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="status" optional="YES" attributeType="String"/>
         <attribute name="errorMessage" optional="YES" attributeType="String"/>
+        <fetchIndex name="byCommandID">
+            <fetchIndexElement property="commandID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byTargetDeviceID">
+            <fetchIndexElement property="targetDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byStatus">
+            <fetchIndexElement property="status" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byTargetAndStatus">
+            <fetchIndexElement property="targetDeviceID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="status" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <entity name="SyncQueueItem" representedClassName="SyncQueueItem" syncable="YES">
@@ -77,6 +146,12 @@
         <attribute name="retryCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="lastAttempt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="status" optional="YES" attributeType="String"/>
+        <fetchIndex name="byQueueID">
+            <fetchIndexElement property="queueID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byStatus">
+            <fetchIndexElement property="status" type="Binary" order="ascending"/>
+        </fetchIndex>
     </entity>
 
     <elements>
@@ -85,6 +160,7 @@
         <element name="UsageRecord" positionX="-36" positionY="9" width="128" height="194"/>
         <element name="DailySummary" positionX="-18" positionY="27" width="128" height="149"/>
         <element name="RegisteredDevice" positionX="0" positionY="45" width="128" height="149"/>
+        <element name="PairingCode" positionX="9" positionY="54" width="128" height="149"/>
         <element name="ConfigurationCommand" positionX="18" positionY="63" width="128" height="149"/>
         <element name="SyncQueueItem" positionX="36" positionY="81" width="128" height="134"/>
     </elements>

@@ -1,9 +1,27 @@
+
 # Implementation Summary for Development Team
 ## CloudKit Remote Monitoring Feature
 
-**Version:** 1.0
-**Date:** October 27, 2025
-**Status:** Ready to Start
+**Version:** 1.1
+**Date:** October 29, 2025
+**Status:** 🟡 In Progress - CloudKit Sharing Implementation
+
+## ⚠️ IMPORTANT UPDATE - Current Blocker
+
+**Issue:** Cross-account device visibility not working
+- Local pairing ✅ COMPLETE - Child pairs successfully
+- Device visibility ❌ BLOCKED - Parent cannot see child device (different iCloud accounts)
+
+**Root Cause:** Child writes to own private database, parent queries own database → no cross-account access
+
+**Solution:** Implement CloudKit private database sharing (in progress)
+
+**Action Required:** Dev agent to implement CloudKit sharing per `docs/DEV_AGENT_TASKS.md`
+
+**Documentation:**
+- Full technical spec: `docs/CROSS_ACCOUNT_PAIRING_STATUS.md`
+- Task breakdown: `docs/DEV_AGENT_TASKS.md`
+- Estimated time: 4-6 hours
 
 ---
 
@@ -90,7 +108,7 @@ Phase 2: CloudKit Sync Service (4-5 days)
 
 ### Week 3-4: Parent UI
 ```
-Phase 3: Parent Remote Dashboard (5-6 days)
+Phase 3: Parent Remote Dashboard (5-6 days) ✅ COMPLETED
 ├─ Build main dashboard view
 ├─ Create usage summary cards
 ├─ Build configuration editor
@@ -100,13 +118,16 @@ Phase 3: Parent Remote Dashboard (5-6 days)
 
 ### Week 4-5: Child Background
 ```
-Phase 4: Child Background Sync (3-4 days)
+Phase 4: Child Background Sync (3-4 days) 🔶 IN PROGRESS
 ├─ Background task registration
 ├─ 1-minute threshold monitoring
 ├─ Configuration polling
 └─ Immediate upload logic
+```
 
-Phase 5: Device Pairing (3-4 days)
+### Week 5-6: Device Pairing
+```
+Phase 5: Device Pairing (3-4 days) ⏳ NOT STARTED
 ├─ QR code generation
 ├─ CloudKit share creation
 ├─ Pairing verification
@@ -115,9 +136,9 @@ Phase 5: Device Pairing (3-4 days)
 
 ### Week 6-7: Polish & Ship
 ```
-Phase 6: Enhanced Monitoring (2-3 days)
-Phase 7: Testing & Validation (4-5 days)
-Phase 8: Polish & Documentation (2-3 days)
+Phase 6: Enhanced Monitoring (2-3 days) ⏳ NOT STARTED
+Phase 7: Testing & Validation (4-5 days) ⏳ NOT STARTED
+Phase 8: Polish & Documentation (2-3 days) ⏳ NOT STARTED
 ```
 
 ---
@@ -542,7 +563,7 @@ Tests: Device selection UI test, mode persistence test
 
 ### Pull Request Template
 
-```markdown
+```
 ## Phase X: [Phase Name]
 
 ### Changes

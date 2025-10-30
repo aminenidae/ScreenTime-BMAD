@@ -1,6 +1,7 @@
 import UIKit
 import CloudKit
 import UserNotifications
+import BackgroundTasks
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     func application(
@@ -13,7 +14,30 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Register for remote notifications
         application.registerForRemoteNotifications()
         
+        // Register background tasks using our service
+        ChildBackgroundSyncService.shared.registerBackgroundTasks()
+        
         return true
+    }
+    
+    /// Handle usage upload background task
+    private func handleUsageUploadTask(_ task: BGTask) {
+        ChildBackgroundSyncService.shared.handleUsageUploadTask(task)
+    }
+    
+    /// Handle config check background task
+    private func handleConfigCheckTask(_ task: BGTask) {
+        ChildBackgroundSyncService.shared.handleConfigCheckTask(task)
+    }
+    
+    /// Schedule next usage upload task
+    private func scheduleNextUsageUpload() {
+        ChildBackgroundSyncService.shared.scheduleNextUsageUpload()
+    }
+    
+    /// Schedule next config check task
+    private func scheduleNextConfigCheck() {
+        ChildBackgroundSyncService.shared.scheduleNextConfigCheck()
     }
     
     func application(

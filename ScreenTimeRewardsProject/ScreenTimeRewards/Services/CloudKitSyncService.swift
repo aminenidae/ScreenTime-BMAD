@@ -19,7 +19,7 @@ class CloudKitSyncService: ObservableObject {
 
     // MARK: - Device Registration
     // Test: Register device
-    func registerDevice(mode: DeviceMode, childName: String? = nil) async throws -> RegisteredDevice {
+    func registerDevice(mode: DeviceMode, childName: String? = nil, parentDeviceID: String? = nil) async throws -> RegisteredDevice {
         let context = persistenceController.container.viewContext
 
         let device = RegisteredDevice(context: context)
@@ -27,11 +27,27 @@ class CloudKitSyncService: ObservableObject {
         device.deviceName = DeviceModeManager.shared.deviceName
         device.deviceType = mode == .parentDevice ? "parent" : "child"
         device.childName = childName
+        device.parentDeviceID = parentDeviceID
         device.registrationDate = Date()
         device.lastSyncDate = Date()
         device.isActive = true
 
+        #if DEBUG
+        print("[CloudKit] ===== Registering Device =====")
+        print("[CloudKit] Device ID: \(device.deviceID ?? "nil")")
+        print("[CloudKit] Device Name: \(device.deviceName ?? "nil")")
+        print("[CloudKit] Device Type: \(device.deviceType ?? "nil")")
+        print("[CloudKit] Child Name: \(device.childName ?? "nil")")
+        print("[CloudKit] Parent Device ID: \(device.parentDeviceID ?? "nil")")
+        #endif
+
         try context.save()
+
+        #if DEBUG
+        print("[CloudKit] ✅ Device saved to Core Data")
+        print("[CloudKit] Waiting for NSPersistentCloudKitContainer to sync to CloudKit...")
+        print("[CloudKit] Check CloudKit Dashboard in 30-60 seconds for CD_RegisteredDevice record")
+        #endif
 
         // CloudKit will sync automatically via NSPersistentCloudKitContainer
 
@@ -49,13 +65,75 @@ class CloudKitSyncService: ObservableObject {
     }
 
     // MARK: - Parent Device Methods
+
+    /// Fetch linked child devices from private database (including shared zones)
     func fetchLinkedChildDevices() async throws -> [RegisteredDevice] {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Linked Child Devices (CloudKit Sharing) =====")
+        print("[CloudKitSyncService] Parent Device ID: \(DeviceModeManager.shared.deviceID)")
+        #endif
+
+        // Query parent's PRIVATE database (shared zones are stored there)
+        let privateDatabase = container.privateCloudDatabase
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+
+        // Query for child devices across all shared zones
+        let predicate = NSPredicate(
+            format: "CD_deviceType == %@ AND CD_parentDeviceID == %@",
+            "child", parentDeviceID
+        )
+        let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+        query.sortDescriptors = [NSSortDescriptor(key: "CD_registrationDate", ascending: false)]
+
+        #if DEBUG
+        print("[CloudKitSyncService] Querying private database for child devices...")
+        #endif
+
+        // Query all zones (including shared zones)
+        let (matchResults, _) = try await privateDatabase.records(matching: query)
+
+        var devices: [RegisteredDevice] = []
+
+        for (_, result) in matchResults {
+            switch result {
+            case .success(let record):
+                // Convert CKRecord to RegisteredDevice
+                let device = convertToRegisteredDevice(record)
+                devices.append(device)
+            case .failure(let error):
+                #if DEBUG
+                print("[CloudKitSyncService] Error fetching record: \(error)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Found \(devices.count) child device(s) in shared zones")
+        for device in devices {
+            print("[CloudKitSyncService] Child device:")
+            print("  - Device ID: \(device.deviceID ?? "nil")")
+            print("  - Device Name: \(device.deviceName ?? "nil")")
+            print("  - Registration Date: \(device.registrationDate ?? Date())")
+        }
+        #endif
+
+        return devices
+    }
+
+    private func convertToRegisteredDevice(_ record: CKRecord) -> RegisteredDevice {
+        // Create a transient RegisteredDevice not inserted into any context
         let context = persistenceController.container.viewContext
-        let fetchRequest: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "parentDeviceID == %@ AND deviceType == %@", 
-                                           DeviceModeManager.shared.deviceID, "child")
-        
-        return try context.fetch(fetchRequest)
+        let entity = NSEntityDescription.entity(forEntityName: "RegisteredDevice", in: context)!
+        let device = RegisteredDevice(entity: entity, insertInto: nil)
+
+        device.deviceID = record["CD_deviceID"] as? String
+        device.deviceName = record["CD_deviceName"] as? String
+        device.deviceType = record["CD_deviceType"] as? String
+        device.parentDeviceID = record["CD_parentDeviceID"] as? String
+        device.registrationDate = record["CD_registrationDate"] as? Date
+        if let active = record["CD_isActive"] as? Int { device.isActive = active != 0 } else { device.isActive = false }
+
+        return device
     }
 
     func fetchChildUsageData(deviceID: String, dateRange: DateInterval) async throws -> [UsageRecord] {

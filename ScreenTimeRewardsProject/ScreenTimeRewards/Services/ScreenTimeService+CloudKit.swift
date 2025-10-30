@@ -130,28 +130,6 @@ extension ScreenTimeService {
         #endif
     }
     
-    /// Assign a category to an application token
-    /// This method provides a way for extensions to modify category assignments
-    func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
-        // Update the internal category assignments
-        categoryAssignments[token] = category
-        
-        #if DEBUG
-        print("[ScreenTimeService] Assigned category \(category.rawValue) to token")
-        #endif
-    }
-    
-    /// Assign reward points to an application token
-    /// This method provides a way for extensions to modify reward point assignments
-    func assignRewardPoints(_ points: Int, to token: ApplicationToken) {
-        // Update the internal reward points assignments
-        rewardPointsAssignments[token] = points
-        
-        #if DEBUG
-        print("[ScreenTimeService] Assigned \(points) reward points to token")
-        #endif
-    }
-
     /// Get display name for a token from family selection
     private func getDisplayNameFromFamilySelection(for token: ApplicationToken) -> String? {
         // Find the application in the family selection
@@ -181,12 +159,5 @@ extension ScreenTimeService {
         }
         
         return nil
-    }
-    
-    /// Check if an app is currently blocked
-    private func isAppBlocked(_ token: ApplicationToken) -> Bool {
-        // This would check if the app is currently in the shielded applications
-        // For now, we'll return false as we don't have direct access to the shielded applications
-        return false
     }
 }
