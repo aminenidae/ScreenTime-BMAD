@@ -236,6 +236,100 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKit] Daily summary uploaded for date: \(summary.date ?? Date())")
     }
 
+    // === TASK 7 IMPLEMENTATION ===
+    /// Upload usage records to parent's shared zone
+    /// This function is called by the child device to upload usage data to the parent's shared zone
+    func uploadUsageRecordsToParent(_ records: [UsageRecord]) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Uploading Usage Records To Parent's Zone =====")
+        print("[CloudKitSyncService] Records to upload: \(records.count)")
+        #endif
+
+        let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+        let sharedDB = container.sharedCloudDatabase
+
+        // Get share context from UserDefaults (persisted during pairing - Task 6)
+        guard
+            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
+            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),  // 🔧 FIX: Get zone owner!
+            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
+        else {
+            let error = NSError(domain: "UsageUpload", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Missing share context - device may not be paired"])
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
+            print("[CloudKitSyncService]   parentSharedZoneID: \(UserDefaults.standard.string(forKey: "parentSharedZoneID") ?? "nil")")
+            print("[CloudKitSyncService]   parentSharedZoneOwner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "nil")")
+            print("[CloudKitSyncService]   parentSharedRootRecordName: \(UserDefaults.standard.string(forKey: "parentSharedRootRecordName") ?? "nil")")
+            #endif
+            throw error
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Share context found:")
+        print("  - Zone Name: \(zoneName)")
+        print("  - Zone Owner: \(zoneOwner)")
+        print("  - Root Record Name: \(rootName)")
+        #endif
+
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)  // 🔧 FIX: Use parent's owner!
+        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+
+        var toSave: [CKRecord] = []
+        for item in records {
+            let recID = CKRecord.ID(recordName: "UR-\(UUID().uuidString)", zoneID: zoneID)
+            let rec = CKRecord(recordType: "CD_UsageRecord", recordID: recID)
+            
+            // IMPORTANT: Link the new record to the shared root so it belongs to the share
+            rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
+            
+            // Map UsageRecord fields to CloudKit record fields (using CD_ prefix to match Core Data schema)
+            rec["CD_deviceID"] = item.deviceID as? CKRecordValue
+            rec["CD_logicalID"] = item.logicalID as? CKRecordValue
+            rec["CD_displayName"] = item.displayName as? CKRecordValue
+            rec["CD_sessionStart"] = item.sessionStart as? CKRecordValue
+            rec["CD_sessionEnd"] = item.sessionEnd as? CKRecordValue
+            rec["CD_totalSeconds"] = Int(item.totalSeconds) as CKRecordValue
+            rec["CD_earnedPoints"] = Int(item.earnedPoints) as CKRecordValue
+            rec["CD_category"] = item.category as? CKRecordValue
+            rec["CD_syncTimestamp"] = Date() as CKRecordValue
+
+            toSave.append(rec)
+            
+            #if DEBUG
+            print("[CloudKitSyncService] Preparing to upload usage record:")
+            print("  - Record ID: \(recID.recordName)")
+            print("  - Device ID: \(item.deviceID ?? "nil")")
+            print("  - App: \(item.displayName ?? "nil")")
+            print("  - Duration: \(item.totalSeconds)s")
+            print("  - Points: \(item.earnedPoints)")
+            #endif
+        }
+
+        if toSave.isEmpty {
+            #if DEBUG
+            print("[CloudKitSyncService] No records to upload")
+            #endif
+            return
+        }
+
+        // Save all records to shared database
+        let (savedRecords, _) = try await sharedDB.modifyRecords(saving: toSave, deleting: [])
+        
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Successfully uploaded \(savedRecords.count) usage records to parent's zone")
+        #endif
+        
+        // Update local records as synced
+        let context = persistenceController.container.viewContext
+        for item in records {
+            item.isSynced = true
+            item.syncTimestamp = Date()
+        }
+        try context.save()
+    }
+    // === END TASK 7 IMPLEMENTATION ===
+
     func markConfigurationCommandExecuted(_ commandID: String) async throws {
         let context = persistenceController.container.viewContext
         let fetchRequest: NSFetchRequest<ConfigurationCommand> = ConfigurationCommand.fetchRequest()
@@ -248,6 +342,95 @@ class CloudKitSyncService: ObservableObject {
             print("[CloudKit] Command marked as executed: \(commandID)")
         }
     }
+
+    // === TASK 8 IMPLEMENTATION ===
+    /// Fetch child usage data from parent's shared zones using CloudKit
+    /// This function is called by the parent device to fetch usage records directly from CloudKit shared zones
+    func fetchChildUsageDataFromCloudKit(deviceID: String, dateRange: DateInterval) async throws -> [UsageRecord] {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Child Usage Data From CloudKit =====")
+        print("[CloudKitSyncService] Device ID: \(deviceID)")
+        print("[CloudKitSyncService] Date Range: \(dateRange.start) to \(dateRange.end)")
+        #endif
+
+        let db = container.privateCloudDatabase
+        let schemaPredicate = NSPredicate(
+            format: "CD_deviceID == %@ AND CD_sessionStart >= %@ AND CD_sessionStart <= %@",
+            deviceID, dateRange.start as NSDate, dateRange.end as NSDate
+        )
+        let schemaQuery = CKQuery(recordType: "CD_UsageRecord", predicate: schemaPredicate)
+
+        do {
+            #if DEBUG
+            print("[CloudKitSyncService] Querying private database for usage records...")
+            #endif
+
+            let (matches, _) = try await db.records(matching: schemaQuery)
+            let records = mapUsageMatchResults(matches)
+
+#if DEBUG
+print("[CloudKitSyncService] ✅ Found \(records.count) usage records")
+for record in records {
+    print("[CloudKitSyncService]   Record: \(record.logicalID ?? "nil") | Category: \(record.category ?? "nil") | Time: \(record.totalSeconds)s | Points: \(record.earnedPoints)")
+}
+#endif
+
+return records
+
+        } catch let ckErr as CKError {
+            // Fallback for schema not ready or non-queryable fields (e.g., creationDate not indexed)
+            let msg = ckErr.localizedDescription
+            if ckErr.code == .invalidArguments ||
+               msg.localizedCaseInsensitiveContains("Unknown field") ||
+               msg.localizedCaseInsensitiveContains("not marked queryable") {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Schema not ready for field-based query (\(ckErr)). Falling back to date-only query + client filter.")
+                #endif
+
+                // Conservative fallback: fetch all usage records (no field predicate) and filter client-side
+                let fallbackPredicate = NSPredicate(value: true)
+                let fallbackQuery = CKQuery(recordType: "CD_UsageRecord", predicate: fallbackPredicate)
+                let (matches, _) = try await db.records(matching: fallbackQuery)
+                let all = mapUsageMatchResults(matches)
+                let filtered = all.filter { rec in
+                    guard let did = rec.deviceID,
+                          let start = rec.sessionStart
+                    else { return false }
+                    // filter by device and date range
+                    return did == deviceID && start >= dateRange.start && start <= dateRange.end
+                }
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Fallback returned \(filtered.count) usage records for device \(deviceID)")
+                #endif
+                return filtered
+            }
+            throw ckErr
+        }
+    }
+    
+    private func mapUsageMatchResults<S>(_ matches: S) -> [UsageRecord]
+    where S: Sequence, S.Element == (CKRecord.ID, Result<CKRecord, any Error>) {
+        var results: [UsageRecord] = []
+        for (_, res) in matches {
+            if case .success(let r) = res {
+                let entity = NSEntityDescription.entity(forEntityName: "UsageRecord", in: persistenceController.container.viewContext)!
+                let u = UsageRecord(entity: entity, insertInto: nil)
+                u.recordID = r.recordID.recordName
+                u.deviceID = r["CD_deviceID"] as? String
+                u.logicalID = r["CD_logicalID"] as? String
+                u.displayName = r["CD_displayName"] as? String
+                u.sessionStart = r["CD_sessionStart"] as? Date
+                u.sessionEnd = r["CD_sessionEnd"] as? Date
+                if let secs = r["CD_totalSeconds"] as? Int { u.totalSeconds = Int32(secs) }
+                if let pts = r["CD_earnedPoints"] as? Int { u.earnedPoints = Int32(pts) }
+                u.category = r["CD_category"] as? String
+                u.syncTimestamp = r["CD_syncTimestamp"] as? Date
+                results.append(u)
+            }
+        }
+        return results
+    }
+    // === END TASK 8 IMPLEMENTATION ===
 
     // MARK: - Common Methods
     func handlePushNotification(userInfo: [AnyHashable: Any]) async {

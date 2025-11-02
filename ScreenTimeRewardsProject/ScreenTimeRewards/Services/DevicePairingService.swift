@@ -419,10 +419,22 @@ class DevicePairingService: ObservableObject {
             UserDefaults.standard.set(sharedZoneID, forKey: "parentSharedZoneID")
         }
 
+        // === TASK 6 IMPLEMENTATION ===
+        // Persist share context for sync (root record name needed for parent reference)
+        let rootID = metadata.rootRecordID
+        let zoneID = metadata.rootRecordID.zoneID
+
+        UserDefaults.standard.set(rootID.recordName, forKey: "parentSharedRootRecordName")
+        UserDefaults.standard.set(zoneID.zoneName, forKey: "parentSharedZoneID")
+        UserDefaults.standard.set(zoneID.ownerName, forKey: "parentSharedZoneOwner")  // 🔧 FIX: Save zone owner!
+        // === END TASK 6 IMPLEMENTATION ===
+
         #if DEBUG
         print("[DevicePairingService] ✅ Share accepted successfully")
         print("[DevicePairingService] Parent device ID saved: \(payload.parentDeviceID)")
-        print("[DevicePairingService] Shared zone ID saved: \(payload.sharedZoneID ?? "nil")")
+        print("[DevicePairingService] Shared zone name saved: \(zoneID.zoneName)")
+        print("[DevicePairingService] Shared zone owner saved: \(zoneID.ownerName)")
+        print("[DevicePairingService] Root record name saved: \(rootID.recordName)")
         #endif
 
         // 5. Register in parent's shared zone

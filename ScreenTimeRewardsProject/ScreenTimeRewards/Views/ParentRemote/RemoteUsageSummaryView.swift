@@ -5,98 +5,131 @@ struct RemoteUsageSummaryView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Usage Summary")
+        ScrollView {
+            VStack(alignment: .leading, spacing: 16) {
+                HStack {
+                    Text("Today's Activity")
+                        .font(.title)
+                        .fontWeight(.bold)
+                    Spacer()
+                    Text(Date().formatted(date: .abbreviated, time: .omitted))
+                        .foregroundColor(.secondary)
+                }
+                .padding(.horizontal)
+
+                if viewModel.categorySummaries.isEmpty && !viewModel.isLoading {
+                    EmptyStateView()
+                } else {
+                    CategoryUsageView(viewModel: viewModel)
+                }
+                
+                // Total Summary
+                if !viewModel.categorySummaries.isEmpty {
+                    TotalUsageSummary(summaries: viewModel.categorySummaries)
+                        .padding(.horizontal)
+                }
+            }
+            .padding(.vertical)
+        }
+        .navigationTitle("Child's Usage")
+    }
+}
+
+private struct EmptyStateView: View {
+    var body: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.bar.doc.horizontal")
+                .font(.system(size: 60))
+                .foregroundColor(.secondary)
+            Text("No usage data yet")
                 .font(.headline)
-            
-            if viewModel.usageRecords.isEmpty && !viewModel.isLoading {
-                EmptyStateView()
-            } else {
-                UsageStatsView(viewModel: viewModel)
-                RecentActivityView(viewModel: viewModel)
+            Text("Activity will appear here when your child uses monitored apps")
+                .font(.caption)
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, minHeight: 200)
+    }
+}
+
+private struct CategoryUsageView: View {
+    @ObservedObject var viewModel: ParentRemoteViewModel
+
+    var body: some View {
+        if viewModel.categorySummaries.isEmpty {
+            Text("No usage data yet")
+                .foregroundColor(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 100)
+                .onAppear {
+                    #if DEBUG
+                    print("[RemoteUsageSummaryView] ⚠️ Category summaries array is EMPTY")
+                    print("[RemoteUsageSummaryView] Usage records count: \(viewModel.usageRecords.count)")
+                    #endif
+                }
+        } else {
+            ForEach(viewModel.categorySummaries) { summary in
+                NavigationLink(destination: CategoryDetailView(summary: summary)) {
+                    CategoryUsageCard(summary: summary)
+                }
+                .buttonStyle(PlainButtonStyle())
+            }
+            .padding(.horizontal)
+            .onAppear {
+                #if DEBUG
+                print("[RemoteUsageSummaryView] ✅ Displaying \(viewModel.categorySummaries.count) category cards")
+                for summary in viewModel.categorySummaries {
+                    print("[RemoteUsageSummaryView]   Card: \(summary.category) - \(summary.appCount) apps")
+                }
+                #endif
+            }
+        }
+    }
+}
+
+private struct TotalUsageSummary: View {
+    let summaries: [CategoryUsageSummary]
+
+    var totalTime: Int {
+        summaries.reduce(0) { $0 + $1.totalSeconds }
+    }
+
+    var totalPoints: Int {
+        summaries.reduce(0) { $0 + $1.totalPoints }
+    }
+
+    var body: some View {
+        VStack(spacing: 12) {
+            Text("Total Summary")
+                .font(.headline)
+
+            HStack(spacing: 40) {
+                VStack {
+                    Text("Total Screen Time")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text(formatSeconds(totalTime))
+                        .font(.title3)
+                        .fontWeight(.bold)
+                }
+
+                VStack {
+                    Text("Total Points")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Text("\(totalPoints)")
+                        .font(.title3)
+                        .fontWeight(.bold)
+                        .foregroundColor(.blue)
+                }
             }
         }
         .padding()
         .background(Color.gray.opacity(0.1))
         .cornerRadius(12)
     }
-}
 
-private struct EmptyStateView: View {
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: "chart.bar")
-                .font(.largeTitle)
-                .foregroundColor(.gray)
-            Text("No usage data available")
-                .foregroundColor(.gray)
-            Text("Check back later when your child has used apps")
-                .font(.caption)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, minHeight: 100)
-    }
-}
-
-private struct UsageStatsView: View {
-    @ObservedObject var viewModel: ParentRemoteViewModel
-    
-    var body: some View {
-        VStack(spacing: 12) {
-            HStack {
-                StatCard(
-                    title: "Learning Time",
-                    value: formatTime(totalLearningSeconds),
-                    icon: "book",
-                    color: .blue
-                )
-                
-                StatCard(
-                    title: "Reward Time",
-                    value: formatTime(totalRewardSeconds),
-                    icon: "gamecontroller",
-                    color: .green
-                )
-            }
-            
-            HStack {
-                StatCard(
-                    title: "Learning Points",
-                    value: String(totalLearningPoints),
-                    icon: "star",
-                    color: .orange
-                )
-                
-                StatCard(
-                    title: "Reward Points",
-                    value: String(totalRewardPoints),
-                    icon: "gift",
-                    color: .purple
-                )
-            }
-        }
-    }
-    
-    private var totalLearningSeconds: Int32 {
-        viewModel.dailySummaries.reduce(0) { $0 + $1.totalLearningSeconds }
-    }
-    
-    private var totalRewardSeconds: Int32 {
-        viewModel.dailySummaries.reduce(0) { $0 + $1.totalRewardSeconds }
-    }
-    
-    private var totalLearningPoints: Int32 {
-        viewModel.dailySummaries.reduce(0) { $0 + $1.totalPointsEarned }
-    }
-    
-    private var totalRewardPoints: Int32 {
-        // This would need to be calculated differently based on your data model
-        // For now, we'll use a placeholder
-        return 0
-    }
-    
-    private func formatTime(_ seconds: Int32) -> String {
+    private func formatSeconds(_ seconds: Int) -> String {
         let hours = seconds / 3600
         let minutes = (seconds % 3600) / 60
         if hours > 0 {
@@ -107,118 +140,9 @@ private struct UsageStatsView: View {
     }
 }
 
-private struct StatCard: View {
-    let title: String
-    let value: String
-    let icon: String
-    let color: Color
-    
-    var body: some View {
-        VStack(spacing: 8) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.white)
-                .frame(width: 40, height: 40)
-                .background(color)
-                .clipShape(Circle())
-            
-            VStack(spacing: 2) {
-                Text(value)
-                    .font(.title3)
-                    .fontWeight(.semibold)
-                Text(title)
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding()
-        .background(Color.white)
-        .cornerRadius(10)
-        .shadow(radius: 1)
-    }
-}
-
-private struct RecentActivityView: View {
-    @ObservedObject var viewModel: ParentRemoteViewModel
-    
-    var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Recent Activity")
-                .font(.headline)
-                .fontWeight(.medium)
-            
-            if viewModel.usageRecords.isEmpty {
-                Text("No recent activity")
-                    .foregroundColor(.secondary)
-                    .font(.caption)
-            } else {
-                ForEach(viewModel.usageRecords.prefix(5), id: \.recordID) { record in
-                    ActivityRow(record: record)
-                }
-            }
-        }
-    }
-}
-
-private struct ActivityRow: View {
-    let record: UsageRecord
-    
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(record.displayName ?? "Unknown App")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                if let sessionStart = record.sessionStart,
-                   let sessionEnd = record.sessionEnd {
-                    Text(formatDateRange(start: sessionStart, end: sessionEnd))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                }
-            }
-            
-            Spacer()
-            
-            VStack(alignment: .trailing, spacing: 2) {
-                Text(formatDuration(record.totalSeconds))
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                if record.earnedPoints > 0 {
-                    Text("\(record.earnedPoints) pts")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
-            }
-        }
-        .padding(.vertical, 4)
-    }
-    
-    private func formatDateRange(start: Date, end: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return "\(formatter.string(from: start)) - \(formatter.string(from: end))"
-    }
-    
-    private func formatDuration(_ seconds: Int32) -> String {
-        let minutes = seconds / 60
-        if minutes > 0 {
-            return "\(minutes)m"
-        } else {
-            return "\(seconds)s"
-        }
-    }
-}
-
 struct RemoteUsageSummaryView_Previews: PreviewProvider {
     static var previews: some View {
         let viewModel = ParentRemoteViewModel()
-        
-        // Note: In a real preview, we would need a proper Core Data context
-        // For now, we'll just show the view without mock data
         
         return RemoteUsageSummaryView(viewModel: viewModel)
             .padding()

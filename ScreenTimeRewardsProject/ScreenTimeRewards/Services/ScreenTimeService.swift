@@ -3,6 +3,7 @@ import CoreFoundation
 import DeviceActivity
 import FamilyControls
 import ManagedSettings
+import CoreData
 
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
@@ -45,6 +46,67 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Shared persistence helper for logical ID-based storage
     private(set) var usagePersistence = UsagePersistence()
+
+    // Configuration
+    private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
+
+    // MARK: - App Name Extraction Helpers
+
+    /// Common app bundle ID mappings for better display names
+    private let commonAppBundleIDs: [String: String] = [
+        "com.apple.mobilesafari": "Safari",
+        "com.apple.MobileSMS": "Messages",
+        "com.apple.camera": "Camera",
+        "com.apple.mobilemail": "Mail",
+        "com.apple.Music": "Music",
+        "com.apple.tv": "TV",
+        "com.apple.Videos": "Videos",
+        "com.apple.AppStore": "App Store",
+        "com.apple.Preferences": "Settings",
+        "com.apple.calculator": "Calculator",
+        "com.apple.weather": "Weather",
+        "com.apple.podcasts": "Podcasts",
+        "com.apple.books": "Books",
+        "com.apple.facetime": "FaceTime",
+        "com.apple.Passbook": "Wallet",
+        "com.apple.Compass": "Compass",
+        "com.apple.Maps": "Maps",
+        "com.apple.Health": "Health",
+        "com.apple.Photos": "Photos",
+        "com.apple.VoiceMemos": "Voice Memos",
+        "com.apple.reminders": "Reminders",
+        "com.apple.Notes": "Notes",
+        "com.apple.Stocks": "Stocks",
+        "com.apple.Translate": "Translate"
+    ]
+
+    /// Extract a human-readable app name from a bundle identifier
+    /// - Parameter bundleIdentifier: The bundle identifier to process
+    /// - Returns: A human-readable app name or nil if extraction fails
+    private func extractAppName(from bundleIdentifier: String) -> String? {
+        // Check lookup table first for common apps
+        if let knownName = commonAppBundleIDs[bundleIdentifier] {
+            return knownName
+        }
+
+        // Fallback: extract from bundle ID
+        let components = bundleIdentifier.split(separator: ".")
+        guard let lastComponent = components.last else { return nil }
+        
+        // Convert to string and capitalize first letter
+        let name = String(lastComponent)
+        if name.isEmpty { return nil }
+        
+        // Handle special cases
+        switch name.lowercased() {
+        case "mobilesafari": return "Safari"
+        case "mobilemail": return "Mail"
+        case "cal": return "Calendar"
+        default:
+            // Capitalize first letter and return
+            return name.prefix(1).uppercased() + name.dropFirst()
+        }
+    }
 
     private struct MonitoredApplication {
         let token: ManagedSettings.ApplicationToken  // Required for monitoring
@@ -438,7 +500,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 continue
             }
 
-            let displayName = application.localizedDisplayName ?? "Unknown App \(index)"
+            let displayName: String
+            if let localizedName = application.localizedDisplayName {
+                displayName = localizedName
+            } else if let bundleId = application.bundleIdentifier, !bundleId.isEmpty {
+                displayName = extractAppName(from: bundleId) ?? "Unknown App \(index)"
+            } else {
+                displayName = "Unknown App \(index)"
+            }
             let bundleIdentifier = application.bundleIdentifier
 
             // Use user-assigned category if available, otherwise try auto-categorization
@@ -1334,6 +1403,93 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             )
             usagePersistence.saveApp(persistedApp)
 
+            // === TASK 7 + TASK 17: Create OR UPDATE Core Data UsageRecord for CloudKit Sync ===
+            let context = PersistenceController.shared.container.viewContext
+            let deviceID = DeviceModeManager.shared.deviceID
+
+            // Check for recent record within last 5 minutes
+            if let recentRecord = findRecentUsageRecord(
+                logicalID: logicalID,
+                deviceID: deviceID,
+                withinSeconds: sessionAggregationWindowSeconds  // 5 minutes
+            ) {
+                // UPDATE existing record
+                #if DEBUG
+                print("[ScreenTimeService] 📝 Updating existing UsageRecord for \(logicalID)")
+                #endif
+
+                // Extend session end time
+                recentRecord.sessionEnd = endDate
+
+                // Add to total seconds
+                recentRecord.totalSeconds += Int32(duration)
+
+                // Recalculate earned points based on new total time
+                let totalMinutes = Int(recentRecord.totalSeconds / 60)
+                recentRecord.earnedPoints = Int32(totalMinutes * application.rewardPoints)
+
+                // Mark as unsynced so it gets uploaded again with updated data
+                recentRecord.isSynced = false
+
+                #if DEBUG
+                print("[ScreenTimeService] 💾 Updated UsageRecord:")
+                print("[ScreenTimeService]   LogicalID: \(logicalID)")
+                print("[ScreenTimeService]   DisplayName: \(application.displayName)")
+                print("[ScreenTimeService]   Category: '\(application.category.rawValue)'")
+                print("[ScreenTimeService]   TotalSeconds: \(recentRecord.totalSeconds)")
+                print("[ScreenTimeService]   EarnedPoints: \(recentRecord.earnedPoints)")
+                #endif
+
+                do {
+                    try context.save()
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Updated UsageRecord: \(recentRecord.totalSeconds)s total")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[ScreenTimeService] ⚠️ Failed to update UsageRecord: \(error)")
+                    #endif
+                }
+            } else {
+                // CREATE new record (no recent session found)
+                #if DEBUG
+                print("[ScreenTimeService] 💾 Creating NEW UsageRecord for \(logicalID)")
+                #endif
+
+                let usageRecord = UsageRecord(context: context)
+                usageRecord.recordID = UUID().uuidString
+                usageRecord.deviceID = deviceID
+                usageRecord.logicalID = logicalID
+                usageRecord.displayName = application.displayName
+                usageRecord.category = application.category.rawValue
+                usageRecord.totalSeconds = Int32(duration)
+                usageRecord.sessionStart = endDate.addingTimeInterval(-duration)
+                usageRecord.sessionEnd = endDate
+                let recordMinutes = Int(duration / 60)
+                usageRecord.earnedPoints = Int32(recordMinutes * application.rewardPoints)
+                usageRecord.isSynced = false
+
+                #if DEBUG
+                print("[ScreenTimeService] 💾 Created UsageRecord:")
+                print("[ScreenTimeService]   LogicalID: \(logicalID)")
+                print("[ScreenTimeService]   DisplayName: \(application.displayName)")
+                print("[ScreenTimeService]   Category: '\(application.category.rawValue)'")  // VERIFY THIS
+                print("[ScreenTimeService]   TotalSeconds: \(duration)")
+                print("[ScreenTimeService]   EarnedPoints: \(recordMinutes * application.rewardPoints)")
+                #endif
+
+                do {
+                    try context.save()
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Created NEW UsageRecord for CloudKit sync: \(logicalID)")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[ScreenTimeService] ⚠️ Failed to save UsageRecord: \(error)")
+                    #endif
+                }
+            }
+
             // BF-1 FIX: Consume reserved points for reward apps when usage is recorded
             // Check if this is a reward app and consume reserved points
             if application.category == .reward {
@@ -1380,6 +1536,43 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         if recordedCount > 0 {
             notifyUsageChange()
             // Note: Data is already persisted in the loop above via usagePersistence.saveApp()
+        }
+    }
+
+    /// Find the most recent UsageRecord for a given app within a time window
+    /// - Parameters:
+    ///   - logicalID: The logical ID of the app
+    ///   - deviceID: The device ID
+    ///   - withinSeconds: Time window to search within (default 5 minutes)
+    /// - Returns: The most recent UsageRecord or nil if none found
+    private func findRecentUsageRecord(
+        logicalID: String,
+        deviceID: String,
+        withinSeconds timeWindow: TimeInterval = 300  // 5 minutes default
+    ) -> UsageRecord? {
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+
+        let now = Date()
+        let cutoffTime = now.addingTimeInterval(-timeWindow)
+
+        fetchRequest.predicate = NSPredicate(
+            format: "logicalID == %@ AND deviceID == %@ AND sessionEnd >= %@",
+            logicalID,
+            deviceID,
+            cutoffTime as NSDate
+        )
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "sessionEnd", ascending: false)]
+        fetchRequest.fetchLimit = 1
+
+        do {
+            let results = try context.fetch(fetchRequest)
+            return results.first
+        } catch {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Failed to fetch recent usage record: \(error)")
+            #endif
+            return nil
         }
     }
 
@@ -1442,6 +1635,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] Recording usage with duration: \(duration) seconds")
         #endif
         recordUsage(for: configuration.applications, duration: duration, endingAt: timestamp)
+        
+        // === TASK 7 TRIGGER IMPLEMENTATION ===
+        // Trigger immediate usage upload to parent when threshold is reached (near real-time sync)
+        Task { [weak self] in
+            #if DEBUG
+            print("[ScreenTimeService] Triggering immediate usage upload to parent...")
+            #endif
+            
+            // Check if device is paired with a parent
+            if UserDefaults.standard.string(forKey: "parentDeviceID") != nil {
+                let childSyncService = ChildBackgroundSyncService.shared
+                await childSyncService.triggerImmediateUsageUpload()
+            } else {
+                #if DEBUG
+                print("[ScreenTimeService] Device not paired with parent, skipping upload")
+                #endif
+            }
+        }
+        // === END TASK 7 TRIGGER IMPLEMENTATION ===
     }
 
     fileprivate func handleEventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name) {
@@ -1960,3 +2172,64 @@ extension ScreenTimeService {
         await offlineQueue.processQueue()
     }
 }
+
+// 🔴 TASK 12: Add Test Usage Records for Upload - CRITICAL
+#if DEBUG
+extension ScreenTimeService {
+    /// Create test usage records for upload testing
+    /// This function creates fresh unsynced usage records to test the upload flow
+    func createTestUsageRecordsForUpload() {
+        print("[ScreenTimeService] ===== Creating Test Usage Records =====")
+
+        let context = PersistenceController.shared.container.viewContext
+
+        // Create 3 test records with different categories
+        for i in 0..<3 {
+            let record = UsageRecord(context: context)
+            record.deviceID = DeviceModeManager.shared.deviceID
+            record.logicalID = "test-app-\(UUID().uuidString)"
+            record.displayName = "Test App \(i)"
+            record.sessionStart = Date().addingTimeInterval(Double(-3600 * i))  // Staggered times
+            record.sessionEnd = Date().addingTimeInterval(Double(-3600 * i + 300))  // 5 min sessions
+            record.totalSeconds = 300
+            record.earnedPoints = Int32(10 * (i + 1))  // 10, 20, 30 points
+            record.category = i % 2 == 0 ? "learning" : "reward"
+            record.isSynced = false  // CRITICAL: Mark as unsynced
+            record.syncTimestamp = nil
+
+            print("[ScreenTimeService] Created test record: \(record.displayName ?? "nil"), category: \(record.category ?? "nil"), points: \(record.earnedPoints)")
+        }
+
+        do {
+            try context.save()
+            print("[ScreenTimeService] ✅ Created 3 test usage records (marked as unsynced)")
+            print("[ScreenTimeService] Device ID: \(DeviceModeManager.shared.deviceID)")
+        } catch {
+            print("[ScreenTimeService] ❌ Failed to create test records: \(error)")
+        }
+    }
+
+    /// Mark all existing usage records as unsynced for testing
+    func markAllRecordsAsUnsynced() {
+        print("[ScreenTimeService] ===== Marking All Records As Unsynced =====")
+
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+
+        do {
+            let records = try context.fetch(fetchRequest)
+            print("[ScreenTimeService] Found \(records.count) usage records")
+
+            for record in records {
+                record.isSynced = false
+                record.syncTimestamp = nil
+            }
+
+            try context.save()
+            print("[ScreenTimeService] ✅ Marked \(records.count) records as unsynced")
+        } catch {
+            print("[ScreenTimeService] ❌ Failed to mark records: \(error)")
+        }
+    }
+}
+#endif

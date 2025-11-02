@@ -26,6 +26,7 @@ class DevicePairingServiceTest: XCTestCase {
             shareURL: "https://example.com/share",
             parentDeviceID: "parent-device-id",
             verificationToken: "verification-token",
+            sharedZoneID: "test-zone-id",
             timestamp: Date()
         )
         

@@ -7,11 +7,11 @@ public class UsageRecord: NSManagedObject {
 }
 
 extension UsageRecord {
-    
+
     @nonobjc public class func fetchRequest() -> NSFetchRequest<UsageRecord> {
         return NSFetchRequest<UsageRecord>(entityName: "UsageRecord")
     }
-    
+
     @NSManaged public var recordID: String?
     @NSManaged public var logicalID: String?
     @NSManaged public var displayName: String?
@@ -23,4 +23,11 @@ extension UsageRecord {
     @NSManaged public var deviceID: String?
     @NSManaged public var syncTimestamp: Date?
     @NSManaged public var isSynced: Bool
+}
+
+// MARK: - Identifiable Conformance
+extension UsageRecord: Identifiable {
+    public var id: String {
+        return recordID ?? UUID().uuidString
+    }
 }

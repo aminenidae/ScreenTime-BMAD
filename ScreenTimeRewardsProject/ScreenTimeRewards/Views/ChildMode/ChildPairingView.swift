@@ -131,15 +131,31 @@ struct ChildPairingView: View {
                 print("[ChildPairingView] QR code parsed successfully")
                 print("[ChildPairingView] Parent Device ID: \(payload.parentDeviceID)")
                 print("[ChildPairingView] Share URL: \(payload.shareURL)")
-                print("[ChildPairingView] Shared Zone ID: \(payload.sharedZoneID)")
+                print("[ChildPairingView] Shared Zone ID: \(payload.sharedZoneID ?? "nil")")
                 #endif
 
                 // Accept the parent's share and register in parent's shared zone
                 try await pairingService.acceptParentShareAndRegister(from: payload)
 
+                // 🔴 TASK 11: Trigger immediate usage upload after successful pairing
                 #if DEBUG
                 print("[ChildPairingView] ✅ Pairing completed successfully with CloudKit sharing")
+                print("[ChildPairingView] Triggering immediate upload of existing usage records...")
                 #endif
+
+                // Upload any existing unsynced usage records immediately after pairing
+                Task {
+                    do {
+                        await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+                        #if DEBUG
+                        print("[ChildPairingView] ✅ Post-pairing upload completed")
+                        #endif
+                    } catch {
+                        #if DEBUG
+                        print("[ChildPairingView] ⚠️ Post-pairing upload failed: \(error)")
+                        #endif
+                    }
+                }
 
                 await MainActor.run {
                     self.isPairing = false

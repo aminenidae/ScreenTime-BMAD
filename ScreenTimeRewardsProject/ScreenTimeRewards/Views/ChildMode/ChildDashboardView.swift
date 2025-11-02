@@ -34,6 +34,11 @@ struct ChildDashboardView: View {
                     emptyStateView
                 }
 
+                // 🔴 TASK 13: Add Manual Test Button for Upload - CRITICAL
+                #if DEBUG
+                debugActionsSection
+                #endif
+
                 Spacer()
             }
             .padding()
@@ -263,6 +268,66 @@ private extension ChildDashboardView {
         .cornerRadius(12)
         .padding(.horizontal)
     }
+
+    // 🔴 TASK 13: Debug Actions Section
+    #if DEBUG
+    var debugActionsSection: some View {
+        Section("Debug Actions") {
+            VStack(spacing: 10) {
+                Text("Debug Actions")
+                    .font(.headline)
+                    .padding(.top)
+                
+                Button("🧪 Create Test Records") {
+                    ScreenTimeService.shared.createTestUsageRecordsForUpload()
+                }
+                .buttonStyle(.bordered)
+
+                Button("📤 Upload to Parent") {
+                    Task {
+                        await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+
+                Button("🔄 Create & Upload") {
+                    Task {
+                        // Create test records
+                        ScreenTimeService.shared.createTestUsageRecordsForUpload()
+
+                        // Wait a moment for Core Data to save
+                        try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconds
+
+                        // Trigger upload
+                        await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+                    }
+                }
+                .buttonStyle(.borderedProminent)
+                .tint(.green)
+
+                Button("🔍 Check Share Context") {
+                    print("=== Share Context Check ===")
+                    print("Parent Device ID: \(UserDefaults.standard.string(forKey: "parentDeviceID") ?? "MISSING")")
+                    print("Parent Shared Zone ID: \(UserDefaults.standard.string(forKey: "parentSharedZoneID") ?? "MISSING")")
+                    print("Parent Shared Zone Owner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "MISSING")")
+                    print("Parent Shared Root Record: \(UserDefaults.standard.string(forKey: "parentSharedRootRecordName") ?? "MISSING")")
+                }
+                .buttonStyle(.bordered)
+                
+                Button("🧹 Mark All Records Unsynced") {
+                    ScreenTimeService.shared.markAllRecordsAsUnsynced()
+                }
+                .buttonStyle(.bordered)
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.1))
+            )
+            .padding(.horizontal)
+        }
+    }
+    #endif
 
     var emptyStateView: some View {
         VStack(spacing: 16) {

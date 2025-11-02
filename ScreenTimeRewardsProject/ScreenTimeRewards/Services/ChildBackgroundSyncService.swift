@@ -1,5 +1,6 @@
 import BackgroundTasks
 import Foundation
+import CoreData
 
 class ChildBackgroundSyncService {
     static let shared = ChildBackgroundSyncService()
@@ -78,7 +79,10 @@ class ChildBackgroundSyncService {
         
         Task {
             do {
-                // Process the offline queue which includes usage uploads
+                // Upload usage records to parent's shared zone (Task 7)
+                try await self.uploadUsageRecordsToParent()
+                
+                // Process the offline queue which includes other uploads
                 await self.offlineQueue.processQueue()
                 
                 // Schedule next task
@@ -191,6 +195,63 @@ class ChildBackgroundSyncService {
             #endif
         }
     }
+    
+    // === TASK 7 TRIGGER IMPLEMENTATION ===
+    /// Upload unsynced usage records to parent's shared zone
+    func uploadUsageRecordsToParent() async throws {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] ===== Uploading Usage Records To Parent =====")
+        #endif
+        
+        // Check if device is paired with a parent
+        guard UserDefaults.standard.string(forKey: "parentDeviceID") != nil else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] Device not paired with parent, skipping upload")
+            #endif
+            return
+        }
+        
+        // Fetch unsynced usage records
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "isSynced == NO")
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "sessionStart", ascending: true)]
+        
+        let unsyncedRecords = try context.fetch(fetchRequest)
+        
+        #if DEBUG
+        print("[ChildBackgroundSyncService] Found \(unsyncedRecords.count) unsynced usage records")
+        #endif
+        
+        if !unsyncedRecords.isEmpty {
+            // Upload to parent's shared zone
+            try await cloudKitService.uploadUsageRecordsToParent(unsyncedRecords)
+            
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ✅ Successfully uploaded \(unsyncedRecords.count) usage records to parent")
+            #endif
+        } else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] No unsynced records to upload")
+            #endif
+        }
+    }
+    
+    /// Trigger immediate usage upload to parent
+    func triggerImmediateUsageUpload() async {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] Triggering immediate usage upload to parent")
+        #endif
+        
+        do {
+            try await uploadUsageRecordsToParent()
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] Immediate usage upload failed: \(error)")
+            #endif
+        }
+    }
+    // === END TASK 7 TRIGGER IMPLEMENTATION ===
     
     /// Trigger immediate usage upload
     func triggerImmediateUpload() async {
