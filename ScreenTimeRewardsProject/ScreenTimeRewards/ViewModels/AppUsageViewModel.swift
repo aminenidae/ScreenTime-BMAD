@@ -12,9 +12,20 @@ struct LearningAppSnapshot: Identifiable {
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
     let earnedPoints: Int  // Actual earned points (stored, not computed)
+    let tokenHash: String
+    
     // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
     var id: String { tokenHash }
-    let tokenHash: String
+    
+    init(token: ManagedSettings.ApplicationToken, logicalID: String, displayName: String, pointsPerMinute: Int, totalSeconds: TimeInterval, earnedPoints: Int, tokenHash: String) {
+        self.token = token
+        self.logicalID = logicalID
+        self.displayName = displayName
+        self.pointsPerMinute = pointsPerMinute
+        self.totalSeconds = totalSeconds
+        self.earnedPoints = earnedPoints
+        self.tokenHash = tokenHash
+    }
 }
 
 struct RewardAppSnapshot: Identifiable {
@@ -24,9 +35,20 @@ struct RewardAppSnapshot: Identifiable {
     let pointsPerMinute: Int
     let totalSeconds: TimeInterval
     let earnedPoints: Int  // Actual earned points (stored, not computed)
+    let tokenHash: String
+    
     // TASK L: Use token hash as stable ID instead of logicalID to prevent re-identification
     var id: String { tokenHash }
-    let tokenHash: String
+    
+    init(token: ManagedSettings.ApplicationToken, logicalID: String, displayName: String, pointsPerMinute: Int, totalSeconds: TimeInterval, earnedPoints: Int, tokenHash: String) {
+        self.token = token
+        self.logicalID = logicalID
+        self.displayName = displayName
+        self.pointsPerMinute = pointsPerMinute
+        self.totalSeconds = totalSeconds
+        self.earnedPoints = earnedPoints
+        self.tokenHash = tokenHash
+    }
 }
 
 /// View model to manage app usage data for the UI
@@ -113,6 +135,9 @@ class AppUsageViewModel: ObservableObject {
 
     // Flag to track when we're resetting picker state
     private var isResettingPickerState = false
+    
+    // Add a new flag to control state reset without affecting presentation (Issue 1 fix)
+    @Published private var isPreparing = false
 
     private let service: ScreenTimeService
     private var masterSelection: FamilyActivitySelection
@@ -1020,11 +1045,10 @@ class AppUsageViewModel: ObservableObject {
 
                     self.isAuthorizationGranted = true
 
-                    // Add small delay to ensure authorization propagates
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
-                        self.isFamilyPickerPresented = true
-                        self.startPickerTimeout()
-                    }
+                    // No need to wait 0.5s - authorization is already done
+                    // Just set to true immediately to prevent flicker
+                    self.isFamilyPickerPresented = true
+                    self.startPickerTimeout()
                 case .failure(let error):
                     #if DEBUG
                     print("[AppUsageViewModel] ❌ Authorization failed: \(error)")
@@ -1275,6 +1299,8 @@ class AppUsageViewModel: ObservableObject {
         shouldPresentAssignmentAfterPickerDismiss = false
         isCategoryAssignmentPresented = true
     }
+    
+
     
     /// Open category assignment view for adjusting existing categories
     func openCategoryAssignmentForAdjustment() {
@@ -2263,39 +2289,52 @@ extension AppUsageViewModel {
         #endif
     }
     
-    // FIX: Add method to reset picker state for new presentation
     /// Reset picker state specifically for new presentation to prevent ActivityPickerRemoteViewError
     private func resetPickerStateForNewPresentation() {
         #if DEBUG
         print("[AppUsageViewModel] 🔁 Resetting picker state for new presentation")
         #endif
 
+        // Mark as preparing (prevents onChange handlers from firing)
+        isPreparing = true
+
+        // CRITICAL: Only reset if picker is NOT already being presented
+        // This prevents the flicker caused by false→true toggle
+        if isFamilyPickerPresented {
+            #if DEBUG
+            print("[AppUsageViewModel] ⚠️ Picker already presented - skipping reset to prevent flicker")
+            #endif
+
+            // Clear preparing flag and return early
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                self.isPreparing = false
+            }
+            return
+        }
+
         // Set flag to prevent snapshot updates during reset
         isResettingPickerState = true
 
-        // Reset picker presentation state
-        isFamilyPickerPresented = false
+        // Reset other state (but DON'T toggle isFamilyPickerPresented false→true)
         isCategoryAssignmentPresented = false
         shouldPresentAssignmentAfterPickerDismiss = false
         shouldUsePendingSelectionForSheet = false
-        activePickerContext = nil  // Clear the context
+        activePickerContext = nil
 
-        // Clear any picker errors
+        // Clear errors
         pickerError = nil
         pickerLoadingTimeout = false
         pickerRetryCount = 0
         cancelPickerTimeout()
 
-        // REHYDRATION FIX: Restore familySelection to full merged selection
-        // Set familySelection = masterSelection so everyday UI and future picker launches
-        // start from the full, consistent selection instead of the context-specific subset
-        familySelection = masterSelection
-
-        // Clear flag after reset is complete
-        isResettingPickerState = false
+        // Clear preparing flag after brief delay
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            self.isPreparing = false
+            self.isResettingPickerState = false
+        }
 
         #if DEBUG
-        print("[AppUsageViewModel] ✅ Picker state reset for new presentation completed")
+        print("[AppUsageViewModel] ✅ Picker state reset completed (no flicker)")
         #endif
     }
     

@@ -4,6 +4,26 @@ import CloudKit
 import Combine
 import CoreData
 
+enum PairingError: LocalizedError {
+    case maxParentsReached
+    case shareNotFound
+    case invalidQRCode
+    case networkError(Error)
+
+    var errorDescription: String? {
+        switch self {
+        case .maxParentsReached:
+            return "This child device is already paired with the maximum number of parent devices (2). Please unpair from one parent before adding another."
+        case .shareNotFound:
+            return "Pairing invitation not found or expired."
+        case .invalidQRCode:
+            return "Invalid QR code. Please scan a valid pairing QR code."
+        case .networkError(let error):
+            return "Network error: \(error.localizedDescription)"
+        }
+    }
+}
+
 @MainActor
 class DevicePairingService: ObservableObject {
     static let shared = DevicePairingService()
@@ -375,6 +395,13 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] Shared Zone ID: \(payload.sharedZoneID ?? "nil")")
         #endif
 
+        // Check how many parents this child is already paired with
+        let currentParentCount = try await getParentPairingCount()
+
+        guard currentParentCount < 2 else {
+            throw PairingError.maxParentsReached
+        }
+
         isPairing = true
         defer { isPairing = false }
 
@@ -443,6 +470,35 @@ class DevicePairingService: ObservableObject {
             rootRecordID: metadata.rootRecordID,
             parentDeviceID: payload.parentDeviceID
         )
+    }
+
+    // NEW: Get count of parent devices child is currently paired with
+    private func getParentPairingCount() async throws -> Int {
+        let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+        let sharedDatabase = container.sharedCloudDatabase
+
+        // Query all shared zones this child device has access to
+        let query = CKQuery(
+            recordType: "CD_SharedZoneRoot",
+            predicate: NSPredicate(value: true)
+        )
+
+        do {
+            let (results, _) = try await sharedDatabase.records(matching: query)
+            let parentCount = results.count
+
+            #if DEBUG
+            print("[DevicePairingService] ℹ️ Child device currently paired with \(parentCount) parent(s)")
+            #endif
+
+            return parentCount
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Failed to query parent count: \(error)")
+            #endif
+            // If we can't determine, allow the pairing (fail open)
+            return 0
+        }
     }
 
     /// Register child device in parent's shared zone

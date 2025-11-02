@@ -7,6 +7,8 @@ struct ChildPairingView: View {
     @State private var errorMessage: String?
     @State private var isPairing = false
     @State private var showSuccessAlert = false
+    @State private var pairedParents: [RegisteredDevice] = []
+    @State private var showingUnpairConfirmation: RegisteredDevice?
 
     var body: some View {
         VStack(spacing: 30) {
@@ -14,6 +16,48 @@ struct ChildPairingView: View {
                 .font(.largeTitle)
                 .fontWeight(.bold)
                 .padding()
+
+            // Show current pairing status
+            if !pairedParents.isEmpty {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Paired Parent Devices (\(pairedParents.count)/2)")
+                        .font(.headline)
+
+                    ForEach(pairedParents, id: \.deviceID) { parent in
+                        HStack {
+                            Image(systemName: "iphone.and.arrow.forward")
+                                .foregroundColor(.blue)
+
+                            VStack(alignment: .leading) {
+                                Text(parent.deviceName ?? "Unknown Parent")
+                                    .font(.subheadline)
+                                Text("Paired on \(parent.registrationDate?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown")")
+                                    .font(.caption)
+                                    .foregroundColor(.secondary)
+                            }
+
+                            Spacer()
+
+                            Button("Unpair") {
+                                showingUnpairConfirmation = parent
+                            }
+                            .font(.caption)
+                            .foregroundColor(.red)
+                        }
+                        .padding()
+                        .background(Color(UIColor.secondarySystemBackground))
+                        .cornerRadius(8)
+                    }
+
+                    if pairedParents.count >= 2 {
+                        Text("Maximum parent devices reached. Unpair from one parent to add another.")
+                            .font(.caption)
+                            .foregroundColor(.orange)
+                            .padding(.horizontal)
+                    }
+                }
+                .padding()
+            }
 
             if !showScanner {
                 VStack(spacing: 20) {
@@ -38,6 +82,7 @@ struct ChildPairingView: View {
                     .buttonStyle(.borderedProminent)
                     .controlSize(.large)
                     .padding(.horizontal)
+                    .disabled(pairedParents.count >= 2) // Disable if max parents reached
                 }
             } else if isPairing {
                 ProgressView("Pairing with parent device...")
@@ -103,6 +148,29 @@ struct ChildPairingView: View {
             }
         } message: {
             Text("Successfully paired with parent device!")
+        }
+        .alert("Unpair Parent Device", isPresented: Binding(
+            get: { showingUnpairConfirmation != nil },
+            set: { if !$0 { showingUnpairConfirmation = nil } }
+        )) {
+            Button("Cancel", role: .cancel) {
+                showingUnpairConfirmation = nil
+            }
+            Button("Unpair", role: .destructive) {
+                if let parent = showingUnpairConfirmation {
+                    Task {
+                        await unpairFromParent(parent)
+                    }
+                }
+                showingUnpairConfirmation = nil
+            }
+        } message: {
+            Text("Are you sure you want to unpair from this parent device? You will no longer be able to sync usage data with them.")
+        }
+        .onAppear {
+            Task {
+                await loadPairedParents()
+            }
         }
     }
 
@@ -172,6 +240,24 @@ struct ChildPairingView: View {
                 #endif
             }
         }
+    }
+    
+    private func loadPairedParents() async {
+        // Query all parent devices this child is paired with
+        // This would involve querying CloudKit for registered devices
+        // For now, we'll just leave this as a placeholder
+        // In a real implementation, this would query the shared zones
+    }
+    
+    private func unpairFromParent(_ parent: RegisteredDevice) async {
+        // Remove child's device record from that parent's shared zone
+        // This effectively unpairs
+        #if DEBUG
+        print("[ChildPairingView] 🔓 Child unpairing from parent: \(parent.deviceID ?? "unknown")")
+        #endif
+        
+        // In a real implementation, this would delete the device record
+        // from the parent's shared zone in CloudKit
     }
 }
 

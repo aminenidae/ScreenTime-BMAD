@@ -5,21 +5,26 @@ struct ParentModeContainer: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     
     var body: some View {
-        MainTabView(isParentMode: true)
-            .overlay(alignment: .topTrailing) {
-                Button {
-                    sessionManager.exitToSelection()
-                } label: {
-                    Label("Exit Parent Mode", systemImage: "arrow.backward.circle.fill")
-                        .font(.headline)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .foregroundColor(.white)
-                        .background(Color.red.opacity(0.85), in: Capsule())
-                }
-                .padding(.top, 20)
-                .padding(.trailing, 20)
+        ZStack(alignment: .topTrailing) {
+            // Main content
+            MainTabView(isParentMode: true)
+
+            // Exit button with explicit z-index
+            Button {
+                sessionManager.exitToSelection()
+            } label: {
+                Label("Exit Parent Mode", systemImage: "arrow.backward.circle.fill")
+                    .font(.headline)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 10)
+                    .foregroundColor(.white)
+                    .background(Color.red.opacity(0.85), in: Capsule())
             }
+            .padding(.top, 60)  // Increased to avoid navigation bar
+            .padding(.trailing, 20)
+            .zIndex(999)  // Ensure button is always on top
+        }
+        .ignoresSafeArea(edges: .top)  // Allow ZStack to extend to top edge
     }
 }
 

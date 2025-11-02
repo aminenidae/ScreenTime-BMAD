@@ -13,6 +13,9 @@ class ParentRemoteViewModel: ObservableObject {
     @Published var appConfigurations: [AppConfiguration] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    
+    // Store summaries for each device (Multi-Child Device Support)
+    @Published var deviceSummaries: [String: CategoryUsageSummary] = [:]
 
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
@@ -330,5 +333,40 @@ class ParentRemoteViewModel: ObservableObject {
         #endif
 
         return summaries
+    }
+    
+    // Load summary for a specific device (Multi-Child Device Support)
+    func loadDeviceSummary(for device: RegisteredDevice) async {
+        guard let deviceID = device.deviceID else { return }
+
+        // Load today's summary for this device
+        await loadChildData(for: device)
+
+        // Create summary from loaded data
+        let summary = createTodaySummary(for: deviceID)
+
+        await MainActor.run {
+            self.deviceSummaries[deviceID] = summary
+        }
+    }
+
+    private func createTodaySummary(for deviceID: String) -> CategoryUsageSummary {
+        // Aggregate today's usage for this device
+        let deviceRecords = usageRecords.filter { record in
+            record.deviceID == deviceID &&
+            Calendar.current.isDateInToday(record.sessionStart ?? Date())
+        }
+
+        let totalSeconds = deviceRecords.reduce(0) { $0 + Int($1.totalSeconds) }
+        let totalPoints = deviceRecords.reduce(0) { $0 + Int($1.earnedPoints) }
+        let appCount = Set(deviceRecords.compactMap { $0.logicalID }).count
+
+        return CategoryUsageSummary(
+            category: "All Apps",
+            totalSeconds: totalSeconds,
+            appCount: appCount,
+            totalPoints: totalPoints,
+            apps: deviceRecords
+        )
     }
 }

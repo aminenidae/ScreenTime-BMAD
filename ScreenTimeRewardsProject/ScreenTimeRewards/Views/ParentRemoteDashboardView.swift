@@ -41,38 +41,17 @@ struct ParentRemoteDashboardView: View {
                             .padding(.horizontal)
                     }
                     
-                    // Main content (only show when a device is selected)
-                    if viewModel.selectedChildDevice != nil {
-                        // Usage Summary
-                        RemoteUsageSummaryView(viewModel: viewModel)
-                            .padding(.horizontal)
-                        
-                        // App Configuration
-                        RemoteAppConfigurationView(viewModel: viewModel)
-                            .padding(.horizontal)
-                        
-                        // Historical Reports
-                        HistoricalReportsView(viewModel: viewModel)
-                            .padding(.horizontal)
-                    } else if !viewModel.linkedChildDevices.isEmpty {
-                        // No device selected but devices exist
-                        VStack(spacing: 16) {
-                            Image(systemName: "hand.tap")
-                                .font(.largeTitle)
-                                .foregroundColor(.blue)
-                            
-                            Text("Select a child device to view data")
-                                .font(.title3)
-                                .multilineTextAlignment(.center)
-                            
-                            Text("Choose a device from the selector above to see usage data, configure apps, and view reports.")
-                                .font(.subheadline)
-                                .foregroundColor(.secondary)
-                                .multilineTextAlignment(.center)
+                    // Multi-child view - show all linked children
+                    if !viewModel.linkedChildDevices.isEmpty {
+                        VStack(spacing: 20) {
+                            // Show card for each child device
+                            ForEach(viewModel.linkedChildDevices, id: \.deviceID) { childDevice in
+                                NavigationLink(destination: ChildDetailView(device: childDevice, viewModel: viewModel)) {
+                                    ChildDeviceSummaryCard(device: childDevice, viewModel: viewModel)
+                                }
+                                .buttonStyle(PlainButtonStyle())
+                            }
                         }
-                        .padding()
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(12)
                         .padding(.horizontal)
                     } else if !viewModel.isLoading {
                         // No devices linked
@@ -151,6 +130,20 @@ struct ParentRemoteDashboardView: View {
                     }
                 }
             }
+            // ADD THIS: Floating action button for pairing
+            .overlay(alignment: .bottomTrailing) {
+                Button(action: {
+                    showingPairingView = true
+                }) {
+                    Label("Add Child Device", systemImage: "plus.circle.fill")
+                        .font(.title2)
+                        .padding()
+                        .foregroundColor(.white)
+                        .background(Color.blue, in: Circle())
+                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
+                }
+                .padding()
+            }
         }
     }
     
@@ -159,10 +152,6 @@ struct ParentRemoteDashboardView: View {
         defer { showingRefreshIndicator = false }
         
         await viewModel.loadLinkedChildDevices()
-        
-        if let selectedDevice = viewModel.selectedChildDevice {
-            await viewModel.loadChildData(for: selectedDevice)
-        }
     }
 }
 
