@@ -52,7 +52,7 @@ struct RootView: View {
                         case .none:
                             ModeSelectionView()
                         case .parent:
-                            MainTabView()
+                            ParentModeContainer()
                         case .child:
                             ChildModeView()
                         }

@@ -6,6 +6,11 @@ struct MainTabView: View {
     @EnvironmentObject var sessionManager: SessionManager  // Add session manager
     
     var body: some View {
+        #if DEBUG
+        let _ = print("[MainTabView] Rendering with isParentMode: \(isParentMode)")
+        let _ = print("[MainTabView] sessionManager: \(sessionManager)")
+        #endif
+        
         NavigationView {
             TabView {
                 RewardsTabView()
@@ -26,11 +31,12 @@ struct MainTabView: View {
             .toolbar {
                 // Conditionally show Exit Parent Mode button
                 if isParentMode {
-                    ToolbarItem(placement: .navigationBarTrailing) {
+                    ToolbarItem(placement: .navigationBarLeading) {
                         Button("Exit Parent Mode") {
                             sessionManager.exitToSelection()
                         }
                         .foregroundColor(.red)
+                        .font(.headline)
                     }
                 }
             }

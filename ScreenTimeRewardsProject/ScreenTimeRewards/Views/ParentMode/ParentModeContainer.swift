@@ -5,6 +5,11 @@ struct ParentModeContainer: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     
     var body: some View {
+        #if DEBUG
+        let _ = print("[ParentModeContainer] Rendering with sessionManager: \(sessionManager)")
+        let _ = print("[ParentModeContainer] Exit button should be visible")
+        #endif
+        
         ZStack(alignment: .topTrailing) {
             // Main content
             MainTabView(isParentMode: true)
