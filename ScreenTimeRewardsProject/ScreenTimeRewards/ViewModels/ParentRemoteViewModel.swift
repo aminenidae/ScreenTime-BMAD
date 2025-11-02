@@ -131,8 +131,12 @@ class ParentRemoteViewModel: ObservableObject {
                 }
             }
             
-            // Load app configurations
-            appConfigurations = try await cloudKitService.downloadParentConfiguration()
+            // Load app configurations for the selected child device
+            let context = PersistenceController.shared.container.viewContext
+            let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "deviceID == %@", device.deviceID ?? "")
+            
+            appConfigurations = try context.fetch(fetchRequest)
         } catch let error as CKError {
             handleCloudKitError(error)
         } catch {

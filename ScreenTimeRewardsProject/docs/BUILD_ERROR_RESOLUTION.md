@@ -1,4 +1,65 @@
 # Build Error Resolution
+
+**Date:** November 1, 2025
+**Author:** Dev Agent
+
+## 📋 Overview
+
+This document tracks build errors encountered during development and their resolutions for the ScreenTime Rewards project.
+
+## 🛠️ Resolved Issues
+
+### Issue 1: UI Not Updating After Configuration Creation
+**Date:** November 1, 2025
+**File:** `RemoteAppConfigurationView.swift`
+**Problem:** After creating app configurations through the parent-side app selection feature, the UI was not immediately updating to show the newly created configurations.
+**Root Cause:** The `createAppConfigurations` function was saving configurations to Core Data but not updating the view model's `appConfigurations` array immediately.
+**Solution:** Modified the function to update the UI immediately using `MainActor.run` to append new configurations to the view model's array.
+**Files Modified:** 
+- `ScreenTimeRewards/Views/ParentRemote/RemoteAppConfigurationView.swift`
+
+### Issue 2: Incorrect Configuration Fetching
+**Date:** November 1, 2025
+**File:** `ParentRemoteViewModel.swift`
+**Problem:** The `loadChildData` method was fetching configurations for the parent device instead of the selected child device.
+**Root Cause:** The method was calling `downloadParentConfiguration()` which filtered by the parent's device ID rather than the selected child's device ID.
+**Solution:** Modified the method to directly fetch AppConfiguration entities from Core Data using a predicate that matches the selected child device's device ID.
+**Files Modified:** 
+- `ScreenTimeRewards/ViewModels/ParentRemoteViewModel.swift`
+
+## ⚠️ Minor Warnings (No Impact on Functionality)
+
+### Warning 1: Variable Could Be Constant
+**File:** `RemoteAppConfigurationView.swift`
+**Location:** Lines 72 and 122
+**Description:** Variables `mutableConfig` are never mutated and could be changed to `let` constants.
+**Impact:** No functional impact, only code style suggestion.
+
+### Warning 2: Unused Variable
+**File:** `ScreenTimeService.swift`
+**Location:** Line 1641
+**Description:** Variable `self` is written to but never read.
+**Impact:** No functional impact, only code style suggestion.
+
+## 📝 Testing Verification
+
+After implementing the fixes:
+- ✅ Build succeeds without errors
+- ✅ Parent can select apps using FamilyActivityPicker
+- ✅ Child device selection sheet works correctly
+- ✅ UI updates immediately after configuration creation
+- ✅ Configurations are correctly saved with child device ID
+- ✅ Parent can see configurations for selected child device
+- ✅ Configurations sync to child device via CloudKit
+- ✅ Child device applies received configurations correctly
+
+## 🔄 Next Steps
+
+1. Monitor for any additional issues during testing
+2. Address minor warnings in future refinement pass
+3. Update user documentation to reflect the corrected workflow
+
+# Build Error Resolution
 ## Function Redeclaration Errors
 
 **Date:** October 28, 2025

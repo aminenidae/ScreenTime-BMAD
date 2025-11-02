@@ -112,8 +112,10 @@ final class UsagePersistence {
             return "token.sha256." + digest.map { String(format: "%02x", $0) }.joined()
         }
 
-        // Fallback for unexpected token structure – use Swift hash (unstable but better than nothing).
-        return "token.hash.\(token.hashValue)"
+        // Improved fallback for unexpected token structure
+        // Use a more descriptive fallback that includes the token's description
+        let tokenDescription = String(describing: token).replacingOccurrences(of: " ", with: "_")
+        return "token.fallback.\(tokenDescription)"
     }
 
     /// Compatibility shim for existing callers.
@@ -223,14 +225,25 @@ final class UsagePersistence {
 
     private func extractTokenData(_ token: ManagedSettings.ApplicationToken) -> Data? {
         let mirror = Mirror(reflecting: token)
+        
+        // First, try to find a direct "data" property
         if let data = mirror.children.first(where: { $0.label == "data" })?.value as? Data {
             return data
         }
 
+        // If not found, recursively search in nested structures
         for child in mirror.children {
             let childMirror = Mirror(reflecting: child.value)
             if let data = childMirror.children.first(where: { $0.label == "data" })?.value as? Data {
                 return data
+            }
+            
+            // Try one more level deep
+            for grandChild in childMirror.children {
+                let grandChildMirror = Mirror(reflecting: grandChild.value)
+                if let data = grandChildMirror.children.first(where: { $0.label == "data" })?.value as? Data {
+                    return data
+                }
             }
         }
 
@@ -241,6 +254,8 @@ final class UsagePersistence {
         print("[UsagePersistence] Available properties: \(labels)")
         #endif
 
-        return nil
+        // Last resort: try to create a hash from the token's description
+        let tokenString = String(describing: token)
+        return tokenString.data(using: .utf8)
     }
 }

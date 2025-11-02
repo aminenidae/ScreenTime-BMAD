@@ -1,6 +1,7 @@
 import SwiftUI
 import FamilyControls
 import CoreData
+import ManagedSettings
 
 struct RemoteAppConfigurationView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
@@ -11,20 +12,8 @@ struct RemoteAppConfigurationView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Text("App Configuration")
-                    .font(.headline)
-                
-                Spacer()
-                
-                Button(action: {
-                    // Add new app configuration
-                }) {
-                    Image(systemName: "plus")
-                        .font(.title2)
-                }
-                .buttonStyle(PlainButtonStyle())
-            }
+            Text("App Configuration")
+                .font(.headline)
             
             if viewModel.appConfigurations.isEmpty && !viewModel.isLoading {
                 EmptyConfigurationView()
@@ -84,18 +73,41 @@ struct RemoteAppConfigurationView: View {
 
 private struct EmptyConfigurationView: View {
     var body: some View {
-        VStack(spacing: 8) {
+        VStack(spacing: 12) {
             Image(systemName: "apps.iphone")
                 .font(.largeTitle)
                 .foregroundColor(.gray)
+
             Text("No app configurations")
+                .font(.headline)
                 .foregroundColor(.gray)
-            Text("Apps will appear here once configured on the child device")
-                .font(.caption)
+
+            Text("Apps must be configured on the child's device")
+                .font(.subheadline)
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
+
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Image(systemName: "info.circle")
+                        .foregroundColor(.blue)
+                    Text("Why configure on child device?")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                }
+
+                Text("Apple's privacy protections prevent remote app configuration. The child needs to select and configure apps on their own device to protect their privacy.")
+                    .font(.caption)
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding()
+            .background(Color.blue.opacity(0.1))
+            .cornerRadius(8)
+            .padding(.horizontal)
         }
-        .frame(maxWidth: .infinity, minHeight: 100)
+        .frame(maxWidth: .infinity, minHeight: 200)
+        .padding()
     }
 }
 
@@ -262,9 +274,6 @@ private struct CategoryAssignmentSheet: View {
     }
 }
 
-// Import AppUsage to access AppCategory enum
-import Foundation
-
 struct RemoteAppConfigurationView_Previews: PreviewProvider {
     static var previews: some View {
         let viewModel = ParentRemoteViewModel()
@@ -276,3 +285,4 @@ struct RemoteAppConfigurationView_Previews: PreviewProvider {
             .padding()
     }
 }
+

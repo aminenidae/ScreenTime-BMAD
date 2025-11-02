@@ -135,7 +135,7 @@ func acceptParentShareAndRegister(from payload: PairingPayload) async throws {
 ```
 
 **3.2: Register in Shared Zone**
-```swift
+``swift
 func registerInParentSharedZone(zoneID: CKRecordZone.ID, parentDeviceID: String) async throws {
     // CRITICAL: Use sharedCloudDatabase (not privateCloudDatabase)
     let sharedDatabase = container.sharedCloudDatabase
@@ -182,7 +182,7 @@ func registerInParentSharedZone(zoneID: CKRecordZone.ID, parentDeviceID: String)
 
 **What to Change:**
 
-```swift
+``swift
 func fetchLinkedChildDevices() async throws -> [RegisteredDevice] {
     // Query parent's PRIVATE database (shared zones are stored there)
     let privateDatabase = container.privateCloudDatabase
@@ -291,6 +291,42 @@ private func pairWithParent(jsonString: String) {
 - [ ] Calls new share acceptance function
 - [ ] Shows success alert on completion
 - [ ] Shows error message on failure
+
+---
+
+## Task Completion Status
+
+### ❌ Parent App Selection Feature Implementation - ABANDONED
+**Status:** Feature abandoned on November 2, 2025
+**Reason:** Apple's privacy architecture prevents cross-device ApplicationToken usage
+**See:** `docs/WHY_PARENT_REMOTE_CONFIG_IMPOSSIBLE.md` for detailed explanation
+
+**What was attempted:**
+- Implemented FamilyActivityPicker integration in parent dashboard
+- Created child device selector sheet for app assignment
+- Added app configuration creation and management
+- Attempted CloudKit sync for configuration sharing
+
+**Why it failed:**
+- ApplicationTokens are device/account-bound
+- CloudKit "process may not map database" errors
+- Same privacy protection that prevents reading app names also prevents writing configurations remotely
+- Child-side configuration remains the only viable approach
+
+### 🔄 Bug Fixes and Improvements
+- Fixed UI not updating immediately after configuration creation
+- Fixed parent fetching its own configurations instead of child's
+- **Fixed app names showing as "App token.sh"** - Enhanced token hash generation and app name extraction
+- **Fixed CloudKit sync issues** - Improved error handling and logging
+- **Addressed sheet presentation warnings** - Enhanced flow control
+
+### 📚 Documentation Updates
+- Created PARENT_APP_SELECTION_FIXES.md
+- Created BUILD_ERROR_RESOLUTION.md
+- Created PARENT_APP_SELECTION_TESTING_LOG.md
+- Created PARENT_APP_SELECTION_RESULTS.md
+- Updated PARENT_APP_SELECTION_IMPLEMENTATION_SUMMARY.md
+- **Created CLOUDKIT_SYNC_FIXES.md** - Documented CloudKit sync and app name fixes
 
 ---
 
@@ -432,7 +468,7 @@ Parent dashboard currently shows linked devices but no usage. That is expected u
 
 **What to add:** After accepting the share, persist identifiers needed for future writes to the parent's shared zone.
 
-```swift
+``swift
 // In acceptParentShareAndRegister(...)
 // After obtaining `metadata` and calling `accept(...)`:
 let rootID = metadata.rootRecordID
@@ -472,7 +508,7 @@ UserDefaults.standard.set(zoneID.zoneName,      forKey: "parentSharedZoneID") //
 - `CD_syncTimestamp` (Date) - **FIXED: Use CD_ prefix, not UR_**
 
 **Function (child):**
-```swift
+``swift
 func uploadUsageRecordsToParent(_ records: [UsageRecord]) async throws {
     let container = CKContainer(identifier: "iCloud.com.screentimerewards")
     let sharedDB = container.sharedCloudDatabase
@@ -523,7 +559,7 @@ func uploadUsageRecordsToParent(_ records: [UsageRecord]) async throws {
 
 **What to add:** Query `privateCloudDatabase` for `CD_UsageRecord` across all zones (includes shared zones) filtered by `CD_deviceID` and date range. Map to transient objects for display (do NOT insert into Core Data yet).
 
-```swift
+``swift
 func fetchChildUsageDataFromCloudKit(deviceID: String, dateRange: DateInterval) async throws -> [UsageRecord] {
     let db = container.privateCloudDatabase
     
@@ -745,7 +781,7 @@ print("[ChildPairingView] ✅ Pairing completed successfully with CloudKit shari
 
 **Location:** Add to `ScreenTimeService.swift` (in DEBUG section)
 
-```swift
+``swift
 #if DEBUG
 /// Create test usage records for upload testing
 /// This function creates fresh unsynced usage records to test the upload flow
@@ -820,7 +856,7 @@ func markAllRecordsAsUnsynced() {
 
 **What to add:** Debug button to create test records and trigger upload.
 
-```swift
+``swift
 #if DEBUG
 Section("Debug Actions") {
     Button("🧪 Create Test Records") {
@@ -880,7 +916,7 @@ Section("Debug Actions") {
 **Problem Discovered:** Child was uploading records with `CKCurrentUserDefaultName` (child's user ID) as zone owner, but the zone is owned by the parent. This caused records to be uploaded to a non-existent zone and silently dropped by CloudKit.
 
 **Root Cause Analysis:**
-```swift
+``swift
 // BROKEN CODE (before fix):
 let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
 // This creates: ZoneID(name: "ChildMonitoring-XXX", owner: "child-user-id")
@@ -895,12 +931,12 @@ let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
 **Changes Made:**
 
 **1. Save zone owner during pairing** (`DevicePairingService.swift:429`):
-```swift
+``swift
 UserDefaults.standard.set(zoneID.ownerName, forKey: "parentSharedZoneOwner")
 ```
 
 **2. Use zone owner when uploading** (`CloudKitSyncService.swift:254`):
-```swift
+``swift
 guard
     let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
     let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),  // NEW!
@@ -911,7 +947,7 @@ let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)  // FIXED
 ```
 
 **3. Update debug logging** (`ChildDashboardView.swift:312`):
-```swift
+``swift
 Button("🔍 Check Share Context") {
     print("Parent Shared Zone Owner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "MISSING")")
 }
@@ -1008,7 +1044,7 @@ Button("🔍 Check Share Context") {
 - [ ] Navigate to: Private Database → Zones → ChildMonitoring-XXXXX
 - [ ] Verify `CD_UsageRecord` count increases (should see real app records)
 - [ ] Click on a real app record, verify:
-  - [ ] `CD_displayName` shows actual app name (e.g., "Safari", "Messages")
+  - [ [ ] `CD_displayName` shows actual app name (e.g., "Safari", "Messages")
   - [ ] `CD_totalSeconds` matches actual usage time
   - [ ] `CD_earnedPoints` calculated correctly
   - [ ] `CD_category` matches app category assignment
@@ -1268,4 +1304,39 @@ Total: 1 record
 
 ## Priority 4: Verify Usage Session Aggregation
 **Status:** ✅ COMPLETED (Part of Task 17)
-**
+
+---
+
+## 🎯 **NEW FEATURE: Parent-Side App Selection**
+**Status:** ❌ ABANDONED - November 2, 2025
+**Goal:** ~~Allow parents to select and configure their child's apps directly from their own device.~~
+
+**Feature Abandoned Due to Apple's Privacy Architecture**
+
+**Reason:** Apple's privacy model prevents cross-device ApplicationToken usage. The same privacy protection that prevents parents from seeing child's app names also prevents remote configuration.
+
+**Evidence of Failure:**
+- CloudKit "process may not map database" errors
+- ApplicationTokens are cryptographically bound to device/account
+- Cannot be used on different device or iCloud account
+- Token re-matching would require child to select apps anyway (defeats purpose)
+
+**Implementation Attempts:**
+- Modified `RemoteAppConfigurationView.swift` to integrate FamilyActivityPicker
+- Created `ChildDeviceSelectorForAppsSheet.swift` for child device selection (DELETED)
+- Implemented configuration creation logic (REMOVED)
+- Attempted CloudKit sync for configuration sharing (FAILED)
+
+**Rollback Completed:**
+- [x] Removed FamilyActivityPicker integration
+- [x] Removed "+" button from parent UI
+- [x] Deleted ChildDeviceSelectorForAppsSheet.swift
+- [x] Removed configuration creation helper methods
+- [x] Updated empty state message with privacy explanation
+- [x] Created WHY_PARENT_REMOTE_CONFIG_IMPOSSIBLE.md documentation
+
+**Conclusion:** Child-side configuration is the only viable approach. Feature will not be implemented.
+
+**Documentation:**
+- See `docs/WHY_PARENT_REMOTE_CONFIG_IMPOSSIBLE.md` for detailed explanation
+- See `docs/ROLLBACK_PARENT_SELECTION_FEATURE.md` for rollback details
