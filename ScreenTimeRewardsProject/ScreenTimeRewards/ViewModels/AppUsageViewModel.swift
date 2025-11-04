@@ -133,6 +133,27 @@ class AppUsageViewModel: ObservableObject {
         return reserved
     }
 
+    /// Total learning points with challenge bonuses applied
+    var totalLearningPointsWithBonuses: Int {
+        let basePoints = learningRewardPoints
+        let bonusPoints = challengeService.calculateBonusPoints(
+            basePoints: basePoints,
+            for: DeviceModeManager.shared.deviceID
+        )
+
+        #if DEBUG
+        print("[AppUsageViewModel] 💰 Learning points: \(basePoints) + bonus: \(bonusPoints)")
+        #endif
+
+        return basePoints + bonusPoints
+    }
+
+    // MARK: - Challenge Integration
+    @Published var activeChallenges: [Challenge] = []
+    @Published var challengeProgress: [String: ChallengeProgress] = [:]
+    @Published var currentStreak: Int = 0
+    private let challengeService = ChallengeService.shared
+
     // Flag to track when we're resetting picker state
     private var isResettingPickerState = false
     
@@ -326,6 +347,28 @@ class AppUsageViewModel: ObservableObject {
         
         // BF-1 FIX: Add observer for reward app usage notifications
         setupRewardAppUsageObserver()
+        
+        // NEW: Observe challenge notifications
+        NotificationCenter.default.addObserver(
+            forName: ChallengeService.challengeProgressUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                self?.loadChallengeData()
+            }
+        }
+
+        NotificationCenter.default.addObserver(
+            forName: ChallengeService.challengeCompleted,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                // Show celebration animation
+                self?.showChallengeCompletionAnimation()
+            }
+        }
         
         NotificationCenter.default
             .publisher(for: ScreenTimeService.usageDidChangeNotification)
@@ -2357,5 +2400,28 @@ extension AppUsageViewModel {
         } else {
             return "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Reset usage time to zero\n\nDo you want to continue?"
         }
+    }
+    
+    // MARK: - Challenge Integration Helpers
+    
+    func loadChallengeData() {
+        Task {
+            do {
+                let deviceID = DeviceModeManager.shared.deviceID
+                activeChallenges = try await challengeService.fetchActiveChallenges(for: deviceID)
+                challengeProgress = challengeService.challengeProgress
+            } catch {
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Failed to load challenges: \(error)")
+                #endif
+            }
+        }
+    }
+
+    private func showChallengeCompletionAnimation() {
+        // TODO: Implement in Phase 3
+        #if DEBUG
+        print("[AppUsageViewModel] 🎉 Challenge completed!")
+        #endif
     }
 }

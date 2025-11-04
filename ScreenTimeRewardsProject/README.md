@@ -25,6 +25,7 @@ A SwiftUI-based iOS application that demonstrates Screen Time API integration fo
 - **Parent-Child device synchronization via CloudKit**
 - **Automatic background sync for usage data and configurations**
 - **Remote monitoring dashboard for parents**
+- **Gamification system with Challenges, Streaks, and Badges**
 
 ## Implementation Details
 
@@ -43,6 +44,15 @@ Handles Screen Time API integration:
 - Broadcasts usage updates via NotificationCenter
 - Provides debug helpers (`configureForTesting`, `simulateEvent`) for unit tests
 - **Integrates with CloudKitSyncService for remote configuration**
+- **Integrates with ChallengeService for gamification tracking**
+
+### ChallengeService
+Manages the gamification system:
+- Challenge creation, management, and tracking
+- Real-time progress monitoring
+- Bonus point calculation
+- Badge and streak system integration
+- CloudKit synchronization
 
 ### CloudKitSyncService
 Manages CloudKit synchronization between parent and child devices:
@@ -65,12 +75,14 @@ Handles background synchronization for child devices:
 - Applies configuration by calling `ScreenTimeService.configureMonitoring`
 - Refreshes UI when usage data changes
 - Surfaces error messages from authorization/monitoring flows
+- **Manages challenge data and progress tracking**
 
 ### AppUsageView
 - Displays monitoring status indicators and category totals
 - Presents the Family Activity picker via toolbar button
 - Allows per-category threshold adjustment with steppers
 - Shows a live list of recorded usage sessions
+- **Displays challenge progress and achievements**
 
 ## Testing
 
@@ -82,6 +94,7 @@ Execute with **Product ▸ Test** (⌘U). Suites cover:
 - Framework import verification
 - **CloudKitSyncService functionality**
 - **ChildBackgroundSyncService operations**
+- **ChallengeService operations**
 
 ### On-Device Manual Testing
 1. Build & run on an iOS 16.6+ physical device with Screen Time enabled and the extension installed (look for the "ScreenTimeActivityExtension" bundle under Settings ▶ Screen Time ▶ App & Website Activity).
@@ -91,6 +104,7 @@ Execute with **Product ▸ Test** (⌘U). Suites cover:
 5. Use the device normally; when thresholds are reached the extension posts events and the totals update in real time (watch the category tiles and app list).
 6. **Test parent-child synchronization by configuring one device as parent and another as child**
 7. **Verify background sync operations continue when app is not running**
+8. **Test challenge creation and progress tracking**
 
 For command-line testing/CI:
 ```bash
@@ -124,6 +138,7 @@ cd ScreenTimeRewardsProject
 5. **Extension builds but data doesn't change**: confirm both targets share the same App Group (`group.com.screentimerewards.shared`) and reinstall the app after toggling entitlements.
 6. **Installation Error 3002**: This typically indicates provisioning profile or entitlements issues. Run `./fix_installation_issues.sh` for detailed steps to resolve.
 7. **CloudKit sync issues**: Ensure both devices are signed into the same iCloud account and that the CloudKit container is properly configured.
+8. **Challenge system issues**: Verify Core Data schema implementation and CloudKit container configuration.
 
 ## Documentation
 
@@ -147,12 +162,21 @@ cd ScreenTimeRewardsProject
 11. `docs/PHASE5_IMPLEMENTATION_SUMMARY.md` - Implementation summary for Phase 5
 12. `docs/PHASE5_PROGRESS_REPORT.md` - Progress report for Phase 5
 
+### Challenge System Documentation
+1. `docs/DEV_AGENT_TASKS_CHALLENGE_SYSTEM.md` - Detailed implementation tasks
+2. `docs/CORE_DATA_SCHEMA_UPDATE_INSTRUCTIONS.md` - Core Data schema update guide
+3. `docs/CHALLENGE_SYSTEM_IMPLEMENTATION_SUMMARY.md` - Overall implementation summary
+4. `docs/CHALLENGE_SYSTEM_FINAL_SUMMARY.md` - Final implementation summary
+5. `docs/CHALLENGE_SYSTEM_COMPLETION_REPORT.md` - Completion report
+6. `docs/CHALLENGE_SYSTEM_STATUS.md` - Current status report
+
 ## Roadmap
 - Implement DeviceActivity monitor app extension to receive live Screen Time events
 - Persist usage sessions (Core Data/CloudKit) and sync thresholds across devices
 - Build parental approval and reward workflows on top of collected data
 - Implement device pairing workflow
 - Add enhanced monitoring features
+- **Complete gamification system with Badges, Streaks, and Animations**
 - Complete comprehensive testing and validation
 
 ## References

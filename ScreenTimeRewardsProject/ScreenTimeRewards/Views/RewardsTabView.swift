@@ -102,7 +102,6 @@ struct RewardsTabView: View {
                 viewModel.onFamilyPickerDismissed()
             }
         }
-        // Task 0: Sheet moved to MainTabView
     }
 }
 

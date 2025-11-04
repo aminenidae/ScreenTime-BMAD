@@ -3,14 +3,17 @@ import FamilyControls
 
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
-    @State private var showingPairingView = false
-    @StateObject private var pairingService = DevicePairingService.shared
 
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 // Points card
                 pointsCard
+
+                // Challenge Summary Card
+                if !viewModel.activeChallenges.isEmpty {
+                    challengeSummaryCard
+                }
 
                 // Learning apps section
                 if !viewModel.usedLearningApps.isEmpty {
@@ -22,22 +25,12 @@ struct ChildDashboardView: View {
                     rewardAppsSection
                 }
 
-                // Pairing section (only when not paired)
-                if !pairingService.isPaired() {
-                    pairingSection
-                } else {
-                    pairedStatusSection
-                }
 
                 // Empty state
                 if viewModel.usedLearningApps.isEmpty && viewModel.usedRewardApps.isEmpty {
                     emptyStateView
                 }
 
-                // 🔴 TASK 13: Add Manual Test Button for Upload - CRITICAL
-                #if DEBUG
-                debugActionsSection
-                #endif
 
                 Spacer()
             }
@@ -45,9 +38,6 @@ struct ChildDashboardView: View {
         }
         .refreshable {
             await viewModel.refresh()
-        }
-        .sheet(isPresented: $showingPairingView) {
-            ChildPairingView()
         }
     }
 }
@@ -91,6 +81,60 @@ private extension ChildDashboardView {
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.blue.opacity(0.1))
         )
+    }
+
+    var challengeSummaryCard: some View {
+        NavigationLink(destination: ChildChallengesTabView()) {
+            VStack(spacing: 12) {
+                HStack {
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.orange)
+                    Text("Active Challenges")
+                        .font(.headline)
+                    Spacer()
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(.secondary)
+                }
+
+                // Show nearest to completion
+                if let nearestChallenge = viewModel.activeChallenges.first,
+                   let challengeID = nearestChallenge.challengeID,
+                   let progress = viewModel.challengeProgress[challengeID] {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text(nearestChallenge.title ?? "Challenge")
+                            .font(.subheadline)
+
+                        ProgressView(value: Double(progress.currentValue), total: Double(progress.targetValue))
+                            .tint(.green)
+
+                        HStack {
+                            Text("\(progress.currentValue)/\(progress.targetValue) min")
+                                .font(.caption)
+                            Spacer()
+                            Text("\(Int(progress.progressPercentage))%")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                    }
+                }
+
+                // Streak display
+                if viewModel.currentStreak > 0 {
+                    HStack {
+                        Text("🔥")
+                        Text("\(viewModel.currentStreak) day streak!")
+                            .font(.caption)
+                            .fontWeight(.semibold)
+                        Spacer()
+                    }
+                }
+            }
+            .padding()
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.orange.opacity(0.1))
+            )
+        }
     }
 
     var learningAppsSection: some View {
@@ -217,118 +261,6 @@ private extension ChildDashboardView {
         .padding(.horizontal)
     }
 
-    var pairingSection: some View {
-        VStack(spacing: 16) {
-            Image(systemName: "iphone.and.arrow.forward")
-                .font(.largeTitle)
-                .foregroundColor(.blue)
-            
-            Text("Pair with Parent Device")
-                .font(.title3)
-                .multilineTextAlignment(.center)
-            
-            Text("Scan your parent's QR code to link this device")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-            
-            Button("Scan Parent's QR Code") {
-                showingPairingView = true
-            }
-            .buttonStyle(.borderedProminent)
-        }
-        .padding()
-        .background(Color.blue.opacity(0.1))
-        .cornerRadius(12)
-        .padding(.horizontal)
-    }
-
-    var pairedStatusSection: some View {
-        VStack(spacing: 12) {
-            HStack(spacing: 10) {
-                Image(systemName: "link.circle.fill")
-                    .font(.title2)
-                    .foregroundColor(.green)
-                Text("Paired with Parent")
-                    .font(.headline)
-            }
-            if let parentID = DevicePairingService.shared.getParentDeviceID() {
-                Text("Parent Device ID: \(parentID)")
-                    .font(.caption)
-                    .foregroundColor(.secondary)
-            }
-            Button("Unpair") {
-                DevicePairingService.shared.unpairDevice()
-            }
-            .buttonStyle(.bordered)
-        }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(Color.green.opacity(0.1))
-        .cornerRadius(12)
-        .padding(.horizontal)
-    }
-
-    // 🔴 TASK 13: Debug Actions Section
-    #if DEBUG
-    var debugActionsSection: some View {
-        Section("Debug Actions") {
-            VStack(spacing: 10) {
-                Text("Debug Actions")
-                    .font(.headline)
-                    .padding(.top)
-                
-                Button("🧪 Create Test Records") {
-                    ScreenTimeService.shared.createTestUsageRecordsForUpload()
-                }
-                .buttonStyle(.bordered)
-
-                Button("📤 Upload to Parent") {
-                    Task {
-                        await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-
-                Button("🔄 Create & Upload") {
-                    Task {
-                        // Create test records
-                        ScreenTimeService.shared.createTestUsageRecordsForUpload()
-
-                        // Wait a moment for Core Data to save
-                        try? await Task.sleep(nanoseconds: 500_000_000)  // 0.5 seconds
-
-                        // Trigger upload
-                        await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .tint(.green)
-
-                Button("🔍 Check Share Context") {
-                    print("=== Share Context Check ===")
-                    print("Parent Device ID: \(UserDefaults.standard.string(forKey: "parentDeviceID") ?? "MISSING")")
-                    print("Parent Shared Zone ID: \(UserDefaults.standard.string(forKey: "parentSharedZoneID") ?? "MISSING")")
-                    print("Parent Shared Zone Owner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "MISSING")")
-                    print("Parent Shared Root Record: \(UserDefaults.standard.string(forKey: "parentSharedRootRecordName") ?? "MISSING")")
-                }
-                .buttonStyle(.bordered)
-                
-                Button("🧹 Mark All Records Unsynced") {
-                    ScreenTimeService.shared.markAllRecordsAsUnsynced()
-                }
-                .buttonStyle(.bordered)
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.gray.opacity(0.1))
-            )
-            .padding(.horizontal)
-        }
-    }
-    #endif
-
     var emptyStateView: some View {
         VStack(spacing: 16) {
             Image(systemName: "hourglass.bottomhalf.filled")
@@ -345,12 +277,5 @@ private extension ChildDashboardView {
                 .multilineTextAlignment(.center)
         }
         .padding()
-    }
-}
-
-struct ChildDashboardView_Previews: PreviewProvider {
-    static var previews: some View {
-        ChildDashboardView()
-            .environmentObject(AppUsageViewModel())
     }
 }

@@ -6,7 +6,7 @@ struct ChildDeviceSelectorView: View {
     
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            Text("Linked Devices")
+            Text("Family Devices") // Changed from "Linked Devices" as per UX/UI improvements Phase 1
                 .font(.headline)
             
             if viewModel.linkedChildDevices.isEmpty {

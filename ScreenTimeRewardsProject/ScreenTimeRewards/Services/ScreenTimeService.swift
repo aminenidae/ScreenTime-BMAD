@@ -1525,6 +1525,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 )
             }
 
+            // Notify challenge service of learning app usage
+            if application.category == .learning {
+                Task {
+                    await ChallengeService.shared.updateProgressForUsage(
+                        appID: logicalID,
+                        duration: duration,
+                        deviceID: DeviceModeManager.shared.deviceID
+                    )
+                }
+            }
+
             recordedCount += 1
         }
 

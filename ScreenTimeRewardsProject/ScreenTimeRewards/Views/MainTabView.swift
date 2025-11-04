@@ -24,22 +24,39 @@ struct MainTabView: View {
                         Label("Learning", systemImage: "book.fill")
                     }
                     .navigationTitle("Learning")
+
+                // Settings Tab (Parent Mode only) - Phase 2
+                if isParentMode {
+                    SettingsTabView()
+                        .tabItem {
+                            Label("Settings", systemImage: "gearshape.fill")
+                        }
+                        .navigationTitle("Settings")
+                }
+
+                // Challenges Tab (Parent Mode only)
+                if isParentMode {
+                    ParentChallengesTabView()
+                        .tabItem {
+                            Label("Challenges", systemImage: "trophy.fill")
+                        }
+                        .navigationTitle("Challenges")
+                }
+
+                // Challenges Tab (Child Mode only)
+                if !isParentMode {
+                    ChildChallengesTabView()
+                        .tabItem {
+                            Label("Challenges", systemImage: "star.fill")
+                        }
+                        .navigationTitle("Challenges")
+                }
             }
             .environmentObject(viewModel)  // Task 0: Pass shared view model to tabs
             .navigationViewStyle(.stack)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // Conditionally show Exit Parent Mode button
-                if isParentMode {
-                    ToolbarItem(placement: .navigationBarLeading) {
-                        Button("Exit Parent Mode") {
-                            sessionManager.exitToSelection()
-                        }
-                        .foregroundColor(.red)
-                        .font(.headline)
-                    }
-                }
-            }
+            // REMOVE Exit button from toolbar (lines 31-42):
+            // ToolbarItem removed - Exit Parent Mode button moved to Settings tab
         }
         .navigationViewStyle(.stack)
         .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
@@ -84,13 +101,5 @@ struct MainTabView: View {
             }
             .environmentObject(viewModel)  // Task M: Pass ViewModel reference to CategoryAssignmentView
         }
-    }
-}
-
-struct MainTabView_Previews: PreviewProvider {
-    static var previews: some View {
-        MainTabView()
-            .environmentObject(AppUsageViewModel())  // Provide a view model for previews
-            .environmentObject(SessionManager.shared)  // Provide a session manager for previews
     }
 }

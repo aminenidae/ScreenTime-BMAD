@@ -22,12 +22,6 @@ struct RemoteUsageSummaryView: View {
                 } else {
                     CategoryUsageView(viewModel: viewModel)
                 }
-                
-                // Total Summary
-                if !viewModel.categorySummaries.isEmpty {
-                    TotalUsageSummary(summaries: viewModel.categorySummaries)
-                        .padding(.horizontal)
-                }
             }
             .padding(.vertical)
         }
@@ -83,59 +77,6 @@ private struct CategoryUsageView: View {
                 }
                 #endif
             }
-        }
-    }
-}
-
-private struct TotalUsageSummary: View {
-    let summaries: [CategoryUsageSummary]
-
-    var totalTime: Int {
-        summaries.reduce(0) { $0 + $1.totalSeconds }
-    }
-
-    var totalPoints: Int {
-        summaries.reduce(0) { $0 + $1.totalPoints }
-    }
-
-    var body: some View {
-        VStack(spacing: 12) {
-            Text("Total Summary")
-                .font(.headline)
-
-            HStack(spacing: 40) {
-                VStack {
-                    Text("Total Screen Time")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text(formatSeconds(totalTime))
-                        .font(.title3)
-                        .fontWeight(.bold)
-                }
-
-                VStack {
-                    Text("Total Points")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-                    Text("\(totalPoints)")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.blue)
-                }
-            }
-        }
-        .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
-    }
-
-    private func formatSeconds(_ seconds: Int) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
         }
     }
 }

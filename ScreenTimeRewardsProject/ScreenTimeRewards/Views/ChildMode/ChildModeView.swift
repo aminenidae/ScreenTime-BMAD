@@ -15,7 +15,8 @@ struct ChildModeView: View {
                         Button("Exit") {
                             sessionManager.exitToSelection()
                         }
-                        .foregroundColor(.blue)
+                        .foregroundColor(.red)
+                        .font(.headline)
                     }
                 }
         }

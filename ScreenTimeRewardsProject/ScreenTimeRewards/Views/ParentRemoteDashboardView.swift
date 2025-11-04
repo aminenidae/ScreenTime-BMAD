@@ -5,29 +5,42 @@ struct ParentRemoteDashboardView: View {
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var showingRefreshIndicator = false
     @State private var showingPairingView = false
+    // Added @AppStorage for parent name as per UX/UI improvements Phase 1
+    // Using device name as fallback since we couldn't find a specific parent name field
+    @AppStorage("parentName") private var parentName: String = ""
     
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(spacing: 20) {
-                    // Header
-                    VStack(spacing: 8) {
-                        Text("Parent Remote Dashboard")
-                            .font(.largeTitle)
-                            .fontWeight(.bold)
-                        
-                        Text("Welcome, Parent!")
-                            .font(.title2)
-                        
-                        Text("Device: \(modeManager.deviceName)")
-                            .font(.subheadline)
-                            .foregroundColor(.secondary)
-                    }
-                    .padding(.top)
-                    
-                    // Child Device Selector
-                    ChildDeviceSelectorView(viewModel: viewModel)
-                        .padding(.horizontal)
+            ZStack {
+                // Soft gradient background
+                LinearGradient(
+                    colors: [
+                        Color(red: 0.95, green: 0.97, blue: 1.0),  // Very light blue
+                        Color(red: 0.98, green: 0.95, blue: 1.0),  // Very light purple
+                        Color(red: 1.0, green: 0.97, blue: 0.98)   // Very light pink
+                    ],
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+                .ignoresSafeArea()
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        // Header
+                        VStack(spacing: 8) {
+                            Text("Family Dashboard") // Changed from "Parent Remote Dashboard" as per UX/UI improvements Phase 1
+                                .font(.largeTitle)
+                                .fontWeight(.bold)
+
+                            // Personalized welcome message as per UX/UI improvements Phase 1
+                            Text("Welcome, \(parentName.isEmpty ? modeManager.deviceName : parentName)!")
+                                .font(.title2)
+
+                            Text("Device: \(modeManager.deviceName)")
+                                .font(.subheadline)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top)
                     
                     // Loading indicator
                     if viewModel.isLoading {
@@ -41,20 +54,19 @@ struct ParentRemoteDashboardView: View {
                             .padding(.horizontal)
                     }
                     
-                    // Multi-child view - show all linked children
+                    // 3D Card Carousel - Level 1 Navigation
                     if !viewModel.linkedChildDevices.isEmpty {
-                        VStack(spacing: 20) {
-                            // Show card for each child device
-                            ForEach(viewModel.linkedChildDevices, id: \.deviceID) { childDevice in
-                                NavigationLink(destination: ChildDetailView(device: childDevice, viewModel: viewModel)) {
-                                    ChildDeviceSummaryCard(device: childDevice, viewModel: viewModel)
-                                }
-                                .buttonStyle(PlainButtonStyle())
-                            }
+                        VStack(spacing: 16) {
+                            Text("Family Devices")
+                                .font(.headline)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(.horizontal)
+                            
+                            // 3D Card Carousel
+                            DeviceCardCarousel(devices: viewModel.linkedChildDevices)
                         }
-                        .padding(.horizontal)
                     } else if !viewModel.isLoading {
-                        // No devices linked
+                        // No devices linked - keep existing empty state
                         VStack(spacing: 16) {
                             Image(systemName: "iphone.and.arrow.forward")
                                 .font(.largeTitle)
@@ -69,40 +81,56 @@ struct ParentRemoteDashboardView: View {
                                 .foregroundColor(.secondary)
                                 .multilineTextAlignment(.center)
                             
-                            Button("Learn How to Pair Devices") {
+                            Button("Pair Devices") {
                                 showingPairingView = true
                             }
                             .buttonStyle(.borderedProminent)
                         }
                         .padding()
-                        .background(Color.gray.opacity(0.1))
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(
+                                    LinearGradient(
+                                        colors: [
+                                            Color.white.opacity(0.7),
+                                            Color.gray.opacity(0.1)
+                                        ],
+                                        startPoint: .top,
+                                        endPoint: .bottom
+                                    )
+                                )
+                        )
                         .cornerRadius(12)
                         .padding(.horizontal)
                     }
                     
-                    Spacer()
+                        Spacer()
+                    }
+                    .padding(.bottom)
                 }
-                .padding(.bottom)
-            }
-            .refreshable {
-                await refreshData()
-            }
-            .onAppear {
-                Task {
+                .refreshable {
                     await refreshData()
                 }
-            }
-            .navigationTitle("Remote Dashboard")
-            .navigationBarTitleDisplayMode(.large)
-            .toolbar {
-                #if DEBUG
-                ToolbarItem(placement: .navigationBarLeading) {
-                    NavigationLink(destination: CloudKitDebugView()) {
-                        Image(systemName: "gear")
-                            .imageScale(.large)
+                .onAppear {
+                    Task {
+                        await refreshData()
                     }
                 }
-                #endif
+            }
+            .navigationTitle("")
+            .navigationBarTitleDisplayMode(.large)
+            .toolbar {
+                // Add Child Device button at top-left as per UX/UI improvements Phase 1
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button(action: {
+                        showingPairingView = true
+                    }) {
+                        Image(systemName: "plus.circle.fill") // Changed from "iphone.gen2.badge.plus" as per UX/UI improvements Phase 1 Update
+                            .imageScale(.large)
+                            .foregroundColor(.blue)
+                    }
+                    .accessibilityLabel("Add Child Device")
+                }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: {
@@ -129,20 +157,6 @@ struct ParentRemoteDashboardView: View {
                         await refreshData()
                     }
                 }
-            }
-            // ADD THIS: Floating action button for pairing
-            .overlay(alignment: .bottomTrailing) {
-                Button(action: {
-                    showingPairingView = true
-                }) {
-                    Label("Add Child Device", systemImage: "plus.circle.fill")
-                        .font(.title2)
-                        .padding()
-                        .foregroundColor(.white)
-                        .background(Color.blue, in: Circle())
-                        .shadow(color: .black.opacity(0.3), radius: 4, x: 0, y: 2)
-                }
-                .padding()
             }
         }
     }
