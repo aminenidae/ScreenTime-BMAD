@@ -248,27 +248,27 @@ private extension ChildDashboardView {
         let progressPercentage = 0.75 // Placeholder, adjust based on actual data if available
 
         return HStack(spacing: 16) {
-            // App icon placeholder
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    LinearGradient(
-                        gradient: Gradient(colors: [DesignColors.teal.opacity(0.3), DesignColors.coral.opacity(0.3)]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            // App icon
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(DesignColors.teal.opacity(0.2))
+                    .frame(width: 64, height: 64)
+                    .overlay(
+                        Image(systemName: "book.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(DesignColors.teal)
                     )
-                )
-                .frame(width: 56, height: 56)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
-                } else {
-                    Text(snapshot.displayName)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
-                }
+                Text(snapshot.displayName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
 
                 Text("\(viewModel.formatTime(snapshot.totalSeconds))")
                     .font(.system(size: 14))
@@ -324,27 +324,27 @@ private extension ChildDashboardView {
         let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
 
         return HStack(spacing: 16) {
-            // App icon placeholder
-            RoundedRectangle(cornerRadius: 12)
-                .fill(
-                    LinearGradient(
-                        gradient: Gradient(colors: [DesignColors.coral.opacity(0.3), DesignColors.sunnyYellow.opacity(0.3)]),
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
+            // App icon
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(DesignColors.coral.opacity(0.2))
+                    .frame(width: 64, height: 64)
+                    .overlay(
+                        Image(systemName: "gamecontroller.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(DesignColors.coral)
                     )
-                )
-                .frame(width: 56, height: 56)
+            }
 
             VStack(alignment: .leading, spacing: 4) {
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
-                } else {
-                    Text(snapshot.displayName)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
-                }
+                Text(snapshot.displayName)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
 
                 Text(isUnlocked ? "\(viewModel.formatTime(snapshot.totalSeconds)) unlocked" : "Complete a quest to unlock")
                     .font(.system(size: 14, weight: isUnlocked ? .medium : .regular))
