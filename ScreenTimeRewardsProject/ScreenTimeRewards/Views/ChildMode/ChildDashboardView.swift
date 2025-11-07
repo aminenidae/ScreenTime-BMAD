@@ -252,15 +252,15 @@ private extension ChildDashboardView {
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 14)
                     .fill(DesignColors.teal.opacity(0.2))
-                    .frame(width: 64, height: 64)
+                    .frame(width: 80, height: 80)
                     .overlay(
                         Image(systemName: "book.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: 36))
                             .foregroundColor(DesignColors.teal)
                     )
             }
@@ -328,15 +328,15 @@ private extension ChildDashboardView {
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .frame(width: 64, height: 64)
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
+                    .frame(width: 80, height: 80)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 14)
                     .fill(DesignColors.coral.opacity(0.2))
-                    .frame(width: 64, height: 64)
+                    .frame(width: 80, height: 80)
                     .overlay(
                         Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: 36))
                             .foregroundColor(DesignColors.coral)
                     )
             }
