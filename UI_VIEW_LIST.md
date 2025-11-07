@@ -1,0 +1,54 @@
+# UI View Prompts
+
+## Child Device Experience
+- **Device Selection View** — Design a welcoming first-run chooser that asks whether the device will act as a parent or child, offers optional naming, and confirms before saving the choice.
+- **Setup Flow Hub** — Create a lightweight orchestrator screen that transitions between welcome, authorization, PIN setup, and completion steps with smooth animation.
+- **Welcome Screen** — Craft an inspirational intro with app iconography, value statements, and a primary “Get Started” call-to-action.
+- **Authorization Request Screen** — Present clear permission benefits, a friendly checklist, and a prominent button to grant FamilyControls authorization.
+- **Setup PIN Screen** — Provide a focused keypad-driven flow for creating and confirming a secure 4-digit parent PIN with visual progress cues.
+- **Setup Complete Screen** — Celebrate completion with success iconography, quick usage tips, and a “Start Using App” button.
+- **Mode Selection View** — Design the child-device landing page offering Parent Mode (biometric/PIN) and Child Mode options with loading overlay for auth.
+- **Parent PIN Entry Sheet** — Build a modal prompt for entering the stored PIN, showing error states and cancel action.
+- **Parent PIN Setup Sheet** — Guide parents through PIN creation and confirmation, flagging weak combinations before submission.
+- **PIN Keypad** — Produce a reusable keypad component with masked digit indicators and haptic-friendly buttons.
+- **Debug Auth View** — Assemble a developer-facing dashboard exposing authentication state, test PIN actions, and mock responses.
+- **Child Mode Container** — Wrap the child experience in a navigation stack with an accessible exit-to-selection action.
+- **Child Dashboard View** — Design a scrollable child home summarizing total points, active challenges, learning/reward app usage, refresh control, and empty state encouragement.
+- **Child Challenges Tab** — Present a challenge hub with celebratory header, active challenge list, streak card, badge gallery, and empty state messaging.
+- **Child Challenge Card** — Create a lively challenge tile showing iconography by goal type, progress bar, stats, bonus callout, and completion badge.
+- **Badge Grid** — Layout a responsive grid showcasing earned versus locked badges with icon, description, and unlock timestamp.
+- **Completion Celebration Overlay** — Deliver a modal celebration with trophy icon, title/subtitle, and subtle confetti animation over dimmed background.
+- **Sync Status Indicator** — Provide a compact status pill indicating CloudKit sync state with color coding and caption.
+- **Child Pairing View** — Design the child-side pairing screen featuring paired parent list, QR scan CTA, progress states, and error recovery.
+- **Pairing Verification View** — Show a verification code comparison screen with confirm/cancel actions to finalize pairing.
+- **QR Code Scanner View** — Supply a full-screen camera interface with scanning frame, permission handling, and success/error callbacks.
+- **Parent Mode Container (Child Device)** — Layer parent-mode tabs over child hardware with floating exit button that always remains accessible.
+- **Main Tab View** — Compose a tab bar switching between rewards, learning, settings, and challenges depending on mode, ensuring sheet presentation for category assignment.
+- **Rewards Tab View** — Build a reward-app management screen highlighting available/reserved points, unlock controls, and app rows with status.
+- **Learning Tab View** — Create a learning-app management page focusing on total learning points, selected apps list, removal actions, and picker triggers.
+- **Category Assignment View** — Provide a modal workflow for assigning categories and point values to selected apps with duplicate warnings and summaries.
+- **Settings Tab View** — Design a settings hub offering exit parent mode, pairing status with actions, and device reset confirmation.
+- **Parent Challenges Tab (Child Device)** — Lay out a parent-mode challenge list with create button, active challenge cards, and empty state guidance.
+- **Parent Challenge Card** — Construct a parent-facing card showing challenge description, progress percent, status chips, and bonus info.
+- **Challenge Builder View** — Present a structured form for naming challenges, selecting goal type, tuning sliders, choosing apps, and scheduling.
+- **Challenge Detail View** — Provide a challenge detail page with goal metadata, progress, action buttons, and target app list.
+- **Pairing Confirmation View** — Design a parent-facing alert summarizing child request details, verification code, and confirm/reject buttons.
+
+## Parent Device Experience
+- **Device Selection View** — Mirror the first-run role chooser so parents can mark their hardware before entering the remote dashboard.
+- **Parent Remote Dashboard** — Develop a gradient-backed home spotlighting family greeting, device carousel, empty state guidance, and pairing shortcuts.
+- **Device Card Carousel** — Create a horizontally scrolling deck of child device cards leading into detailed dashboards.
+- **Device Card** — Style individual child cards with device iconography, naming, and “tap to view” affordance.
+- **Child Usage Dashboard View** — Implement a full-screen swipeable dashboard cycling through each child’s detailed usage content.
+- **Child Usage Page View** — Combine daily usage summary, historical charts, and sync triggers for a specific child.
+- **Child Detail View** — Offer a traditional detail screen with header, usage summary, and historical reports (legacy support).
+- **Child Full Page View** — Deliver a comprehensive child profile mixing today’s stats, detailed analytics, and historical sections.
+- **Child Device Selector View** — Build a horizontal selector with quick stats and active-state chips for switching between children.
+- **Child Device Summary Card** — Provide a summary card highlighting last sync, today’s time, points, and app count (available for reuse).
+- **Remote Usage Summary View** — Summarize today’s activity with date stamp, category cards, and empty state messaging.
+- **Category Usage Card** — Design a tappable category tile with emoji icon, active apps count, time, and points.
+- **Category Detail View** — Enable deep dives into category apps, showing privacy-safe names, session info, and rename workflow.
+- **Historical Reports View** — Present historical analytics with range picker, daily summary cards, trend chart, and category breakdown.
+- **Remote App Configuration View** — Offer a configuration panel listing apps with category tags, points, enable/block toggles, and edit actions.
+- **Parent Pairing View** — Create the parent-side QR generation screen with status messaging, regenerate control, and instructions.
+- **App Usage View** — Provide a diagnostic dashboard for viewing monitoring state, time by category, app usage list, and manual controls.

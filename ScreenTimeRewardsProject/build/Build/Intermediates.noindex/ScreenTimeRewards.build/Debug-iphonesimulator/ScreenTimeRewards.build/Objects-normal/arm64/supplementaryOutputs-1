@@ -1,0 +1,58 @@
+{
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/AppConfiguration.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppConfiguration.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppConfiguration.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppConfiguration.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppConfiguration.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppConfiguration.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/AppUsage.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppUsage.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppUsage.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppUsage.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppUsage.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AppUsage.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/AuthError.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AuthError.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AuthError.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AuthError.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AuthError.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/AuthError.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/CategoryUsageSummary.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/CategoryUsageSummary.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/CategoryUsageSummary.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/CategoryUsageSummary.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/CategoryUsageSummary.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/CategoryUsageSummary.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/ConfigurationCommand.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ConfigurationCommand.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ConfigurationCommand.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ConfigurationCommand.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ConfigurationCommand.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ConfigurationCommand.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/DailySummary.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DailySummary.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DailySummary.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DailySummary.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DailySummary.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DailySummary.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/DeviceMode.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceMode.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceMode.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceMode.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceMode.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceMode.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Models/PINError.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/PINError.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/PINError.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/PINError.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/PINError.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/PINError.swiftdeps"
+  }
+}

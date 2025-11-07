@@ -8,107 +8,152 @@
 
 import SwiftUI
 
+// MARK: - Design Tokens
+fileprivate struct SetupCompleteColors {
+    static let primary = Color(hex: "#4CAF50")
+    static let secondary = Color(hex: "#007AFF")
+    static let background = Color(hex: "#F9F9F9")
+    static let card = Color(hex: "#FFFFFF")
+    static let textPrimary = Color(hex: "#333333")
+    static let textSecondary = Color(hex: "#333333").opacity(0.8)
+}
+
 struct SetupCompleteScreen: View {
     let onComplete: () -> Void
 
     var body: some View {
-        ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [Color.green.opacity(0.3), Color.blue.opacity(0.3)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Content area - main content
+            VStack(spacing: 0) {
+                // Success icon section
+                ZStack {
+                    Circle()
+                        .fill(SetupCompleteColors.primary.opacity(0.1))
+                        .frame(width: 160, height: 160)
 
-            VStack(spacing: 40) {
-                Spacer()
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 128))
+                        .foregroundColor(SetupCompleteColors.primary)
+                }
+                .padding(.bottom, 32)
 
-                // Success icon with animation
-                Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 100))
-                    .foregroundColor(.green)
-
-                // Title
+                // Headline
                 Text("Setup Complete!")
-                    .font(.largeTitle)
-                    .fontWeight(.bold)
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(SetupCompleteColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .padding(.top, 8)
 
-                // Success message
-                Text("Your app is ready to use")
-                    .font(.title3)
-                    .foregroundColor(.secondary)
+                // Subtitle
+                Text("You're all set to empower your child's learning journey.")
+                    .font(.system(size: 16))
+                    .foregroundColor(SetupCompleteColors.textSecondary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .frame(maxWidth: 448) // max-w-md
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 12)
+                    .padding(.top, 4)
 
-                Spacer()
+                // Quick Tips section
+                VStack(spacing: 0) {
+                    VStack(spacing: 16) {
+                        Text("Quick Tips to Get Started")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(SetupCompleteColors.textPrimary)
+                            .multilineTextAlignment(.center)
 
-                // Instructions
-                VStack(alignment: .leading, spacing: 20) {
-                    Text("How to use the app:")
-                        .font(.headline)
-                        .padding(.bottom, 8)
+                        // Tip 1
+                        TipCard(
+                            icon: "lightbulb.fill",
+                            title: "Explore Together:",
+                            description: "Show your child how to earn rewards by using their Learning Apps."
+                        )
 
-                    InstructionRow(
-                        number: "1",
-                        text: "Choose Parent Mode or Child Mode"
-                    )
-
-                    InstructionRow(
-                        number: "2",
-                        text: "Parents: Enter your PIN to access settings"
-                    )
-
-                    InstructionRow(
-                        number: "3",
-                        text: "Set up learning and reward apps"
-                    )
-
-                    InstructionRow(
-                        number: "4",
-                        text: "Children: Use learning apps to earn points!"
-                    )
-                }
-                .padding(.horizontal, 40)
-
-                Spacer()
-
-                // Start button
-                Button(action: onComplete) {
-                    HStack {
-                        Text("Start Using App")
-                            .font(.headline)
-                        Image(systemName: "arrow.right.circle.fill")
+                        // Tip 2
+                        TipCard(
+                            icon: "gearshape.fill",
+                            title: "Adjust Goals:",
+                            description: "You can easily change daily time targets from the Parent Dashboard."
+                        )
                     }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.green)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(radius: 5)
                 }
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
+                .padding(.horizontal, 16)
+                .padding(.top, 32)
+                .frame(maxWidth: 448) // max-w-md
             }
+            .padding(.top, 64)
+
+            Spacer()
+
+            // Footer section - sticky bottom button
+            VStack(spacing: 0) {
+                Button(action: onComplete) {
+                    Text("Start Using App")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 48)
+                        .background(SetupCompleteColors.primary)
+                        .cornerRadius(12)
+                        .shadow(color: SetupCompleteColors.primary.opacity(0.3), radius: 10, x: 0, y: 4)
+                }
+                .frame(maxWidth: 448) // max-w-md
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 32)
+            .background(
+                SetupCompleteColors.background
+                    .opacity(0.8)
+                    .background(.ultraThinMaterial)
+            )
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(SetupCompleteColors.background)
     }
 }
 
-struct InstructionRow: View {
-    let number: String
-    let text: String
+// MARK: - Tip Card Component
+struct TipCard: View {
+    let icon: String
+    let title: String
+    let description: String
 
     var body: some View {
-        HStack(spacing: 16) {
-            // Number circle
-            Text(number)
-                .font(.headline)
-                .foregroundColor(.white)
-                .frame(width: 32, height: 32)
-                .background(Color.blue)
-                .clipShape(Circle())
+        HStack(alignment: .top, spacing: 16) {
+            // Icon
+            Image(systemName: icon)
+                .font(.system(size: 24))
+                .foregroundColor(SetupCompleteColors.secondary)
+                .frame(width: 24, height: 24)
+                .padding(.top, 2)
 
-            Text(text)
-                .font(.body)
+            // Text content
+            HStack(spacing: 0) {
+                Text(title)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(SetupCompleteColors.textPrimary)
+                +
+                Text(" ")
+                +
+                Text(description)
+                    .font(.system(size: 16))
+                    .foregroundColor(SetupCompleteColors.textPrimary)
+            }
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: .infinity, alignment: .leading)
         }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(SetupCompleteColors.card)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
     }
 }
 

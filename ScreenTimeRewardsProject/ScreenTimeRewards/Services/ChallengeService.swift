@@ -8,6 +8,12 @@ class ChallengeService: ObservableObject {
 
     // MARK: - Dependencies
     private let persistenceController = PersistenceController.shared
+    private struct BadgeMetrics {
+        let completedChallenges: Int
+        let currentStreak: Int
+        let totalLearningMinutes: Int
+        let totalPointsEarned: Int
+    }
 
     // MARK: - Published Properties
     @Published private(set) var activeChallenges: [Challenge] = []
@@ -95,6 +101,16 @@ class ChallengeService: ObservableObject {
         )
 
         let challenges = try context.fetch(fetchRequest)
+        let progressRequest: NSFetchRequest<ChallengeProgress> = ChallengeProgress.fetchRequest()
+        progressRequest.predicate = NSPredicate(format: "childDeviceID == %@", deviceID)
+        let progressResults = try context.fetch(progressRequest)
+        var progressMap: [String: ChallengeProgress] = [:]
+        for progress in progressResults {
+            if let id = progress.challengeID {
+                progressMap[id] = progress
+            }
+        }
+        challengeProgress = progressMap
         activeChallenges = challenges
         return challenges
     }
@@ -158,7 +174,8 @@ class ChallengeService: ObservableObject {
         progress.lastUpdated = Date()
 
         // Check for completion
-        if progress.currentValue >= progress.targetValue && !progress.isCompleted {
+        let didReachTarget = progress.currentValue >= progress.targetValue && !progress.isCompleted
+        if didReachTarget {
             progress.isCompleted = true
             progress.completedDate = Date()
 
@@ -180,6 +197,12 @@ class ChallengeService: ObservableObject {
             // Check for badge unlocks
             if let childDeviceID = progress.childDeviceID {
                 await checkBadgeUnlocks(for: childDeviceID)
+            }
+            if let childDeviceID = progress.childDeviceID,
+               let challenge = activeChallenges.first(where: { $0.challengeID == challengeID }),
+               let goalType = challenge.goalType,
+               goalType == "daily_minutes" || goalType == "streak" {
+                await updateStreak(for: childDeviceID, date: Date())
             }
         }
 
@@ -250,9 +273,7 @@ class ChallengeService: ObservableObject {
 
         // Apply streak multiplier
         if let streak = currentStreak {
-            let currentStreakValue = streak.currentStreak
-            // Simple multiplier: 1% per streak day, max 30%
-            let multiplier = min(Double(currentStreakValue) * 0.01, 0.30)
+            let multiplier = calculateStreakMultiplier(Int(streak.currentStreak))
             let streakBonus = Int(Double(basePoints) * multiplier)
             totalBonus += streakBonus
         }
@@ -282,23 +303,147 @@ class ChallengeService: ObservableObject {
     // MARK: - Badge System
 
     private func initializeStarterBadges() async {
-        // TODO: Create badge entries for each child device
-        // This should be called when a new child device is registered
+        let context = persistenceController.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID
+        do {
+            try ensureStarterBadgesExist(for: deviceID, in: context)
+        } catch {
+            #if DEBUG
+            print("[ChallengeService] ⚠️ Failed to initialize starter badges: \(error)")
+            #endif
+        }
     }
 
     func checkBadgeUnlocks(for deviceID: String) async -> [Badge] {
-        // TODO: Implement badge unlock logic
-        // Check each badge's criteria against current stats
-        // Unlock any badges that meet criteria
-        return []
+        let context = persistenceController.container.viewContext
+        var newlyUnlocked: [Badge] = []
+
+        do {
+            let badges = try await fetchBadges(for: deviceID)
+            let metrics = try badgeMetrics(for: deviceID)
+
+            for badge in badges where !badge.isUnlocked {
+                guard let criteria = badge.criteria else { continue }
+                let shouldUnlock: Bool
+
+                switch criteria.type {
+                case .challengesCompleted:
+                    shouldUnlock = metrics.completedChallenges >= criteria.threshold
+                case .streakDays:
+                    shouldUnlock = metrics.currentStreak >= criteria.threshold
+                case .totalLearningMinutes:
+                    shouldUnlock = metrics.totalLearningMinutes >= criteria.threshold
+                case .totalPointsEarned:
+                    shouldUnlock = metrics.totalPointsEarned >= criteria.threshold
+                }
+
+                if shouldUnlock {
+                    try await unlockBadge(badge)
+                    newlyUnlocked.append(badge)
+                }
+            }
+
+            unlockedBadges = badges.filter { $0.isUnlocked }
+        } catch {
+            #if DEBUG
+            print("[ChallengeService] ⚠️ Failed to evaluate badges: \(error)")
+            #endif
+        }
+
+        if context.hasChanges {
+            try? context.save()
+        }
+
+        return newlyUnlocked
     }
 
     // MARK: - Streak System
 
     func updateStreak(for deviceID: String, date: Date) async {
-        // TODO: Implement streak tracking
-        // Check if daily goal was met
-        // Increment or reset streak accordingly
+        let context = persistenceController.container.viewContext
+        do {
+            let streakRecord = try fetchOrCreateStreak(for: deviceID)
+            let calendar = Calendar.current
+            let startOfDay = calendar.startOfDay(for: date)
+
+            if let lastActivity = streakRecord.lastActivityDate {
+                let lastStart = calendar.startOfDay(for: lastActivity)
+                if startOfDay == lastStart {
+                    currentStreak = streakRecord
+                    return
+                }
+
+                if let days = calendar.dateComponents([.day], from: lastStart, to: startOfDay).day {
+                    if days == 1 {
+                        streakRecord.currentStreak += 1
+                    } else if days > 1 {
+                        streakRecord.currentStreak = 1
+                    }
+                }
+            } else {
+                streakRecord.currentStreak = 1
+            }
+
+            streakRecord.lastActivityDate = date
+            if streakRecord.currentStreak > streakRecord.longestStreak {
+                streakRecord.longestStreak = streakRecord.currentStreak
+            }
+
+            try context.save()
+            currentStreak = streakRecord
+
+            NotificationCenter.default.post(
+                name: ChallengeService.streakUpdated,
+                object: nil,
+                userInfo: [
+                    "deviceID": deviceID,
+                    "currentStreak": streakRecord.currentStreak
+                ]
+            )
+        } catch {
+            #if DEBUG
+            print("[ChallengeService] ⚠️ Failed to update streak: \(error)")
+            #endif
+        }
+    }
+
+    func breakStreak(for deviceID: String) async {
+        let context = persistenceController.container.viewContext
+        do {
+            guard let streakRecord = try fetchStreakRecord(for: deviceID, createIfMissing: false) else {
+                return
+            }
+            streakRecord.currentStreak = 0
+            streakRecord.lastActivityDate = nil
+            try context.save()
+            currentStreak = streakRecord
+
+            NotificationCenter.default.post(
+                name: ChallengeService.streakUpdated,
+                object: nil,
+                userInfo: [
+                    "deviceID": deviceID,
+                    "currentStreak": streakRecord.currentStreak
+                ]
+            )
+        } catch {
+            #if DEBUG
+            print("[ChallengeService] ⚠️ Failed to break streak: \(error)")
+            #endif
+        }
+    }
+
+    func fetchStreak(for deviceID: String) async throws -> StreakRecord? {
+        if let record = try fetchStreakRecord(for: deviceID, createIfMissing: false) {
+            currentStreak = record
+            return record
+        }
+        return nil
+    }
+
+    func calculateStreakMultiplier(_ streak: Int) -> Double {
+        guard streak > 0 else { return 0.0 }
+        return min(Double(streak) * 0.01, 0.30)
     }
 
     // MARK: - Persistence Helpers
@@ -311,5 +456,134 @@ class ChallengeService: ObservableObject {
 
         let results = try context.fetch(fetchRequest)
         return results.first
+    }
+
+    private func ensureStarterBadgesExist(for deviceID: String, in context: NSManagedObjectContext) throws {
+        let fetchRequest: NSFetchRequest<Badge> = Badge.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "childDeviceID == %@", deviceID)
+        let existingBadges = try context.fetch(fetchRequest)
+        let existingIDs = Set(existingBadges.compactMap { $0.badgeID })
+
+        for definition in BadgeDefinition.starterBadges where !existingIDs.contains(definition.id) {
+            let badge = Badge(context: context)
+            badge.badgeID = definition.id
+            badge.badgeName = definition.name
+            badge.badgeDescription = definition.description
+            badge.iconName = definition.icon
+            badge.childDeviceID = deviceID
+            badge.unlockedAt = nil
+
+            if let data = try? JSONEncoder().encode(definition.criteria) {
+                badge.criteriaJSON = String(data: data, encoding: .utf8)
+            }
+        }
+
+        if context.hasChanges {
+            try context.save()
+        }
+    }
+
+    func fetchBadges(for deviceID: String) async throws -> [Badge] {
+        let context = persistenceController.container.viewContext
+        try ensureStarterBadgesExist(for: deviceID, in: context)
+
+        let fetchRequest: NSFetchRequest<Badge> = Badge.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "childDeviceID == %@", deviceID)
+        let badges = try context.fetch(fetchRequest)
+
+        let sorted = badges.sorted { lhs, rhs in
+            switch (lhs.isUnlocked, rhs.isUnlocked) {
+            case (true, false):
+                return true
+            case (false, true):
+                return false
+            default:
+                let leftName = lhs.badgeName ?? ""
+                let rightName = rhs.badgeName ?? ""
+                return leftName.localizedCaseInsensitiveCompare(rightName) == .orderedAscending
+            }
+        }
+
+        unlockedBadges = sorted.filter { $0.isUnlocked }
+        return sorted
+    }
+
+    private func unlockBadge(_ badge: Badge) async throws {
+        guard badge.unlockedAt == nil else { return }
+        badge.unlockedAt = Date()
+        try badge.managedObjectContext?.save()
+
+        if let deviceID = badge.childDeviceID {
+            NotificationCenter.default.post(
+                name: ChallengeService.badgeUnlocked,
+                object: nil,
+                userInfo: [
+                    "deviceID": deviceID,
+                    "badgeID": badge.badgeID ?? ""
+                ]
+            )
+        }
+    }
+
+    private func fetchStreakRecord(for deviceID: String, createIfMissing: Bool) throws -> StreakRecord? {
+        let context = persistenceController.container.viewContext
+        let fetchRequest: NSFetchRequest<StreakRecord> = StreakRecord.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "childDeviceID == %@", deviceID)
+        fetchRequest.fetchLimit = 1
+
+        if let record = try context.fetch(fetchRequest).first {
+            return record
+        }
+
+        guard createIfMissing else { return nil }
+
+        let streakRecord = StreakRecord(context: context)
+        streakRecord.streakID = UUID().uuidString
+        streakRecord.childDeviceID = deviceID
+        streakRecord.streakTypeEnum = .daily
+        streakRecord.currentStreak = 0
+        streakRecord.longestStreak = 0
+        streakRecord.lastActivityDate = nil
+
+        try context.save()
+        return streakRecord
+    }
+
+    private func fetchOrCreateStreak(for deviceID: String) throws -> StreakRecord {
+        if let record = try fetchStreakRecord(for: deviceID, createIfMissing: true) {
+            return record
+        }
+        throw NSError(
+            domain: "ChallengeService",
+            code: -1,
+            userInfo: [NSLocalizedDescriptionKey: "Unable to create streak record"]
+        )
+    }
+
+    private func badgeMetrics(for deviceID: String) throws -> BadgeMetrics {
+        let context = persistenceController.container.viewContext
+
+        let completedRequest: NSFetchRequest<NSFetchRequestResult> = ChallengeProgress.fetchRequest()
+        completedRequest.predicate = NSPredicate(format: "childDeviceID == %@ AND isCompleted == YES", deviceID)
+        completedRequest.resultType = .countResultType
+        let completedChallenges = try context.count(for: completedRequest)
+
+        let streakValue = try fetchStreakRecord(for: deviceID, createIfMissing: false)?.currentStreak ?? 0
+
+        let summaryRequest: NSFetchRequest<DailySummary> = DailySummary.fetchRequest()
+        summaryRequest.predicate = NSPredicate(format: "deviceID == %@", deviceID)
+        let summaries = try context.fetch(summaryRequest)
+
+        let totals = summaries.reduce(into: (seconds: 0, points: 0)) { result, summary in
+            result.seconds += Int(summary.totalLearningSeconds)
+            result.points += Int(summary.totalPointsEarned)
+        }
+
+        return BadgeMetrics(
+            completedChallenges: completedChallenges,
+            currentStreak: Int(streakValue),
+            totalLearningMinutes: totals.seconds / 60,
+            totalPointsEarned: totals.points
+        )
     }
 }

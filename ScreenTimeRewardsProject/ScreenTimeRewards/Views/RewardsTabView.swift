@@ -5,90 +5,118 @@ import ManagedSettings
 struct RewardsTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
     @State private var unlockMinutes: [ApplicationToken: Int] = [:]  // Track minutes for each app
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                // Header info with points display
-                VStack(spacing: 8) {
-                    Text("Reward Apps")
-                        .font(.title2)
-                        .fontWeight(.bold)
-
-                    Text("Apps that cost points to use")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
-
-                    // Points display
-                    HStack(spacing: 20) {
-                        VStack {
-                            Text("\(viewModel.availableLearningPoints)")
-                                .font(.title)
-                                .fontWeight(.bold)
-                                .foregroundColor(.green)
-                            Text("Available Points")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-
-                        VStack {
-                            Text("\(viewModel.reservedLearningPoints)")
-                                .font(.title)
-                                .fontWeight(.bold)
-                                .foregroundColor(.orange)
-                            Text("Reserved Points")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                    .padding()
-                    .background(Color(UIColor.secondarySystemBackground))
-                    .cornerRadius(12)
-                }
-                .padding()
-
-                rewardAppsSection
-
-                // Add reward apps button
-                Button(action: {
-                    // FIX: Ensure picker state is clean before presenting
-                    viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
-                    // HARDENING FIX: Use retry logic for picker presentation with reward context
-                    viewModel.presentPickerWithRetry(for: .reward)
-                }) {
+        ZStack(alignment: .bottomTrailing) {
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Top App Bar
                     HStack {
-                        Image(systemName: "plus.circle.fill")
-                        Text(viewModel.rewardSnapshots.isEmpty ? "Select Reward Apps" : "Add More Apps")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.orange)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-                }
-                .padding(.horizontal)
-
-                // View all reward apps button - only show if there are reward apps
-                if !viewModel.rewardSnapshots.isEmpty {
-                    Button(action: {
-                        viewModel.showAllRewardApps()
-                    }) {
-                        HStack {
-                            Image(systemName: "list.bullet.rectangle")
-                            Text("View All Reward Apps")
+                        Button(action: {
+                            // Back action - handle dismissal if needed
+                        }) {
+                            Image(systemName: "chevron.backward")
+                                .font(.system(size: 20))
+                                .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                                .frame(width: 40, height: 40)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.orange.opacity(0.7))
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                    }
-                    .padding(.horizontal)
-                }
 
-                Spacer()
+                        Spacer()
+
+                        Text("Reward Apps")
+                            .font(.system(size: 18, weight: .bold))
+                            .tracking(-0.27)
+                            .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+
+                        Spacer()
+
+                        Color.clear
+                            .frame(width: 40, height: 40)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                    .padding(.bottom, 12)
+                    .background(
+                        (colorScheme == .dark ? Colors.cardDark : Colors.cardLight)
+                            .opacity(0.8)
+                            .background(.ultraThinMaterial)
+                    )
+
+                    // Main content
+                    VStack(spacing: 0) {
+                        // Points Summary Card
+                        VStack(alignment: .leading, spacing: 16) {
+                            HStack {
+                                Text("Points Available")
+                                    .font(.system(size: 16))
+                                    .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+
+                                Spacer()
+
+                                Button(action: {
+                                    // Show help info
+                                }) {
+                                    Image(systemName: "questionmark.circle")
+                                        .font(.system(size: 20))
+                                        .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+                                }
+                            }
+
+                            Text("\(viewModel.availableLearningPoints)")
+                                .font(.system(size: 48, weight: .bold))
+                                .tracking(-0.96)
+                                .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+
+                            if viewModel.reservedLearningPoints > 0 {
+                                Text("\(viewModel.reservedLearningPoints) points reserved")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(Colors.accent)
+                            }
+                        }
+                        .padding(20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(colorScheme == .dark ? Colors.cardDark : Colors.cardLight)
+                        .cornerRadius(12)
+                        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+                        .padding(4)
+
+                        // Section Header
+                        Text("All Reward Apps")
+                            .font(.system(size: 18, weight: .bold))
+                            .tracking(-0.27)
+                            .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 4)
+                            .padding(.top, 24)
+                            .padding(.bottom, 8)
+
+                        // List of Reward Apps
+                        rewardAppsSection
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 96)
+                }
             }
-            .padding(.vertical)
+            .background(colorScheme == .dark ? Colors.backgroundDark : Colors.backgroundLight)
+
+            // Floating Action Button
+            Button(action: {
+                // FIX: Ensure picker state is clean before presenting
+                viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
+                // HARDENING FIX: Use retry logic for picker presentation with reward context
+                viewModel.presentPickerWithRetry(for: .reward)
+            }) {
+                Image(systemName: "plus")
+                    .font(.system(size: 36))
+                    .foregroundColor(.white)
+                    .frame(width: 56, height: 56)
+                    .background(Colors.primary)
+                    .clipShape(Circle())
+                    .shadow(color: Color.black.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .padding(.trailing, 24)
+            .padding(.bottom, 24)
         }
         .refreshable {
             await viewModel.refresh()
@@ -107,166 +135,107 @@ struct RewardsTabView: View {
 
 private extension RewardsTabView {
     var rewardAppsSection: some View {
-        Group {
+        VStack(spacing: 8) {
             if !viewModel.rewardSnapshots.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Selected Reward Apps (\(viewModel.rewardSnapshots.count))")
-                        .font(.headline)
-                        .padding(.horizontal)
-
-                    ForEach(viewModel.rewardSnapshots) { snapshot in
-                        rewardAppRow(snapshot: snapshot)
-                            .padding()
-                            .background(Color(UIColor.secondarySystemBackground))
-                            .cornerRadius(10)
-                            .padding(.horizontal)
-                    }
+                ForEach(viewModel.rewardSnapshots) { snapshot in
+                    rewardAppRow(snapshot: snapshot)
                 }
+            } else {
+                Text("No reward apps selected")
+                    .font(.system(size: 16))
+                    .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 40)
             }
         }
     }
 
     @ViewBuilder
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                // Lock status icon
-                Image(systemName: isUnlocked(snapshot.token) ? "lock.open.fill" : "lock.fill")
-                    .foregroundColor(isUnlocked(snapshot.token) ? .green : .red)
-                    .font(.title3)
+        HStack(alignment: .center, spacing: 16) {
+            // App Icon (if available in iOS 15.2+)
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .frame(width: 56, height: 56)
+                    .background(Color.gray.opacity(0.1))
+                    .cornerRadius(8)
+            } else {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color.gray.opacity(0.1))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 24))
+                            .foregroundColor(.gray)
+                    )
+            }
 
+            // App Info
+            VStack(alignment: .leading, spacing: 4) {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
-                        .font(.body)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                        .lineLimit(1)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                        .font(.body)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                        .lineLimit(1)
                 }
 
-                Spacer()
-
-                // Task M: Add remove button for reward apps
-                Button(action: {
-                    // Show confirmation and remove app
-                    removeRewardApp(snapshot.token)
-                }) {
-                    Image(systemName: "minus.circle.fill")
-                        .foregroundColor(.red)
-                        .font(.title2)
-                }
-                .buttonStyle(PlainButtonStyle())
-
-                Text("\(snapshot.pointsPerMinute) pts/min")
-                    .font(.caption)
-                    .foregroundColor(.orange)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 4)
-                    .background(Color.orange.opacity(0.2))
-                    .cornerRadius(8)
+                Text("Cost: \(snapshot.pointsPerMinute * 15) Points")
+                    .font(.system(size: 14))
+                    .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+                    .lineLimit(2)
             }
 
-            // Unlocked status display
-            if let unlockedApp = viewModel.unlockedRewardApps[snapshot.token] {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: "timer")
-                            .foregroundColor(.green)
-                        Text("\(unlockedApp.remainingMinutes) min remaining")
-                            .font(.subheadline)
-                            .foregroundColor(.green)
-                        Spacer()
-                        Text("\(unlockedApp.reservedPoints) pts reserved")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                    }
-                    .padding(8)
-                    .background(Color.green.opacity(0.1))
-                    .cornerRadius(8)
+            Spacer()
 
-                    Button(action: {
-                        viewModel.lockRewardApp(token: snapshot.token)
-                    }) {
-                        HStack {
-                            Image(systemName: "lock.fill")
-                            Text("Lock & Return Points")
-                        }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(Color.red)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
-                    }
+            // Status Badge and Toggle
+            HStack(spacing: 12) {
+                // Status Badge
+                if let _ = viewModel.unlockedRewardApps[snapshot.token] {
+                    Text("Unlocked")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Colors.secondary : Color(red: 0.0, green: 0.5, blue: 0.0))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background((Colors.secondary.opacity(0.2)))
+                        .cornerRadius(.infinity)
+                } else {
+                    Text("Locked")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 4)
+                        .background(colorScheme == .dark ? Color.gray.opacity(0.3) : Color.gray.opacity(0.2))
+                        .cornerRadius(.infinity)
                 }
-            } else {
-                // Locked status - show unlock button
-                let canUnlock = viewModel.canUnlockRewardApp(token: snapshot.token)
-                let minimumPoints = snapshot.pointsPerMinute * 15
 
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        VStack(alignment: .leading) {
-                            Text("Minimum: 15 min (\(minimumPoints) pts)")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                        Spacer()
-                        Stepper("", value: Binding(
-                            get: { unlockMinutes[snapshot.token] ?? 15 },
-                            set: { unlockMinutes[snapshot.token] = max(15, $0) }
-                        ), in: 15...120, step: 5)
-                        Text("\(unlockMinutes[snapshot.token] ?? 15) min")
-                            .font(.caption)
-                            .frame(minWidth: 50)
-                    }
-
-                    Button(action: {
-                        let minutes = unlockMinutes[snapshot.token] ?? 15
-                        viewModel.unlockRewardApp(token: snapshot.token, minutes: minutes)
-                    }) {
-                        HStack {
-                            Image(systemName: "lock.open.fill")
+                // Custom Toggle
+                Toggle("", isOn: Binding(
+                    get: { viewModel.unlockedRewardApps[snapshot.token] != nil },
+                    set: { isOn in
+                        if isOn {
                             let minutes = unlockMinutes[snapshot.token] ?? 15
-                            let cost = snapshot.pointsPerMinute * minutes
-                            Text("Unlock • \(cost) pts for \(minutes) min")
+                            viewModel.unlockRewardApp(token: snapshot.token, minutes: minutes)
+                        } else {
+                            viewModel.lockRewardApp(token: snapshot.token)
                         }
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 8)
-                        .background(canUnlock.canUnlock ? Color.green : Color.gray)
-                        .foregroundColor(.white)
-                        .cornerRadius(8)
                     }
-                    .disabled(!canUnlock.canUnlock)
-
-                    if !canUnlock.canUnlock, let reason = canUnlock.reason {
-                        Text(reason)
-                            .font(.caption)
-                            .foregroundColor(.red)
-                            .padding(.top, 4)
-                    }
-                }
-            }
-
-            // Usage stats
-            if snapshot.totalSeconds > 0 {
-                HStack(spacing: 4) {
-                    Image(systemName: "clock.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-
-                    Text("Used: \(viewModel.formatTime(snapshot.totalSeconds))")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    let minutesUsed = Int(snapshot.totalSeconds / 60)
-                    let pointsSpent = minutesUsed * snapshot.pointsPerMinute
-                    Text("•")
-                        .foregroundColor(.secondary)
-                    Text("\(pointsSpent) pts spent")
-                        .font(.caption)
-                        .foregroundColor(.orange)
-                }
+                ))
+                .labelsHidden()
+                .toggleStyle(CustomToggleStyle())
             }
         }
+        .padding(16)
+        .frame(minHeight: 72)
+        .background(colorScheme == .dark ? Colors.cardDark : Colors.cardLight)
+        .cornerRadius(12)
+        .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
     }
 
     private func isUnlocked(_ token: ApplicationToken) -> Bool {
@@ -289,6 +258,56 @@ private extension RewardsTabView {
 
         // Proceed with removal
         viewModel.removeApp(token)
+    }
+}
+
+// MARK: - Design Tokens
+private extension RewardsTabView {
+    struct Colors {
+        static let primary = Color(red: 0.29, green: 0.56, blue: 0.89) // #4A90E2
+        static let secondary = Color(red: 0.31, green: 0.89, blue: 0.76) // #50E3C2
+        static let accent = Color(red: 0.96, green: 0.65, blue: 0.14) // #F5A623
+
+        static let backgroundLight = Color(red: 0.97, green: 0.98, blue: 0.98) // #F8F9FA
+        static let backgroundDark = Color(red: 0.06, green: 0.09, blue: 0.13) // #101622
+
+        static let cardLight = Color.white // #FFFFFF
+        static let cardDark = Color(red: 0.09, green: 0.13, blue: 0.19) // #182030
+
+        static func textPrimary(colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? .white : Color(red: 0.29, green: 0.29, blue: 0.29) // #4A4A4A
+        }
+
+        static func textSecondary(colorScheme: ColorScheme) -> Color {
+            colorScheme == .dark ? Color(red: 0.67, green: 0.67, blue: 0.67) : Color(red: 0.61, green: 0.61, blue: 0.61) // #9B9B9B / gray-400
+        }
+    }
+}
+
+// MARK: - Custom Toggle Style
+struct CustomToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+
+            ZStack(alignment: configuration.isOn ? .trailing : .leading) {
+                RoundedRectangle(cornerRadius: 15.5)
+                    .fill(configuration.isOn ? Color(red: 0.29, green: 0.56, blue: 0.89) : Color.gray.opacity(0.3))
+                    .frame(width: 51, height: 31)
+
+                Circle()
+                    .fill(Color.white)
+                    .frame(width: 27, height: 27)
+                    .shadow(color: Color.black.opacity(0.15), radius: 4, x: 0, y: 2)
+                    .shadow(color: Color.black.opacity(0.06), radius: 1, x: 0, y: 1)
+                    .padding(2)
+            }
+            .onTapGesture {
+                withAnimation(.easeInOut(duration: 0.2)) {
+                    configuration.isOn.toggle()
+                }
+            }
+        }
     }
 }
 

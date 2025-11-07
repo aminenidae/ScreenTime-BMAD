@@ -3,279 +3,408 @@ import FamilyControls
 
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 24) {
-                // Points card
-                pointsCard
+        ZStack {
+            // Background color
+            (colorScheme == .dark ? DesignColors.navyBlue : DesignColors.backgroundLight)
+                .ignoresSafeArea()
 
-                // Challenge Summary Card
-                if !viewModel.activeChallenges.isEmpty {
-                    challengeSummaryCard
+            ScrollView {
+                VStack(spacing: 0) {
+                    // Top App Bar with avatar and points
+                    topAppBar
+
+                    // Main content
+                    VStack(alignment: .leading, spacing: 0) {
+                        // Quests Section
+                        if !viewModel.activeChallenges.isEmpty {
+                            questsSection
+                        }
+
+                        // Learning Zone Section
+                        if !viewModel.usedLearningApps.isEmpty {
+                            learningZoneSection
+                        }
+
+                        // Play Zone Section
+                        if !viewModel.usedRewardApps.isEmpty {
+                            playZoneSection
+                        }
+
+                        // Empty state
+                        if viewModel.activeChallenges.isEmpty &&
+                           viewModel.usedLearningApps.isEmpty &&
+                           viewModel.usedRewardApps.isEmpty {
+                            emptyStateView
+                        }
+                    }
+
+                    Spacer(minLength: 112) // Bottom padding for floating action button
                 }
-
-                // Learning apps section
-                if !viewModel.usedLearningApps.isEmpty {
-                    learningAppsSection
-                }
-
-                // Reward apps section
-                if !viewModel.usedRewardApps.isEmpty {
-                    rewardAppsSection
-                }
-
-
-                // Empty state
-                if viewModel.usedLearningApps.isEmpty && viewModel.usedRewardApps.isEmpty {
-                    emptyStateView
-                }
-
-
-                Spacer()
             }
-            .padding()
-        }
-        .refreshable {
-            await viewModel.refresh()
+            .refreshable {
+                await viewModel.refresh()
+            }
         }
     }
 }
 
+// MARK: - Design Colors
 private extension ChildDashboardView {
-    var pointsCard: some View {
-        VStack(spacing: 12) {
-            Text("Your Points")
-                .font(.title2)
-                .fontWeight(.semibold)
+    struct DesignColors {
+        static let primary = Color(hex: "13ec13")
+        static let backgroundLight = Color(hex: "f6f8f6")
+        static let backgroundDark = Color(hex: "102210")
+        static let navyBlue = Color(hex: "1e293b")
+        static let teal = Color(hex: "2dd4bf")
+        static let sunnyYellow = Color(hex: "facc15")
+        static let coral = Color(hex: "fb7185")
+        static let skyBlue = Color(hex: "e0f2fe")
 
-            Text("\(viewModel.availableLearningPoints)")
-                .font(.system(size: 64, weight: .bold))
-                .foregroundColor(.blue)
+        // Context colors
+        static let slate900 = Color(hex: "0f172a")
+        static let slate800 = Color(hex: "1e293b")
+        static let slate500 = Color(hex: "64748b")
+        static let slate400 = Color(hex: "94a3b8")
+        static let slate200 = Color(hex: "e2e8f0")
+        static let slate700 = Color(hex: "334155")
+        static let white = Color.white
+        static let blue500 = Color(hex: "3b82f6")
+    }
+}
 
-            HStack(spacing: 30) {
-                VStack {
+// MARK: - View Components
+private extension ChildDashboardView {
+    var topAppBar: some View {
+        VStack(spacing: 8) {
+            HStack(alignment: .center, spacing: 12) {
+                // Avatar
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            gradient: Gradient(colors: [DesignColors.teal.opacity(0.3), DesignColors.coral.opacity(0.3)]),
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 48, height: 48)
+                    .overlay(
+                        Circle()
+                            .stroke(DesignColors.teal.opacity(0.5), lineWidth: 2)
+                    )
+
+                // Greeting
+                Text("Hi Alex!")
+                    .font(.system(size: 20, weight: .bold))
+                    .tracking(-0.015 * 20)
+                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+
+                Spacer()
+
+                // Points badge
+                HStack(spacing: 6) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(DesignColors.sunnyYellow)
+
                     Text("\(viewModel.learningRewardPoints)")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.green)
-                    Text("Total Earned")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 18, weight: .bold))
+                        .tracking(0.015 * 18)
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
+                .background(
+                    RoundedRectangle(cornerRadius: 9999)
+                        .fill(DesignColors.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                )
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
+        }
+    }
 
-                VStack {
-                    Text("\(viewModel.reservedLearningPoints)")
-                        .font(.title3)
-                        .fontWeight(.bold)
-                        .foregroundColor(.orange)
-                    Text("Reserved")
-                        .font(.caption)
-                        .foregroundColor(.secondary)
+    var questsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            // Section header
+            Text("Your Quests!")
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.015 * 22)
+                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+
+            // Horizontal scrolling quest cards
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 16) {
+                    ForEach(Array(viewModel.activeChallenges.prefix(3).enumerated()), id: \.element.id) { index, challenge in
+                        questCard(challenge: challenge, index: index)
+                    }
+                }
+                .padding(.horizontal, 16)
+            }
+        }
+    }
+
+    func questCard(challenge: Challenge, index: Int) -> some View {
+        let colors = [
+            (icon: "function", bgColor: DesignColors.teal, barColor: DesignColors.teal),
+            (icon: "book", bgColor: DesignColors.coral, barColor: DesignColors.coral),
+            (icon: "flask", bgColor: DesignColors.blue500, barColor: DesignColors.blue500)
+        ]
+        let colorSet = colors[index % colors.count]
+
+        let challengeID = challenge.challengeID ?? ""
+        let progress = viewModel.challengeProgress[challengeID]
+        let currentValue = Double(progress?.currentValue ?? 0)
+        let targetValue = Double(progress?.targetValue ?? 1)
+        let progressPercentage = targetValue > 0 ? (currentValue / targetValue) : 0
+
+        return VStack(spacing: 16) {
+            HStack(alignment: .top, spacing: 16) {
+                // Icon
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(colorSet.bgColor.opacity(colorScheme == .dark ? 0.2 : 0.1))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: colorSet.icon)
+                            .font(.system(size: 32))
+                            .foregroundColor(colorSet.bgColor)
+                    )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(challenge.title ?? "Challenge")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+
+                    Text(challenge.challengeDescription ?? "Complete the challenge")
+                        .font(.system(size: 14))
+                        .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
+                }
+            }
+
+            HStack(spacing: 16) {
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        RoundedRectangle(cornerRadius: 9999)
+                            .fill(colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200)
+                            .frame(height: 10)
+
+                        RoundedRectangle(cornerRadius: 9999)
+                            .fill(colorSet.barColor)
+                            .frame(width: geometry.size.width * progressPercentage, height: 10)
+                    }
+                }
+                .frame(height: 10)
+
+                // Points reward
+                HStack(spacing: 4) {
+                    Image(systemName: "star.fill")
+                        .font(.system(size: 18))
+                        .foregroundColor(DesignColors.sunnyYellow)
+
+                    Text("+\(challenge.bonusPercentage)% bonus")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(colorScheme == .dark ? DesignColors.slate200 : DesignColors.slate800)
                 }
             }
         }
-        .padding()
-        .frame(maxWidth: .infinity)
+        .padding(16)
+        .frame(width: 280)
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.blue.opacity(0.1))
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
+                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
         )
     }
 
-    var challengeSummaryCard: some View {
-        NavigationLink(destination: ChildChallengesTabView()) {
-            VStack(spacing: 12) {
-                HStack {
-                    Image(systemName: "star.fill")
-                        .foregroundColor(.orange)
-                    Text("Active Challenges")
-                        .font(.headline)
-                    Spacer()
-                    Image(systemName: "chevron.right")
-                        .foregroundColor(.secondary)
-                }
-
-                // Show nearest to completion
-                if let nearestChallenge = viewModel.activeChallenges.first,
-                   let challengeID = nearestChallenge.challengeID,
-                   let progress = viewModel.challengeProgress[challengeID] {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text(nearestChallenge.title ?? "Challenge")
-                            .font(.subheadline)
-
-                        ProgressView(value: Double(progress.currentValue), total: Double(progress.targetValue))
-                            .tint(.green)
-
-                        HStack {
-                            Text("\(progress.currentValue)/\(progress.targetValue) min")
-                                .font(.caption)
-                            Spacer()
-                            Text("\(Int(progress.progressPercentage))%")
-                                .font(.caption)
-                                .foregroundColor(.secondary)
-                        }
-                    }
-                }
-
-                // Streak display
-                if viewModel.currentStreak > 0 {
-                    HStack {
-                        Text("🔥")
-                        Text("\(viewModel.currentStreak) day streak!")
-                            .font(.caption)
-                            .fontWeight(.semibold)
-                        Spacer()
-                    }
-                }
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.orange.opacity(0.1))
-            )
-        }
-    }
-
-    var learningAppsSection: some View {
+    var learningZoneSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "book.fill")
-                    .foregroundColor(.blue)
-                Text("Learning Apps")
-                    .font(.headline)
-            }
-            .padding(.horizontal)
+            // Section header
+            Text("Learning Zone")
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.015 * 22)
+                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .padding(.horizontal, 16)
+                .padding(.top, 32)
+                .padding(.bottom, 12)
 
-            ForEach(viewModel.usedLearningApps) { snapshot in
-                learningAppCard(snapshot: snapshot)
+            // Learning apps list
+            VStack(spacing: 8) {
+                ForEach(viewModel.usedLearningApps) { snapshot in
+                    learningAppRow(snapshot: snapshot)
+                }
             }
+            .padding(.horizontal, 16)
         }
     }
 
-    func learningAppCard(snapshot: LearningAppSnapshot) -> some View {
-        HStack {
+    func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
+        let progressPercentage = 0.75 // Placeholder, adjust based on actual data if available
+
+        return HStack(spacing: 16) {
+            // App icon placeholder
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [DesignColors.teal.opacity(0.3), DesignColors.coral.opacity(0.3)]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 56, height: 56)
+
             VStack(alignment: .leading, spacing: 4) {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
-                        .font(.body)
-                        .fontWeight(.medium)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 } else {
                     Text(snapshot.displayName)
-                        .font(.body)
-                        .fontWeight(.medium)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 }
 
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.fill")
-                        .font(.caption2)
-                        .foregroundColor(.blue)
-                    Text(viewModel.formatTime(snapshot.totalSeconds))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Text("•")
-                        .foregroundColor(.secondary)
-
-                    Text("\(snapshot.earnedPoints) pts earned")
-                        .font(.caption)
-                        .foregroundColor(.blue)
-                }
+                Text("\(viewModel.formatTime(snapshot.totalSeconds))")
+                    .font(.system(size: 14))
+                    .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
             }
 
             Spacer()
 
-            Image(systemName: "checkmark.circle.fill")
-                .font(.title2)
-                .foregroundColor(.green)
+            // Progress bar
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 9999)
+                        .fill(colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200)
+                        .frame(width: 96, height: 8)
+
+                    RoundedRectangle(cornerRadius: 9999)
+                        .fill(DesignColors.teal)
+                        .frame(width: 96 * progressPercentage, height: 8)
+                }
+            }
+            .frame(width: 96, height: 8)
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-        .padding(.horizontal)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
+                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+        )
     }
 
-    var rewardAppsSection: some View {
+    var playZoneSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Image(systemName: "gamecontroller.fill")
-                    .foregroundColor(.orange)
-                Text("Reward Apps")
-                    .font(.headline)
-            }
-            .padding(.horizontal)
+            // Section header
+            Text("Play Zone")
+                .font(.system(size: 22, weight: .bold))
+                .tracking(-0.015 * 22)
+                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .padding(.horizontal, 16)
+                .padding(.top, 32)
+                .padding(.bottom, 12)
 
-            ForEach(viewModel.usedRewardApps) { snapshot in
-                rewardAppCard(snapshot: snapshot)
+            // Reward apps list
+            VStack(spacing: 8) {
+                ForEach(viewModel.usedRewardApps) { snapshot in
+                    rewardAppRow(snapshot: snapshot)
+                }
             }
+            .padding(.horizontal, 16)
         }
     }
 
-    func rewardAppCard(snapshot: RewardAppSnapshot) -> some View {
-        HStack {
+    func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
+        let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
+
+        return HStack(spacing: 16) {
+            // App icon placeholder
+            RoundedRectangle(cornerRadius: 12)
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [DesignColors.coral.opacity(0.3), DesignColors.sunnyYellow.opacity(0.3)]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 56, height: 56)
+
             VStack(alignment: .leading, spacing: 4) {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
-                        .font(.body)
-                        .fontWeight(.medium)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 } else {
                     Text(snapshot.displayName)
-                        .font(.body)
-                        .fontWeight(.medium)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 }
 
-                HStack(spacing: 8) {
-                    Image(systemName: "clock.fill")
-                        .font(.caption2)
-                        .foregroundColor(.orange)
-                    Text(viewModel.formatTime(snapshot.totalSeconds))
-                        .font(.caption)
-                        .foregroundColor(.secondary)
-
-                    Text("•")
-                        .foregroundColor(.secondary)
-
-                    if viewModel.unlockedRewardApps[snapshot.token] != nil {
-                        Text("Unlocked")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                        Image(systemName: "lock.open.fill")
-                            .font(.caption)
-                            .foregroundColor(.green)
-                    } else {
-                        Text("Locked")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                        Image(systemName: "lock.fill")
-                            .font(.caption)
-                            .foregroundColor(.red)
-                    }
-                }
+                Text(isUnlocked ? "\(viewModel.formatTime(snapshot.totalSeconds)) unlocked" : "Complete a quest to unlock")
+                    .font(.system(size: 14, weight: isUnlocked ? .medium : .regular))
+                    .foregroundColor(isUnlocked ? DesignColors.teal : (colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500))
             }
 
             Spacer()
+
+            // Lock/Play icon
+            Circle()
+                .fill(isUnlocked ? DesignColors.teal.opacity(colorScheme == .dark ? 0.2 : 0.1) : (colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200))
+                .frame(width: 40, height: 40)
+                .overlay(
+                    Image(systemName: isUnlocked ? "play.fill" : "lock.fill")
+                        .foregroundColor(isUnlocked ? DesignColors.teal : DesignColors.slate500)
+                )
         }
-        .padding()
-        .background(Color(UIColor.secondarySystemBackground))
-        .cornerRadius(12)
-        .padding(.horizontal)
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
+                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+        )
+        .opacity(isUnlocked ? 1.0 : 0.5)
     }
 
     var emptyStateView: some View {
         VStack(spacing: 16) {
-            Image(systemName: "hourglass.bottomhalf.filled")
-                .font(.system(size: 60))
-                .foregroundColor(.gray)
+            Spacer()
+                .frame(height: 48)
 
-            Text("No Apps Used Yet")
-                .font(.title3)
-                .fontWeight(.medium)
+            // Placeholder for friendly robot image
+            Circle()
+                .fill(
+                    LinearGradient(
+                        gradient: Gradient(colors: [DesignColors.teal.opacity(0.2), DesignColors.coral.opacity(0.2)]),
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .frame(width: 192, height: 144)
+                .overlay(
+                    Image(systemName: "face.smiling")
+                        .font(.system(size: 72))
+                        .foregroundColor(DesignColors.slate400)
+                )
 
-            Text("Start using learning apps to earn points!")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
+            Text("All Done for Now!")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .padding(.top, 16)
+
+            Text("Great job on finishing your quests! Ask a parent to add a new adventure for you.")
+                .font(.system(size: 14))
+                .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
                 .multilineTextAlignment(.center)
+                .padding(.top, 8)
+                .frame(maxWidth: 280)
         }
-        .padding()
+        .padding(.horizontal, 16)
     }
 }
+

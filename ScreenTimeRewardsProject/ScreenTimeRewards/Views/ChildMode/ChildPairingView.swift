@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ChildPairingView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     @StateObject private var pairingService = DevicePairingService.shared
     @State private var showScanner = false
     @State private var errorMessage: String?
@@ -9,133 +10,169 @@ struct ChildPairingView: View {
     @State private var showSuccessAlert = false
     @State private var pairedParents: [RegisteredDevice] = []
     @State private var showingUnpairConfirmation: RegisteredDevice?
+    @State private var showHelp = false
 
     var body: some View {
-        VStack(spacing: 30) {
-            Text("Pair with Parent Device")
-                .font(.largeTitle)
-                .fontWeight(.bold)
-                .padding()
+        ZStack {
+            // Background
+            Colors.background
+                .ignoresSafeArea()
 
-            // Show current pairing status
-            if !pairedParents.isEmpty {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Paired Parent Devices (\(pairedParents.count)/2)")
-                        .font(.headline)
+            VStack(spacing: 0) {
+                // Top App Bar
+                HStack {
+                    // Placeholder for back button (empty 48x48 space)
+                    Color.clear
+                        .frame(width: 48, height: 48)
 
-                    ForEach(pairedParents, id: \.deviceID) { parent in
-                        HStack {
-                            Image(systemName: "iphone.and.arrow.forward")
-                                .foregroundColor(.blue)
+                    Spacer()
 
-                            VStack(alignment: .leading) {
-                                Text(parent.deviceName ?? "Unknown Parent")
-                                    .font(.subheadline)
-                                Text("Paired on \(parent.registrationDate?.formatted(date: .abbreviated, time: .omitted) ?? "Unknown")")
-                                    .font(.caption)
-                                    .foregroundColor(.secondary)
-                            }
+                    Text("Connect to a Grown-up")
+                        .font(.custom("Lexend", size: 18))
+                        .fontWeight(.bold)
+                        .foregroundColor(Colors.text)
 
-                            Spacer()
-
-                            Button("Unpair") {
-                                showingUnpairConfirmation = parent
-                            }
-                            .font(.caption)
-                            .foregroundColor(.red)
-                        }
-                        .padding()
-                        .background(Color(UIColor.secondarySystemBackground))
-                        .cornerRadius(8)
-                    }
-
-                    if pairedParents.count >= 2 {
-                        Text("Maximum parent devices reached. Unpair from one parent to add another.")
-                            .font(.caption)
-                            .foregroundColor(.orange)
-                            .padding(.horizontal)
-                    }
-                }
-                .padding()
-            }
-
-            if !showScanner {
-                VStack(spacing: 20) {
-                    Image(systemName: "qrcode.viewfinder")
-                        .font(.system(size: 100))
-                        .foregroundColor(.blue)
-                        .padding()
-
-                    Text("Scan the QR code displayed on your parent's device")
-                        .font(.headline)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                        .padding(.horizontal)
+                    Spacer()
 
                     Button {
-                        showScanner = true
+                        showHelp = true
                     } label: {
-                        Label("Scan QR Code", systemImage: "camera")
-                            .font(.headline)
-                            .frame(maxWidth: .infinity)
+                        Image(systemName: "questionmark.circle")
+                            .font(.system(size: 24))
+                            .foregroundColor(Colors.text)
+                            .frame(width: 48, height: 48)
                     }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.large)
-                    .padding(.horizontal)
-                    .disabled(pairedParents.count >= 2) // Disable if max parents reached
                 }
-            } else if isPairing {
-                ProgressView("Pairing with parent device...")
-                    .padding()
+                .padding(.horizontal, 16)
+                .padding(.bottom, 8)
+                .background(Colors.background)
+
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Main Call-to-Action Block
+                        VStack(spacing: 0) {
+                            // Illustrative Graphic
+                            VStack {
+                                Image(systemName: "qrcode.viewfinder")
+                                    .font(.system(size: 120))
+                                    .foregroundColor(Colors.primary)
+                                    .frame(width: 192, height: 192)
+                            }
+                            .padding(.vertical, 12)
+
+                            // Scan QR Code Button
+                            Button {
+                                if pairedParents.count < 2 {
+                                    showScanner = true
+                                }
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: "qrcode.viewfinder")
+                                        .font(.system(size: 24))
+
+                                    Text("Scan QR Code")
+                                        .font(.custom("Lexend", size: 18))
+                                        .fontWeight(.bold)
+                                }
+                                .foregroundColor(.white)
+                                .frame(maxWidth: .infinity)
+                                .frame(height: 56)
+                                .background(pairedParents.count >= 2 ? Colors.neutralGray : Colors.primary)
+                                .cornerRadius(12)
+                                .shadow(color: pairedParents.count < 2 ? Color.black.opacity(0.15) : Color.clear, radius: 4, y: 2)
+                            }
+                            .disabled(pairedParents.count >= 2)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 12)
+
+                            // Body Text
+                            Text("Ask your parent for their code to scan it with the camera.")
+                                .font(.custom("Lexend", size: 16))
+                                .foregroundColor(Colors.secondaryText)
+                                .multilineTextAlignment(.center)
+                                .frame(maxWidth: 280)
+                                .padding(.horizontal, 16)
+                                .padding(.bottom, 12)
+                                .padding(.top, 4)
+                        }
+                        .padding(.top, 32)
+
+                        // Paired Parents List
+                        VStack(alignment: .leading, spacing: 0) {
+                            // Section Header
+                            Text("Your Connected Grown-ups")
+                                .font(.custom("Lexend", size: 18))
+                                .fontWeight(.bold)
+                                .foregroundColor(Colors.text)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 16)
+                                .padding(.bottom, 12)
+
+                            // List Items or Empty State
+                            if pairedParents.isEmpty {
+                                // Empty State
+                                VStack(spacing: 16) {
+                                    Image(systemName: "person.badge.plus")
+                                        .font(.system(size: 50))
+                                        .foregroundColor(Colors.neutralGray)
+
+                                    Text("No Grown-ups Yet")
+                                        .font(.custom("Lexend", size: 16))
+                                        .fontWeight(.bold)
+                                        .foregroundColor(Colors.text)
+
+                                    Text("Scan a code to connect with your first grown-up!")
+                                        .font(.custom("Lexend", size: 14))
+                                        .foregroundColor(Colors.secondaryText)
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 40)
+                                .padding(.horizontal, 16)
+                                .background(Colors.emptyStateBackground)
+                                .cornerRadius(12)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 16)
+                            } else {
+                                VStack(spacing: 12) {
+                                    ForEach(pairedParents, id: \.deviceID) { parent in
+                                        ParentListItem(
+                                            parent: parent,
+                                            onUnpair: {
+                                                showingUnpairConfirmation = parent
+                                            }
+                                        )
+                                    }
+                                }
+                                .padding(.horizontal, 16)
+                            }
+                        }
+
+                        Spacer()
+                            .frame(height: 20)
+                    }
+                }
             }
 
-            if let error = errorMessage {
-                Text(error)
-                    .foregroundColor(.red)
-                    .padding()
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(Color.red.opacity(0.1))
-                    )
-                    .padding(.horizontal)
+            // Loading Overlay
+            if isPairing {
+                Color.black.opacity(0.4)
+                    .ignoresSafeArea()
 
-                Button {
-                    errorMessage = nil
-                    showScanner = true
-                } label: {
-                    Label("Try Again", systemImage: "arrow.clockwise")
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+
+                    Text("Pairing with parent device...")
+                        .font(.custom("Lexend", size: 16))
+                        .fontWeight(.bold)
+                        .foregroundColor(.white)
                 }
-                .buttonStyle(.bordered)
-                .padding()
+                .padding(32)
+                .background(Color.black.opacity(0.8))
+                .cornerRadius(16)
             }
-
-            VStack(spacing: 10) {
-                Label {
-                    Text("Get the QR code from your parent's device")
-                } icon: {
-                    Image(systemName: "info.circle")
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-
-                Label {
-                    Text("Child device can use a different iCloud account")
-                } icon: {
-                    Image(systemName: "icloud")
-                }
-                .font(.caption)
-                .foregroundColor(.secondary)
-            }
-            .padding()
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(Color.gray.opacity(0.1))
-            )
-            .padding(.horizontal)
-
-            Spacer()
         }
-        .padding()
         .sheet(isPresented: $showScanner) {
             QRCodeScannerView { result in
                 showScanner = false
@@ -166,6 +203,27 @@ struct ChildPairingView: View {
             }
         } message: {
             Text("Are you sure you want to unpair from this parent device? You will no longer be able to sync usage data with them.")
+        }
+        .alert("Help", isPresented: $showHelp) {
+            Button("OK") {
+                showHelp = false
+            }
+        } message: {
+            Text("Ask your parent to display their pairing QR code. Scan it with your camera to connect your devices. You can connect with up to 2 parents.")
+        }
+        .alert("Connection Error", isPresented: Binding(
+            get: { errorMessage != nil },
+            set: { if !$0 { errorMessage = nil } }
+        )) {
+            Button("Try Again") {
+                errorMessage = nil
+                showScanner = true
+            }
+            Button("Cancel", role: .cancel) {
+                errorMessage = nil
+            }
+        } message: {
+            Text(errorMessage ?? "An error occurred while pairing.")
         }
         .onAppear {
             Task {
@@ -258,6 +316,105 @@ struct ChildPairingView: View {
         
         // In a real implementation, this would delete the device record
         // from the parent's shared zone in CloudKit
+    }
+}
+
+// MARK: - Parent List Item Component
+struct ParentListItem: View {
+    let parent: RegisteredDevice
+    let onUnpair: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(spacing: 16) {
+            // Avatar Circle
+            ZStack {
+                Circle()
+                    .fill(statusColor.opacity(0.2))
+                    .frame(width: 48, height: 48)
+
+                Image(systemName: "person.fill")
+                    .font(.system(size: 24))
+                    .foregroundColor(statusColor)
+            }
+
+            // Parent Info
+            VStack(alignment: .leading, spacing: 4) {
+                Text(parent.deviceName ?? "Unknown Parent")
+                    .font(.custom("Lexend", size: 16))
+                    .fontWeight(.bold)
+                    .foregroundColor(ChildPairingView.Colors.text)
+
+                HStack(spacing: 6) {
+                    Circle()
+                        .fill(statusColor)
+                        .frame(width: 8, height: 8)
+
+                    Text(statusText)
+                        .font(.custom("Lexend", size: 14))
+                        .foregroundColor(ChildPairingView.Colors.secondaryText)
+                }
+            }
+
+            Spacer()
+
+            // Unpair Button
+            Button {
+                onUnpair()
+            } label: {
+                Image(systemName: "link.badge.minus")
+                    .font(.system(size: 20))
+                    .foregroundColor(ChildPairingView.Colors.secondaryText)
+            }
+        }
+        .padding(16)
+        .background(colorScheme == .dark ? Color(white: 0.15) : Color(white: 0.96))
+        .cornerRadius(12)
+    }
+
+    private var statusColor: Color {
+        // For now, all connected parents show as connected (green)
+        // In a real implementation, this would check the parent's connection status
+        return ChildPairingView.Colors.successGreen
+    }
+
+    private var statusText: String {
+        // For now, all show as connected
+        // In a real implementation, this would show actual status
+        return "Connected"
+    }
+}
+
+// MARK: - Design Tokens
+extension ChildPairingView {
+    struct Colors {
+        // Primary Colors
+        static let primary = Color(hex: "4A90E2")
+        static let accentTeal = Color(hex: "50E3C2")
+
+        // Background Colors
+        static var background: Color {
+            Color(UIColor.systemBackground)
+        }
+
+        static var emptyStateBackground: Color {
+            Color(UIColor.secondarySystemBackground).opacity(0.5)
+        }
+
+        // Text Colors
+        static var text: Color {
+            Color(UIColor.label)
+        }
+
+        static var secondaryText: Color {
+            Color(hex: "8E8E93")
+        }
+
+        // Status Colors
+        static let successGreen = Color(hex: "7ED321")
+        static let warningOrange = Color(hex: "F5A623")
+        static let errorRed = Color(hex: "D0021B")
+        static let neutralGray = Color(hex: "8E8E93")
     }
 }
 

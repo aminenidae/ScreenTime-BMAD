@@ -8,107 +8,164 @@
 
 import SwiftUI
 
+// MARK: - Design Tokens
+fileprivate struct WelcomeColors {
+    static let primary = Color(hex: "#00A693")
+    static let background = Color(hex: "#F7FAFC")
+    static let text = Color(hex: "#2D3748")
+    static let subtext = Color(hex: "#618961")
+    static let border = Color(hex: "#dbe6db")
+    static let card = Color(hex: "#ffffff")
+}
+
 struct WelcomeScreen: View {
     let onContinue: () -> Void
 
     var body: some View {
-        ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+        VStack(spacing: 0) {
+            // Content area
+            VStack(spacing: 0) {
+                // Icon and headline section
+                VStack(spacing: 0) {
+                    // Icon
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(WelcomeColors.primary.opacity(0.2))
+                            .frame(width: 80, height: 80)
 
-            VStack(spacing: 40) {
-                Spacer()
+                        Image(systemName: "graduationcap.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(WelcomeColors.primary)
+                    }
+                    .padding(.bottom, 24)
 
-                // App icon and title
-                VStack(spacing: 20) {
-                    Image(systemName: "hourglass.circle.fill")
-                        .font(.system(size: 100))
-                        .foregroundColor(.blue)
-
-                    Text("ScreenTime Rewards")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+                    // Headline
+                    Text("Transform Screen Time into Learning Time")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(WelcomeColors.text)
                         .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 384) // max-w-sm
 
-                    Text("Transform screen time into learning time")
-                        .font(.title3)
-                        .foregroundColor(.secondary)
+                    // Subtitle
+                    Text("Guide your child's digital journey. Encourage learning, reward progress, and build healthy habits together.")
+                        .font(.system(size: 16))
+                        .foregroundColor(WelcomeColors.subtext)
                         .multilineTextAlignment(.center)
-                        .padding(.horizontal, 40)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .frame(maxWidth: 384) // max-w-sm
+                        .padding(.top, 16)
                 }
+                .padding(.horizontal, 24)
+                .padding(.top, 48)
 
-                Spacer()
-
-                // Features list
-                VStack(alignment: .leading, spacing: 20) {
+                // Features section
+                VStack(spacing: 24) {
+                    // Feature 1
                     FeatureRow(
-                        icon: "book.fill",
-                        title: "Earn Points",
-                        description: "Use learning apps to earn points"
+                        icon: "brain.head.profile",
+                        title: "Set Learning Goals",
+                        description: "Turn educational apps into exciting challenges.",
+                        iconColor: WelcomeColors.primary
                     )
 
+                    // Feature 2
                     FeatureRow(
-                        icon: "gamecontroller.fill",
-                        title: "Unlock Rewards",
-                        description: "Spend points on fun reward apps"
+                        icon: "trophy.fill",
+                        title: "Reward Achievements",
+                        description: "Unlock games and fun apps as they learn.",
+                        iconColor: WelcomeColors.primary
                     )
 
+                    // Feature 3
                     FeatureRow(
-                        icon: "lock.shield.fill",
-                        title: "Parent Controls",
-                        description: "Secure parent mode to manage settings"
+                        icon: "figure.2.and.child.holdinghands",
+                        title: "Foster Healthy Habits",
+                        description: "Create a balanced and positive digital life.",
+                        iconColor: WelcomeColors.primary
                     )
                 }
-                .padding(.horizontal, 40)
+                .padding(.horizontal, 24)
+                .padding(.top, 40)
+            }
 
-                Spacer()
+            Spacer()
 
+            // Footer section
+            VStack(spacing: 16) {
                 // Get Started button
                 Button(action: onContinue) {
-                    HStack {
-                        Text("Get Started")
-                            .font(.headline)
-                        Image(systemName: "arrow.right.circle.fill")
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding()
-                    .background(Color.blue)
-                    .foregroundColor(.white)
-                    .cornerRadius(16)
-                    .shadow(radius: 5)
+                    Text("Get Started")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background(WelcomeColors.primary)
+                        .cornerRadius(12)
+                        .shadow(color: WelcomeColors.primary.opacity(0.3), radius: 12, x: 0, y: 4)
                 }
-                .padding(.horizontal, 40)
-                .padding(.bottom, 40)
+                .frame(maxWidth: 480)
+
+                // Login link
+                HStack(spacing: 4) {
+                    Text("Already have an account?")
+                        .font(.system(size: 14))
+                        .foregroundColor(WelcomeColors.subtext)
+
+                    Button(action: {
+                        // Login action
+                    }) {
+                        Text("Log In")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(WelcomeColors.primary)
+                    }
+                }
             }
+            .padding(.horizontal, 24)
+            .padding(.top, 32)
+            .padding(.bottom, 24)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(WelcomeColors.background)
     }
 }
 
+// MARK: - Feature Row Component
 struct FeatureRow: View {
     let icon: String
     let title: String
     let description: String
+    let iconColor: Color
 
     var body: some View {
         HStack(spacing: 16) {
-            Image(systemName: icon)
-                .font(.title2)
-                .foregroundColor(.blue)
-                .frame(width: 40)
+            // Icon container
+            ZStack {
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(WelcomeColors.primary.opacity(0.1))
+                    .frame(width: 48, height: 48)
 
+                Image(systemName: icon)
+                    .font(.system(size: 24))
+                    .foregroundColor(iconColor)
+            }
+            .frame(width: 48, height: 48)
+
+            // Text content
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
-                    .font(.headline)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(WelcomeColors.text)
 
                 Text(description)
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .font(.system(size: 14))
+                    .foregroundColor(WelcomeColors.subtext)
+                    .fixedSize(horizontal: false, vertical: true)
             }
+
+            Spacer()
         }
     }
 }

@@ -7,7 +7,7 @@ struct ModeSelectionView: View {
     @State private var showError: Bool = false
     @State private var errorMessage: String = ""
     @State private var isAuthenticating: Bool = false
-    
+
     // PIN-related state
     @State private var showPINEntry: Bool = false
     @State private var showPINSetup: Bool = false
@@ -16,106 +16,119 @@ struct ModeSelectionView: View {
     @State private var pinErrorMessage: String? = nil
     @State private var isConfirmingPIN: Bool = false
 
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Background
+            (colorScheme == .dark ? Colors.backgroundDark : Colors.backgroundLight)
+                .ignoresSafeArea()
 
-            VStack(spacing: 40) {
-                // App title and logo
-                VStack(spacing: 16) {
-                    Image(systemName: "hourglass.circle.fill")
-                        .font(.system(size: 80))
-                        .foregroundColor(.blue)
+            VStack(spacing: 0) {
+                Spacer()
+                    .frame(height: 48)
 
-                    Text("ScreenTime Rewards")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+                // Logo/Icon section
+                VStack(spacing: 0) {
+                    ZStack {
+                        Circle()
+                            .fill(Colors.primary.opacity(0.2))
+                            .frame(width: 96, height: 96)
 
-                    Text("Choose your mode")
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 48))
+                            .foregroundColor(Colors.primary)
+                    }
+                    .padding(.top, 16)
+                    .padding(.bottom, 16)
                 }
+                .frame(maxWidth: .infinity)
 
-                // Mode selection buttons
-                VStack(spacing: 20) {
+                // Headline Text
+                Text("Ready for Fun & Learning?")
+                    .font(.system(size: 28, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? Colors.textLight : Colors.textDark)
+                    .tracking(-0.3)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 20)
+                    .padding(.bottom, 12)
+
+                Spacer()
+
+                // Button Group
+                VStack(spacing: 16) {
                     // Parent Mode button
                     Button(action: handleParentModeSelection) {
-                        HStack(spacing: 16) {
-                            Image(systemName: "person.2.fill")
-                                .font(.title)
+                        HStack(spacing: 8) {
+                            Image(systemName: "lock.fill")
+                                .font(.system(size: 16, weight: .regular))
 
-                            VStack(alignment: .leading) {
-                                Text("Parent Mode")
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
-
-                                Text("Protected - Full Access")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "faceid")
-                                .font(.title)
+                            Text("Parent Mode")
+                                .font(.system(size: 16, weight: .bold))
+                                .tracking(0.24)
                         }
-                        .padding()
                         .frame(maxWidth: .infinity)
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(16)
-                        .shadow(radius: 5)
+                        .frame(height: 56)
+                        .foregroundColor(colorScheme == .dark ? Colors.buttonTextDark : Colors.buttonTextLight)
+                        .background(colorScheme == .dark ? Colors.buttonBackgroundDark : Colors.buttonBackgroundLight)
+                        .cornerRadius(12)
                     }
                     .disabled(isAuthenticating)
 
                     // Child Mode button
                     Button(action: handleChildModeSelection) {
-                        HStack(spacing: 16) {
-                            Image(systemName: "person.fill")
-                                .font(.title)
+                        HStack(spacing: 8) {
+                            Image(systemName: "rocket.fill")
+                                .font(.system(size: 16, weight: .regular))
 
-                            VStack(alignment: .leading) {
-                                Text("Child Mode")
-                                    .font(.title2)
-                                    .fontWeight(.semibold)
-
-                                Text("Open Access - View Only")
-                                    .font(.caption)
-                                    .foregroundColor(.white.opacity(0.8))
-                            }
-
-                            Spacer()
-
-                            Image(systemName: "arrow.right.circle.fill")
-                                .font(.title)
+                            Text("Alex's Space")
+                                .font(.system(size: 16, weight: .bold))
+                                .tracking(0.24)
                         }
-                        .padding()
                         .frame(maxWidth: .infinity)
-                        .background(Color.green)
-                        .foregroundColor(.white)
-                        .cornerRadius(16)
-                        .shadow(radius: 5)
+                        .frame(height: 56)
+                        .foregroundColor(Colors.primaryButtonText)
+                        .background(Colors.primary)
+                        .cornerRadius(12)
                     }
                     .disabled(isAuthenticating)
-                    
                 }
-                .padding(.horizontal, 30)
+                .frame(maxWidth: 480)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+
+                Spacer()
+
+                // Support link
+                Button(action: {
+                    // Handle support action
+                }) {
+                    Text("Need help? Contact Support")
+                        .font(.system(size: 14))
+                        .foregroundColor(colorScheme == .dark ? Colors.supportTextDark : Colors.supportTextLight)
+                        .underline()
+                }
+                .padding(.top, 16)
+                .padding(.bottom, 32)
             }
 
             // Loading overlay
             if isAuthenticating {
-                Color.black.opacity(0.4)
+                (colorScheme == .dark ? Colors.backgroundDark : Colors.backgroundLight)
+                    .opacity(0.8)
                     .ignoresSafeArea()
 
-                ProgressView()
-                    .scaleEffect(1.5)
-                    .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: Colors.primary))
+                        .scaleEffect(2)
+                        .frame(width: 64, height: 64)
+
+                    Text("Getting your world ready...")
+                        .font(.system(size: 18, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Colors.textLight : Colors.textDark)
+                }
             }
         }
         .alert("Authentication Error", isPresented: $showError) {
@@ -239,6 +252,35 @@ struct ModeSelectionView: View {
                 isConfirmingPIN = false
             }
         }
+    }
+}
+
+// MARK: - Design Tokens
+extension ModeSelectionView {
+    struct Colors {
+        // Primary color
+        static let primary = Color(red: 0x13 / 255.0, green: 0xec / 255.0, blue: 0x13 / 255.0)
+
+        // Background colors
+        static let backgroundLight = Color(red: 0xf6 / 255.0, green: 0xf8 / 255.0, blue: 0xf6 / 255.0)
+        static let backgroundDark = Color(red: 0x10 / 255.0, green: 0x22 / 255.0, blue: 0x10 / 255.0)
+
+        // Text colors
+        static let textDark = Color(red: 0x11 / 255.0, green: 0x18 / 255.0, blue: 0x27 / 255.0)
+        static let textLight = Color(red: 0xf9 / 255.0, green: 0xfa / 255.0, blue: 0xfb / 255.0)
+
+        // Button colors
+        static let buttonBackgroundLight = Color(red: 0xe5 / 255.0, green: 0xe7 / 255.0, blue: 0xeb / 255.0)
+        static let buttonBackgroundDark = Color(red: 0x37 / 255.0, green: 0x41 / 255.0, blue: 0x51 / 255.0)
+        static let buttonTextLight = Color(red: 0x1f / 255.0, green: 0x29 / 255.0, blue: 0x37 / 255.0)
+        static let buttonTextDark = Color(red: 0xe5 / 255.0, green: 0xe7 / 255.0, blue: 0xeb / 255.0)
+
+        // Primary button text
+        static let primaryButtonText = Color(red: 0x11 / 255.0, green: 0x18 / 255.0, blue: 0x27 / 255.0)
+
+        // Support text colors
+        static let supportTextLight = Color(red: 0x6b / 255.0, green: 0x72 / 255.0, blue: 0x80 / 255.0)
+        static let supportTextDark = Color(red: 0x9c / 255.0, green: 0xa3 / 255.0, blue: 0xaf / 255.0)
     }
 }
 

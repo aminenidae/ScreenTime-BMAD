@@ -5,96 +5,140 @@ struct DeviceSelectionView: View {
     @State private var showingConfirmation = false
     @State private var selectedMode: DeviceMode?
     @State private var deviceName = ""
-    
+
     var body: some View {
         NavigationView {
-            VStack(spacing: 30) {
-                // Header
-                VStack(spacing: 10) {
-                    Text("Welcome to ScreenTime Rewards")
-                        .font(.largeTitle)
-                        .fontWeight(.bold)
+            VStack(spacing: 0) {
+                // Content Area - Main content
+                VStack(spacing: 32) {
+                    // Headline Text Component
+                    Text("Welcome! Who will be using this device?")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(AppColors.textPrimary)
                         .multilineTextAlignment(.center)
-                    
-                    Text("Is this device for a Parent or a Child?")
-                        .font(.title2)
-                        .foregroundColor(.secondary)
-                        .multilineTextAlignment(.center)
-                }
-                .padding(.horizontal)
-                
-                // Device Type Cards
-                VStack(spacing: 20) {
-                    DeviceTypeCardView(
-                        mode: .parentDevice,
-                        isSelected: selectedMode == .parentDevice
-                    ) {
-                        selectedMode = .parentDevice
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 48)
+
+                    // Text Grid Component - Device Cards
+                    VStack(spacing: 16) {
+                        // Parent Card
+                        DeviceTypeCardView(
+                            mode: .parentDevice,
+                            isSelected: selectedMode == .parentDevice
+                        ) {
+                            selectedMode = .parentDevice
+                        }
+
+                        // Child Card
+                        DeviceTypeCardView(
+                            mode: .childDevice,
+                            isSelected: selectedMode == .childDevice
+                        ) {
+                            selectedMode = .childDevice
+                        }
                     }
-                    
-                    DeviceTypeCardView(
-                        mode: .childDevice,
-                        isSelected: selectedMode == .childDevice
-                    ) {
-                        selectedMode = .childDevice
-                    }
-                }
-                .padding(.horizontal)
-                
-                // Device Name Input (Optional)
-                if selectedMode != nil {
+                    .padding(.horizontal, 16)
+                    .frame(maxWidth: 512) // max-w-lg
+
+                    // Text Field Component
                     VStack(alignment: .leading, spacing: 8) {
                         Text("Device Name (Optional)")
-                            .font(.headline)
-                        
-                        TextField("e.g., Johnny's iPad", text: $deviceName)
-                            .textFieldStyle(RoundedBorderTextFieldStyle())
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppColors.textPrimary)
+
+                        TextField("e.g., Mom's iPhone, Sam's iPad", text: $deviceName)
+                            .font(.system(size: 16))
+                            .padding(15)
+                            .frame(height: 56)
+                            .background(AppColors.surface)
+                            .cornerRadius(12)
+                            .overlay(
+                                RoundedRectangle(cornerRadius: 12)
+                                    .stroke(AppColors.border, lineWidth: 1)
+                            )
                             .autocapitalization(.words)
                     }
-                    .padding(.horizontal)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: 512) // max-w-lg
                 }
-                
-                // Continue Button
-                if selectedMode != nil {
+
+                Spacer()
+
+                // Footer Area
+                VStack(spacing: 16) {
+                    // Page Indicators Component
+                    HStack(spacing: 12) {
+                        Circle()
+                            .fill(AppColors.primary)
+                            .frame(width: 10, height: 10)
+                        Circle()
+                            .fill(AppColors.border)
+                            .frame(width: 10, height: 10)
+                    }
+                    .padding(.vertical, 20)
+
+                    // Single Button Component
                     Button(action: {
-                        showingConfirmation = true
+                        if selectedMode != nil {
+                            showingConfirmation = true
+                        }
                     }) {
-                        Text("Continue")
-                            .font(.headline)
+                        Text("Get Started")
+                            .font(.system(size: 16, weight: .bold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
-                            .padding()
-                            .background(Color.blue)
-                            .cornerRadius(10)
+                            .frame(height: 56)
+                            .background(selectedMode != nil ? AppColors.primary : AppColors.primary.opacity(0.5))
+                            .cornerRadius(12)
                     }
-                    .padding(.horizontal)
-                    .confirmationDialog(
-                        "Confirm Device Selection",
-                        isPresented: $showingConfirmation,
-                        titleVisibility: .visible
-                    ) {
-                        Button("Confirm") {
-                            if let mode = selectedMode {
-                                modeManager.setDeviceMode(mode, deviceName: deviceName.isEmpty ? nil : deviceName)
-                            }
-                        }
-                        
-                        Button("Cancel", role: .cancel) {
-                            // Do nothing
-                        }
-                    } message: {
+                    .disabled(selectedMode == nil)
+                    .padding(.horizontal, 16)
+                    .padding(.vertical, 12)
+                    .frame(maxWidth: 512) // max-w-lg
+                }
+                .padding(.bottom, 24)
+                .confirmationDialog(
+                    "Confirm Device Selection",
+                    isPresented: $showingConfirmation,
+                    titleVisibility: .visible
+                ) {
+                    Button("Confirm") {
                         if let mode = selectedMode {
-                            Text("Set this device as a \(mode.displayName)?\n\n\(mode.description)")
+                            modeManager.setDeviceMode(mode, deviceName: deviceName.isEmpty ? nil : deviceName)
                         }
+                    }
+
+                    Button("Cancel", role: .cancel) {
+                        // Do nothing
+                    }
+                } message: {
+                    if let mode = selectedMode {
+                        Text("Set this device as a \(mode.displayName)?\n\n\(mode.description)")
                     }
                 }
-                
-                Spacer()
             }
-            .padding(.vertical)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(AppColors.background)
             .navigationTitle("")
             .navigationBarHidden(true)
         }
+    }
+}
+
+// MARK: - Design Tokens
+extension DeviceSelectionView {
+    struct AppColors {
+        static let primary = Color(hex: "#4A90E2")
+        static let background = Color(hex: "#F9F9F9")
+        static let surface = Color(hex: "#FFFFFF")
+        static let textPrimary = Color(hex: "#4A4A4A")
+        static let textSecondary = Color(hex: "#9B9B9B")
+        static let border = Color(hex: "#e5e7eb")
+        static let accentTeal = Color(hex: "#50E3C2")
+        static let accentYellow = Color(hex: "#F8E71C")
     }
 }
 
@@ -102,45 +146,56 @@ struct DeviceTypeCardView: View {
     let mode: DeviceMode
     let isSelected: Bool
     let action: () -> Void
-    
+
+    var iconName: String {
+        mode == .parentDevice ? "person.badge.shield.checkmark" : "figure.2.and.child.holdinghands"
+    }
+
+    var iconColor: Color {
+        if mode == .parentDevice {
+            return DeviceSelectionView.AppColors.primary
+        } else {
+            return DeviceSelectionView.AppColors.accentTeal
+        }
+    }
+
     var body: some View {
         Button(action: action) {
-            HStack {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Image(systemName: mode == .parentDevice ? "iphone.badge.play" : "iphone.and.arrow.forward")
-                            .font(.title2)
-                            .foregroundColor(.blue)
-                        
-                        Text(mode.displayName)
-                            .font(.title3)
-                            .fontWeight(.semibold)
-                    }
-                    
+            VStack(alignment: .leading, spacing: 12) {
+                // Icon
+                Image(systemName: iconName)
+                    .font(.system(size: 32))
+                    .foregroundColor(iconColor)
+
+                // Text content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(mode.displayName)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(DeviceSelectionView.AppColors.textPrimary)
+                        .lineLimit(1)
+
                     Text(mode.description)
-                        .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 14))
+                        .foregroundColor(DeviceSelectionView.AppColors.textSecondary)
                         .fixedSize(horizontal: false, vertical: true)
-                }
-                
-                Spacer()
-                
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .foregroundColor(.blue)
-                        .font(.title2)
+                        .lineLimit(2)
                 }
             }
-            .padding()
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(16)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? Color.blue.opacity(0.1) : Color.gray.opacity(0.1))
+                    .fill(isSelected ? DeviceSelectionView.AppColors.primary.opacity(0.1) : DeviceSelectionView.AppColors.surface)
             )
             .overlay(
                 RoundedRectangle(cornerRadius: 12)
-                    .stroke(isSelected ? Color.blue : Color.gray.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+                    .stroke(
+                        isSelected ? DeviceSelectionView.AppColors.primary : DeviceSelectionView.AppColors.border,
+                        lineWidth: isSelected ? 2 : 1
+                    )
             )
         }
+        .buttonStyle(PlainButtonStyle())
     }
 }
 

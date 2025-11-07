@@ -1,0 +1,29 @@
+{
+  "" : {
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeActivityExtension-primary.dia",
+    "emit-module-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeActivityExtension-primary-emit-module.d",
+    "emit-module-diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeActivityExtension-primary-emit-module.dia",
+    "pch" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeActivityExtension-primary-Bridging-header.pch",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeActivityExtension-primary.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.dia",
+    "index-unit-output-path" : "/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.o",
+    "llvm-bc" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.bc",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension.swiftdeps",
+    "swiftmodule" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/DeviceActivityMonitorExtension~partial.swiftmodule"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Shared/ScreenTimeNotifications.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.dia",
+    "index-unit-output-path" : "/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.o",
+    "llvm-bc" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.bc",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications.swiftdeps",
+    "swiftmodule" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeActivityExtension.build/Objects-normal/arm64/ScreenTimeNotifications~partial.swiftmodule"
+  }
+}

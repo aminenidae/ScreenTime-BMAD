@@ -152,6 +152,9 @@ class AppUsageViewModel: ObservableObject {
     @Published var activeChallenges: [Challenge] = []
     @Published var challengeProgress: [String: ChallengeProgress] = [:]
     @Published var currentStreak: Int = 0
+    @Published var badges: [Badge] = []
+    @Published var showCompletionCelebration = false
+    @Published var completedChallengeID: String?
     private let challengeService = ChallengeService.shared
 
     // Flag to track when we're resetting picker state
@@ -365,8 +368,30 @@ class AppUsageViewModel: ObservableObject {
             queue: .main
         ) { [weak self] notification in
             Task { @MainActor in
-                // Show celebration animation
-                self?.showChallengeCompletionAnimation()
+                let challengeID = notification.userInfo?["challengeID"] as? String ?? ""
+                self?.handleChallengeCompletion(challengeID: challengeID)
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: ChallengeService.badgeUnlocked,
+            object: nil,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.loadChallengeData()
+            }
+        }
+        NotificationCenter.default.addObserver(
+            forName: ChallengeService.streakUpdated,
+            object: nil,
+            queue: .main
+        ) { [weak self] notification in
+            Task { @MainActor in
+                if let value = notification.userInfo?["currentStreak"] as? Int {
+                    self?.currentStreak = value
+                } else if let value16 = notification.userInfo?["currentStreak"] as? Int16 {
+                    self?.currentStreak = Int(value16)
+                }
             }
         }
         
@@ -959,6 +984,7 @@ class AppUsageViewModel: ObservableObject {
         updateCategoryRewardPoints()
         // Refresh sorted applications and snapshots after pulling new data
         updateSortedApplications()
+        loadChallengeData()
     }
     
     /// Called when usage data changes
@@ -2410,6 +2436,13 @@ extension AppUsageViewModel {
                 let deviceID = DeviceModeManager.shared.deviceID
                 activeChallenges = try await challengeService.fetchActiveChallenges(for: deviceID)
                 challengeProgress = challengeService.challengeProgress
+                _ = await challengeService.checkBadgeUnlocks(for: deviceID)
+                badges = try await challengeService.fetchBadges(for: deviceID)
+                if let streakRecord = try await challengeService.fetchStreak(for: deviceID) {
+                    currentStreak = Int(streakRecord.currentStreak)
+                } else {
+                    currentStreak = 0
+                }
             } catch {
                 #if DEBUG
                 print("[AppUsageViewModel] ❌ Failed to load challenges: \(error)")
@@ -2418,10 +2451,21 @@ extension AppUsageViewModel {
         }
     }
 
-    private func showChallengeCompletionAnimation() {
-        // TODO: Implement in Phase 3
+    private func handleChallengeCompletion(challengeID: String) {
         #if DEBUG
-        print("[AppUsageViewModel] 🎉 Challenge completed!")
+        print("[AppUsageViewModel] 🎉 Challenge completed! ID: \(challengeID)")
         #endif
+        completedChallengeID = challengeID.isEmpty ? nil : challengeID
+        showCompletionCelebration = true
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+            guard let self else { return }
+            Task { @MainActor in
+                self.showCompletionCelebration = false
+                self.completedChallengeID = nil
+            }
+        }
+
+        loadChallengeData()
     }
 }
