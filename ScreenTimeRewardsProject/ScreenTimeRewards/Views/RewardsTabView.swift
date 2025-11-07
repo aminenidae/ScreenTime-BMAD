@@ -130,6 +130,22 @@ struct RewardsTabView: View {
                 viewModel.onFamilyPickerDismissed()
             }
         }
+        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
+            CategoryAssignmentView(
+                selection: viewModel.getSelectionForCategoryAssignment(),
+                categoryAssignments: $viewModel.categoryAssignments,
+                rewardPoints: $viewModel.rewardPoints,
+                fixedCategory: .reward,
+                usageTimes: viewModel.getUsageTimes(),
+                onSave: {
+                    viewModel.onCategoryAssignmentSave()
+                },
+                onCancel: {
+                    viewModel.cancelCategoryAssignment()
+                }
+            )
+            .environmentObject(viewModel)
+        }
     }
 }
 

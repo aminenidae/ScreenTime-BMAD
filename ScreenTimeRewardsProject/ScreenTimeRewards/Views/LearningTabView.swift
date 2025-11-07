@@ -61,6 +61,22 @@ struct LearningTabView: View {
                 viewModel.onFamilyPickerDismissed()
             }
         }
+        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
+            CategoryAssignmentView(
+                selection: viewModel.getSelectionForCategoryAssignment(),
+                categoryAssignments: $viewModel.categoryAssignments,
+                rewardPoints: $viewModel.rewardPoints,
+                fixedCategory: .learning,
+                usageTimes: viewModel.getUsageTimes(),
+                onSave: {
+                    viewModel.onCategoryAssignmentSave()
+                },
+                onCancel: {
+                    viewModel.cancelCategoryAssignment()
+                }
+            )
+            .environmentObject(viewModel)
+        }
     }
 }
 
