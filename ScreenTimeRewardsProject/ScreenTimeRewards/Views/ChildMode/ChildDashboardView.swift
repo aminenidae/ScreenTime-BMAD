@@ -248,10 +248,11 @@ private extension ChildDashboardView {
         let progressPercentage = 0.75 // Placeholder, adjust based on actual data if available
 
         return HStack(spacing: 16) {
-            // App icon
+            // App icon - larger scale
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
+                    .scaleEffect(1.6) // Scale up the icon
                     .frame(width: 80, height: 80)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
@@ -266,9 +267,17 @@ private extension ChildDashboardView {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(snapshot.displayName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                // Use Label to get proper app name
+                if #available(iOS 15.2, *) {
+                    Label(snapshot.token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                } else {
+                    Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                }
 
                 Text("\(viewModel.formatTime(snapshot.totalSeconds))")
                     .font(.system(size: 14))
@@ -324,10 +333,11 @@ private extension ChildDashboardView {
         let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
 
         return HStack(spacing: 16) {
-            // App icon
+            // App icon - larger scale
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
+                    .scaleEffect(1.6) // Scale up the icon
                     .frame(width: 80, height: 80)
                     .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
@@ -342,9 +352,17 @@ private extension ChildDashboardView {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(snapshot.displayName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                // Use Label to get proper app name
+                if #available(iOS 15.2, *) {
+                    Label(snapshot.token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                } else {
+                    Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                }
 
                 Text(isUnlocked ? "\(viewModel.formatTime(snapshot.totalSeconds)) unlocked" : "Complete a quest to unlock")
                     .font(.system(size: 14, weight: isUnlocked ? .medium : .regular))
