@@ -3,6 +3,7 @@ import SwiftUI
 struct ParentChallengesTabView: View {
     @StateObject private var viewModel = ChallengeViewModel()
     @State private var showingChallengeBuilder = false
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     var body: some View {
         ZStack {
@@ -91,12 +92,23 @@ private extension ParentChallengesTabView {
                 .font(.headline)
                 .padding(.horizontal)
 
-            ForEach(viewModel.activeChallenges) { challenge in
-                NavigationLink(destination: ChallengeDetailView(challenge: challenge)) {
-                    ParentChallengeCard(challenge: challenge, progress: viewModel.challengeProgress[challenge.challengeID ?? ""])
+            // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+            let columns = horizontalSizeClass == .regular ? [
+                GridItem(.flexible(), spacing: 16),
+                GridItem(.flexible(), spacing: 16)
+            ] : [
+                GridItem(.flexible())
+            ]
+
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(viewModel.activeChallenges) { challenge in
+                    NavigationLink(destination: ChallengeDetailView(challenge: challenge)) {
+                        ParentChallengeCard(challenge: challenge, progress: viewModel.challengeProgress[challenge.challengeID ?? ""])
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
             }
+            .padding(.horizontal)
         }
     }
 

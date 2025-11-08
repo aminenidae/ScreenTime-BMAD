@@ -1,9 +1,11 @@
 import SwiftUI
 import FamilyControls
+import ManagedSettings
 
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     var body: some View {
         ZStack {
@@ -23,20 +25,20 @@ struct ChildDashboardView: View {
                             questsSection
                         }
 
-                        // Learning Zone Section
-                        if !viewModel.usedLearningApps.isEmpty {
+                        // Learning Zone Section - Show all learning apps
+                        if !viewModel.learningSnapshots.isEmpty {
                             learningZoneSection
                         }
 
-                        // Play Zone Section
-                        if !viewModel.usedRewardApps.isEmpty {
+                        // Play Zone Section - Show all reward apps
+                        if !viewModel.rewardSnapshots.isEmpty {
                             playZoneSection
                         }
 
                         // Empty state
                         if viewModel.activeChallenges.isEmpty &&
-                           viewModel.usedLearningApps.isEmpty &&
-                           viewModel.usedRewardApps.isEmpty {
+                           viewModel.learningSnapshots.isEmpty &&
+                           viewModel.rewardSnapshots.isEmpty {
                             emptyStateView
                         }
                     }
@@ -234,9 +236,16 @@ private extension ChildDashboardView {
                 .padding(.top, 32)
                 .padding(.bottom, 12)
 
-            // Learning apps list
-            VStack(spacing: 8) {
-                ForEach(viewModel.usedLearningApps) { snapshot in
+            // Learning apps grid - Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+            let columns = horizontalSizeClass == .regular ? [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ] : [
+                GridItem(.flexible())
+            ]
+
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(viewModel.learningSnapshots) { snapshot in
                     learningAppRow(snapshot: snapshot)
                 }
             }
@@ -245,23 +254,26 @@ private extension ChildDashboardView {
     }
 
     func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
-        let progressPercentage = 0.75 // Placeholder, adjust based on actual data if available
+        // Device-specific icon sizes: 60% of previous size (40% reduction)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
 
         return HStack(spacing: 16) {
-            // App icon - larger scale
+            // App icon - device-specific larger scale
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(1.6) // Scale up the icon
-                    .frame(width: 80, height: 80)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .scaleEffect(iconScale)
+                    .frame(width: iconSize, height: iconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 16)
                     .fill(DesignColors.teal.opacity(0.2))
-                    .frame(width: 80, height: 80)
+                    .frame(width: iconSize, height: iconSize)
                     .overlay(
                         Image(systemName: "book.fill")
-                            .font(.system(size: 36))
+                            .font(.system(size: fallbackIconSize))
                             .foregroundColor(DesignColors.teal)
                     )
             }
@@ -285,20 +297,6 @@ private extension ChildDashboardView {
             }
 
             Spacer()
-
-            // Progress bar
-            GeometryReader { geometry in
-                ZStack(alignment: .leading) {
-                    RoundedRectangle(cornerRadius: 9999)
-                        .fill(colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200)
-                        .frame(width: 96, height: 8)
-
-                    RoundedRectangle(cornerRadius: 9999)
-                        .fill(DesignColors.teal)
-                        .frame(width: 96 * progressPercentage, height: 8)
-                }
-            }
-            .frame(width: 96, height: 8)
         }
         .padding(12)
         .background(
@@ -319,9 +317,16 @@ private extension ChildDashboardView {
                 .padding(.top, 32)
                 .padding(.bottom, 12)
 
-            // Reward apps list
-            VStack(spacing: 8) {
-                ForEach(viewModel.usedRewardApps) { snapshot in
+            // Reward apps grid - Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+            let columns = horizontalSizeClass == .regular ? [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ] : [
+                GridItem(.flexible())
+            ]
+
+            LazyVGrid(columns: columns, spacing: 8) {
+                ForEach(viewModel.rewardSnapshots) { snapshot in
                     rewardAppRow(snapshot: snapshot)
                 }
             }
@@ -332,21 +337,26 @@ private extension ChildDashboardView {
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
         let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
 
+        // Device-specific icon sizes: 60% of previous size (40% reduction)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+
         return HStack(spacing: 16) {
-            // App icon - larger scale
+            // App icon - device-specific larger scale
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(1.6) // Scale up the icon
-                    .frame(width: 80, height: 80)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .scaleEffect(iconScale)
+                    .frame(width: iconSize, height: iconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 16)
                     .fill(DesignColors.coral.opacity(0.2))
-                    .frame(width: 80, height: 80)
+                    .frame(width: iconSize, height: iconSize)
                     .overlay(
                         Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 36))
+                            .font(.system(size: fallbackIconSize))
                             .foregroundColor(DesignColors.coral)
                     )
             }
@@ -371,12 +381,13 @@ private extension ChildDashboardView {
 
             Spacer()
 
-            // Lock/Play icon
+            // Lock/Unlock indicator icon (not a button)
             Circle()
                 .fill(isUnlocked ? DesignColors.teal.opacity(colorScheme == .dark ? 0.2 : 0.1) : (colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200))
-                .frame(width: 40, height: 40)
+                .frame(width: 48, height: 48)
                 .overlay(
-                    Image(systemName: isUnlocked ? "play.fill" : "lock.fill")
+                    Image(systemName: isUnlocked ? "checkmark.circle.fill" : "lock.fill")
+                        .font(.system(size: 20))
                         .foregroundColor(isUnlocked ? DesignColors.teal : DesignColors.slate500)
                 )
         }

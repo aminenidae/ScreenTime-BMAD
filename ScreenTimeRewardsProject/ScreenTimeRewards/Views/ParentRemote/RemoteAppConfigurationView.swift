@@ -116,9 +116,18 @@ private struct AppConfigurationListView: View {
     let onEdit: (AppConfiguration) -> Void
     let onToggleEnabled: (AppConfiguration) -> Void
     let onToggleBlocking: (AppConfiguration) -> Void
-    
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
     var body: some View {
-        VStack(spacing: 8) {
+        // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+        let columns = horizontalSizeClass == .regular ? [
+            GridItem(.flexible(), spacing: 8),
+            GridItem(.flexible(), spacing: 8)
+        ] : [
+            GridItem(.flexible())
+        ]
+
+        LazyVGrid(columns: columns, spacing: 8) {
             ForEach(configurations, id: \.logicalID) { config in
                 AppConfigurationRow(
                     configuration: config,
@@ -136,55 +145,66 @@ private struct AppConfigurationRow: View {
     let onEdit: () -> Void
     let onToggleEnabled: () -> Void
     let onToggleBlocking: () -> Void
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(configuration.displayName ?? "Unknown App")
-                    .font(.subheadline)
-                    .fontWeight(.medium)
-                
-                HStack(spacing: 8) {
-                    CategoryTag(category: configuration.category ?? "learning")
-                    
-                    if configuration.pointsPerMinute > 0 {
-                        Text("\(configuration.pointsPerMinute) pts/min")
-                            .font(.caption)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(Color.orange.opacity(0.2))
-                            .cornerRadius(6)
+        VStack(spacing: 0) {
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(configuration.displayName ?? "Unknown App")
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    HStack(spacing: 8) {
+                        CategoryTag(category: configuration.category ?? "learning")
+
+                        if configuration.pointsPerMinute > 0 {
+                            Text("\(configuration.pointsPerMinute) pts/min")
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .cornerRadius(6)
+                        }
                     }
                 }
-            }
-            
-            Spacer()
-            
-            HStack(spacing: 12) {
-                // Enabled toggle
-                Toggle("", isOn: Binding(
-                    get: { configuration.isEnabled },
-                    set: { _ in onToggleEnabled() }
-                ))
-                .labelsHidden()
-                .toggleStyle(SwitchToggleStyle(tint: .green))
-                
-                // Blocking toggle
-                Button(action: onToggleBlocking) {
-                    Image(systemName: configuration.blockingEnabled ? "lock" : "lock.open")
-                        .foregroundColor(configuration.blockingEnabled ? .red : .green)
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 12) {
+                    // Enabled toggle
+                    Toggle("", isOn: Binding(
+                        get: { configuration.isEnabled },
+                        set: { _ in onToggleEnabled() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle(tint: .green))
+
+                    // Blocking toggle
+                    Button(action: onToggleBlocking) {
+                        Image(systemName: configuration.blockingEnabled ? "lock" : "lock.open")
+                            .foregroundColor(configuration.blockingEnabled ? .red : .green)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // Edit button
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
                 }
-                .buttonStyle(PlainButtonStyle())
-                
-                // Edit button
-                Button(action: onEdit) {
-                    Image(systemName: "pencil")
-                        .foregroundColor(.blue)
-                }
-                .buttonStyle(PlainButtonStyle())
             }
+            .padding(12)
         }
-        .padding(.vertical, 8)
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(colorScheme == .dark ? Color(white: 0.2) : Color.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        )
         .contentShape(Rectangle()) // Make entire row tappable
     }
 }

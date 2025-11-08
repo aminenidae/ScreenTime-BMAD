@@ -6,6 +6,7 @@ struct RewardsTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
     @State private var unlockMinutes: [ApplicationToken: Int] = [:]  // Track minutes for each app
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     var body: some View {
         ZStack(alignment: .bottomTrailing) {
@@ -128,10 +129,20 @@ struct RewardsTabView: View {
 
 private extension RewardsTabView {
     var rewardAppsSection: some View {
-        VStack(spacing: 8) {
+        Group {
             if !viewModel.rewardSnapshots.isEmpty {
-                ForEach(viewModel.rewardSnapshots) { snapshot in
-                    rewardAppRow(snapshot: snapshot)
+                // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+                let columns = horizontalSizeClass == .regular ? [
+                    GridItem(.flexible(), spacing: 8),
+                    GridItem(.flexible(), spacing: 8)
+                ] : [
+                    GridItem(.flexible())
+                ]
+
+                LazyVGrid(columns: columns, spacing: 8) {
+                    ForEach(viewModel.rewardSnapshots) { snapshot in
+                        rewardAppRow(snapshot: snapshot)
+                    }
                 }
             } else {
                 Text("No reward apps selected")
@@ -145,69 +156,68 @@ private extension RewardsTabView {
 
     @ViewBuilder
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
+        let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
+
+        // Device-specific icon sizes: 60% of previous size (40% reduction)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67  // iPad: 50pt, iPhone: 67pt (60% of 84/112)
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7  // Scaled down by 40%
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+
         VStack(spacing: 0) {
-            HStack(alignment: .center, spacing: 16) {
-                // App Icon (if available in iOS 15.2+)
+            HStack(alignment: .center, spacing: 12) {
+                // App Icon - Device-specific larger size
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.iconOnly)
-                        .frame(width: 56, height: 56)
+                        .scaleEffect(iconScale)
+                        .frame(width: iconSize, height: iconSize)
                         .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                        .cornerRadius(16)
                 } else {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(Color.gray.opacity(0.1))
-                        .frame(width: 56, height: 56)
+                        .frame(width: iconSize, height: iconSize)
                         .overlay(
                             Image(systemName: "app.fill")
-                                .font(.system(size: 24))
+                                .font(.system(size: fallbackIconSize))
                                 .foregroundColor(.gray)
                         )
                 }
 
-                // App Info
+                // App Info - with dynamic font sizing
                 VStack(alignment: .leading, spacing: 4) {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: appNameFontSize(for: snapshot.displayName), weight: .medium))
                             .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.7)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: appNameFontSize(for: snapshot.displayName), weight: .medium))
                             .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                            .lineLimit(1)
+                            .lineLimit(2)
+                            .truncationMode(.tail)
+                            .minimumScaleFactor(0.7)
                     }
 
-                    Text("Cost: \(snapshot.pointsPerMinute) Points/minute")
-                        .font(.system(size: 14))
+                    Text("\(snapshot.pointsPerMinute) pts/min")
+                        .font(.system(size: 12))
                         .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
-                        .lineLimit(2)
+                        .lineLimit(1)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
+                Spacer(minLength: 4)
 
-                // Status Badge and Toggle
-                HStack(spacing: 12) {
-                    // Status Badge
-                    if let _ = viewModel.unlockedRewardApps[snapshot.token] {
-                        Text("Unlocked")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(colorScheme == .dark ? Colors.secondary : Color(red: 0.0, green: 0.5, blue: 0.0))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .background((Colors.secondary.opacity(0.2)))
-                            .cornerRadius(.infinity)
-                    } else {
-                        Text("Locked")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 4)
-                            .background(colorScheme == .dark ? Color.gray.opacity(0.3) : Color.gray.opacity(0.2))
-                            .cornerRadius(.infinity)
-                    }
+                // Status Icon and Toggle
+                VStack(spacing: 8) {
+                    // Status Icon (lock/unlock)
+                    Image(systemName: isUnlocked ? "lock.open.fill" : "lock.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(isUnlocked ? Colors.secondary : Colors.textSecondary(colorScheme: colorScheme))
 
                     // Custom Toggle
                     Toggle("", isOn: Binding(
@@ -225,7 +235,7 @@ private extension RewardsTabView {
                     .toggleStyle(CustomToggleStyle())
                 }
             }
-            .padding(16)
+            .padding(12)
 
             // Points adjustment section
             VStack(spacing: 8) {
@@ -309,6 +319,18 @@ private extension RewardsTabView {
 
         // Refresh snapshots to update UI with new point values
         viewModel.refreshSnapshotsOnly()
+    }
+
+    // Helper function to determine font size based on app name length
+    private func appNameFontSize(for appName: String) -> CGFloat {
+        let nameLength = appName.count
+        if nameLength > 20 {
+            return 13 // Smaller font for very long names
+        } else if nameLength > 15 {
+            return 14 // Medium font for long names
+        } else {
+            return 16 // Normal font for short names
+        }
     }
 }
 

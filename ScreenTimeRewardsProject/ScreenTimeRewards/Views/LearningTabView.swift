@@ -6,6 +6,7 @@ struct LearningTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     private var hasLearningApps: Bool {
         !viewModel.learningSnapshots.isEmpty
@@ -131,7 +132,15 @@ private extension LearningTabView {
                 .padding(.top, 16)
                 .padding(.bottom, 8)
 
-            VStack(spacing: 8) {
+            // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
+            let columns = horizontalSizeClass == .regular ? [
+                GridItem(.flexible(), spacing: 8),
+                GridItem(.flexible(), spacing: 8)
+            ] : [
+                GridItem(.flexible())
+            ]
+
+            LazyVGrid(columns: columns, spacing: 8) {
                 ForEach(viewModel.learningSnapshots) { snapshot in
                     learningAppRow(snapshot: snapshot)
                 }
@@ -143,21 +152,28 @@ private extension LearningTabView {
     // MARK: - App Row
     @ViewBuilder
     func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
+        // Device-specific icon sizes: 60% of previous size (40% reduction)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                // App Icon
+                // App Icon - Larger size
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.iconOnly)
-                        .frame(width: 56, height: 56)
+                        .scaleEffect(iconScale)
+                        .frame(width: iconSize, height: iconSize)
                         .background(Color.gray.opacity(0.1))
-                        .cornerRadius(8)
+                        .cornerRadius(16)
                 } else {
-                    RoundedRectangle(cornerRadius: 8)
+                    RoundedRectangle(cornerRadius: 16)
                         .fill(Color.gray.opacity(0.2))
-                        .frame(width: 56, height: 56)
+                        .frame(width: iconSize, height: iconSize)
                         .overlay(
                             Image(systemName: "app.fill")
+                                .font(.system(size: fallbackIconSize))
                                 .foregroundColor(.gray)
                         )
                 }
@@ -170,20 +186,24 @@ private extension LearningTabView {
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(Colors.text(for: colorScheme))
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(Colors.text(for: colorScheme))
                             .lineLimit(1)
+                            .truncationMode(.tail)
                     }
 
                     Text("+\(snapshot.pointsPerMinute) Points/minute")
                         .font(.system(size: 14))
                         .foregroundColor(Colors.lightSlateGray(for: colorScheme))
-                        .lineLimit(2)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer()
+                Spacer(minLength: 8)
 
                 // Remove Button
                 Button(action: {
