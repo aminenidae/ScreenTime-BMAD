@@ -31,6 +31,7 @@ struct RewardsTabView: View {
 
                         Spacer()
 
+                        // Placeholder for balance
                         Color.clear
                             .frame(width: 40, height: 40)
                     }
@@ -121,31 +122,7 @@ struct RewardsTabView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { _ in
-            viewModel.onPickerSelectionChange()
-        }
-        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
-            if !isPresented {
-                viewModel.onFamilyPickerDismissed()
-            }
-        }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            CategoryAssignmentView(
-                selection: viewModel.getSelectionForCategoryAssignment(),
-                categoryAssignments: $viewModel.categoryAssignments,
-                rewardPoints: $viewModel.rewardPoints,
-                fixedCategory: .reward,
-                usageTimes: viewModel.getUsageTimes(),
-                onSave: {
-                    viewModel.onCategoryAssignmentSave()
-                },
-                onCancel: {
-                    viewModel.cancelCategoryAssignment()
-                }
-            )
-            .environmentObject(viewModel)
-        }
+        // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
 }
 
@@ -168,87 +145,129 @@ private extension RewardsTabView {
 
     @ViewBuilder
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
-        HStack(alignment: .center, spacing: 16) {
-            // App Icon (if available in iOS 15.2+)
-            if #available(iOS 15.2, *) {
-                Label(snapshot.token)
-                    .labelStyle(.iconOnly)
-                    .frame(width: 56, height: 56)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(8)
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.1))
-                    .frame(width: 56, height: 56)
-                    .overlay(
-                        Image(systemName: "app.fill")
-                            .font(.system(size: 24))
-                            .foregroundColor(.gray)
-                    )
-            }
-
-            // App Info
-            VStack(alignment: .leading, spacing: 4) {
+        VStack(spacing: 0) {
+            HStack(alignment: .center, spacing: 16) {
+                // App Icon (if available in iOS 15.2+)
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
-                        .labelStyle(.titleOnly)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                        .lineLimit(1)
+                        .labelStyle(.iconOnly)
+                        .frame(width: 56, height: 56)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
                 } else {
-                    Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                        .lineLimit(1)
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(width: 56, height: 56)
+                        .overlay(
+                            Image(systemName: "app.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(.gray)
+                        )
                 }
 
-                Text("Cost: \(snapshot.pointsPerMinute * 15) Points")
-                    .font(.system(size: 14))
-                    .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
-                    .lineLimit(2)
-            }
+                // App Info
+                VStack(alignment: .leading, spacing: 4) {
+                    if #available(iOS 15.2, *) {
+                        Label(snapshot.token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                            .lineLimit(1)
+                    } else {
+                        Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+                            .lineLimit(1)
+                    }
 
-            Spacer()
-
-            // Status Badge and Toggle
-            HStack(spacing: 12) {
-                // Status Badge
-                if let _ = viewModel.unlockedRewardApps[snapshot.token] {
-                    Text("Unlocked")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Colors.secondary : Color(red: 0.0, green: 0.5, blue: 0.0))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background((Colors.secondary.opacity(0.2)))
-                        .cornerRadius(.infinity)
-                } else {
-                    Text("Locked")
-                        .font(.system(size: 14, weight: .medium))
+                    Text("Cost: \(snapshot.pointsPerMinute) Points/minute")
+                        .font(.system(size: 14))
                         .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 4)
-                        .background(colorScheme == .dark ? Color.gray.opacity(0.3) : Color.gray.opacity(0.2))
-                        .cornerRadius(.infinity)
+                        .lineLimit(2)
                 }
 
-                // Custom Toggle
-                Toggle("", isOn: Binding(
-                    get: { viewModel.unlockedRewardApps[snapshot.token] != nil },
-                    set: { isOn in
-                        if isOn {
-                            let minutes = unlockMinutes[snapshot.token] ?? 15
-                            viewModel.unlockRewardApp(token: snapshot.token, minutes: minutes)
-                        } else {
-                            viewModel.lockRewardApp(token: snapshot.token)
+                Spacer()
+
+                // Status Badge and Toggle
+                HStack(spacing: 12) {
+                    // Status Badge
+                    if let _ = viewModel.unlockedRewardApps[snapshot.token] {
+                        Text("Unlocked")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(colorScheme == .dark ? Colors.secondary : Color(red: 0.0, green: 0.5, blue: 0.0))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 4)
+                            .background((Colors.secondary.opacity(0.2)))
+                            .cornerRadius(.infinity)
+                    } else {
+                        Text("Locked")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Colors.textSecondary(colorScheme: colorScheme))
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 4)
+                            .background(colorScheme == .dark ? Color.gray.opacity(0.3) : Color.gray.opacity(0.2))
+                            .cornerRadius(.infinity)
+                    }
+
+                    // Custom Toggle
+                    Toggle("", isOn: Binding(
+                        get: { viewModel.unlockedRewardApps[snapshot.token] != nil },
+                        set: { isOn in
+                            if isOn {
+                                let minutes = unlockMinutes[snapshot.token] ?? 15
+                                viewModel.unlockRewardApp(token: snapshot.token, minutes: minutes)
+                            } else {
+                                viewModel.lockRewardApp(token: snapshot.token)
+                            }
+                        }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(CustomToggleStyle())
+                }
+            }
+            .padding(16)
+
+            // Points adjustment section
+            VStack(spacing: 8) {
+                Divider()
+                    .background(Colors.textSecondary(colorScheme: colorScheme).opacity(0.2))
+
+                HStack(spacing: 12) {
+                    Text("Points per minute:")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
+
+                    Spacer()
+
+                    // Stepper control
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            adjustPoints(for: snapshot.token, delta: -1)
+                        }) {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(snapshot.pointsPerMinute > 1 ? Colors.primary : Colors.textSecondary(colorScheme: colorScheme).opacity(0.3))
+                        }
+                        .disabled(snapshot.pointsPerMinute <= 1)
+
+                        Text("\(snapshot.pointsPerMinute)")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(Colors.primary)
+                            .frame(minWidth: 40)
+
+                        Button(action: {
+                            adjustPoints(for: snapshot.token, delta: 1)
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(Colors.primary)
                         }
                     }
-                ))
-                .labelsHidden()
-                .toggleStyle(CustomToggleStyle())
+                }
+                .padding(.horizontal, 16)
+                .padding(.vertical, 8)
             }
         }
-        .padding(16)
-        .frame(minHeight: 72)
         .background(colorScheme == .dark ? Colors.cardDark : Colors.cardLight)
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
@@ -274,6 +293,22 @@ private extension RewardsTabView {
 
         // Proceed with removal
         viewModel.removeApp(token)
+    }
+
+    private func adjustPoints(for token: ApplicationToken, delta: Int) {
+        let currentPoints = viewModel.rewardPoints[token] ?? 1
+        let newPoints = max(1, currentPoints + delta)
+
+        #if DEBUG
+        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[RewardsTabView] Adjusting points for \(appName): \(currentPoints) -> \(newPoints)")
+        #endif
+
+        viewModel.rewardPoints[token] = newPoints
+        viewModel.saveCategoryAssignments()
+
+        // Refresh snapshots to update UI with new point values
+        viewModel.refreshSnapshotsOnly()
     }
 }
 

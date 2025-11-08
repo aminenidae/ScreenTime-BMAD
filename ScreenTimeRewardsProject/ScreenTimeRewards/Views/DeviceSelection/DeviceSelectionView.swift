@@ -44,7 +44,7 @@ struct DeviceSelectionView: View {
 
                     // Text Field Component
                     VStack(alignment: .leading, spacing: 8) {
-                        Text("Device Name (Optional)")
+                        Text("Device Name")
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(AppColors.textPrimary)
 
@@ -56,7 +56,7 @@ struct DeviceSelectionView: View {
                             .cornerRadius(12)
                             .overlay(
                                 RoundedRectangle(cornerRadius: 12)
-                                    .stroke(AppColors.border, lineWidth: 1)
+                                    .stroke(deviceName.isEmpty ? Color.red.opacity(0.5) : AppColors.border, lineWidth: 1)
                             )
                             .autocapitalization(.words)
                     }
@@ -82,7 +82,7 @@ struct DeviceSelectionView: View {
 
                     // Single Button Component
                     Button(action: {
-                        if selectedMode != nil {
+                        if selectedMode != nil && !deviceName.isEmpty {
                             showingConfirmation = true
                         }
                     }) {
@@ -91,10 +91,10 @@ struct DeviceSelectionView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
-                            .background(selectedMode != nil ? AppColors.primary : AppColors.primary.opacity(0.5))
+                            .background((selectedMode != nil && !deviceName.isEmpty) ? AppColors.primary : AppColors.primary.opacity(0.5))
                             .cornerRadius(12)
                     }
-                    .disabled(selectedMode == nil)
+                    .disabled(selectedMode == nil || deviceName.isEmpty)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: 512) // max-w-lg
@@ -107,7 +107,7 @@ struct DeviceSelectionView: View {
                 ) {
                     Button("Confirm") {
                         if let mode = selectedMode {
-                            modeManager.setDeviceMode(mode, deviceName: deviceName.isEmpty ? nil : deviceName)
+                            modeManager.setDeviceMode(mode, deviceName: deviceName)
                         }
                     }
 
@@ -125,6 +125,7 @@ struct DeviceSelectionView: View {
             .navigationTitle("")
             .navigationBarHidden(true)
         }
+        .navigationViewStyle(.stack)
     }
 }
 

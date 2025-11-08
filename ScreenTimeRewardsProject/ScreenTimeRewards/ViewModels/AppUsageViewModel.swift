@@ -998,6 +998,11 @@ class AppUsageViewModel: ObservableObject {
     func refresh() async {
         refreshData()
     }
+
+    /// Refresh snapshots to reflect updated point values
+    func refreshSnapshotsOnly() {
+        updateSnapshots()
+    }
     
     /// Update category totals using the locally cached data
     private func updateCategoryTotals() {
@@ -1356,17 +1361,39 @@ class AppUsageViewModel: ObservableObject {
     
     /// Called when the FamilyActivityPicker is dismissed to decide whether to open the assignment sheet
     func onFamilyPickerDismissed() {
+        #if DEBUG
+        print("[AppUsageViewModel] 🔽 Picker dismissed")
+        #endif
+
         cancelPickerTimeout()
         pickerLoadingTimeout = false
 
         guard shouldPresentAssignmentAfterPickerDismiss,
               !pendingSelection.applicationTokens.isEmpty else {
             shouldPresentAssignmentAfterPickerDismiss = false
+            // CRITICAL FIX: Reset picker flag even when not showing assignment sheet
+            isFamilyPickerPresented = false
             return
         }
 
         shouldPresentAssignmentAfterPickerDismiss = false
-        isCategoryAssignmentPresented = true
+
+        #if DEBUG
+        print("[AppUsageViewModel] 📋 Will present CategoryAssignmentView with \(pendingSelection.applicationTokens.count) apps")
+        #endif
+
+        // CRITICAL: Must explicitly dismiss picker FIRST, then wait for presentation to clear
+        // The picker's presentation controller must be fully dismissed before new sheet can appear
+        isFamilyPickerPresented = false
+
+        // INCREASED delay to ensure picker presentation is fully cleared
+        // iOS 15+ FamilyActivityPicker needs more time to dismiss its presentation controller
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+            #if DEBUG
+            print("[AppUsageViewModel] ✅ Presenting CategoryAssignmentView now")
+            #endif
+            self.isCategoryAssignmentPresented = true
+        }
     }
     
 

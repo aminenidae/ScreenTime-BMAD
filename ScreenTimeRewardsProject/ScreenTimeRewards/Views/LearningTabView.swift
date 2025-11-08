@@ -11,10 +11,10 @@ struct LearningTabView: View {
         !viewModel.learningSnapshots.isEmpty
     }
 
-    // Calculate total points per hour from all learning apps
-    private var totalPointsPerHour: Int {
+    // Calculate total points per minute from all learning apps
+    private var totalPointsPerMinute: Int {
         viewModel.learningSnapshots.reduce(0) { sum, snapshot in
-            sum + (snapshot.pointsPerMinute * 60)
+            sum + snapshot.pointsPerMinute
         }
     }
 
@@ -52,31 +52,7 @@ struct LearningTabView: View {
         .refreshable {
             await viewModel.refresh()
         }
-        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { _ in
-            viewModel.onPickerSelectionChange()
-        }
-        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
-            if !isPresented {
-                viewModel.onFamilyPickerDismissed()
-            }
-        }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            CategoryAssignmentView(
-                selection: viewModel.getSelectionForCategoryAssignment(),
-                categoryAssignments: $viewModel.categoryAssignments,
-                rewardPoints: $viewModel.rewardPoints,
-                fixedCategory: .learning,
-                usageTimes: viewModel.getUsageTimes(),
-                onSave: {
-                    viewModel.onCategoryAssignmentSave()
-                },
-                onCancel: {
-                    viewModel.cancelCategoryAssignment()
-                }
-            )
-            .environmentObject(viewModel)
-        }
+        // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
 }
 
@@ -103,8 +79,9 @@ private extension LearningTabView {
 
             Spacer()
 
-            // Spacer for centering
-            Color.clear.frame(width: 48, height: 48)
+            // Placeholder for balance
+            Color.clear
+                .frame(width: 48, height: 48)
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
@@ -118,18 +95,18 @@ private extension LearningTabView {
     // MARK: - Summary Card
     var summaryCard: some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text("Total Learning Points per Hour")
+            Text("Total Learning Points per Minute")
                 .font(.system(size: 16, weight: .medium))
                 .foregroundColor(Colors.text(for: colorScheme))
 
             HStack(alignment: .bottom, spacing: 12) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("\(totalPointsPerHour)")
+                    Text("\(totalPointsPerMinute)")
                         .font(.system(size: 36, weight: .bold))
                         .foregroundColor(Colors.actionBlue)
                         .tracking(-0.5)
 
-                    Text("This is the total potential points your child can earn every hour from the selected apps.")
+                    Text("This is the total potential points your child can earn every minute from the selected apps.")
                         .font(.system(size: 14))
                         .foregroundColor(Colors.lightSlateGray(for: colorScheme))
                         .fixedSize(horizontal: false, vertical: true)
@@ -166,52 +143,102 @@ private extension LearningTabView {
     // MARK: - App Row
     @ViewBuilder
     func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
-        HStack(spacing: 16) {
-            // App Icon
-            if #available(iOS 15.2, *) {
-                Label(snapshot.token)
-                    .labelStyle(.iconOnly)
-                    .frame(width: 56, height: 56)
-                    .background(Color.gray.opacity(0.1))
-                    .cornerRadius(8)
-            } else {
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(Color.gray.opacity(0.2))
-                    .frame(width: 56, height: 56)
-                    .overlay(
-                        Image(systemName: "app.fill")
-                            .foregroundColor(.gray)
-                    )
+        VStack(spacing: 0) {
+            HStack(spacing: 16) {
+                // App Icon
+                if #available(iOS 15.2, *) {
+                    Label(snapshot.token)
+                        .labelStyle(.iconOnly)
+                        .frame(width: 56, height: 56)
+                        .background(Color.gray.opacity(0.1))
+                        .cornerRadius(8)
+                } else {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
+                        .frame(width: 56, height: 56)
+                        .overlay(
+                            Image(systemName: "app.fill")
+                                .foregroundColor(.gray)
+                        )
+                }
+
+                // App Info
+                VStack(alignment: .leading, spacing: 2) {
+                    if #available(iOS 15.2, *) {
+                        Label(snapshot.token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Colors.text(for: colorScheme))
+                            .lineLimit(1)
+                    } else {
+                        Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(Colors.text(for: colorScheme))
+                            .lineLimit(1)
+                    }
+
+                    Text("+\(snapshot.pointsPerMinute) Points/minute")
+                        .font(.system(size: 14))
+                        .foregroundColor(Colors.lightSlateGray(for: colorScheme))
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                // Remove Button
+                Button(action: {
+                    removeLearningApp(snapshot.token)
+                }) {
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(Colors.softRed)
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(PlainButtonStyle())
             }
+            .padding(12)
 
-            // App Info
-            VStack(alignment: .leading, spacing: 2) {
-                Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Colors.text(for: colorScheme))
-                    .lineLimit(1)
+            // Points adjustment section
+            VStack(spacing: 8) {
+                Divider()
+                    .background(Colors.lightSlateGray(for: colorScheme).opacity(0.2))
 
-                Text("+\(snapshot.pointsPerMinute * 60) Points/hour")
-                    .font(.system(size: 14))
-                    .foregroundColor(Colors.lightSlateGray(for: colorScheme))
-                    .lineLimit(2)
+                HStack(spacing: 12) {
+                    Text("Points per minute:")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(Colors.text(for: colorScheme))
+
+                    Spacer()
+
+                    // Stepper control
+                    HStack(spacing: 8) {
+                        Button(action: {
+                            adjustPoints(for: snapshot.token, delta: -1)
+                        }) {
+                            Image(systemName: "minus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(snapshot.pointsPerMinute > 1 ? Colors.actionBlue : Colors.lightSlateGray(for: colorScheme).opacity(0.3))
+                        }
+                        .disabled(snapshot.pointsPerMinute <= 1)
+
+                        Text("\(snapshot.pointsPerMinute)")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(Colors.actionBlue)
+                            .frame(minWidth: 40)
+
+                        Button(action: {
+                            adjustPoints(for: snapshot.token, delta: 1)
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .font(.system(size: 28))
+                                .foregroundColor(Colors.actionBlue)
+                        }
+                    }
+                }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-
-            Spacer()
-
-            // Remove Button
-            Button(action: {
-                removeLearningApp(snapshot.token)
-            }) {
-                Image(systemName: "minus.circle.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(Colors.softRed)
-                    .frame(width: 32, height: 32)
-            }
-            .buttonStyle(PlainButtonStyle())
         }
-        .padding(12)
-        .frame(minHeight: 72)
         .background(
             Colors.card(for: colorScheme)
                 .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
@@ -269,6 +296,22 @@ private extension LearningTabView {
         #endif
 
         viewModel.removeApp(token)
+    }
+
+    private func adjustPoints(for token: ApplicationToken, delta: Int) {
+        let currentPoints = viewModel.rewardPoints[token] ?? 1
+        let newPoints = max(1, currentPoints + delta)
+
+        #if DEBUG
+        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
+        print("[LearningTabView] Adjusting points for \(appName): \(currentPoints) -> \(newPoints)")
+        #endif
+
+        viewModel.rewardPoints[token] = newPoints
+        viewModel.saveCategoryAssignments()
+
+        // Refresh snapshots to update UI with new point values
+        viewModel.refreshSnapshotsOnly()
     }
 }
 

@@ -6,7 +6,6 @@
 //
 
 import SwiftUI
-import LocalAuthentication
 
 struct ParentPINEntryView: View {
     @Binding var pin: String
@@ -73,16 +72,12 @@ struct ParentPINEntryView: View {
                     }
                 }
 
-                // Bottom row with biometric, 0, and delete
+                // Bottom row with 0 and delete
                 HStack(spacing: 16) {
-                    // Biometric button
-                    Button(action: authenticateWithBiometrics) {
-                        Image(systemName: "faceid")
-                            .font(.system(size: 32))
-                            .foregroundColor(Colors.primary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 80)
-                    }
+                    // Empty spacer for layout balance
+                    Color.clear
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 80)
 
                     // 0 button
                     KeypadButton(text: "0") {
@@ -141,23 +136,6 @@ struct ParentPINEntryView: View {
     private func deleteDigit() {
         guard !pin.isEmpty else { return }
         pin.removeLast()
-    }
-
-    private func authenticateWithBiometrics() {
-        let context = LAContext()
-        var error: NSError?
-
-        if context.canEvaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, error: &error) {
-            let reason = "Authenticate to access Parent Mode"
-
-            context.evaluatePolicy(.deviceOwnerAuthenticationWithBiometrics, localizedReason: reason) { success, _ in
-                DispatchQueue.main.async {
-                    if success {
-                        onPINVerified()
-                    }
-                }
-            }
-        }
     }
 
     private func verifyPIN() {

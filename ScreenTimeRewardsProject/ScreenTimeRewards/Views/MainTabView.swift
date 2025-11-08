@@ -1,4 +1,5 @@
 import SwiftUI
+import FamilyControls
 
 struct MainTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Receive shared view model
@@ -59,6 +60,15 @@ struct MainTabView: View {
             // ToolbarItem removed - Exit Parent Mode button moved to Settings tab
         }
         .navigationViewStyle(.stack)
+        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+        .onChange(of: viewModel.familySelection) { _ in
+            viewModel.onPickerSelectionChange()
+        }
+        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+            if !isPresented {
+                viewModel.onFamilyPickerDismissed()
+            }
+        }
         .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
             // Task 0: Consolidated sheet based on activePickerContext
             Group {
