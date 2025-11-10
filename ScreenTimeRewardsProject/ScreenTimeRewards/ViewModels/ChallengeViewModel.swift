@@ -26,14 +26,19 @@ class ChallengeViewModel: ObservableObject {
     func createChallenge(
         title: String,
         description: String,
-        goalType: String,
+        goalType: ChallengeGoalType,
         targetValue: Int,
         bonusPercentage: Int,
         targetApps: [String]?,
+        rewardApps: [String]?,
         startDate: Date,
         endDate: Date?,
+        activeDays: [Int]?,
+        startTime: Date?,
+        endTime: Date?,
         createdBy: String,
-        assignedTo: String
+        assignedTo: String,
+        learningToRewardRatio: LearningToRewardRatio? = nil
     ) async {
         do {
             try await challengeService.createChallenge(
@@ -43,10 +48,15 @@ class ChallengeViewModel: ObservableObject {
                 targetValue: targetValue,
                 bonusPercentage: bonusPercentage,
                 targetApps: targetApps,
+                rewardApps: rewardApps,
                 startDate: startDate,
                 endDate: endDate,
+                activeDays: activeDays,
+                startTime: startTime,
+                endTime: endTime,
                 createdBy: createdBy,
-                assignedTo: assignedTo
+                assignedTo: assignedTo,
+                learningToRewardRatio: learningToRewardRatio
             )
             await loadChallenges()
         } catch {

@@ -5,6 +5,7 @@ enum ChallengeGoalType: String, CaseIterable {
     case weeklyMinutes = "weekly_minutes"
     case specificApps = "specific_apps"
     case streak = "streak"
+    case pointsTarget = "points_target"
 
     var displayName: String {
         switch self {
@@ -16,6 +17,8 @@ enum ChallengeGoalType: String, CaseIterable {
             return "Specific Apps"
         case .streak:
             return "Streak"
+        case .pointsTarget:
+            return "Points Target"
         }
     }
 }

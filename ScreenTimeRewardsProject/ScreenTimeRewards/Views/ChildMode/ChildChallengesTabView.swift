@@ -48,9 +48,11 @@ struct ChildChallengesTabView: View {
         }
         .overlay {
             if viewModel.showCompletionCelebration {
+                let minutes = max(viewModel.lastRewardUnlockMinutes, 1)
+                let minuteText = minutes == 1 ? "1 minute" : "\(minutes) minutes"
                 CompletionCelebrationView(
                     title: "Goal Complete!",
-                    subtitle: "You've unlocked your reward apps!",
+                    subtitle: "You've unlocked \(minuteText) of reward time!",
                     buttonText: "Claim Reward",
                     onDismiss: {
                         viewModel.showCompletionCelebration = false
@@ -208,8 +210,8 @@ private extension ChildChallengesTabView {
 
     func questListItem(for challenge: Challenge) -> some View {
         let challengeProgress = viewModel.challengeProgress[challenge.challengeID ?? ""]
-        let progressValue = challengeProgress != nil ? Double(challengeProgress!.currentValue) / Double(challengeProgress!.targetValue) : 0.0
-        let progressPercent = min(Int(progressValue * 100), 100)
+        let progressPercent = Int(min(challengeProgress?.progressPercentage ?? 0, 100))
+        let progressFraction = progressFractionValue(for: challengeProgress, fallbackTarget: Int(challenge.targetValue))
         let iconColor = questIconColor(for: challenge)
 
         return HStack(spacing: 16) {
@@ -231,7 +233,7 @@ private extension ChildChallengesTabView {
                     .foregroundColor(DesignTokens.Colors.primaryText(for: colorScheme))
                     .lineLimit(1)
 
-                Text("+\(challenge.targetValue) mins on Reward App")
+                Text(goalSubtitle(for: challenge))
                     .font(DesignTokens.Typography.questSubtitle)
                     .foregroundColor(DesignTokens.Colors.secondaryText(for: colorScheme))
                     .lineLimit(2)
@@ -246,7 +248,7 @@ private extension ChildChallengesTabView {
 
                             RoundedRectangle(cornerRadius: 4)
                                 .fill(iconColor)
-                                .frame(width: geometry.size.width * CGFloat(progressValue), height: 8)
+                                .frame(width: geometry.size.width * CGFloat(progressFraction), height: 8)
                         }
                     }
                     .frame(height: 8)
@@ -258,6 +260,13 @@ private extension ChildChallengesTabView {
                         .frame(width: 40, alignment: .trailing)
                 }
                 .padding(.top, 4)
+
+                if let summary = rewardSummary(for: challenge) {
+                    Text(summary)
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(iconColor)
+                        .padding(.top, 2)
+                }
             }
         }
         .padding(.horizontal, 16)
@@ -272,31 +281,11 @@ private extension ChildChallengesTabView {
     }
 
     func questIcon(for challenge: Challenge) -> String {
-        // Map different challenge types to icons
-        let title = (challenge.title ?? "").lowercased()
-        if title.contains("math") || title.contains("calculate") {
-            return "function"
-        } else if title.contains("spanish") || title.contains("language") || title.contains("translate") {
-            return "character.book.closed"
-        } else if title.contains("read") || title.contains("book") {
-            return "book"
-        } else {
-            return "checkmark.circle"
-        }
+        challenge.goalTypeEnum?.iconName ?? "checkmark.circle"
     }
 
     func questIconColor(for challenge: Challenge) -> Color {
-        // Cycle through colors for variety
-        let title = (challenge.title ?? "").lowercased()
-        if title.contains("math") || title.contains("calculate") {
-            return DesignTokens.Colors.vibrantTeal
-        } else if title.contains("spanish") || title.contains("language") || title.contains("translate") {
-            return DesignTokens.Colors.playfulCoral
-        } else if title.contains("read") || title.contains("book") {
-            return DesignTokens.Colors.sunnyYellow
-        } else {
-            return DesignTokens.Colors.vibrantTeal
-        }
+        challenge.goalTypeEnum?.accentColor ?? DesignTokens.Colors.vibrantTeal
     }
 
     var badgesSection: some View {
@@ -420,6 +409,59 @@ private extension ChildChallengesTabView {
 }
 
 private extension ChildChallengesTabView {
+    func progressFractionValue(for progress: ChallengeProgress?, fallbackTarget: Int) -> Double {
+        let target = max(Double(progress?.targetValue ?? Int32(fallbackTarget)), 1)
+        let current = Double(progress?.currentValue ?? 0)
+        let fraction = current / target
+        return min(max(fraction, 0), 1)
+    }
+
+    func goalSubtitle(for challenge: Challenge) -> String {
+        let target = Int(challenge.targetValue)
+        switch challenge.goalTypeEnum {
+        case .dailyMinutes:
+            return "Spend \(target) minutes today"
+        case .weeklyMinutes:
+            return "Spend \(target) minutes this week"
+        case .specificApps:
+            return "Practice apps for \(target) minutes"
+        case .streak:
+            return "Keep learning \(target) days in a row"
+        case .pointsTarget:
+            return "Earn \(target) points"
+        case .none:
+            return "Keep learning!"
+        }
+    }
+
+    func rewardSummary(for challenge: Challenge) -> String? {
+        let ids = challenge.rewardAppIDs
+        guard !ids.isEmpty else { return nil }
+        let names = ids.compactMap { rewardNameLookup[$0] }
+
+        var baseText: String
+        if names.isEmpty {
+            baseText = "Unlocks \(ids.count) reward apps"
+        } else if names.count == 1 {
+            baseText = "Unlocks \(names[0])"
+        } else if names.count == 2 {
+            baseText = "Unlocks \(names[0]) & \(names[1])"
+        } else {
+            baseText = "Unlocks \(names[0]) & \(names.count - 1) more"
+        }
+
+        let minutes = challenge.rewardUnlockMinutes()
+        let minuteLabel = minutes == 1 ? "minute" : "minutes"
+        return "\(baseText) · \(minutes) \(minuteLabel)"
+    }
+
+    var rewardNameLookup: [String: String] {
+        viewModel.rewardSnapshots.reduce(into: [:]) { result, snapshot in
+            let name = snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName
+            result[snapshot.logicalID] = name
+        }
+    }
+
     var completedChallengeTitle: String {
         guard
             let id = viewModel.completedChallengeID,

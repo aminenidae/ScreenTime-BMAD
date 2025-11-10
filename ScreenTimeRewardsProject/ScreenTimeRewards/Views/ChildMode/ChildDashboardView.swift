@@ -215,6 +215,13 @@ private extension ChildDashboardView {
                         .foregroundColor(colorScheme == .dark ? DesignColors.slate200 : DesignColors.slate800)
                 }
             }
+
+            if let callout = rewardCallout(for: challenge) {
+                Text(callout)
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(colorSet.barColor)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .padding(16)
         .frame(width: 280)
@@ -254,10 +261,10 @@ private extension ChildDashboardView {
     }
 
     func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
-        // Device-specific icon sizes: 60% of previous size (40% reduction)
-        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
-        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
-        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+        // Icon sizes reduced by 50% to give more room for text
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
         return HStack(spacing: 16) {
             // App icon - device-specific larger scale
@@ -266,9 +273,9 @@ private extension ChildDashboardView {
                     .labelStyle(.iconOnly)
                     .scaleEffect(iconScale)
                     .frame(width: iconSize, height: iconSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(DesignColors.teal.opacity(0.2))
                     .frame(width: iconSize, height: iconSize)
                     .overlay(
@@ -336,11 +343,12 @@ private extension ChildDashboardView {
 
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
         let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
+        let challengeMinutes = rewardMinutesFor(snapshot: snapshot)
 
-        // Device-specific icon sizes: 60% of previous size (40% reduction)
-        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
-        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
-        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+        // Icon sizes reduced by 50% to give more room for text
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
         return HStack(spacing: 16) {
             // App icon - device-specific larger scale
@@ -349,9 +357,9 @@ private extension ChildDashboardView {
                     .labelStyle(.iconOnly)
                     .scaleEffect(iconScale)
                     .frame(width: iconSize, height: iconSize)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(DesignColors.coral.opacity(0.2))
                     .frame(width: iconSize, height: iconSize)
                     .overlay(
@@ -362,34 +370,35 @@ private extension ChildDashboardView {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                // Use Label to get proper app name
+                // Use Label with 8pt font for long names
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 8, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                        .font(.system(size: 16, weight: .medium))
+                        .font(.system(size: 8, weight: .medium))
                         .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
                 }
 
                 Text(isUnlocked ? "\(viewModel.formatTime(snapshot.totalSeconds)) unlocked" : "Complete a quest to unlock")
                     .font(.system(size: 14, weight: isUnlocked ? .medium : .regular))
                     .foregroundColor(isUnlocked ? DesignColors.teal : (colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500))
+                    .lineLimit(1)
+
+                if let minutes = challengeMinutes, !isUnlocked {
+                    Text("Unlock for \(minutes) min")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(DesignColors.sunnyYellow)
+                        .lineLimit(1)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
-            Spacer()
-
-            // Lock/Unlock indicator icon (not a button)
-            Circle()
-                .fill(isUnlocked ? DesignColors.teal.opacity(colorScheme == .dark ? 0.2 : 0.1) : (colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200))
-                .frame(width: 48, height: 48)
-                .overlay(
-                    Image(systemName: isUnlocked ? "checkmark.circle.fill" : "lock.fill")
-                        .font(.system(size: 20))
-                        .foregroundColor(isUnlocked ? DesignColors.teal : DesignColors.slate500)
-                )
+            Spacer(minLength: 8)
         }
         .padding(12)
         .background(
@@ -398,6 +407,43 @@ private extension ChildDashboardView {
                 .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
         )
         .opacity(isUnlocked ? 1.0 : 0.5)
+    }
+
+    var rewardNameLookup: [String: String] {
+        viewModel.rewardSnapshots.reduce(into: [:]) { result, snapshot in
+            let name = snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName
+            result[snapshot.logicalID] = name
+        }
+    }
+
+    func rewardCallout(for challenge: Challenge) -> String? {
+        let ids = challenge.rewardAppIDs
+        guard !ids.isEmpty else { return nil }
+
+        let names = ids.compactMap { rewardNameLookup[$0] }
+        let base: String
+        if names.isEmpty {
+            base = "\(ids.count) reward apps"
+        } else if names.count == 1 {
+            base = names[0]
+        } else if names.count == 2 {
+            base = "\(names[0]) & \(names[1])"
+        } else {
+            base = "\(names[0]) & \(names.count - 1) more"
+        }
+
+        let minutes = challenge.rewardUnlockMinutes()
+        let minuteLabel = minutes == 1 ? "minute" : "minutes"
+        return "\(base) · \(minutes) \(minuteLabel)"
+    }
+
+
+    func rewardMinutesFor(snapshot: RewardAppSnapshot) -> Int? {
+        let logicalID = snapshot.logicalID
+        guard let challenge = viewModel.activeChallenges.first(where: { $0.rewardAppIDs.contains(logicalID) }) else {
+            return nil
+        }
+        return challenge.rewardUnlockMinutes()
     }
 
     var emptyStateView: some View {
@@ -436,4 +482,3 @@ private extension ChildDashboardView {
         .padding(.horizontal, 16)
     }
 }
-

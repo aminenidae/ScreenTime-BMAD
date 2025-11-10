@@ -1527,10 +1527,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             // Notify challenge service of learning app usage
             if application.category == .learning {
+                let earnedPointsForChallenge = max(0, Int(duration / 60) * application.rewardPoints)
                 Task {
                     await ChallengeService.shared.updateProgressForUsage(
                         appID: logicalID,
                         duration: duration,
+                        earnedPoints: earnedPointsForChallenge,
                         deviceID: DeviceModeManager.shared.deviceID
                     )
                 }

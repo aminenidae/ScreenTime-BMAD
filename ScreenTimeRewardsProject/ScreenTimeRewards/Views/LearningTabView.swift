@@ -152,23 +152,22 @@ private extension LearningTabView {
     // MARK: - App Row
     @ViewBuilder
     func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
-        // Device-specific icon sizes: 60% of previous size (40% reduction)
-        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67
-        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7
-        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+        // Standardized icon sizes (50% reduction)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
         VStack(spacing: 0) {
             HStack(spacing: 16) {
-                // App Icon - Larger size
+                // App Icon - Standardized smaller size
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.iconOnly)
                         .scaleEffect(iconScale)
                         .frame(width: iconSize, height: iconSize)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(16)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(Color.gray.opacity(0.2))
                         .frame(width: iconSize, height: iconSize)
                         .overlay(
@@ -178,18 +177,16 @@ private extension LearningTabView {
                         )
                 }
 
-                // App Info
+                // App Info - using 8pt font for long names
                 VStack(alignment: .leading, spacing: 2) {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: 8, weight: .medium))
                             .foregroundColor(Colors.text(for: colorScheme))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                            .font(.system(size: 16, weight: .medium))
+                            .font(.system(size: 8, weight: .medium))
                             .foregroundColor(Colors.text(for: colorScheme))
                             .lineLimit(1)
                             .truncationMode(.tail)

@@ -33,25 +33,31 @@ struct UnlockedRewardApp: Codable, Identifiable {
         reservedPoints <= 0
     }
 
+    /// Indicates whether this unlock was granted by completing a challenge.
+    /// Challenge unlocks should not consume the child's earned points.
+    var isChallengeReward: Bool
+
     enum CodingKeys: String, CodingKey {
-        case id, reservedPoints, pointsPerMinute, unlockedAt
+        case id, reservedPoints, pointsPerMinute, unlockedAt, isChallengeReward
     }
 
-    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int) {
+    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int, isChallengeReward: Bool = false) {
         self.id = tokenHash  // Use stable SHA-256 hash instead of unstable hashValue
         self.token = token
         self.reservedPoints = reservedPoints
         self.pointsPerMinute = pointsPerMinute
         self.unlockedAt = Date()
+        self.isChallengeReward = isChallengeReward
     }
 
     // Initializer for rehydration with preserved unlock time
-    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int, unlockedAt: Date) {
+    init(token: ApplicationToken, tokenHash: String, reservedPoints: Int, pointsPerMinute: Int, unlockedAt: Date, isChallengeReward: Bool = false) {
         self.id = tokenHash  // Use stable SHA-256 hash instead of unstable hashValue
         self.token = token
         self.reservedPoints = reservedPoints
         self.pointsPerMinute = pointsPerMinute
         self.unlockedAt = unlockedAt
+        self.isChallengeReward = isChallengeReward
     }
 
     // Custom decoding to handle token reconstruction limitation
@@ -61,6 +67,7 @@ struct UnlockedRewardApp: Codable, Identifiable {
         self.reservedPoints = try container.decode(Int.self, forKey: .reservedPoints)
         self.pointsPerMinute = try container.decode(Int.self, forKey: .pointsPerMinute)
         self.unlockedAt = try container.decode(Date.self, forKey: .unlockedAt)
+        self.isChallengeReward = try container.decodeIfPresent(Bool.self, forKey: .isChallengeReward) ?? false
         // Note: token cannot be reconstructed from persistence
         // It must be re-matched from the current familySelection
         self.token = nil
@@ -73,6 +80,7 @@ struct UnlockedRewardApp: Codable, Identifiable {
         try container.encode(reservedPoints, forKey: .reservedPoints)
         try container.encode(pointsPerMinute, forKey: .pointsPerMinute)
         try container.encode(unlockedAt, forKey: .unlockedAt)
+        try container.encode(isChallengeReward, forKey: .isChallengeReward)
     }
 }
 

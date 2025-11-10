@@ -1,25 +1,29 @@
 import SwiftUI
+import FamilyControls
+import ManagedSettings
 
 struct ChallengeBuilderView: View {
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.colorScheme) var colorScheme
-    @StateObject private var viewModel = ChallengeViewModel()
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+    @StateObject private var challengeViewModel = ChallengeViewModel()
     @State private var title = ""
     @State private var description = ""
     @State private var goalType: ChallengeGoalType = .dailyMinutes
-    @State private var targetValue = 60
+    @State private var targetMinutes: Double = 60
+    @State private var targetPoints: Double = 500
+    @State private var streakDays = 7
     @State private var bonusPercentage = 10
-    @State private var selectedLearningApps: [String] = []
-    @State private var selectedRewardApps: [String] = []
+    @State private var selectedLearningAppIDs: Set<String> = []
+    @State private var selectedRewardAppIDs: Set<String> = []
     @State private var startDate = Date()
-    @State private var endDate: Date?
-    @State private var isActive = true
-    @State private var showingAppPicker = false
-    @State private var errorMessage: String?
+    @State private var endDate = Calendar.current.date(byAdding: .day, value: 7, to: Date()) ?? Date()
+    @State private var hasEndDate = false
     @State private var activeDays: Set<Int> = [1, 2, 3, 4, 5] // Mon-Fri
     @State private var startTime = Calendar.current.date(bySettingHour: 16, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var endTime = Calendar.current.date(bySettingHour: 20, minute: 0, second: 0, of: Date()) ?? Date()
     @State private var repeatWeekly = true
+    private let contentMaxWidth: CGFloat = 560
 
     var body: some View {
         ZStack {
@@ -31,13 +35,21 @@ struct ChallengeBuilderView: View {
 
                 // Main content
                 ScrollView {
-                    VStack(spacing: 0) {
-                        challengeDetailsSection
-                        setTheGoalSection
-                        defineRewardSection
-                        scheduleSection
+                    HStack(alignment: .top, spacing: 0) {
+                        Spacer(minLength: 0)
+
+                        VStack(spacing: 0) {
+                            challengeDetailsSection
+                            setTheGoalSection
+                            defineRewardSection
+                            scheduleSection
+                        }
+                        .padding(.bottom, 100) // Space for fixed bottom button
+                        .frame(maxWidth: contentMaxWidth, alignment: .center)
+
+                        Spacer(minLength: 0)
                     }
-                    .padding(.bottom, 100) // Space for fixed bottom button
+                    .padding(.horizontal, 16)
                 }
             }
 
@@ -48,6 +60,9 @@ struct ChallengeBuilderView: View {
             }
         }
         .navigationBarHidden(true)
+        .onChange(of: goalType) { newValue in
+            normalizeTargets(for: newValue)
+        }
     }
 
     // MARK: - Custom Navigation Bar
@@ -104,13 +119,11 @@ struct ChallengeBuilderView: View {
             Text("Challenge Details")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Colors.text)
-                .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 8)
 
             // Content card
             VStack(spacing: 16) {
-                // Challenge Name
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Challenge Name")
                         .font(.system(size: 16, weight: .medium))
@@ -131,23 +144,51 @@ struct ChallengeBuilderView: View {
                 Divider()
                     .background(Colors.border)
 
-                // Goal Type
+                VStack(alignment: .leading, spacing: 8) {
+                    Text("Description")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Colors.text)
+
+                    TextField("Add details about this challenge...", text: $description, axis: .vertical)
+                        .lineLimit(2...4)
+                        .font(.system(size: 16))
+                        .foregroundColor(Colors.text)
+                        .padding(12)
+                        .background(Colors.inputBackground)
+                        .cornerRadius(8)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(Colors.border, lineWidth: 1)
+                        )
+                }
+
+                Divider()
+                    .background(Colors.border)
+
                 VStack(alignment: .leading, spacing: 8) {
                     Text("Goal Type")
                         .font(.system(size: 16, weight: .medium))
                         .foregroundColor(Colors.text)
 
-                    CustomSegmentedControl(
-                        selection: $goalType,
-                        options: [.dailyMinutes, .weeklyMinutes],
-                        labels: ["Time Spent", "Tasks Completed"]
+                    Picker("Goal Type", selection: $goalType) {
+                        ForEach(ChallengeGoalType.allCases, id: \.self) { type in
+                            Text(type.displayName).tag(type)
+                        }
+                    }
+                    .pickerStyle(.menu)
+                    .tint(Colors.primary)
+                    .padding(.horizontal, 4)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(Colors.border, lineWidth: 1)
+                            .background(Colors.inputBackground.cornerRadius(8))
                     )
                 }
             }
             .padding(16)
             .background(Colors.cardBackground)
             .cornerRadius(12)
-            .padding(.horizontal, 16)
         }
     }
 
@@ -158,61 +199,34 @@ struct ChallengeBuilderView: View {
             Text("Set The Goal")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Colors.text)
-                .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 8)
 
-            // Content card
             VStack(spacing: 16) {
-                // Duration slider
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("Duration")
+                        Text(goalValueTitle)
                             .font(.system(size: 16, weight: .medium))
                             .foregroundColor(Colors.text)
+
                         Spacer()
-                        Text("\(targetValue) min")
+
+                        Text(formattedGoalValue)
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(Colors.primary)
                     }
 
-                    HStack(spacing: 8) {
-                        Image(systemName: "hourglass")
-                            .foregroundColor(.gray)
-
-                        Slider(value: Binding(
-                            get: { Double(targetValue) },
-                            set: { targetValue = Int($0) }
-                        ), in: 0...120, step: 5)
-                        .accentColor(Colors.primary)
-
-                        Image(systemName: "hourglass.bottomhalf.filled")
-                            .foregroundColor(.gray)
-                    }
+                    goalInputControl
                 }
 
                 Divider()
                     .background(Colors.border)
 
-                // Learning Apps
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Learning Apps")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Colors.text)
-
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4), spacing: 16) {
-                        // Selected app examples (placeholder)
-                        AppIconView(name: "Khan Kids", isSelected: true, onTap: {})
-                        AppIconView(name: "Duolingo", isSelected: false, onTap: {})
-                        AppIconView(name: "Brilliant", isSelected: false, onTap: {})
-                        AddAppButton(onTap: {})
-                    }
-                }
+                learningAppSelection
             }
             .padding(16)
             .background(Colors.cardBackground)
             .cornerRadius(12)
-            .padding(.horizontal, 16)
         }
     }
 
@@ -223,30 +237,35 @@ struct ChallengeBuilderView: View {
             Text("Define The Reward")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Colors.text)
-                .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 8)
 
-            // Content card
             VStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Reward Apps")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(Colors.text)
+                rewardAppSelection
 
-                    LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 16), count: 4), spacing: 16) {
-                        // Selected app examples (placeholder)
-                        AppIconView(name: "YT Kids", isSelected: true, onTap: {})
-                        AppIconView(name: "TikTok", isSelected: false, onTap: {})
-                        AppIconView(name: "Roblox", isSelected: false, onTap: {})
-                        AddAppButton(onTap: {})
+                Divider()
+                    .background(Colors.border)
+
+                bonusPicker
+
+                if !selectedRewardAppIDs.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        let count = selectedRewardAppIDs.count
+                        let appText = count == 1 ? "Reward App" : "Reward Apps"
+                        Text("Complete this challenge to unlock your \(appText).")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(Colors.text)
+
+                        Text("Bonus duration: \(bonusUnlockDurationText)")
+                            .font(.system(size: 13))
+                            .foregroundColor(Colors.text.opacity(0.7))
+                            .padding(.top, 4)
                     }
                 }
             }
             .padding(16)
             .background(Colors.cardBackground)
             .cornerRadius(12)
-            .padding(.horizontal, 16)
         }
     }
 
@@ -257,7 +276,6 @@ struct ChallengeBuilderView: View {
             Text("Schedule")
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(Colors.text)
-                .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 8)
 
@@ -341,10 +359,31 @@ struct ChallengeBuilderView: View {
                         .tint(Colors.primary)
                 }
                 .padding(16)
+
+                Divider()
+                    .background(Colors.border)
+                    .padding(.leading, 16)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    Toggle("Set End Date", isOn: $hasEndDate)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(Colors.text)
+                        .tint(Colors.primary)
+
+                    if hasEndDate {
+                        DatePicker(
+                            "End Date",
+                            selection: $endDate,
+                            displayedComponents: .date
+                        )
+                        .datePickerStyle(.compact)
+                        .tint(Colors.primary)
+                    }
+                }
+                .padding(16)
             }
             .background(Colors.cardBackground)
             .cornerRadius(12)
-            .padding(.horizontal, 16)
         }
     }
 
@@ -381,50 +420,311 @@ struct ChallengeBuilderView: View {
         return days[index]
     }
 
-    private var targetValueRange: ClosedRange<Double> {
+    private var goalValueTitle: String {
         switch goalType {
+        case .dailyMinutes:
+            return "Daily Minutes Goal"
+        case .weeklyMinutes:
+            return "Weekly Minutes Goal"
+        case .specificApps:
+            return "Minutes for Selected Apps"
+        case .streak:
+            return "Streak Length"
+        case .pointsTarget:
+            return "Points Target"
+        }
+    }
+
+    private var formattedGoalValue: String {
+        switch goalType {
+        case .dailyMinutes, .weeklyMinutes, .specificApps:
+            return "\(Int(targetMinutes)) min"
+        case .streak:
+            return "\(streakDays) days"
+        case .pointsTarget:
+            return "\(Int(targetPoints)) pts"
+        }
+    }
+
+    @ViewBuilder
+    private var goalInputControl: some View {
+        switch goalType {
+        case .dailyMinutes, .weeklyMinutes, .specificApps:
+            VStack(spacing: 8) {
+                HStack(spacing: 8) {
+                    Image(systemName: "hourglass")
+                        .foregroundColor(.gray)
+                    Slider(
+                        value: $targetMinutes,
+                        in: minuteRange(for: goalType),
+                        step: minuteStep(for: goalType)
+                    )
+                    .accentColor(Colors.primary)
+                    Image(systemName: "hourglass.bottomhalf.filled")
+                        .foregroundColor(.gray)
+                }
+
+                HStack {
+                    Text("\(Int(minuteRange(for: goalType).lowerBound)) min")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("\(Int(minuteRange(for: goalType).upperBound)) min")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+            }
+        case .pointsTarget:
+            VStack(spacing: 8) {
+                Slider(
+                    value: $targetPoints,
+                    in: pointsTargetRange,
+                    step: 50
+                )
+                .accentColor(Colors.primary)
+
+                HStack {
+                    Text("\(Int(pointsTargetRange.lowerBound)) pts")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                    Spacer()
+                    Text("\(Int(pointsTargetRange.upperBound)) pts")
+                        .font(.system(size: 12))
+                        .foregroundColor(.gray)
+                }
+            }
+        case .streak:
+            Stepper(value: $streakDays, in: 3...30) {
+                Text("\(streakDays) days in a row")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Colors.text)
+            }
+        }
+    }
+
+    private func minuteRange(for type: ChallengeGoalType) -> ClosedRange<Double> {
+        switch type {
         case .dailyMinutes:
             return 15...240
         case .weeklyMinutes:
             return 60...1440
         case .specificApps:
-            return 30...720
-        case .streak:
-            return 3...30
-        }
-    }
-
-    private var targetValueStep: Double {
-        switch goalType {
-        case .streak:
-            return 1
+            return 15...360
         default:
-            return 15
+            return 30...360
         }
     }
 
-    private var targetValueUnit: String {
+    private func minuteStep(for type: ChallengeGoalType) -> Double {
+        switch type {
+        case .weeklyMinutes:
+            return 15
+        default:
+            return 5
+        }
+    }
+
+    private var pointsTargetRange: ClosedRange<Double> {
+        100...1000
+    }
+
+    private var learningAppSelection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Learning Apps")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Colors.text)
+                Spacer()
+                if !selectedLearningAppIDs.isEmpty {
+                    Text("\(selectedLearningAppIDs.count) selected")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Colors.primary)
+                }
+            }
+
+            if appUsageViewModel.learningSnapshots.isEmpty {
+                Text("Add learning apps from the Learning tab to target them here.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Colors.text.opacity(0.7))
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(appUsageViewModel.learningSnapshots) { snapshot in
+                        AppSelectionRow(
+                            token: snapshot.token,
+                            displayName: appUsageViewModel.resolvedDisplayName(for: snapshot.token) ?? snapshot.displayName,
+                            isSelected: selectedLearningAppIDs.contains(snapshot.logicalID),
+                            onToggle: { toggleLearningApp(snapshot.logicalID) }
+                        )
+                    }
+                }
+            }
+
+            if selectedLearningAppIDs.isEmpty {
+                Text("All learning apps count if none are selected.")
+                    .font(.system(size: 13))
+                    .foregroundColor(Colors.text.opacity(0.7))
+            } else {
+                let count = selectedLearningAppIDs.count
+                let appText = count == 1 ? "Learning App" : "Learning Apps"
+                Text("Tracking \(count) \(appText)")
+                    .font(.system(size: 13))
+                    .foregroundColor(Colors.text.opacity(0.8))
+            }
+        }
+    }
+
+    private var rewardAppSelection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Text("Reward Apps")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Colors.text)
+                Spacer()
+                if !selectedRewardAppIDs.isEmpty {
+                    Text("\(selectedRewardAppIDs.count) selected")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(Colors.primary)
+                }
+            }
+
+            if appUsageViewModel.rewardSnapshots.isEmpty {
+                Text("Assign apps to the Reward category to unlock them as prizes.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Colors.text.opacity(0.7))
+            } else {
+                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                    ForEach(appUsageViewModel.rewardSnapshots) { snapshot in
+                        AppSelectionRow(
+                            token: snapshot.token,
+                            displayName: appUsageViewModel.resolvedDisplayName(for: snapshot.token) ?? (snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName),
+                            isSelected: selectedRewardAppIDs.contains(snapshot.logicalID),
+                            onToggle: { toggleRewardApp(snapshot.logicalID) }
+                        )
+                    }
+                }
+            }
+        }
+    }
+
+    private var bonusPicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack {
+                Text("Bonus Percentage")
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(Colors.text)
+                Spacer()
+                Text("+\(bonusPercentage)%")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(Colors.primary)
+            }
+
+            Picker("Bonus Percentage", selection: $bonusPercentage) {
+                ForEach(bonusOptions, id: \.self) { value in
+                    Text("\(value)%").tag(value)
+                }
+            }
+            .pickerStyle(.segmented)
+        }
+    }
+
+    private var selectedLearningDisplayNames: [String] {
+        // Don't show any text - the UI already shows "4 selected" which is sufficient
+        []
+    }
+
+    private var selectedRewardDisplayNames: [String] {
+        // Don't show any text - the UI already shows count which is sufficient
+        []
+    }
+
+    private var learningSnapshotsByID: [String: LearningAppSnapshot] {
+        appUsageViewModel.learningSnapshots.reduce(into: [:]) { result, snapshot in
+            result[snapshot.logicalID] = snapshot
+        }
+    }
+
+    private var rewardSnapshotsByID: [String: RewardAppSnapshot] {
+        appUsageViewModel.rewardSnapshots.reduce(into: [:]) { result, snapshot in
+            result[snapshot.logicalID] = snapshot
+        }
+    }
+
+    private var bonusOptions: [Int] {
+        [5, 10, 15, 20, 25]
+    }
+
+    private let baseRewardUnlockMinutes = 30
+
+    private var bonusUnlockDurationText: String {
+        let bonusDuration = baseRewardUnlockMinutes + (baseRewardUnlockMinutes * bonusPercentage / 100)
+        let appText = selectedRewardAppIDs.count == 1 ? "" : " each"
+        return "\(bonusDuration) minutes\(appText)"
+    }
+
+    private var appGridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 90), spacing: 12)]
+    }
+
+    private func toggleLearningApp(_ logicalID: String) {
+        if selectedLearningAppIDs.contains(logicalID) {
+            selectedLearningAppIDs.remove(logicalID)
+        } else {
+            selectedLearningAppIDs.insert(logicalID)
+        }
+    }
+
+    private func toggleRewardApp(_ logicalID: String) {
+        if selectedRewardAppIDs.contains(logicalID) {
+            selectedRewardAppIDs.remove(logicalID)
+        } else {
+            selectedRewardAppIDs.insert(logicalID)
+        }
+    }
+
+    private func normalizeTargets(for goalType: ChallengeGoalType) {
         switch goalType {
         case .dailyMinutes, .weeklyMinutes, .specificApps:
-            return "minutes"
+            let range = minuteRange(for: goalType)
+            targetMinutes = min(max(targetMinutes, range.lowerBound), range.upperBound)
+        case .pointsTarget:
+            targetPoints = min(max(targetPoints, pointsTargetRange.lowerBound), pointsTargetRange.upperBound)
         case .streak:
-            return "days"
+            streakDays = min(max(streakDays, 3), 30)
         }
     }
 
     private func saveChallenge() {
+        let targetValue: Int
+        switch goalType {
+        case .dailyMinutes, .weeklyMinutes, .specificApps:
+            targetValue = Int(targetMinutes)
+        case .streak:
+            targetValue = streakDays
+        case .pointsTarget:
+            targetValue = Int(targetPoints)
+        }
+
+        let learningIDs = Array(selectedLearningAppIDs)
+        let rewardIDs = Array(selectedRewardAppIDs)
+        let activeDayList = activeDays.isEmpty ? nil : Array(activeDays).sorted()
+        let creatorID = DeviceModeManager.shared.deviceID
+
         Task {
-            await viewModel.createChallenge(
+            await challengeViewModel.createChallenge(
                 title: title,
                 description: description,
-                goalType: goalType.rawValue,
+                goalType: goalType,
                 targetValue: targetValue,
                 bonusPercentage: bonusPercentage,
-                targetApps: selectedLearningApps.isEmpty ? nil : selectedLearningApps,
+                targetApps: learningIDs.isEmpty ? nil : learningIDs,
+                rewardApps: rewardIDs.isEmpty ? nil : rewardIDs,
                 startDate: startDate,
-                endDate: endDate,
-                createdBy: DeviceModeManager.shared.deviceID,
-                assignedTo: DeviceModeManager.shared.deviceID
+                endDate: hasEndDate ? endDate : nil,
+                activeDays: activeDayList,
+                startTime: startTime,
+                endTime: endTime,
+                createdBy: creatorID,
+                assignedTo: creatorID
             )
             presentationMode.wrappedValue.dismiss()
         }
@@ -454,102 +754,132 @@ extension ChallengeBuilderView {
     }
 }
 
-// MARK: - Custom Segmented Control
-struct CustomSegmentedControl: View {
-    @Binding var selection: ChallengeGoalType
-    let options: [ChallengeGoalType]
-    let labels: [String]
-    @Environment(\.colorScheme) var colorScheme
-
-    var body: some View {
-        HStack(spacing: 4) {
-            ForEach(Array(zip(options.indices, options)), id: \.0) { index, option in
-                Button(action: {
-                    selection = option
-                }) {
-                    Text(labels[index])
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(selection == option ? ChallengeBuilderView.Colors.primary : ChallengeBuilderView.Colors.text.opacity(0.8))
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 32)
-                        .background(
-                            selection == option ?
-                            (colorScheme == .dark ? Color(hex: "#3A3A3C") : .white) :
-                            Color.clear
-                        )
-                        .cornerRadius(6)
-                        .shadow(color: selection == option ? .black.opacity(0.1) : .clear, radius: 2, y: 1)
-                }
-            }
-        }
-        .padding(4)
-        .background(ChallengeBuilderView.Colors.inputBackground)
-        .cornerRadius(8)
-    }
-}
-
-// MARK: - App Icon View
-struct AppIconView: View {
-    let name: String
+struct AppSelectionButton: View {
+    let token: ManagedSettings.ApplicationToken
+    let displayName: String
     let isSelected: Bool
-    let onTap: () -> Void
+    let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
+        Button(action: onToggle) {
             VStack(spacing: 6) {
                 ZStack(alignment: .topTrailing) {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.gray.opacity(0.3))
-                        .frame(width: 64, height: 64)
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 12)
-                                .stroke(isSelected ? ChallengeBuilderView.Colors.secondary : Color.clear, lineWidth: 2)
-                        )
+                    // App icon with proper sizing
+                    if #available(iOS 15.2, *) {
+                        Label(token)
+                            .labelStyle(.iconOnly)
+                            .scaleEffect(2.2)
+                            .frame(width: 56, height: 56)
+                            .clipped()
+                            .background(Color.clear)
+                            .cornerRadius(12)
+                    } else {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.gray.opacity(0.1))
+                            .frame(width: 56, height: 56)
+                            .overlay(
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: 28))
+                                    .foregroundColor(.gray)
+                            )
+                    }
 
                     if isSelected {
-                        Circle()
-                            .fill(ChallengeBuilderView.Colors.secondary)
-                            .frame(width: 20, height: 20)
-                            .overlay(
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 10, weight: .bold))
-                                    .foregroundColor(.white)
-                            )
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(ChallengeBuilderView.Colors.primary)
+                            .background(Circle().fill(Color.white).padding(2))
                             .offset(x: 4, y: -4)
                     }
                 }
 
-                Text(name)
-                    .font(.system(size: 12))
-                    .foregroundColor(ChallengeBuilderView.Colors.text.opacity(0.9))
-                    .lineLimit(1)
+                // Use Label with smaller font (8pt) for long names
+                if #available(iOS 15.2, *) {
+                    Label(token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(ChallengeBuilderView.Colors.text)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 82, height: 28)
+                } else {
+                    Text(displayName)
+                        .font(.system(size: 8, weight: .medium))
+                        .foregroundColor(ChallengeBuilderView.Colors.text)
+                        .lineLimit(2)
+                        .truncationMode(.tail)
+                        .multilineTextAlignment(.center)
+                        .frame(width: 82, height: 28)
+                }
             }
+            .padding(.horizontal, 4)
+            .padding(.vertical, 8)
+            .frame(width: 90)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(
+                        isSelected
+                        ? ChallengeBuilderView.Colors.primary.opacity(0.08)
+                        : ChallengeBuilderView.Colors.inputBackground
+                    )
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 12)
+                            .stroke(
+                                isSelected ? ChallengeBuilderView.Colors.primary : Color.clear,
+                                lineWidth: 2
+                            )
+                    )
+            )
         }
+        .buttonStyle(.plain)
     }
 }
 
-// MARK: - Add App Button
-struct AddAppButton: View {
-    let onTap: () -> Void
+struct AppSelectionRow: View {
+    let token: ManagedSettings.ApplicationToken
+    let displayName: String
+    let isSelected: Bool
+    let onToggle: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(spacing: 6) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(ChallengeBuilderView.Colors.inputBackground)
-                    .frame(width: 64, height: 64)
-                    .overlay(
-                        Image(systemName: "plus")
-                            .font(.system(size: 24, weight: .regular))
-                            .foregroundColor(ChallengeBuilderView.Colors.primary)
-                    )
+        Button(action: onToggle) {
+            HStack(spacing: 12) {
+                // Checkmark on the left
+                if isSelected {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(ChallengeBuilderView.Colors.primary)
+                } else {
+                    Image(systemName: "circle")
+                        .font(.system(size: 24))
+                        .foregroundColor(ChallengeBuilderView.Colors.border.opacity(0.5))
+                }
 
-                Text("Add App")
-                    .font(.system(size: 12))
-                    .foregroundColor(ChallengeBuilderView.Colors.primary)
-                    .lineLimit(1)
+                // App icon
+                if #available(iOS 15.2, *) {
+                    Label(token)
+                        .labelStyle(.iconOnly)
+                        .scaleEffect(2.5)
+                        .frame(width: 64, height: 64)
+                        .background(Color.clear)
+                        .cornerRadius(16)
+                } else {
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(Color.gray.opacity(0.1))
+                        .frame(width: 64, height: 64)
+                        .overlay(
+                            Image(systemName: "app.fill")
+                                .font(.system(size: 32))
+                                .foregroundColor(.gray)
+                        )
+                }
+
+                Spacer()
             }
+            .padding(12)
+            .frame(height: 88)
+            .background(ChallengeBuilderView.Colors.inputBackground)
         }
+        .buttonStyle(.plain)
     }
 }
 

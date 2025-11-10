@@ -1,9 +1,18 @@
 import SwiftUI
+import CoreData
+import FamilyControls
+import ManagedSettings
 
 struct ChallengeDetailView: View {
     let challenge: Challenge
+    let progress: ChallengeProgress?
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.managedObjectContext) private var viewContext
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+
+    @State private var showingEndAlert = false
+    @State private var showingPauseAlert = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -132,13 +141,13 @@ struct ChallengeDetailView: View {
     private var progressCard: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("\(progressMinutes) of \(Int(challenge.targetValue)) minutes completed")
+                Text(progressHeadlineText)
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
 
                 Spacer()
 
-                Text("\(progressPercentage)%")
+                Text("\(Int(progressPercentageValue))%")
                     .font(.system(size: 14, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
             }
@@ -152,7 +161,7 @@ struct ChallengeDetailView: View {
 
                     RoundedRectangle(cornerRadius: DesignTokens.progressBarCornerRadius)
                         .fill(colorScheme == .dark ? Colors.secondaryDark : Colors.secondary)
-                        .frame(width: geometry.size.width * CGFloat(progressPercentage) / 100.0, height: 8)
+                        .frame(width: geometry.size.width * CGFloat(progressBarFraction), height: 8)
                 }
             }
             .frame(height: 8)
@@ -172,15 +181,15 @@ struct ChallengeDetailView: View {
             GridItem(.flexible(), spacing: 12)
         ], spacing: 12) {
             metadataCard(
-                icon: "timer",
-                title: "Time Goal",
-                value: "\(Int(challenge.targetValue)) minutes"
+                icon: "target",
+                title: "Target",
+                value: "\(targetProgressValue) \(progressUnitDisplay)"
             )
 
             metadataCard(
-                icon: "hourglass",
-                title: "Time Remaining",
-                value: "\(remainingMinutes) minutes left"
+                icon: "chart.bar.xaxis",
+                title: "Current Progress",
+                value: progressHeadlineText
             )
 
             metadataCard(
@@ -191,8 +200,8 @@ struct ChallengeDetailView: View {
 
             metadataCard(
                 icon: "gift.fill",
-                title: "Reward Unlocked",
-                value: "\(rewardMinutes) minutes"
+                title: "Reward Unlocks",
+                value: rewardPlanText
             )
         }
     }
@@ -229,16 +238,15 @@ struct ChallengeDetailView: View {
     // MARK: - Learning Apps List
     private var learningAppsList: some View {
         VStack(spacing: 12) {
-            if let jsonString = challenge.targetAppsJSON,
-               let data = jsonString.data(using: .utf8),
-               let targetApps = try? JSONDecoder().decode([String].self, from: data),
-               !targetApps.isEmpty {
-                ForEach(targetApps, id: \.self) { appID in
-                    appListRow(appID: appID)
-                }
+            if learningAppTokens.isEmpty {
+                Text("All configured learning apps count toward this challenge.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Colors.textBody.opacity(0.7))
+                    .padding(.vertical, 8)
             } else {
-                appListRow(appID: "Khan Kids")
-                appListRow(appID: "Duolingo")
+                ForEach(learningAppTokens, id: \.hashValue) { token in
+                    appListRow(token: token)
+                }
             }
         }
     }
@@ -246,40 +254,59 @@ struct ChallengeDetailView: View {
     // MARK: - Reward Apps List
     private var rewardAppsList: some View {
         VStack(spacing: 12) {
-            if let jsonString = challenge.targetAppsJSON,
-               let data = jsonString.data(using: .utf8),
-               let rewardApps = try? JSONDecoder().decode([String].self, from: data),
-               !rewardApps.isEmpty {
-                ForEach(rewardApps, id: \.self) { appID in
-                    appListRow(appID: appID)
-                }
+            if rewardAppTokens.isEmpty {
+                Text("No reward apps selected. Add rewards to motivate your learner.")
+                    .font(.system(size: 14))
+                    .foregroundColor(Colors.textBody.opacity(0.7))
+                    .padding(.vertical, 8)
             } else {
-                appListRow(appID: "Roblox")
-                appListRow(appID: "Minecraft")
+                ForEach(rewardAppTokens, id: \.hashValue) { token in
+                    appListRow(token: token)
+                }
+
+                Text(rewardBonusDescription)
+                    .font(.system(size: 13))
+                    .foregroundColor(Colors.textBody.opacity(0.7))
+                    .padding(.top, 4)
             }
         }
     }
 
-    private func appListRow(appID: String) -> some View {
+    private func appListRow(token: ApplicationToken) -> some View {
         HStack(spacing: 16) {
-            // App Icon Placeholder
-            RoundedRectangle(cornerRadius: 12)
-                .fill(Color.gray.opacity(0.2))
-                .frame(width: 48, height: 48)
-                .overlay(
-                    Image(systemName: "app.fill")
-                        .foregroundColor(.gray)
-                )
+            // Real App Icon using Label - larger size
+            if #available(iOS 15.2, *) {
+                Label(token)
+                    .labelStyle(.iconOnly)
+                    .scaleEffect(2.5)
+                    .frame(width: 64, height: 64)
+                    .background(Color.clear)
+                    .cornerRadius(12)
+            } else {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.gray.opacity(0.2))
+                    .frame(width: 64, height: 64)
+                    .overlay(
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 40))
+                            .foregroundColor(.gray)
+                    )
+            }
 
-            Text(appID)
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
+            // Real App Name using Label - same style as Schedule text
+            if #available(iOS 15.2, *) {
+                Label(token)
+                    .labelStyle(.titleOnly)
+                    .font(.system(size: 14))
+                    .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
+                    .lineLimit(1)
+            } else {
+                Text("App")
+                    .font(.system(size: 14))
+                    .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
+            }
 
             Spacer()
-
-            Image(systemName: "chevron.right")
-                .font(.system(size: 14))
-                .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
         }
         .padding(16)
         .background(
@@ -293,7 +320,7 @@ struct ChallengeDetailView: View {
     private var actionButtons: some View {
         VStack(spacing: 12) {
             Button(action: {
-                // End Challenge action
+                showingEndAlert = true
             }) {
                 Text("End Challenge Now")
                     .font(.system(size: 16, weight: .bold))
@@ -305,11 +332,19 @@ struct ChallengeDetailView: View {
                             .fill(colorScheme == .dark ? Colors.dangerDark : Colors.danger)
                     )
             }
+            .alert("End Challenge?", isPresented: $showingEndAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button("End", role: .destructive) {
+                    endChallenge()
+                }
+            } message: {
+                Text("This will permanently end the challenge. Progress will be saved but the challenge will no longer be active.")
+            }
 
             Button(action: {
-                // Pause Challenge action
+                showingPauseAlert = true
             }) {
-                Text("Pause Challenge")
+                Text(challenge.isActive ? "Pause Challenge" : "Resume Challenge")
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(colorScheme == .dark ? Colors.primaryDark : Colors.primary)
                     .frame(maxWidth: .infinity)
@@ -317,6 +352,32 @@ struct ChallengeDetailView: View {
                     .background(
                         RoundedRectangle(cornerRadius: DesignTokens.buttonCornerRadius)
                             .fill((colorScheme == .dark ? Colors.primaryDark : Colors.primary).opacity(0.2))
+                    )
+            }
+            .alert(challenge.isActive ? "Pause Challenge?" : "Resume Challenge?", isPresented: $showingPauseAlert) {
+                Button("Cancel", role: .cancel) { }
+                Button(challenge.isActive ? "Pause" : "Resume") {
+                    togglePauseChallenge()
+                }
+            } message: {
+                Text(challenge.isActive ? "The challenge will be temporarily paused. You can resume it later." : "The challenge will become active again.")
+            }
+
+            Button(action: {
+                presentationMode.wrappedValue.dismiss()
+            }) {
+                Text("Exit")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: DesignTokens.buttonCornerRadius)
+                            .strokeBorder(colorScheme == .dark ? Colors.borderDark : Colors.border, lineWidth: 1)
+                            .background(
+                                RoundedRectangle(cornerRadius: DesignTokens.buttonCornerRadius)
+                                    .fill(colorScheme == .dark ? Colors.cardBackgroundDark : Colors.cardBackground)
+                            )
                     )
             }
         }
@@ -335,35 +396,162 @@ struct ChallengeDetailView: View {
         )
     }
 
+    // MARK: - Helper Methods
+    private func endChallenge() {
+        challenge.isActive = false
+        if let endDate = challenge.endDate, endDate > Date() {
+            challenge.endDate = Date()
+        } else if challenge.endDate == nil {
+            challenge.endDate = Date()
+        }
+
+        do {
+            try viewContext.save()
+            presentationMode.wrappedValue.dismiss()
+        } catch {
+            print("Error ending challenge: \(error)")
+        }
+    }
+
+    private func togglePauseChallenge() {
+        challenge.isActive.toggle()
+
+        do {
+            try viewContext.save()
+        } catch {
+            print("Error toggling challenge pause state: \(error)")
+        }
+    }
+
     // MARK: - Computed Properties
-    private var progressMinutes: Int {
-        // Mock data - would be calculated from actual progress
-        35
+    private var currentProgressValue: Int {
+        Int(progress?.currentValue ?? 0)
     }
 
-    private var progressPercentage: Int {
-        let percentage = (Double(progressMinutes) / Double(challenge.targetValue)) * 100
-        return Int(min(percentage, 100))
+    private var targetProgressValue: Int {
+        Int(progress?.targetValue ?? challenge.targetValue)
     }
 
-    private var remainingMinutes: Int {
-        max(Int(challenge.targetValue) - progressMinutes, 0)
+    private var remainingProgressValue: Int {
+        max(targetProgressValue - currentProgressValue, 0)
+    }
+
+    private var progressPercentageValue: Double {
+        min(progress?.progressPercentage ?? 0, 100)
+    }
+
+    private var progressBarFraction: Double {
+        progressPercentageValue / 100.0
+    }
+
+    private var progressUnitDisplay: String {
+        switch challenge.goalTypeEnum {
+        case .pointsTarget:
+            return "pts"
+        case .streak:
+            return "days"
+        default:
+            return "min"
+        }
+    }
+
+    private var progressHeadlineText: String {
+        "\(currentProgressValue) / \(targetProgressValue) \(progressUnitDisplay)"
     }
 
     private var scheduleText: String {
-        // Extract from challenge data or return default
-        if let startDate = challenge.startDate, let endDate = challenge.endDate {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "E h a"
-            return "Weekdays, \(formatter.string(from: startDate))-\(formatter.string(from: endDate))"
+        let dayText: String
+        let days = challenge.scheduledActiveDays
+
+        if days.isEmpty || days.count == 7 {
+            dayText = "Every day"
+        } else {
+            dayText = days
+                .sorted()
+                .map { weekdayLabel(for: $0) }
+                .joined(separator: ", ")
         }
-        return "Weekdays, 4-6 PM"
+
+        if let startTime = challenge.startTime, let endTime = challenge.endTime {
+            let formatter = DateFormatter()
+            formatter.timeStyle = .short
+            return "\(dayText), \(formatter.string(from: startTime)) - \(formatter.string(from: endTime))"
+        }
+
+        return dayText
     }
 
-    private var rewardMinutes: Int {
-        // Calculate reward based on bonus percentage
-        let baseReward = Int(challenge.targetValue) * Int(challenge.bonusPercentage) / 100
-        return max(baseReward, 15)
+    private var rewardSummaryText: String {
+        let count = rewardAppTokens.count
+        if count == 0 {
+            return "No reward apps"
+        } else if count == 1 {
+            return "1 app"
+        } else {
+            return "\(count) apps"
+        }
+    }
+
+    private var rewardPlanText: String {
+        let components = [
+            rewardSummaryText,
+            rewardRatioDescription,
+            rewardUnlockMinutesDescription,
+            "+\(challenge.bonusPercentage)% bonus"
+        ]
+        return components.joined(separator: "\n")
+    }
+
+    private var rewardBonusDescription: String {
+        let count = rewardAppTokens.count
+        if count == 0 {
+            return "No reward unlocks"
+        }
+        return "\(count) app\(count == 1 ? "" : "s") unlock for \(rewardUnlockMinutes) min"
+    }
+
+    private var learningAppTokens: [ApplicationToken] {
+        let ids = challenge.targetAppIDs
+        if ids.isEmpty { return [] }
+        return ids.compactMap { learningTokenLookup[$0] }
+    }
+
+    private var rewardAppTokens: [ApplicationToken] {
+        let ids = challenge.rewardAppIDs
+        if ids.isEmpty { return [] }
+        return ids.compactMap { rewardTokenLookup[$0] }
+    }
+
+    private var learningTokenLookup: [String: ApplicationToken] {
+        appUsageViewModel.learningSnapshots.reduce(into: [:]) { result, snapshot in
+            result[snapshot.logicalID] = snapshot.token
+        }
+    }
+
+    private var rewardTokenLookup: [String: ApplicationToken] {
+        appUsageViewModel.rewardSnapshots.reduce(into: [:]) { result, snapshot in
+            result[snapshot.logicalID] = snapshot.token
+        }
+    }
+
+    private func weekdayLabel(for index: Int) -> String {
+        let formatter = DateFormatter()
+        let symbols = formatter.shortWeekdaySymbols ?? ["Sun","Mon","Tue","Wed","Thu","Fri","Sat"]
+        let safeIndex = ((index % symbols.count) + symbols.count) % symbols.count
+        return symbols[safeIndex]
+    }
+
+    private var rewardUnlockMinutes: Int {
+        challenge.rewardUnlockMinutes()
+    }
+
+    private var rewardRatioDescription: String {
+        challenge.learningToRewardRatio?.formattedDescription ?? LearningToRewardRatio.default.formattedDescription
+    }
+
+    private var rewardUnlockMinutesDescription: String {
+        let minutes = rewardUnlockMinutes
+        return "≈ \(minutes) min reward per completion"
     }
 }
 

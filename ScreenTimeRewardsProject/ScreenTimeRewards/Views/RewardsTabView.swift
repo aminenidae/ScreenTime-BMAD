@@ -158,10 +158,10 @@ private extension RewardsTabView {
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
         let isUnlocked = viewModel.unlockedRewardApps[snapshot.token] != nil
 
-        // Device-specific icon sizes: 60% of previous size (40% reduction)
-        let iconSize: CGFloat = horizontalSizeClass == .regular ? 50 : 67  // iPad: 50pt, iPhone: 67pt (60% of 84/112)
-        let iconScale: CGFloat = horizontalSizeClass == .regular ? 2.1 : 2.7  // Scaled down by 40%
-        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 36 : 48
+        // Standardized icon sizes (match Learning tab)
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
         VStack(spacing: 0) {
             HStack(alignment: .center, spacing: 12) {
@@ -171,11 +171,10 @@ private extension RewardsTabView {
                         .labelStyle(.iconOnly)
                         .scaleEffect(iconScale)
                         .frame(width: iconSize, height: iconSize)
-                        .background(Color.gray.opacity(0.1))
-                        .cornerRadius(16)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(Color.gray.opacity(0.1))
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(Color.gray.opacity(0.2))
                         .frame(width: iconSize, height: iconSize)
                         .overlay(
                             Image(systemName: "app.fill")
@@ -184,23 +183,19 @@ private extension RewardsTabView {
                         )
                 }
 
-                // App Info - with dynamic font sizing
+                // App Info - using Label with 8pt font for long names
                 VStack(alignment: .leading, spacing: 4) {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
-                            .font(.system(size: appNameFontSize(for: snapshot.displayName), weight: .medium))
+                            .font(.system(size: 8, weight: .medium))
                             .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                            .lineLimit(2)
-                            .truncationMode(.tail)
-                            .minimumScaleFactor(0.7)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                            .font(.system(size: appNameFontSize(for: snapshot.displayName), weight: .medium))
+                            .font(.system(size: 8, weight: .medium))
                             .foregroundColor(Colors.textPrimary(colorScheme: colorScheme))
-                            .lineLimit(2)
+                            .lineLimit(1)
                             .truncationMode(.tail)
-                            .minimumScaleFactor(0.7)
                     }
 
                     Text("\(snapshot.pointsPerMinute) pts/min")

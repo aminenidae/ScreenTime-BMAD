@@ -4,6 +4,7 @@ struct ParentChallengesTabView: View {
     @StateObject private var viewModel = ChallengeViewModel()
     @State private var showingChallengeBuilder = false
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
 
     var body: some View {
         ZStack {
@@ -40,7 +41,13 @@ struct ParentChallengesTabView: View {
             }
         }
         .sheet(isPresented: $showingChallengeBuilder) {
-            ChallengeBuilderView()
+            if useChallengeBuilderV2 {
+                ChallengeBuilderFlowView(viewModel: viewModel)
+                    .environmentObject(appUsageViewModel)
+            } else {
+                ChallengeBuilderView()
+                    .environmentObject(appUsageViewModel)
+            }
         }
         .task {
             await viewModel.loadChallenges()
@@ -51,6 +58,14 @@ struct ParentChallengesTabView: View {
 // MARK: - Subviews
 
 private extension ParentChallengesTabView {
+    var useChallengeBuilderV2: Bool {
+        guard let value = ProcessInfo.processInfo.environment["USE_CHALLENGE_BUILDER_V2"] else {
+            return false
+        }
+        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return ["1", "true", "yes", "on"].contains(normalized)
+    }
+
     var headerSection: some View {
         VStack(spacing: 8) {
             Image(systemName: "trophy.fill")
@@ -102,8 +117,17 @@ private extension ParentChallengesTabView {
 
             LazyVGrid(columns: columns, spacing: 16) {
                 ForEach(viewModel.activeChallenges) { challenge in
-                    NavigationLink(destination: ChallengeDetailView(challenge: challenge)) {
-                        ParentChallengeCard(challenge: challenge, progress: viewModel.challengeProgress[challenge.challengeID ?? ""])
+                    NavigationLink(
+                        destination: ChallengeDetailView(
+                            challenge: challenge,
+                            progress: viewModel.challengeProgress[challenge.challengeID ?? ""]
+                        )
+                        .environmentObject(appUsageViewModel)
+                    ) {
+                        ParentChallengeCard(
+                            challenge: challenge,
+                            progress: viewModel.challengeProgress[challenge.challengeID ?? ""]
+                        )
                     }
                     .buttonStyle(PlainButtonStyle())
                 }

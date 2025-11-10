@@ -46,7 +46,12 @@
         <attribute name="goalType" optional="YES" attributeType="String"/>
         <attribute name="isActive" optional="YES" attributeType="Boolean" usesScalarValueType="YES"/>
         <attribute name="startDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
-        <attribute name="targetAppsJSON" optional="YES" attributeType="String"/>
+        <attribute name="startTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="endTime" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+    <attribute name="targetAppsJSON" optional="YES" attributeType="String"/>
+    <attribute name="rewardAppsJSON" optional="YES" attributeType="String"/>
+    <attribute name="activeDays" optional="YES" attributeType="String"/>
+    <attribute name="learningToRewardRatioData" optional="YES" attributeType="String"/>
         <attribute name="targetValue" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="title" optional="YES" attributeType="String"/>
         <fetchIndex name="byassignedTo">

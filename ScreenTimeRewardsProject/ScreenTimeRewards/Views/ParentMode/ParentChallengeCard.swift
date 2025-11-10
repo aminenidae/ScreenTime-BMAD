@@ -41,6 +41,8 @@ struct ParentChallengeCard: View {
                 }
             }
 
+            rewardConfigurationRow
+
             // Progress bar
             if let progress = progress {
                 VStack(alignment: .leading, spacing: 4) {
@@ -73,16 +75,22 @@ struct ParentChallengeCard: View {
                 }
             }
 
-            // Bonus info
-            HStack {
-                Image(systemName: "star.fill")
-                    .foregroundColor(.orange)
-                Text("+\(challenge.bonusPercentage)% bonus points")
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                Spacer()
+            // Bonus + timeline info
+            VStack(alignment: .leading, spacing: 2) {
+                HStack {
+                    Image(systemName: "star.fill")
+                        .foregroundColor(.orange)
+                    Text("+\(challenge.bonusPercentage)% completion bonus")
+                        .font(.caption)
+                        .fontWeight(.semibold)
+                    Spacer()
+                    Text(rewardSummaryText)
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                }
+
                 Text(durationText)
-                    .font(.caption)
+                    .font(.caption2)
                     .foregroundColor(.secondary)
             }
             .padding(.top, 4)
@@ -95,33 +103,26 @@ struct ParentChallengeCard: View {
     }
 
     private var goalTypeIcon: String {
-        guard let goalType = challenge.goalType else { return "flag.fill" }
-        switch goalType {
-        case "daily_minutes": return "sun.max.fill"
-        case "weekly_minutes": return "calendar"
-        case "specific_apps": return "app.fill"
-        case "streak": return "flame.fill"
-        default: return "flag.fill"
-        }
+        challenge.goalTypeEnum?.iconName ?? "flag.fill"
     }
 
     private var goalTypeColor: Color {
-        guard let goalType = challenge.goalType else { return .gray }
-        switch goalType {
-        case "daily_minutes": return .orange
-        case "weekly_minutes": return .blue
-        case "specific_apps": return .green
-        case "streak": return .red
-        default: return .gray
-        }
+        challenge.goalTypeEnum?.accentColor ?? .gray
     }
 
     private var valueUnit: String {
-        guard let goalType = challenge.goalType else { return "min" }
-        switch goalType {
-        case "daily_minutes", "weekly_minutes", "specific_apps": return "min"
-        case "streak": return "days"
-        default: return "min"
+        challenge.goalTypeEnum?.valueUnitLabel ?? "minutes"
+    }
+
+    private var rewardSummaryText: String {
+        let count = challenge.rewardAppIDs.count
+        switch count {
+        case 0:
+            return "No rewards"
+        case 1:
+            return "1 reward app"
+        default:
+            return "\(count) reward apps"
         }
     }
 
@@ -137,5 +138,35 @@ struct ParentChallengeCard: View {
             }
         }
         return "Unknown"
+    }
+
+    @ViewBuilder
+    private var rewardConfigurationRow: some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "clock.arrow.circlepath")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text(rewardRatioText)
+                    .font(.caption)
+                    .fontWeight(.semibold)
+                    .foregroundColor(.secondary)
+
+                Text(rewardUnlockMinutesText)
+                    .font(.caption2)
+                    .foregroundColor(.secondary)
+            }
+        }
+    }
+
+    private var rewardRatioText: String {
+        challenge.learningToRewardRatio?.formattedDescription ?? LearningToRewardRatio.default.formattedDescription
+    }
+
+    private var rewardUnlockMinutesText: String {
+        let minutes = challenge.rewardUnlockMinutes()
+        let minuteLabel = minutes == 1 ? "minute" : "minutes"
+        return "≈ \(minutes) \(minuteLabel) of reward time"
     }
 }

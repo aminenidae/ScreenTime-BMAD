@@ -101,7 +101,9 @@ class AppUsageViewModel: ObservableObject {
     /// Formula: Available Points = Total Earned - Reserved Points - Consumed Points
     var availableLearningPoints: Int {
         let totalEarned = learningRewardPoints
-        let totalReserved = unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+        let totalReserved = unlockedRewardApps.values
+            .filter { !$0.isChallengeReward }
+            .reduce(0) { $0 + $1.reservedPoints }
         let totalConsumed = totalConsumedPoints
         let available = max(0, totalEarned - totalReserved - totalConsumed)
 
@@ -119,7 +121,9 @@ class AppUsageViewModel: ObservableObject {
     /// Total points reserved for unlocked reward apps
     /// Formula: Reserved Points = Sum of (Redeemed - Consumed) for all unlocked apps
     var reservedLearningPoints: Int {
-        let reserved = unlockedRewardApps.values.reduce(0) { $0 + $1.reservedPoints }
+        let reserved = unlockedRewardApps.values
+            .filter { !$0.isChallengeReward }
+            .reduce(0) { $0 + $1.reservedPoints }
 
         #if DEBUG
         print("[AppUsageViewModel] 🔒 RESERVED POINTS CALCULATION:")
@@ -155,6 +159,7 @@ class AppUsageViewModel: ObservableObject {
     @Published var badges: [Badge] = []
     @Published var showCompletionCelebration = false
     @Published var completedChallengeID: String?
+    @Published var lastRewardUnlockMinutes: Int = 0
     private let challengeService = ChallengeService.shared
 
     // Flag to track when we're resetting picker state
@@ -369,7 +374,13 @@ class AppUsageViewModel: ObservableObject {
         ) { [weak self] notification in
             Task { @MainActor in
                 let challengeID = notification.userInfo?["challengeID"] as? String ?? ""
-                self?.handleChallengeCompletion(challengeID: challengeID)
+                let rewardApps = notification.userInfo?["rewardApps"] as? [String] ?? []
+                let unlockMinutes = notification.userInfo?["rewardUnlockMinutes"] as? Int ?? 0
+                self?.handleChallengeCompletion(
+                    challengeID: challengeID,
+                    rewardAppIDs: rewardApps,
+                    unlockMinutes: unlockMinutes
+                )
             }
         }
         NotificationCenter.default.addObserver(
@@ -1626,7 +1637,12 @@ func configureWithTestApplications() {
     }
 
     /// Unlock a reward app by reserving learning points
-    func unlockRewardApp(token: ApplicationToken, minutes: Int) {
+    func unlockRewardApp(
+        token: ApplicationToken,
+        minutes: Int,
+        bypassPointValidation: Bool = false,
+        isChallengeReward: Bool = false
+    ) {
         guard let pointsPerMinute = rewardPoints[token], pointsPerMinute > 0 else {
             #if DEBUG
             print("[AppUsageViewModel] ❌ Cannot unlock - no points configured for app")
@@ -1634,18 +1650,21 @@ func configureWithTestApplications() {
             return
         }
 
-        // Ensure minimum 15 minutes
-        let actualMinutes = max(15, minutes)
+        // Ensure minimum minutes (challenge unlocks can be lower)
+        let minimumMinutes = isChallengeReward ? 1 : 15
+        let actualMinutes = max(minimumMinutes, minutes)
         let pointsNeeded = pointsPerMinute * actualMinutes
 
         // Check if user has enough available points
-        guard availableLearningPoints >= pointsNeeded else {
-            #if DEBUG
-            print("[AppUsageViewModel] ❌ Cannot unlock - insufficient points")
-            print("[AppUsageViewModel]   Need: \(pointsNeeded), Available: \(availableLearningPoints)")
-            #endif
-            errorMessage = "Insufficient points. Need \(pointsNeeded) points for \(actualMinutes) minutes."
-            return
+        if !bypassPointValidation {
+            guard availableLearningPoints >= pointsNeeded else {
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cannot unlock - insufficient points")
+                print("[AppUsageViewModel]   Need: \(pointsNeeded), Available: \(availableLearningPoints)")
+                #endif
+                errorMessage = "Insufficient points. Need \(pointsNeeded) points for \(actualMinutes) minutes."
+                return
+            }
         }
 
         #if DEBUG
@@ -1653,13 +1672,31 @@ func configureWithTestApplications() {
         let earnedBefore = learningRewardPoints
         #endif
 
+        if var existing = unlockedRewardApps[token] {
+            if isChallengeReward && existing.isChallengeReward {
+                existing.reservedPoints += pointsNeeded
+                unlockedRewardApps[token] = existing
+                persistUnlockedApps()
+                #if DEBUG
+                print("[AppUsageViewModel] 🎁 EXTENDED CHALLENGE UNLOCK \(appName): +\(actualMinutes) min")
+                #endif
+                return
+            } else if isChallengeReward {
+                #if DEBUG
+                print("[AppUsageViewModel] ℹ️ \(appName) already unlocked with points – challenge unlock skipped")
+                #endif
+                return
+            }
+        }
+
         // Create unlocked app entry with stable token hash
         let tokenHash = service.usagePersistence.tokenHash(for: token)
         let unlockedApp = UnlockedRewardApp(
             token: token,
             tokenHash: tokenHash,
             reservedPoints: pointsNeeded,
-            pointsPerMinute: pointsPerMinute
+            pointsPerMinute: pointsPerMinute,
+            isChallengeReward: isChallengeReward
         )
 
         unlockedRewardApps[token] = unlockedApp
@@ -1671,11 +1708,15 @@ func configureWithTestApplications() {
         persistUnlockedApps()
 
         #if DEBUG
-        print("[AppUsageViewModel] ✅ UNLOCKED \(appName):")
-        print("[AppUsageViewModel]   Redemption: \(actualMinutes) minutes × \(pointsPerMinute) pts/min = \(pointsNeeded) points")
-        print("[AppUsageViewModel]   Total Earned: \(earnedBefore) points")
-        print("[AppUsageViewModel]   Reserved: \(pointsNeeded) points (initially redeemed)")
-        print("[AppUsageViewModel]   Available: \(availableLearningPoints) points (\(earnedBefore) - \(pointsNeeded))")
+        if isChallengeReward {
+            print("[AppUsageViewModel] 🎁 CHALLENGE UNLOCK \(appName): \(actualMinutes) min bonus access")
+        } else {
+            print("[AppUsageViewModel] ✅ UNLOCKED \(appName):")
+            print("[AppUsageViewModel]   Redemption: \(actualMinutes) minutes × \(pointsPerMinute) pts/min = \(pointsNeeded) points")
+            print("[AppUsageViewModel]   Total Earned: \(earnedBefore) points")
+            print("[AppUsageViewModel]   Reserved: \(pointsNeeded) points (initially redeemed)")
+            print("[AppUsageViewModel]   Available: \(availableLearningPoints) points (\(earnedBefore) - \(pointsNeeded))")
+        }
         #endif
     }
 
@@ -1736,7 +1777,9 @@ func configureWithTestApplications() {
         unlockedApp.reservedPoints = max(0, unlockedApp.reservedPoints - pointsToConsume)
 
         // Track consumed points globally (these are permanently spent)
-        totalConsumedPoints += pointsToConsume
+        if !unlockedApp.isChallengeReward {
+            totalConsumedPoints += pointsToConsume
+        }
 
         #if DEBUG
         let appName = resolvedDisplayName(for: token) ?? "Unknown App"
@@ -1810,7 +1853,8 @@ func configureWithTestApplications() {
                         tokenHash: app.id,  // Use the stored stable hash
                         reservedPoints: app.reservedPoints,
                         pointsPerMinute: app.pointsPerMinute,
-                        unlockedAt: app.unlockedAt
+                        unlockedAt: app.unlockedAt,
+                        isChallengeReward: app.isChallengeReward
                     )
                     unlockedRewardApps[matchedToken] = rehydratedApp
                 }
@@ -2478,12 +2522,43 @@ extension AppUsageViewModel {
         }
     }
 
-    private func handleChallengeCompletion(challengeID: String) {
+    private func unlockRewardAppsFromChallenge(logicalIDs: [String], minutes: Int) {
+        let unlockMinutes = max(minutes, 1)
+        let uniqueIDs = Set(logicalIDs)
+
+        for logicalID in uniqueIDs {
+            guard let token = rewardToken(for: logicalID) else {
+                #if DEBUG
+                print("[AppUsageViewModel] ⚠️ No reward token found for logicalID: \(logicalID)")
+                #endif
+                continue
+            }
+
+            unlockRewardApp(
+                token: token,
+                minutes: unlockMinutes,
+                bypassPointValidation: true,
+                isChallengeReward: true
+            )
+        }
+    }
+
+    private func rewardToken(for logicalID: String) -> ApplicationToken? {
+        for (token, category) in categoryAssignments where category == .reward {
+            if service.getLogicalID(for: token) == logicalID {
+                return token
+            }
+        }
+        return nil
+    }
+
+    private func handleChallengeCompletion(challengeID: String, rewardAppIDs: [String], unlockMinutes: Int) {
         #if DEBUG
         print("[AppUsageViewModel] 🎉 Challenge completed! ID: \(challengeID)")
         #endif
         completedChallengeID = challengeID.isEmpty ? nil : challengeID
         showCompletionCelebration = true
+        lastRewardUnlockMinutes = max(1, unlockMinutes)
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
             guard let self else { return }
@@ -2494,5 +2569,9 @@ extension AppUsageViewModel {
         }
 
         loadChallengeData()
+
+        if !rewardAppIDs.isEmpty {
+            unlockRewardAppsFromChallenge(logicalIDs: rewardAppIDs, minutes: unlockMinutes)
+        }
     }
 }
