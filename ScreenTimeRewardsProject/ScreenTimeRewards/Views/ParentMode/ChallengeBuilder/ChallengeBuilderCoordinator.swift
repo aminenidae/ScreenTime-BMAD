@@ -17,6 +17,9 @@ private struct ChallengeSubmissionValues {
     let createdBy: String
     let assignedTo: String
     let learningToRewardRatio: LearningToRewardRatio
+    let streakBonusEnabled: Bool
+    let streakTargetDays: Int
+    let streakBonusPercentage: Int
 }
 
 @MainActor
@@ -137,7 +140,11 @@ final class ChallengeBuilderCoordinator: ObservableObject {
                     endTime: submissionValues.endTime,
                     createdBy: submissionValues.createdBy,
                     assignedTo: submissionValues.assignedTo,
-                    learningToRewardRatio: submissionValues.learningToRewardRatio
+                    learningToRewardRatio: submissionValues.learningToRewardRatio,
+                    progressTrackingMode: data.progressTrackingMode,
+                    streakBonusEnabled: submissionValues.streakBonusEnabled,
+                    streakTargetDays: submissionValues.streakTargetDays,
+                    streakBonusPercentage: submissionValues.streakBonusPercentage
                 )
 
                 await challengeViewModel.loadChallenges()
@@ -199,8 +206,8 @@ final class ChallengeBuilderCoordinator: ObservableObject {
             title: trimmedTitle,
             description: data.description,
             goalType: data.goalType,
-            targetValue: data.activeGoalValue,
-            bonusPercentage: data.bonusPercentage,
+            targetValue: data.dailyMinutesGoal,
+            bonusPercentage: 0, // No longer used for reward calculation
             targetApps: data.selectedLearningAppIDs.isEmpty ? nil : Array(data.selectedLearningAppIDs),
             rewardApps: data.selectedRewardAppIDs.isEmpty ? nil : Array(data.selectedRewardAppIDs),
             startDate: data.schedule.startDate,
@@ -210,7 +217,10 @@ final class ChallengeBuilderCoordinator: ObservableObject {
             endTime: endTime,
             createdBy: creatorID,
             assignedTo: creatorID,
-            learningToRewardRatio: data.learningToRewardRatio
+            learningToRewardRatio: data.learningToRewardRatio,
+            streakBonusEnabled: data.streakBonus.enabled,
+            streakTargetDays: data.streakBonus.targetDays,
+            streakBonusPercentage: data.streakBonus.bonusPercentage
         )
     }
 }

@@ -12,18 +12,26 @@ struct ChallengeBuilderAppSelectionRow: View {
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: 12) {
-                // Checkmark on the left
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(ChallengeBuilderTheme.primary)
-                } else {
-                    Image(systemName: "circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(ChallengeBuilderTheme.border.opacity(0.5))
-                }
-
                 iconView
+
+                // App name
+                VStack(alignment: .leading, spacing: 4) {
+                    if #available(iOS 15.2, *) {
+                        Label(token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ChallengeBuilderTheme.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        Text(title.isEmpty ? "App" : title)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ChallengeBuilderTheme.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
             }
@@ -31,7 +39,12 @@ struct ChallengeBuilderAppSelectionRow: View {
             .padding(.horizontal, 12)
             .frame(height: 88)
             .frame(maxWidth: 600)
-            .background(ChallengeBuilderTheme.surface)
+            .background(isSelected ? ChallengeBuilderTheme.primary.opacity(0.1) : ChallengeBuilderTheme.surface)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? ChallengeBuilderTheme.primary : ChallengeBuilderTheme.border.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            )
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -42,17 +55,16 @@ struct ChallengeBuilderAppSelectionRow: View {
         if #available(iOS 15.2, *) {
             Label(token)
                 .labelStyle(.iconOnly)
-                .scaleEffect(2.4)
-                .frame(width: 64, height: 64)
-                .background(Color.clear)
-                .cornerRadius(14)
+                .scaleEffect(1.35)
+                .frame(width: 34, height: 34)
+                .clipShape(RoundedRectangle(cornerRadius: 8))
         } else {
-            RoundedRectangle(cornerRadius: 14)
+            RoundedRectangle(cornerRadius: 8)
                 .fill(Color.gray.opacity(0.1))
-                .frame(width: 64, height: 64)
+                .frame(width: 34, height: 34)
                 .overlay(
                     Image(systemName: "app")
-                        .font(.system(size: 28))
+                        .font(.system(size: 18))
                         .foregroundColor(.gray)
                 )
         }

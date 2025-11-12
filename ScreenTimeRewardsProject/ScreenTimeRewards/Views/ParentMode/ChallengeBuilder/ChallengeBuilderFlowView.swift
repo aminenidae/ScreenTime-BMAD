@@ -77,27 +77,45 @@ struct ChallengeBuilderFlowView: View {
 
         return HStack(spacing: 12) {
             Button(action: { dismiss() }) {
-                Image(systemName: "xmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
-                    .frame(width: 44, height: 44)
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.playfulCoral.opacity(0.15))
+                        .frame(width: 36, height: 36)
+
+                    Image(systemName: "xmark")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(AppTheme.playfulCoral)
+                }
             }
 
             Spacer()
 
-            Text("Create Challenge")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 8) {
+                Image(systemName: "star.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(AppTheme.sunnyYellow)
+
+                Text("Create Challenge")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
 
             Spacer()
 
             Button(action: {
                 coordinator.handlePrimaryAction()
             }) {
-                Text(coordinator.isOnLastStep ? "Create" : "Next")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(primaryEnabled ? ChallengeBuilderTheme.primary : ChallengeBuilderTheme.primary.opacity(0.4))
-                    .frame(minWidth: 44, alignment: .trailing)
+                HStack(spacing: 6) {
+                    Text(coordinator.isOnLastStep ? "Create" : "Next")
+                        .font(.system(size: 16, weight: .bold))
+
+                    if !coordinator.isOnLastStep {
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 14, weight: .bold))
+                    }
+                }
+                .foregroundColor(primaryEnabled ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.4))
+                .frame(minWidth: 44, alignment: .trailing)
             }
             .disabled(!primaryEnabled)
         }
@@ -121,7 +139,12 @@ struct ChallengeBuilderFlowView: View {
         case .details:
             ChallengeDetailsStepView(data: $coordinator.data)
         case .learningApps:
-            LearningAppsStepView(selectedAppIDs: $coordinator.data.selectedLearningAppIDs)
+            LearningAppsStepView(
+                selectedAppIDs: $coordinator.data.selectedLearningAppIDs,
+                progressTrackingMode: $coordinator.data.progressTrackingMode,
+                goalValue: .constant(coordinator.data.dailyMinutesGoal),
+                goalType: $coordinator.data.goalType
+            )
         case .rewardApps:
             RewardAppsStepView(selectedAppIDs: $coordinator.data.selectedRewardAppIDs)
         case .rewardConfig:

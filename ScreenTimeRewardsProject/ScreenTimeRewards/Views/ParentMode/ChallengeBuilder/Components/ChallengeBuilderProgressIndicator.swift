@@ -56,32 +56,41 @@ struct ChallengeBuilderProgressIndicator: View {
         let completed = isCompleted(step)
         let current = isCurrent(step)
 
+        // Assign different colors to different steps for variety
+        let stepColor: Color = {
+            switch step.rawValue % 3 {
+            case 0: return AppTheme.vibrantTeal
+            case 1: return AppTheme.sunnyYellow
+            default: return AppTheme.playfulCoral
+            }
+        }()
+
         ZStack {
             Circle()
                 .fill(
-                    completed ? ChallengeBuilderTheme.secondary.opacity(0.15) :
-                        current ? ChallengeBuilderTheme.primary.opacity(0.15) :
+                    completed ? stepColor.opacity(0.2) :
+                        current ? stepColor.opacity(0.15) :
                         ChallengeBuilderTheme.inputBackground
                 )
                 .frame(width: 36, height: 36)
                 .overlay(
                     Circle()
                         .stroke(
-                            completed ? ChallengeBuilderTheme.secondary :
-                                current ? ChallengeBuilderTheme.primary :
+                            completed ? stepColor :
+                                current ? stepColor :
                                 ChallengeBuilderTheme.border,
                             lineWidth: 2
                         )
                 )
 
             if completed {
-                Image(systemName: "checkmark")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(ChallengeBuilderTheme.secondary)
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(stepColor)
             } else {
                 Text("\(step.rawValue + 1)")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(current ? ChallengeBuilderTheme.primary : ChallengeBuilderTheme.mutedText)
+                    .foregroundColor(current ? stepColor : ChallengeBuilderTheme.mutedText)
             }
         }
     }

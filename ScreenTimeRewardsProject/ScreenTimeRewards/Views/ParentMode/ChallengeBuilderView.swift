@@ -9,7 +9,7 @@ struct ChallengeBuilderView: View {
     @StateObject private var challengeViewModel = ChallengeViewModel()
     @State private var title = ""
     @State private var description = ""
-    @State private var goalType: ChallengeGoalType = .dailyMinutes
+    @State private var goalType: ChallengeGoalType = .dailyQuest
     @State private var targetMinutes: Double = 60
     @State private var targetPoints: Double = 500
     @State private var streakDays = 7
@@ -421,35 +421,17 @@ struct ChallengeBuilderView: View {
     }
 
     private var goalValueTitle: String {
-        switch goalType {
-        case .dailyMinutes:
-            return "Daily Minutes Goal"
-        case .weeklyMinutes:
-            return "Weekly Minutes Goal"
-        case .specificApps:
-            return "Minutes for Selected Apps"
-        case .streak:
-            return "Streak Length"
-        case .pointsTarget:
-            return "Points Target"
-        }
+        return "Daily Minutes Goal"
     }
 
     private var formattedGoalValue: String {
-        switch goalType {
-        case .dailyMinutes, .weeklyMinutes, .specificApps:
-            return "\(Int(targetMinutes)) min"
-        case .streak:
-            return "\(streakDays) days"
-        case .pointsTarget:
-            return "\(Int(targetPoints)) pts"
-        }
+        return "\(Int(targetMinutes)) min"
     }
 
     @ViewBuilder
     private var goalInputControl: some View {
         switch goalType {
-        case .dailyMinutes, .weeklyMinutes, .specificApps:
+        case .dailyQuest:
             VStack(spacing: 8) {
                 HStack(spacing: 8) {
                     Image(systemName: "hourglass")
@@ -474,54 +456,15 @@ struct ChallengeBuilderView: View {
                         .foregroundColor(.gray)
                 }
             }
-        case .pointsTarget:
-            VStack(spacing: 8) {
-                Slider(
-                    value: $targetPoints,
-                    in: pointsTargetRange,
-                    step: 50
-                )
-                .accentColor(Colors.primary)
-
-                HStack {
-                    Text("\(Int(pointsTargetRange.lowerBound)) pts")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                    Spacer()
-                    Text("\(Int(pointsTargetRange.upperBound)) pts")
-                        .font(.system(size: 12))
-                        .foregroundColor(.gray)
-                }
-            }
-        case .streak:
-            Stepper(value: $streakDays, in: 3...30) {
-                Text("\(streakDays) days in a row")
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(Colors.text)
-            }
         }
     }
 
     private func minuteRange(for type: ChallengeGoalType) -> ClosedRange<Double> {
-        switch type {
-        case .dailyMinutes:
-            return 15...240
-        case .weeklyMinutes:
-            return 60...1440
-        case .specificApps:
-            return 15...360
-        default:
-            return 30...360
-        }
+        return 15...240
     }
 
     private func minuteStep(for type: ChallengeGoalType) -> Double {
-        switch type {
-        case .weeklyMinutes:
-            return 15
-        default:
-            return 5
-        }
+        return 5
     }
 
     private var pointsTargetRange: ClosedRange<Double> {
@@ -547,7 +490,7 @@ struct ChallengeBuilderView: View {
                     .font(.system(size: 14))
                     .foregroundColor(Colors.text.opacity(0.7))
             } else {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                VStack(spacing: 8) {
                     ForEach(appUsageViewModel.learningSnapshots) { snapshot in
                         AppSelectionRow(
                             token: snapshot.token,
@@ -592,7 +535,7 @@ struct ChallengeBuilderView: View {
                     .font(.system(size: 14))
                     .foregroundColor(Colors.text.opacity(0.7))
             } else {
-                LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 8) {
+                VStack(spacing: 8) {
                     ForEach(appUsageViewModel.rewardSnapshots) { snapshot in
                         AppSelectionRow(
                             token: snapshot.token,
@@ -682,27 +625,12 @@ struct ChallengeBuilderView: View {
     }
 
     private func normalizeTargets(for goalType: ChallengeGoalType) {
-        switch goalType {
-        case .dailyMinutes, .weeklyMinutes, .specificApps:
-            let range = minuteRange(for: goalType)
-            targetMinutes = min(max(targetMinutes, range.lowerBound), range.upperBound)
-        case .pointsTarget:
-            targetPoints = min(max(targetPoints, pointsTargetRange.lowerBound), pointsTargetRange.upperBound)
-        case .streak:
-            streakDays = min(max(streakDays, 3), 30)
-        }
+        let range = minuteRange(for: goalType)
+        targetMinutes = min(max(targetMinutes, range.lowerBound), range.upperBound)
     }
 
     private func saveChallenge() {
-        let targetValue: Int
-        switch goalType {
-        case .dailyMinutes, .weeklyMinutes, .specificApps:
-            targetValue = Int(targetMinutes)
-        case .streak:
-            targetValue = streakDays
-        case .pointsTarget:
-            targetValue = Int(targetPoints)
-        }
+        let targetValue = Int(targetMinutes)
 
         let learningIDs = Array(selectedLearningAppIDs)
         let rewardIDs = Array(selectedRewardAppIDs)
@@ -843,41 +771,53 @@ struct AppSelectionRow: View {
     var body: some View {
         Button(action: onToggle) {
             HStack(spacing: 12) {
-                // Checkmark on the left
-                if isSelected {
-                    Image(systemName: "checkmark.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(ChallengeBuilderView.Colors.primary)
-                } else {
-                    Image(systemName: "circle")
-                        .font(.system(size: 24))
-                        .foregroundColor(ChallengeBuilderView.Colors.border.opacity(0.5))
-                }
-
-                // App icon
+                // App icon - standardized smaller size
                 if #available(iOS 15.2, *) {
                     Label(token)
                         .labelStyle(.iconOnly)
-                        .scaleEffect(2.5)
-                        .frame(width: 64, height: 64)
-                        .background(Color.clear)
-                        .cornerRadius(16)
+                        .scaleEffect(1.35)
+                        .frame(width: 34, height: 34)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
-                    RoundedRectangle(cornerRadius: 16)
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(Color.gray.opacity(0.1))
-                        .frame(width: 64, height: 64)
+                        .frame(width: 34, height: 34)
                         .overlay(
                             Image(systemName: "app.fill")
-                                .font(.system(size: 32))
+                                .font(.system(size: 18))
                                 .foregroundColor(.gray)
                         )
                 }
+
+                // App name
+                VStack(alignment: .leading, spacing: 4) {
+                    if #available(iOS 15.2, *) {
+                        Label(token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ChallengeBuilderView.Colors.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    } else {
+                        Text(displayName.isEmpty ? "App" : displayName)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ChallengeBuilderView.Colors.text)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
 
                 Spacer()
             }
             .padding(12)
             .frame(height: 88)
-            .background(ChallengeBuilderView.Colors.inputBackground)
+            .background(isSelected ? ChallengeBuilderView.Colors.primary.opacity(0.1) : ChallengeBuilderView.Colors.inputBackground)
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(isSelected ? ChallengeBuilderView.Colors.primary : ChallengeBuilderView.Colors.border.opacity(0.3), lineWidth: isSelected ? 2 : 1)
+            )
+            .cornerRadius(12)
         }
         .buttonStyle(.plain)
     }

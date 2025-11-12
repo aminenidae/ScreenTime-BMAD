@@ -25,39 +25,20 @@ enum ChallengeBuilderStep: Int, CaseIterable, Identifiable {
 
 /// All mutable state captured throughout the multi-step creation flow.
 struct ChallengeBuilderData: Equatable {
-    struct GoalValues: Equatable, Codable {
-        var dailyMinutes: Int = 60
-        var weeklyMinutes: Int = 120
-        var specificAppsMinutes: Int = 20
-        var streakDays: Int = 7
-        var points: Int = 500
-
-        func value(for type: ChallengeGoalType) -> Int {
-            switch type {
-            case .dailyMinutes: return dailyMinutes
-            case .weeklyMinutes: return weeklyMinutes
-            case .specificApps: return specificAppsMinutes
-            case .streak: return streakDays
-            case .pointsTarget: return points
-            }
-        }
-
-        mutating func setValue(_ value: Int, for type: ChallengeGoalType) {
-            switch type {
-            case .dailyMinutes: dailyMinutes = value
-            case .weeklyMinutes: weeklyMinutes = value
-            case .specificApps: specificAppsMinutes = value
-            case .streak: streakDays = value
-            case .pointsTarget: points = value
-            }
-        }
-    }
-
     struct GoalValueConfiguration {
         let range: ClosedRange<Int>
         let step: Int
         let defaultValue: Int
         let unit: String
+    }
+
+    struct StreakBonus: Equatable, Codable {
+        var enabled: Bool = false
+        var targetDays: Int = 7
+        var bonusPercentage: Int = 25
+
+        static let targetDaysRange: ClosedRange<Int> = 3...30
+        static let bonusRange: ClosedRange<Int> = 0...100
     }
 
     struct Schedule: Equatable, Codable {
@@ -114,61 +95,63 @@ struct ChallengeBuilderData: Equatable {
         }
     }
 
-    static let bonusRange: ClosedRange<Int> = 0...50
+    static let dailyMinutesRange: ClosedRange<Int> = 10...240
 
     var title: String = ""
     var description: String = ""
-    var goalType: ChallengeGoalType = .dailyMinutes
-    var goalValues = GoalValues()
+    var goalType: ChallengeGoalType = .dailyQuest
+    var dailyMinutesGoal: Int = 60
     var selectedLearningAppIDs: Set<String> = []
     var selectedRewardAppIDs: Set<String> = []
     var learningToRewardRatio: LearningToRewardRatio = .default
-    var bonusPercentage: Int = 25
+    var streakBonus = StreakBonus()
     var schedule = Schedule()
+    var progressTrackingMode: ProgressTrackingMode = .combined
 
     // MARK: - Derived helpers
     var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    /// Currently active goal value for the chosen goal type.
-    var activeGoalValue: Int {
-        goalValues.value(for: goalType)
-    }
-
-    var activeGoalConfiguration: GoalValueConfiguration {
-        Self.goalConfigurations[goalType] ?? GoalValueConfiguration(
-            range: 1...100,
-            step: 1,
-            defaultValue: 1,
-            unit: "units"
-        )
-    }
-
     var isDetailsStepValid: Bool {
-        !trimmedTitle.isEmpty && activeGoalValue >= activeGoalConfiguration.range.lowerBound
+        !trimmedTitle.isEmpty && Self.dailyMinutesRange.contains(dailyMinutesGoal)
     }
 
     var isRewardConfigValid: Bool {
-        learningToRewardRatio.rewardPerLearningMinute > 0 && Self.bonusRange.contains(bonusPercentage)
+        let ratioValid = learningToRewardRatio.rewardPerLearningMinute > 0
+        let streakValid = !streakBonus.enabled || (
+            StreakBonus.targetDaysRange.contains(streakBonus.targetDays) &&
+            StreakBonus.bonusRange.contains(streakBonus.bonusPercentage)
+        )
+        return ratioValid && streakValid
     }
 
     var isScheduleStepValid: Bool {
         schedule.isValid
     }
 
+    var isProgressTrackingModeValid: Bool {
+        // Per-app requires at least 2 apps selected
+        if progressTrackingMode == .perApp && selectedLearningAppIDs.count < 2 {
+            return false
+        }
+        return true
+    }
+
     var canSubmit: Bool {
-        isDetailsStepValid && isRewardConfigValid && isScheduleStepValid
+        isDetailsStepValid && isRewardConfigValid && isScheduleStepValid && isProgressTrackingModeValid
     }
 
-    mutating func setActiveGoalValue(_ value: Int) {
-        let configuration = activeGoalConfiguration
-        let clamped = configuration.range.clamp(value)
-        goalValues.setValue(clamped, for: goalType)
+    mutating func setDailyMinutesGoal(_ value: Int) {
+        dailyMinutesGoal = Self.dailyMinutesRange.clamp(value)
     }
 
-    mutating func setBonusPercentage(_ value: Int) {
-        bonusPercentage = Self.bonusRange.clamp(value)
+    mutating func setStreakTargetDays(_ value: Int) {
+        streakBonus.targetDays = StreakBonus.targetDaysRange.clamp(value)
+    }
+
+    mutating func setStreakBonusPercentage(_ value: Int) {
+        streakBonus.bonusPercentage = StreakBonus.bonusRange.clamp(value)
     }
 
     mutating func setLearningRatioMinutes(_ value: Int) {
@@ -184,18 +167,6 @@ struct ChallengeBuilderData: Equatable {
     mutating func applyRatioPreset(_ ratio: LearningToRewardRatio) {
         learningToRewardRatio = ratio
     }
-
-    static func goalConfiguration(for type: ChallengeGoalType) -> GoalValueConfiguration {
-        goalConfigurations[type] ?? GoalValueConfiguration(range: 1...100, step: 1, defaultValue: 1, unit: "units")
-    }
-
-    private static let goalConfigurations: [ChallengeGoalType: GoalValueConfiguration] = [
-        .dailyMinutes: GoalValueConfiguration(range: 10...240, step: 5, defaultValue: 60, unit: "min/day"),
-        .weeklyMinutes: GoalValueConfiguration(range: 30...840, step: 15, defaultValue: 120, unit: "min/week"),
-        .specificApps: GoalValueConfiguration(range: 5...180, step: 5, defaultValue: 20, unit: "min/app"),
-        .streak: GoalValueConfiguration(range: 3...30, step: 1, defaultValue: 7, unit: "days"),
-        .pointsTarget: GoalValueConfiguration(range: 100...5000, step: 50, defaultValue: 500, unit: "points")
-    ]
 }
 
 private extension ClosedRange where Bound: Comparable {

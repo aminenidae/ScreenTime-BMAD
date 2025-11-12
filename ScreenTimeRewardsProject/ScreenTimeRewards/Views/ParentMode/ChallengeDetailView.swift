@@ -445,14 +445,7 @@ struct ChallengeDetailView: View {
     }
 
     private var progressUnitDisplay: String {
-        switch challenge.goalTypeEnum {
-        case .pointsTarget:
-            return "pts"
-        case .streak:
-            return "days"
-        default:
-            return "min"
-        }
+        return "min"
     }
 
     private var progressHeadlineText: String {

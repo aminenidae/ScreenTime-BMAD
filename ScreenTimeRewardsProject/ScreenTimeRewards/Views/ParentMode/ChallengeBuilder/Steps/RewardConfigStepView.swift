@@ -17,7 +17,7 @@ struct RewardConfigStepView: View {
         VStack(alignment: .leading, spacing: 24) {
             ratioSection
             presetButtons
-            bonusSection
+            streakBonusSection
             previewCard
         }
         .padding(24)
@@ -36,7 +36,9 @@ struct RewardConfigStepView: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader(
                 title: "Learning to Reward Ratio",
-                subtitle: "Set how much reward time is earned per learning time."
+                subtitle: "Set how much reward time is earned per learning time.",
+                icon: "scale.3d",
+                color: AppTheme.playfulCoral
             )
 
             HStack(spacing: 12) {
@@ -44,6 +46,7 @@ struct RewardConfigStepView: View {
                     title: "Learning",
                     value: $learningInput,
                     focus: .learning,
+                    color: AppTheme.vibrantTeal,
                     onCommit: applyLearningInput
                 )
 
@@ -55,6 +58,7 @@ struct RewardConfigStepView: View {
                     title: "Reward",
                     value: $rewardInput,
                     focus: .reward,
+                    color: AppTheme.playfulCoral,
                     onCommit: applyRewardInput
                 )
             }
@@ -69,12 +73,19 @@ struct RewardConfigStepView: View {
         title: String,
         value: Binding<String>,
         focus: Field,
+        color: Color,
         onCommit: @escaping () -> Void
     ) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(title.uppercased())
-                .font(.system(size: 12, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.mutedText)
+            HStack(spacing: 4) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 8, height: 8)
+
+                Text(title.uppercased())
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(color)
+            }
 
             TextField("0", text: value)
                 .keyboardType(.numberPad)
@@ -197,38 +208,124 @@ struct RewardConfigStepView: View {
         return max(1, x)
     }
 
-    // MARK: - Bonus Section
-    private var bonusSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                Text("Bonus Percentage")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
-                Spacer()
-                Text("+\(data.bonusPercentage)%")
-                    .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(ChallengeBuilderTheme.primary)
-            }
-
-            Slider(
-                value: Binding(
-                    get: { Double(data.bonusPercentage) },
-                    set: { data.setBonusPercentage(Int($0)) }
-                ),
-                in: Double(ChallengeBuilderData.bonusRange.lowerBound)...Double(ChallengeBuilderData.bonusRange.upperBound),
-                step: 1
+    // MARK: - Streak Bonus Section
+    private var streakBonusSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(
+                title: "Streak Bonus (Optional)",
+                subtitle: "Reward consistency by granting bonus points for completing daily goals consecutively.",
+                icon: "flame.fill",
+                color: AppTheme.sunnyYellow
             )
-            .accentColor(ChallengeBuilderTheme.primary)
 
-            Picker("Bonus Percentage", selection: Binding(
-                get: { data.bonusPercentage },
-                set: { data.setBonusPercentage($0) }
-            )) {
-                ForEach(bonusOptions, id: \.self) { value in
-                    Text("\(value)%").tag(value)
+            Toggle(isOn: $data.streakBonus.enabled) {
+                HStack(spacing: 8) {
+                    Image(systemName: data.streakBonus.enabled ? "checkmark.circle.fill" : "circle")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(data.streakBonus.enabled ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
+
+                    Text("Enable Streak Bonus")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(ChallengeBuilderTheme.text)
                 }
             }
-            .pickerStyle(.segmented)
+            .toggleStyle(.switch)
+            .tint(AppTheme.vibrantTeal)
+
+            if data.streakBonus.enabled {
+                VStack(spacing: 16) {
+                    // Streak Target Days
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                Image(systemName: "calendar")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(AppTheme.playfulCoral)
+
+                                Text("Streak Target")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(ChallengeBuilderTheme.text)
+                            }
+
+                            Spacer()
+
+                            HStack(spacing: 4) {
+                                Text("\(data.streakBonus.targetDays)")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(AppTheme.playfulCoral)
+
+                                Text("days")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+                            }
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(data.streakBonus.targetDays) },
+                                set: { data.setStreakTargetDays(Int($0)) }
+                            ),
+                            in: Double(ChallengeBuilderData.StreakBonus.targetDaysRange.lowerBound)...Double(ChallengeBuilderData.StreakBonus.targetDaysRange.upperBound),
+                            step: 1
+                        )
+                        .accentColor(ChallengeBuilderTheme.primary)
+
+                        Text("Complete the daily goal for this many consecutive days to earn the bonus.")
+                            .font(.system(size: 13))
+                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    }
+
+                    // Bonus Percentage
+                    VStack(alignment: .leading, spacing: 12) {
+                        HStack {
+                            HStack(spacing: 6) {
+                                Image(systemName: "sparkles")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(AppTheme.sunnyYellow)
+
+                                Text("Bonus Points")
+                                    .font(.system(size: 16, weight: .semibold))
+                                    .foregroundColor(ChallengeBuilderTheme.text)
+                            }
+
+                            Spacer()
+
+                            HStack(spacing: 4) {
+                                Text("+\(data.streakBonus.bonusPercentage)")
+                                    .font(.system(size: 20, weight: .bold))
+                                    .foregroundColor(AppTheme.sunnyYellow)
+
+                                Text("%")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+                            }
+                        }
+
+                        Slider(
+                            value: Binding(
+                                get: { Double(data.streakBonus.bonusPercentage) },
+                                set: { data.setStreakBonusPercentage(Int($0)) }
+                            ),
+                            in: Double(ChallengeBuilderData.StreakBonus.bonusRange.lowerBound)...Double(ChallengeBuilderData.StreakBonus.bonusRange.upperBound),
+                            step: 5
+                        )
+                        .accentColor(ChallengeBuilderTheme.primary)
+
+                        Text("Additional points earned when streak target is reached.")
+                            .font(.system(size: 13))
+                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    }
+                }
+                .padding(16)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(AppTheme.sunnyYellow.opacity(0.1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 1)
+                        )
+                )
+            }
         }
     }
 
@@ -236,30 +333,79 @@ struct RewardConfigStepView: View {
     private var previewCard: some View {
         let learningMinutes = previewLearningMinutes
         let baseReward = data.learningToRewardRatio.rewardMinutes(forLearningMinutes: learningMinutes)
-        let totalReward = data.learningToRewardRatio.rewardMinutes(forLearningMinutes: learningMinutes, bonusPercentage: data.bonusPercentage)
 
         return VStack(alignment: .leading, spacing: 12) {
-            Text("📊 Reward Calculation")
-                .font(.system(size: 17, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 8) {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(AppTheme.vibrantTeal)
 
-            Text("\(learningMinutes) minutes of learning = \(formattedMinutes(baseReward)) minutes reward")
-                .font(.system(size: 15))
-                .foregroundColor(ChallengeBuilderTheme.text)
+                Text("Reward Calculation")
+                    .font(.system(size: 17, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
 
-            Text("+\(data.bonusPercentage)% bonus = \(formattedMinutes(totalReward)) total reward minutes")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.primary)
+            HStack(spacing: 4) {
+                Text("\(learningMinutes)")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("min learning =")
+                    .font(.system(size: 15))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+
+                Text("\(formattedMinutes(baseReward))")
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(AppTheme.playfulCoral)
+
+                Text("min reward")
+                    .font(.system(size: 15))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
+            if data.streakBonus.enabled {
+                VStack(alignment: .leading, spacing: 8) {
+                    Divider()
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "flame.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppTheme.sunnyYellow)
+
+                        Text("Streak Bonus:")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundColor(ChallengeBuilderTheme.text)
+
+                        Text("Complete \(data.streakBonus.targetDays) days → +\(data.streakBonus.bonusPercentage)% points")
+                            .font(.system(size: 14))
+                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    }
+                }
+            }
         }
         .padding(20)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(ChallengeBuilderTheme.inputBackground.opacity(0.8))
+                .fill(
+                    LinearGradient(
+                        colors: [
+                            AppTheme.vibrantTeal.opacity(0.05),
+                            AppTheme.playfulCoral.opacity(0.05),
+                            AppTheme.sunnyYellow.opacity(0.05)
+                        ],
+                        startPoint: .topLeading,
+                        endPoint: .bottomTrailing
+                    )
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .strokeBorder(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1)
+                )
         )
     }
 
     private var previewLearningMinutes: Int {
-        max(30, data.activeGoalValue)
+        max(30, data.dailyMinutesGoal)
     }
 
     private func formattedMinutes(_ value: Double) -> String {
@@ -269,11 +415,18 @@ struct RewardConfigStepView: View {
         return String(format: "%.1f", value)
     }
 
-    private func sectionHeader(title: String, subtitle: String) -> some View {
+    private func sectionHeader(title: String, subtitle: String, icon: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(color)
+
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             Text(subtitle)
                 .font(.system(size: 14))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)

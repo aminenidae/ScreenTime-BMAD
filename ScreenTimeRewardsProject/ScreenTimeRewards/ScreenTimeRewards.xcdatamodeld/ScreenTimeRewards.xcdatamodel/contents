@@ -36,6 +36,28 @@
             <fetchIndexElement property="childDeviceID" type="Binary" order="ascending"/>
         </fetchIndex>
     </entity>
+    <entity name="AppProgress" representedClassName="AppProgress" syncable="YES">
+        <attribute name="appLogicalID" optional="YES" attributeType="String"/>
+        <attribute name="appProgressID" optional="YES" attributeType="String"/>
+        <attribute name="challengeID" optional="YES" attributeType="String"/>
+        <attribute name="currentMinutes" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="isCompleted" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="lastUpdated" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="targetMinutes" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <fetchIndex name="byappProgressID">
+            <fetchIndexElement property="appProgressID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="bychallengeID">
+            <fetchIndexElement property="challengeID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byappLogicalID">
+            <fetchIndexElement property="appLogicalID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="bychallengeAndApp">
+            <fetchIndexElement property="challengeID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="appLogicalID" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
     <entity name="Challenge" representedClassName="Challenge" syncable="YES">
         <attribute name="assignedTo" optional="YES" attributeType="String"/>
         <attribute name="bonusPercentage" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
@@ -54,6 +76,10 @@
     <attribute name="learningToRewardRatioData" optional="YES" attributeType="String"/>
         <attribute name="targetValue" optional="YES" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="title" optional="YES" attributeType="String"/>
+        <attribute name="progressTrackingMode" optional="YES" attributeType="String" defaultValueString="combined"/>
+        <attribute name="streakBonusEnabled" optional="YES" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="streakTargetDays" optional="YES" attributeType="Integer 16" defaultValueString="7" usesScalarValueType="YES"/>
+        <attribute name="streakBonusPercentage" optional="YES" attributeType="Integer 16" defaultValueString="25" usesScalarValueType="YES"/>
         <fetchIndex name="byassignedTo">
             <fetchIndexElement property="assignedTo" type="Binary" order="ascending"/>
         </fetchIndex>

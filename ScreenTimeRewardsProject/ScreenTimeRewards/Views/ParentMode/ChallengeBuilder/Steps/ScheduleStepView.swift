@@ -15,7 +15,7 @@ struct ScheduleStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
-            sectionHeader("Schedule", subtitle: "Define when this challenge is active.")
+            sectionHeader("Schedule", subtitle: "Define when this challenge is active.", icon: "calendar.circle.fill", color: AppTheme.vibrantTeal)
             dateRangeSection
             repeatSection
             daySelectionSection
@@ -32,9 +32,15 @@ struct ScheduleStepView: View {
     // MARK: - Date Range
     private var dateRangeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Date Range")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 6) {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.playfulCoral)
+
+                Text("Date Range")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
 
             DatePicker(
                 "Start Date",
@@ -101,15 +107,23 @@ struct ScheduleStepView: View {
     private var daySelectionSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("Active Days")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
+                HStack(spacing: 6) {
+                    Image(systemName: "checkmark.circle.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(AppTheme.vibrantTeal)
+
+                    Text("Active Days")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(ChallengeBuilderTheme.text)
+                }
+
                 Spacer()
+
                 Button("Clear") {
                     schedule.activeDays.removeAll()
                 }
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.primary)
+                .foregroundColor(AppTheme.playfulCoral)
             }
 
             FlexibleDayGrid(
@@ -180,9 +194,16 @@ struct ScheduleStepView: View {
     // MARK: - Helper Card
     private var helperCard: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Scheduling Tips")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.primary)
+            HStack(spacing: 6) {
+                Image(systemName: "lightbulb.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(AppTheme.sunnyYellow)
+
+                Text("Scheduling Tips")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             Text("Use Full Day for simple goals. Custom times work best for after-school or evening routines.")
                 .font(.system(size: 14))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)
@@ -190,15 +211,26 @@ struct ScheduleStepView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(ChallengeBuilderTheme.inputBackground.opacity(0.8))
+                .fill(AppTheme.sunnyYellow.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 1)
+                )
         )
     }
 
-    private func sectionHeader(_ title: String, subtitle: String) -> some View {
+    private func sectionHeader(_ title: String, subtitle: String, icon: String, color: Color) -> some View {
         VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 8) {
+                Image(systemName: icon)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(color)
+
+                Text(title)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             Text(subtitle)
                 .font(.system(size: 14))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)

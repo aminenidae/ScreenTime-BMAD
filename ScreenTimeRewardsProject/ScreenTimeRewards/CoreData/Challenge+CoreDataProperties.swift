@@ -35,6 +35,10 @@ extension Challenge {
     @NSManaged public var assignedTo: String?
     @NSManaged public var activeDays: String?
     @NSManaged public var learningToRewardRatioData: String?
+    @NSManaged public var progressTrackingMode: String?
+    @NSManaged public var streakBonusEnabled: Bool
+    @NSManaged public var streakTargetDays: Int16
+    @NSManaged public var streakBonusPercentage: Int16
 
 }
 

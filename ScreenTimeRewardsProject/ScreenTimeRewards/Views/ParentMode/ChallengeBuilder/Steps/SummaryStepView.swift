@@ -21,24 +21,28 @@ struct SummaryStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            summarySection(title: "Challenge Overview", step: .details) {
+            summarySection(title: "Challenge Overview", step: .details, icon: "star.circle.fill", color: AppTheme.sunnyYellow) {
                 summaryRow(title: "Name", value: data.trimmedTitle.isEmpty ? "Untitled Challenge" : data.trimmedTitle)
-                summaryRow(title: "Goal Type", value: data.goalType.displayName)
-                summaryRow(title: "Target", value: "\(data.activeGoalValue) \(data.activeGoalConfiguration.unit)")
+                summaryRow(title: "Daily Goal", value: "\(data.dailyMinutesGoal) minutes")
                 if !data.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                     summaryRow(title: "Description", value: data.description)
                 }
             }
 
-            summarySection(title: "Learning Apps", step: .learningApps) {
+            summarySection(title: "Learning Apps", step: .learningApps, icon: "book.circle.fill", color: AppTheme.vibrantTeal) {
                 if learningAppTokens.isEmpty {
                     summaryRow(title: "Apps", value: "All learning apps")
                 } else {
                     iconGrid(for: learningAppTokens)
                 }
+
+                // Show tracking mode if multiple apps selected
+                if !data.selectedLearningAppIDs.isEmpty && data.selectedLearningAppIDs.count >= 2 {
+                    summaryRow(title: "Tracking", value: data.progressTrackingMode.displayName)
+                }
             }
 
-            summarySection(title: "Reward Apps", step: .rewardApps) {
+            summarySection(title: "Reward Apps", step: .rewardApps, icon: "gift.circle.fill", color: AppTheme.playfulCoral) {
                 if data.selectedRewardAppIDs.isEmpty {
                     summaryRow(title: "Rewards", value: "No apps will be unlocked")
                 } else {
@@ -46,12 +50,16 @@ struct SummaryStepView: View {
                 }
             }
 
-            summarySection(title: "Rewards & Bonus", step: .rewardConfig) {
+            summarySection(title: "Rewards & Bonus", step: .rewardConfig, icon: "sparkles.circle.fill", color: AppTheme.sunnyYellow) {
                 summaryRow(title: "Ratio", value: data.learningToRewardRatio.formattedDescription)
-                summaryRow(title: "Bonus", value: "+\(data.bonusPercentage)%")
+                if data.streakBonus.enabled {
+                    summaryRow(title: "Streak Bonus", value: "\(data.streakBonus.targetDays) days → +\(data.streakBonus.bonusPercentage)%")
+                } else {
+                    summaryRow(title: "Streak Bonus", value: "Not enabled")
+                }
             }
 
-            summarySection(title: "Schedule", step: .schedule) {
+            summarySection(title: "Schedule", step: .schedule, icon: "calendar.circle.fill", color: AppTheme.vibrantTeal) {
                 summaryRow(title: "Starts", value: dayFormatter.string(from: data.schedule.startDate))
                 if data.schedule.hasEndDate, let endDate = data.schedule.endDate {
                     summaryRow(title: "Ends", value: dayFormatter.string(from: endDate))
@@ -83,25 +91,40 @@ struct SummaryStepView: View {
     private func summarySection<Content: View>(
         title: String,
         step: ChallengeBuilderStep,
+        icon: String,
+        color: Color,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text(title)
-                    .font(.system(size: 17, weight: .bold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
+                HStack(spacing: 8) {
+                    Image(systemName: icon)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(color)
+
+                    Text(title)
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(ChallengeBuilderTheme.text)
+                }
+
                 Spacer()
+
                 Button("Edit") {
                     onEdit(step)
                 }
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(ChallengeBuilderTheme.primary)
+                .foregroundColor(color)
             }
+
             VStack(spacing: 10, content: content)
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(ChallengeBuilderTheme.inputBackground.opacity(0.6))
+                        .fill(color.opacity(0.08))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .strokeBorder(color.opacity(0.25), lineWidth: 1)
+                        )
                 )
         }
     }

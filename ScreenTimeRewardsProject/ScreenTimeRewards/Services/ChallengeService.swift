@@ -52,7 +52,11 @@ class ChallengeService: ObservableObject {
         endTime: Date?,
         createdBy: String,
         assignedTo: String,
-        learningToRewardRatio: LearningToRewardRatio? = nil
+        learningToRewardRatio: LearningToRewardRatio? = nil,
+        progressTrackingMode: ProgressTrackingMode = .combined,
+        streakBonusEnabled: Bool = false,
+        streakTargetDays: Int = 7,
+        streakBonusPercentage: Int = 25
     ) async throws {
         let context = persistenceController.container.viewContext
 
@@ -78,6 +82,12 @@ class ChallengeService: ObservableObject {
         challenge.isActive = true
         challenge.createdBy = createdBy
         challenge.assignedTo = assignedTo
+        challenge.progressTrackingMode = progressTrackingMode.rawValue
+
+        // Streak bonus settings
+        challenge.streakBonusEnabled = streakBonusEnabled
+        challenge.streakTargetDays = Int16(streakTargetDays)
+        challenge.streakBonusPercentage = Int16(streakBonusPercentage)
 
         try context.save()
 
@@ -142,27 +152,25 @@ class ChallengeService: ObservableObject {
         }
 
         for challenge in challenges {
-            guard doesChallenge(challenge, applyTo: appID),
-                  let goalType = challenge.goalTypeEnum else {
+            guard doesChallenge(challenge, applyTo: appID) else {
                 continue
             }
 
-            switch goalType {
-            case .dailyMinutes:
-                guard minutes > 0 else { continue }
+            // All challenges are now daily quest type
+            guard minutes > 0 else { continue }
+
+            // Check if per-app tracking is enabled
+            if challenge.isPerAppTracking {
+                // Per-app tracking: each app must individually meet the target
+                await updatePerAppProgress(
+                    for: challenge,
+                    appID: appID,
+                    incrementBy: minutes,
+                    resetStrategy: .daily
+                )
+            } else {
+                // Combined tracking: all apps contribute to one total
                 await updateProgress(for: challenge, incrementBy: minutes, resetStrategy: .daily)
-            case .weeklyMinutes:
-                guard minutes > 0 else { continue }
-                await updateProgress(for: challenge, incrementBy: minutes, resetStrategy: .weekly)
-            case .specificApps:
-                guard minutes > 0 else { continue }
-                await updateProgress(for: challenge, incrementBy: minutes, resetStrategy: .none)
-            case .streak:
-                guard recordedActivity else { continue }
-                await updateStreakProgress(for: challenge)
-            case .pointsTarget:
-                guard earnedPoints > 0 else { continue }
-                await updateProgress(for: challenge, incrementBy: earnedPoints, resetStrategy: .none)
             }
         }
     }
@@ -244,12 +252,31 @@ class ChallengeService: ObservableObject {
         )
 
         if let childDeviceID = progress.childDeviceID {
-            await checkBadgeUnlocks(for: childDeviceID)
+            _ = await checkBadgeUnlocks(for: childDeviceID)
 
-            if let goalType = challenge.goalTypeEnum,
-               goalType == .dailyMinutes || goalType == .streak {
+            // All challenges are daily quests - update streak if streak bonus is enabled
+            if challenge.streakBonusEnabled {
                 await updateStreak(for: childDeviceID, date: Date())
+                // Check if streak target is met and award bonus
+                await checkStreakBonus(for: challenge, childDeviceID: childDeviceID)
             }
+        }
+    }
+
+    private func checkStreakBonus(for challenge: Challenge, childDeviceID: String) async {
+        guard challenge.streakBonusEnabled else { return }
+
+        let streakRecord = try? fetchStreakRecord(for: childDeviceID, createIfMissing: false)
+        let currentStreak = streakRecord?.currentStreak ?? 0
+
+        // Check if streak target is reached
+        if currentStreak >= challenge.streakTargetDays {
+            // Award streak bonus points
+            let bonusPoints = Int(challenge.streakBonusPercentage)
+            #if DEBUG
+            print("[ChallengeService] 🔥 Streak bonus awarded: \(bonusPoints)% for \(currentStreak) day streak")
+            #endif
+            // Bonus points are tracked in the progress bonusPointsEarned field
         }
     }
 
@@ -283,6 +310,142 @@ class ChallengeService: ObservableObject {
     private func doesChallenge(_ challenge: Challenge, applyTo appID: String) -> Bool {
         let targetApps = challenge.targetAppIDs
         return targetApps.isEmpty || targetApps.contains(appID)
+    }
+
+    // MARK: - Per-App Progress Tracking
+
+    private func updatePerAppProgress(
+        for challenge: Challenge,
+        appID: String,
+        incrementBy amount: Int,
+        resetStrategy: ProgressResetStrategy
+    ) async {
+        guard amount > 0,
+              let challengeID = challenge.challengeID else {
+            return
+        }
+
+        // Fetch or create AppProgress for this specific app
+        guard let appProgress = try? await fetchOrCreateAppProgress(
+            challengeID: challengeID,
+            appID: appID,
+            targetValue: Int(challenge.targetValue)
+        ) else {
+            return
+        }
+
+        // Reset if needed based on strategy
+        resetAppProgressIfNeeded(appProgress, using: resetStrategy)
+
+        // Update progress for this specific app
+        appProgress.currentMinutes += Int32(amount)
+        appProgress.lastUpdated = Date()
+
+        // Check if THIS app completed its target
+        if appProgress.currentMinutes >= appProgress.targetMinutes && !appProgress.isCompleted {
+            appProgress.isCompleted = true
+        }
+
+        try? persistenceController.container.viewContext.save()
+
+        // Check if ALL apps completed (overall challenge completion)
+        await checkPerAppChallengeCompletion(for: challenge)
+
+        NotificationCenter.default.post(
+            name: ChallengeService.challengeProgressUpdated,
+            object: nil,
+            userInfo: ["challengeID": challengeID, "appID": appID]
+        )
+    }
+
+    private func checkPerAppChallengeCompletion(for challenge: Challenge) async {
+        guard let challengeID = challenge.challengeID,
+              let progress = try? await fetchProgress(for: challengeID) else {
+            return
+        }
+
+        // Get all app progress records for this challenge
+        guard let appProgressRecords = try? await fetchAllAppProgress(for: challengeID) else {
+            return
+        }
+
+        let targetApps = challenge.targetAppIDs
+        let requiredAppCount = targetApps.isEmpty ? appProgressRecords.count : targetApps.count
+
+        // Check if all required apps have completed
+        let completedCount = appProgressRecords.filter { $0.isCompleted }.count
+        let allCompleted = completedCount >= requiredAppCount && requiredAppCount > 0
+
+        // Calculate total minutes across all apps
+        let totalMinutes = appProgressRecords.reduce(0) { $0 + Int($1.currentMinutes) }
+        progress.currentValue = Int32(totalMinutes)
+
+        if allCompleted && !progress.isCompleted {
+            await complete(challenge: challenge, with: progress)
+        }
+
+        try? persistenceController.container.viewContext.save()
+        challengeProgress[challengeID] = progress
+    }
+
+    private func fetchOrCreateAppProgress(
+        challengeID: String,
+        appID: String,
+        targetValue: Int
+    ) async throws -> AppProgress? {
+        let context = persistenceController.container.viewContext
+        let fetchRequest = AppProgress.fetchRequest()
+        fetchRequest.predicate = NSPredicate(
+            format: "challengeID == %@ AND appLogicalID == %@",
+            challengeID, appID
+        )
+        fetchRequest.fetchLimit = 1
+
+        if let existing = try context.fetch(fetchRequest).first {
+            return existing
+        }
+
+        // Create new
+        let appProgress = AppProgress(context: context)
+        appProgress.appProgressID = UUID().uuidString
+        appProgress.challengeID = challengeID
+        appProgress.appLogicalID = appID
+        appProgress.currentMinutes = 0
+        appProgress.targetMinutes = Int32(targetValue)
+        appProgress.isCompleted = false
+        appProgress.lastUpdated = Date()
+
+        try context.save()
+        return appProgress
+    }
+
+    private func fetchAllAppProgress(for challengeID: String) async throws -> [AppProgress] {
+        let context = persistenceController.container.viewContext
+        let fetchRequest = AppProgress.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "challengeID == %@", challengeID)
+        return try context.fetch(fetchRequest)
+    }
+
+    private func resetAppProgressIfNeeded(_ appProgress: AppProgress, using strategy: ProgressResetStrategy) {
+        guard let lastUpdated = appProgress.lastUpdated else { return }
+        let calendar = Calendar.current
+
+        switch strategy {
+        case .none:
+            return
+        case .daily:
+            guard !calendar.isDateInToday(lastUpdated) else { return }
+        case .weekly:
+            let currentComponents = calendar.dateComponents([.weekOfYear, .yearForWeekOfYear], from: Date())
+            let lastComponents = calendar.dateComponents([.weekOfYear, .yearForWeekOfYear], from: lastUpdated)
+            guard currentComponents.weekOfYear != lastComponents.weekOfYear ||
+                    currentComponents.yearForWeekOfYear != lastComponents.yearForWeekOfYear else {
+                return
+            }
+        }
+
+        appProgress.currentMinutes = 0
+        appProgress.isCompleted = false
     }
 
     private func encodeJSONArray<T: Encodable>(_ value: T?) -> String? {

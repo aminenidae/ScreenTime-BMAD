@@ -1,27 +1,58 @@
 import SwiftUI
 
+/// ChallengeBuilderTheme now uses the centralized AppTheme for consistency
+/// This maintains backward compatibility while ensuring uniform styling
 enum ChallengeBuilderTheme {
-    static let primary = Color(hex: "#007AFF")
-    static let secondary = Color(hex: "#34C759")
-    static let background = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#000000") : UIColor(hex: "#F2F2F7")
-    })
-    static let cardBackground = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#1C1C1E") : UIColor.white
-    })
-    static let surface = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#1C1C1E") : UIColor.white
-    })
-    static let inputBackground = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#2C2C2E") : UIColor(hex: "#F2F2F7")
-    })
-    static let text = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#F2F2F7") : UIColor(hex: "#1C1C1E")
-    })
-    static let mutedText = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#8E8E93") : UIColor(hex: "#6E6E73")
-    })
-    static let border = Color(UIColor { traitCollection in
-        traitCollection.userInterfaceStyle == .dark ? UIColor(hex: "#3A3A3C") : UIColor(hex: "#E5E5EA")
-    })
+    static let primary = AppTheme.vibrantTeal
+    static let secondary = AppTheme.sunnyYellow
+
+    static var background: Color {
+        // Use dynamic color based on current color scheme
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.background(for: scheme))
+        })
+    }
+
+    static var cardBackground: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.card(for: scheme))
+        })
+    }
+
+    static var surface: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.card(for: scheme))
+        })
+    }
+
+    static var inputBackground: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.card(for: scheme))
+        })
+    }
+
+    static var text: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.textPrimary(for: scheme))
+        })
+    }
+
+    static var mutedText: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.textSecondary(for: scheme))
+        })
+    }
+
+    static var border: Color {
+        Color(UIColor { traitCollection in
+            let scheme: ColorScheme = traitCollection.userInterfaceStyle == .dark ? .dark : .light
+            return UIColor(AppTheme.border(for: scheme))
+        })
+    }
 }

@@ -25,17 +25,37 @@ struct RewardAppsStepView: View {
 
     private var header: some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text("Choose Reward Apps")
-                .font(.system(size: 20, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.text)
+            HStack(spacing: 8) {
+                Image(systemName: "gift.circle.fill")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(AppTheme.playfulCoral)
+
+                Text("Choose Reward Apps")
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             Text("Which apps will be unlocked as rewards?")
                 .font(.system(size: 15))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)
 
             if !selectedAppIDs.isEmpty {
-                Text("\(selectedAppIDs.count) selected")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(ChallengeBuilderTheme.primary)
+                HStack(spacing: 6) {
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.playfulCoral.opacity(0.2))
+                            .frame(width: 22, height: 22)
+
+                        Text("\(selectedAppIDs.count)")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(AppTheme.playfulCoral)
+                    }
+
+                    Text("selected")
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundColor(ChallengeBuilderTheme.text)
+                }
+                .padding(.top, 4)
             }
         }
     }
@@ -45,7 +65,7 @@ struct RewardAppsStepView: View {
     }
 
     private var selectionList: some View {
-        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 12) {
+        VStack(spacing: 12) {
             ForEach(rewardSnapshots) { snapshot in
                 row(for: snapshot)
             }
@@ -97,10 +117,17 @@ struct RewardAppsStepView: View {
     }
 
     private var helperText: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Optional")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(ChallengeBuilderTheme.secondary)
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "star.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.sunnyYellow)
+
+                Text("Optional")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             Text("Select apps that unlock when the challenge is completed. Leave empty for no rewards.")
                 .font(.system(size: 14))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)
@@ -108,7 +135,11 @@ struct RewardAppsStepView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(ChallengeBuilderTheme.inputBackground.opacity(0.7))
+                .fill(AppTheme.playfulCoral.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(AppTheme.playfulCoral.opacity(0.25), lineWidth: 1)
+                )
         )
     }
 }
