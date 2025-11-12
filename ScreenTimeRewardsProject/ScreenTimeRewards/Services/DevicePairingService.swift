@@ -6,6 +6,7 @@ import CoreData
 
 enum PairingError: LocalizedError {
     case maxParentsReached
+    case deviceLimitReached
     case shareNotFound
     case invalidQRCode
     case networkError(Error)
@@ -14,6 +15,8 @@ enum PairingError: LocalizedError {
         switch self {
         case .maxParentsReached:
             return "This child device is already paired with the maximum number of parent devices (2). Please unpair from one parent before adding another."
+        case .deviceLimitReached:
+            return "Device limit reached. Upgrade to the Family plan to add more child devices."
         case .shareNotFound:
             return "Pairing invitation not found or expired."
         case .invalidQRCode:
@@ -224,6 +227,12 @@ class DevicePairingService: ObservableObject {
         #if DEBUG
         print("[DevicePairingService] ===== Creating Pairing Session with CloudKit Sharing =====")
         #endif
+
+        // Enforce subscription child-device limit before allowing another pairing
+        let currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
+        guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
+            throw PairingError.deviceLimitReached
+        }
 
         isPairing = true
         defer { isPairing = false }

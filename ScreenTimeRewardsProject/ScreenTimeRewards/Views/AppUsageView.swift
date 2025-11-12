@@ -221,23 +221,6 @@ struct AppUsageView: View {
                 Text("The app selector is not responding. Please try again.")
             }
         }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            CategoryAssignmentView(
-                selection: viewModel.familySelection,
-                categoryAssignments: $viewModel.categoryAssignments,
-                rewardPoints: $viewModel.rewardPoints,
-                fixedCategory: nil,  // Allow manual categorization in old view
-                usageTimes: viewModel.getUsageTimes(),  // Pass usage times for display
-                onSave: {
-                    viewModel.onCategoryAssignmentSave()
-                },
-                onCancel: {
-                    viewModel.cancelCategoryAssignment()
-                }
-            )
-            // Task M: Pass ViewModel reference to CategoryAssignmentView for duplicate assignment validation
-            .environmentObject(viewModel)
-        }
     }
 }
 
@@ -411,20 +394,12 @@ private extension AppUsageView {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
                     .multilineTextAlignment(.center)
-                
-                Button(action: {
-                    #if DEBUG
-                    print("[AppUsageView] Reopen category assignment requested")
-                    #endif
-                    viewModel.openCategoryAssignmentForAdjustment()
-                }) {
-                    Text("Adjust Categories & Rewards")
-                        .frame(maxWidth: .infinity)
-                        .padding()
-                        .background(Color.blue)
-                        .foregroundColor(.white)
-                        .cornerRadius(10)
-                }
+
+                Text("Manual adjustments are disabled. Use the Learning or Reward pickers and the app will auto-assign 10 pts/min once you finish selecting.")
+                    .font(.footnote)
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal)
             }
             .padding()
             .background(Color(UIColor.secondarySystemBackground))

@@ -9,6 +9,7 @@ struct ParentPairingView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var cloudKitAvailable = false
+    @State private var showSubscriptionPaywall = false
 
     var body: some View {
         VStack(spacing: 30) {
@@ -105,6 +106,9 @@ struct ParentPairingView: View {
         .onAppear {
             checkCloudKitAndGenerate()
         }
+        .sheet(isPresented: $showSubscriptionPaywall) {
+            SubscriptionPaywallView()
+        }
     }
 
     private func checkCloudKitAndGenerate() {
@@ -148,6 +152,9 @@ struct ParentPairingView: View {
                 await MainActor.run {
                     self.errorMessage = "Failed to create pairing session: \(error.localizedDescription)"
                     self.isGenerating = false
+                    if case PairingError.deviceLimitReached = error {
+                        self.showSubscriptionPaywall = true
+                    }
                 }
                 
                 #if DEBUG
@@ -172,5 +179,6 @@ struct ParentPairingView: View {
 struct ParentPairingView_Previews: PreviewProvider {
     static var previews: some View {
         ParentPairingView()
+            .environmentObject(SubscriptionManager.shared)
     }
 }

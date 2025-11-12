@@ -21,6 +21,7 @@ struct CategoryAssignmentView: View {
     let usageTimes: [ApplicationToken: TimeInterval]
     var onSave: () -> Void
     var onCancel: () -> Void = {}
+    var quickMode: Bool = false
 
     @State private var localCategoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     @State private var localRewardPoints: [ApplicationToken: Int] = [:]
@@ -86,23 +87,31 @@ struct CategoryAssignmentView: View {
     }
 
     var body: some View {
-        NavigationView {
-            List {
-                headerSection
-                // Task M: Add duplicate assignment error display using @Published state
-                if let error = duplicateAssignmentError {
-                    errorSection(error)
+        Group {
+            if quickMode {
+                quickModeBody
+            } else {
+                NavigationView {
+                    List {
+                        headerSection
+                        if let error = duplicateAssignmentError {
+                            errorSection(error)
+                        }
+                        applicationsSection
+                        Section { categorySummary }
+                        Section { rewardPointsSummary }
+                    }
+                    .navigationTitle("Assign Categories & Rewards")
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar { toolbarContent }
+                    .onAppear(perform: initializeAssignments)
                 }
-                applicationsSection
-                Section { categorySummary }
-                Section { rewardPointsSummary }
             }
-            .navigationTitle("Assign Categories & Rewards")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar { toolbarContent }
-            .onAppear(perform: initializeAssignments)
-            // Task M: Listen for duplicate assignment errors through @Published state
-            // Removed NotificationCenter observer since we're using @Published state directly
+        }
+        .onAppear {
+            if quickMode {
+                initializeAssignments()
+            }
         }
     }
     
@@ -189,21 +198,8 @@ struct CategoryAssignmentView: View {
     }
 
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
-        switch category {
-        case .learning:
-            return 5  // Learning: minimum 5 points
-        case .reward:
-            return 5  // Reward: minimum 5 points
-        }
-    }
-
-    private func pointsRange(for category: AppUsage.AppCategory) -> (min: Int, max: Int, step: Int) {
-        switch category {
-        case .learning:
-            return (5, 500, 5)  // Learning: 5-500, step by 5
-        case .reward:
-            return (5, 1000, 5)  // Reward: 5-1000, step by 5
-        }
+        // Keep defaults aligned with the tabs: all apps start at 10 pts/min
+        return 10
     }
 
     private func pointsLabel(for category: AppUsage.AppCategory) -> String {
@@ -356,24 +352,11 @@ private extension CategoryAssignmentView {
     @ViewBuilder
     func pointsRow(for entry: CategoryAssignmentEntry) -> some View {
         let category = fixedCategory ?? localCategoryAssignments[entry.token] ?? .learning
-        let (minPoints, maxPoints, stepValue) = pointsRange(for: category)
         HStack {
             Text(pointsLabel(for: category))
             Spacer()
-            Stepper(
-                "\(localRewardPoints[entry.token] ?? minPoints)",
-                value: Binding(
-                    get: { localRewardPoints[entry.token] ?? minPoints },
-                    set: { 
-                        localRewardPoints[entry.token] = $0
-                        // Task M: Validate assignments immediately when points change using @Published state
-                        validateAssignments()
-                    }
-                ),
-                in: minPoints...maxPoints,
-                step: stepValue
-            )
-            .frame(width: 140)
+            Text("\(localRewardPoints[entry.token] ?? getDefaultRewardPoints(for: category)) pts/min")
+                .foregroundColor(.secondary)
         }
     }
 
@@ -531,12 +514,16 @@ private extension CategoryAssignmentView {
         #endif
         
         onSave()
-        dismiss()
+        if !quickMode {
+            dismiss()
+        }
     }
 
     func handleCancel() {
         onCancel()
-        dismiss()
+        if !quickMode {
+            dismiss()
+        }
     }
 }
 
@@ -552,5 +539,93 @@ extension View {
             // For semibold, we can use a custom font weight or just the default styling
             self
         }
+    }
+}
+
+// MARK: - Quick Mode
+private extension CategoryAssignmentView {
+    var quickModeBody: some View {
+        VStack(spacing: 24) {
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Selected Apps")
+                    .font(.title2.bold())
+                Text("These apps will earn 10 points per minute during learning time.")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+
+            if applicationEntries.isEmpty {
+                emptyQuickModeState
+            } else {
+                ScrollView {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 16) {
+                        ForEach(applicationEntries) { entry in
+                            quickModeCard(for: entry)
+                        }
+                    }
+                    .padding(.vertical, 8)
+                }
+            }
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Button(action: handleSave) {
+                    Text("Save Apps")
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 54)
+                        .background(applicationEntries.isEmpty ? Color.accentColor.opacity(0.4) : Color.accentColor)
+                        .cornerRadius(12)
+                }
+                .disabled(applicationEntries.isEmpty)
+
+                Button("Cancel", action: handleCancel)
+                    .font(.system(size: 15, weight: .medium))
+            }
+        }
+        .padding()
+        .background(Color(.systemGroupedBackground))
+    }
+
+    private var emptyQuickModeState: some View {
+        VStack(spacing: 16) {
+            Image(systemName: "apps.iphone")
+                .font(.system(size: 42))
+                .foregroundColor(.secondary)
+            Text("No apps selected yet")
+                .font(.headline)
+            Text("Choose at least one learning app to continue.")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .frame(maxWidth: .infinity)
+        .padding()
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+        )
+    }
+
+    private func quickModeCard(for entry: CategoryAssignmentEntry) -> some View {
+        VStack(spacing: 12) {
+            Text(entry.displayName)
+                .font(.headline)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .frame(maxWidth: .infinity)
+
+            Text("10 pts/min")
+                .font(.subheadline)
+                .foregroundColor(.secondary)
+        }
+        .padding()
+        .frame(maxWidth: .infinity, minHeight: 120)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(Color(.secondarySystemBackground))
+        )
     }
 }

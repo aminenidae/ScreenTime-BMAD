@@ -58,6 +58,10 @@ class ChallengeService: ObservableObject {
         streakTargetDays: Int = 7,
         streakBonusPercentage: Int = 25
     ) async throws {
+        guard SubscriptionManager.shared.canCreateChallenge else {
+            throw ChallengeError.subscriptionRequired
+        }
+
         let context = persistenceController.container.viewContext
 
         // Create Core Data entity
@@ -787,5 +791,22 @@ class ChallengeService: ObservableObject {
             totalLearningMinutes: totals.seconds / 60,
             totalPointsEarned: totals.points
         )
+    }
+}
+
+enum ChallengeError: LocalizedError {
+    case subscriptionRequired
+    case invalidData
+    case saveFailed
+
+    var errorDescription: String? {
+        switch self {
+        case .subscriptionRequired:
+            return "An active subscription is required to create new challenges."
+        case .invalidData:
+            return "Invalid challenge data"
+        case .saveFailed:
+            return "Failed to save challenge"
+        }
     }
 }

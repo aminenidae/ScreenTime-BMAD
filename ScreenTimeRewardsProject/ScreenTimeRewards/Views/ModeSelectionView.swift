@@ -21,7 +21,7 @@ struct ModeSelectionView: View {
     var body: some View {
         ZStack {
             // Background
-            (colorScheme == .dark ? Colors.backgroundDark : Colors.backgroundLight)
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -32,12 +32,18 @@ struct ModeSelectionView: View {
                 VStack(spacing: 0) {
                     ZStack {
                         Circle()
-                            .fill(Colors.primary.opacity(0.2))
+                            .fill(
+                                LinearGradient(
+                                    colors: [AppTheme.sunnyYellow.opacity(0.3), AppTheme.vibrantTeal.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
+                                    startPoint: .topLeading,
+                                    endPoint: .bottomTrailing
+                                )
+                            )
                             .frame(width: 96, height: 96)
 
                         Image(systemName: "star.fill")
                             .font(.system(size: 48))
-                            .foregroundColor(Colors.primary)
+                            .foregroundColor(AppTheme.sunnyYellow)
                     }
                     .padding(.top, 16)
                     .padding(.bottom, 16)
@@ -47,7 +53,7 @@ struct ModeSelectionView: View {
                 // Headline Text
                 Text("Ready for Fun & Learning?")
                     .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(colorScheme == .dark ? Colors.textLight : Colors.textDark)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .tracking(-0.3)
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 16)
@@ -60,9 +66,16 @@ struct ModeSelectionView: View {
                 VStack(spacing: 16) {
                     // Parent Mode button
                     Button(action: handleParentModeSelection) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "lock.fill")
-                                .font(.system(size: 16, weight: .regular))
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(AppTheme.playfulCoral.opacity(0.2))
+                                    .frame(width: 32, height: 32)
+
+                                Image(systemName: "lock.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(AppTheme.playfulCoral)
+                            }
 
                             Text("Parent Mode")
                                 .font(.system(size: 16, weight: .bold))
@@ -70,17 +83,27 @@ struct ModeSelectionView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .foregroundColor(colorScheme == .dark ? Colors.buttonTextDark : Colors.buttonTextLight)
-                        .background(colorScheme == .dark ? Colors.buttonBackgroundDark : Colors.buttonBackgroundLight)
-                        .cornerRadius(12)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(AppTheme.card(for: colorScheme))
+                                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+                        )
                     }
                     .disabled(isAuthenticating)
 
                     // Child Mode button
                     Button(action: handleChildModeSelection) {
-                        HStack(spacing: 8) {
-                            Image(systemName: "rocket.fill")
-                                .font(.system(size: 16, weight: .regular))
+                        HStack(spacing: 12) {
+                            ZStack {
+                                Circle()
+                                    .fill(.white.opacity(0.25))
+                                    .frame(width: 32, height: 32)
+
+                                Image(systemName: "rocket.fill")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(.white)
+                            }
 
                             Text("Alex's Space")
                                 .font(.system(size: 16, weight: .bold))
@@ -88,9 +111,16 @@ struct ModeSelectionView: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .foregroundColor(Colors.primaryButtonText)
-                        .background(Colors.primary)
+                        .foregroundColor(.white)
+                        .background(
+                            LinearGradient(
+                                colors: [AppTheme.vibrantTeal, AppTheme.vibrantTeal.opacity(0.8)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
                         .cornerRadius(12)
+                        .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
                     }
                     .disabled(isAuthenticating)
                 }
@@ -106,7 +136,7 @@ struct ModeSelectionView: View {
                 }) {
                     Text("Need help? Contact Support")
                         .font(.system(size: 14))
-                        .foregroundColor(colorScheme == .dark ? Colors.supportTextDark : Colors.supportTextLight)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .underline()
                 }
                 .padding(.top, 16)
@@ -115,19 +145,19 @@ struct ModeSelectionView: View {
 
             // Loading overlay
             if isAuthenticating {
-                (colorScheme == .dark ? Colors.backgroundDark : Colors.backgroundLight)
+                AppTheme.background(for: colorScheme)
                     .opacity(0.8)
                     .ignoresSafeArea()
 
                 VStack(spacing: 16) {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: Colors.primary))
+                        .progressViewStyle(CircularProgressViewStyle(tint: AppTheme.vibrantTeal))
                         .scaleEffect(2)
                         .frame(width: 64, height: 64)
 
                     Text("Getting your world ready...")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? Colors.textLight : Colors.textDark)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 }
             }
         }
@@ -255,34 +285,6 @@ struct ModeSelectionView: View {
     }
 }
 
-// MARK: - Design Tokens
-extension ModeSelectionView {
-    struct Colors {
-        // Primary color
-        static let primary = Color(red: 0x13 / 255.0, green: 0xec / 255.0, blue: 0x13 / 255.0)
-
-        // Background colors
-        static let backgroundLight = Color(red: 0xf6 / 255.0, green: 0xf8 / 255.0, blue: 0xf6 / 255.0)
-        static let backgroundDark = Color(red: 0x10 / 255.0, green: 0x22 / 255.0, blue: 0x10 / 255.0)
-
-        // Text colors
-        static let textDark = Color(red: 0x11 / 255.0, green: 0x18 / 255.0, blue: 0x27 / 255.0)
-        static let textLight = Color(red: 0xf9 / 255.0, green: 0xfa / 255.0, blue: 0xfb / 255.0)
-
-        // Button colors
-        static let buttonBackgroundLight = Color(red: 0xe5 / 255.0, green: 0xe7 / 255.0, blue: 0xeb / 255.0)
-        static let buttonBackgroundDark = Color(red: 0x37 / 255.0, green: 0x41 / 255.0, blue: 0x51 / 255.0)
-        static let buttonTextLight = Color(red: 0x1f / 255.0, green: 0x29 / 255.0, blue: 0x37 / 255.0)
-        static let buttonTextDark = Color(red: 0xe5 / 255.0, green: 0xe7 / 255.0, blue: 0xeb / 255.0)
-
-        // Primary button text
-        static let primaryButtonText = Color(red: 0x11 / 255.0, green: 0x18 / 255.0, blue: 0x27 / 255.0)
-
-        // Support text colors
-        static let supportTextLight = Color(red: 0x6b / 255.0, green: 0x72 / 255.0, blue: 0x80 / 255.0)
-        static let supportTextDark = Color(red: 0x9c / 255.0, green: 0xa3 / 255.0, blue: 0xaf / 255.0)
-    }
-}
 
 struct ModeSelectionView_Previews: PreviewProvider {
     static var previews: some View {

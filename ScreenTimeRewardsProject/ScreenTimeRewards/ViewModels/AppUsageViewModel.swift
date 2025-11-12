@@ -72,7 +72,7 @@ class AppUsageViewModel: ObservableObject {
     // Task 0: Add pending selection to capture picker results before they're merged
     @Published var pendingSelection: FamilyActivitySelection = .init(includeEntireCategory: true)
     
-    // Fix: Add dedicated flag to control when to use pendingSelection for sheet
+    // Track when the picker produced a fresh selection that should be auto-applied
     @Published private var shouldUsePendingSelectionForSheet = false
     
     // TASK 12 REVISED: Add sorted applications snapshot property
@@ -650,12 +650,8 @@ class AppUsageViewModel: ObservableObject {
     }
     
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
-        switch category {
-        case AppUsage.AppCategory.learning:
-            return 20
-        case AppUsage.AppCategory.reward:
-            return 10
-        }
+        // Standardize default rate so new learning/reward apps start at 10 pts/min
+        return 10
     }
     
     private func mergeCurrentSelectionIntoMaster() {
@@ -1380,33 +1376,54 @@ class AppUsageViewModel: ObservableObject {
         pickerLoadingTimeout = false
 
         guard shouldPresentAssignmentAfterPickerDismiss,
+              shouldUsePendingSelectionForSheet,
               !pendingSelection.applicationTokens.isEmpty else {
             shouldPresentAssignmentAfterPickerDismiss = false
+            shouldUsePendingSelectionForSheet = false
             // CRITICAL FIX: Reset picker flag even when not showing assignment sheet
             isFamilyPickerPresented = false
             return
         }
 
         shouldPresentAssignmentAfterPickerDismiss = false
-
-        #if DEBUG
-        print("[AppUsageViewModel] 📋 Will present CategoryAssignmentView with \(pendingSelection.applicationTokens.count) apps")
-        #endif
-
-        // CRITICAL: Must explicitly dismiss picker FIRST, then wait for presentation to clear
-        // The picker's presentation controller must be fully dismissed before new sheet can appear
         isFamilyPickerPresented = false
 
-        // INCREASED delay to ensure picker presentation is fully cleared
-        // iOS 15+ FamilyActivityPicker needs more time to dismiss its presentation controller
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-            #if DEBUG
-            print("[AppUsageViewModel] ✅ Presenting CategoryAssignmentView now")
-            #endif
-            self.isCategoryAssignmentPresented = true
-        }
+        #if DEBUG
+        print("[AppUsageViewModel] ⚙️ Auto-applying \(pendingSelection.applicationTokens.count) apps for context \(currentPickerContext?.category.rawValue ?? "unknown")")
+        #endif
+
+        autoAssignPendingSelectionAndStartMonitoring()
     }
     
+    private func autoAssignPendingSelectionAndStartMonitoring() {
+        guard !pendingSelection.applicationTokens.isEmpty else { return }
+        guard let context = currentPickerContext else {
+            shouldUsePendingSelectionForSheet = false
+            return
+        }
+
+        let targetCategory = context.category
+
+        var updatedAssignments = categoryAssignments
+        var updatedRewardPoints = rewardPoints
+
+        for token in pendingSelection.applicationTokens {
+            updatedAssignments[token] = targetCategory
+            updatedRewardPoints[token] = getDefaultRewardPoints(for: targetCategory)
+        }
+
+        categoryAssignments = updatedAssignments
+        rewardPoints = updatedRewardPoints
+        shouldUsePendingSelectionForSheet = false
+
+        onCategoryAssignmentSave()
+
+        if context == .reward {
+            blockRewardApps()
+        }
+
+        startMonitoring()
+    }
 
     
     /// Open category assignment view for adjusting existing categories

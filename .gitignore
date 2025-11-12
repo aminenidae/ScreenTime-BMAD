@@ -34,3 +34,7 @@ ScreenTime-BMAD/
 # Backup files
 *.backup
 **/*.backup
+
+# Additional Xcode shared data that should be ignored
+xcshareddata/
+**/xcshareddata/

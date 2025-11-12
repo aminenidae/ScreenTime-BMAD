@@ -20,4 +20,5 @@ extension RegisteredDevice {
     @NSManaged public var registrationDate: Date?
     @NSManaged public var lastSyncDate: Date?
     @NSManaged public var isActive: Bool
+    @NSManaged public var subscriptionTier: String?
 }

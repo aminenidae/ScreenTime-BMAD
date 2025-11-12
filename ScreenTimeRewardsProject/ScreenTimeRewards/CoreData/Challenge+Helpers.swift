@@ -30,6 +30,15 @@ extension Challenge {
         return days
     }
 
+    var progressTrackingModeEnum: ProgressTrackingMode {
+        guard let mode = progressTrackingMode else { return .combined }
+        return ProgressTrackingMode(rawValue: mode) ?? .combined
+    }
+
+    var isPerAppTracking: Bool {
+        progressTrackingModeEnum == .perApp
+    }
+
     func rewardUnlockMinutes(defaultValue: Int = 30) -> Int {
         let learningMinutes = max(1, Int(targetValue))
         let percentage = Int(bonusPercentage)

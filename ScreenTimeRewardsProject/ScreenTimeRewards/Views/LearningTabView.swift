@@ -4,7 +4,7 @@ import ManagedSettings
 
 struct LearningTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
-    @Environment(\.presentationMode) var presentationMode
+    @EnvironmentObject var sessionManager: SessionManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
@@ -22,19 +22,19 @@ struct LearningTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
-            Colors.background(for: colorScheme)
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                // Top Navigation Bar
-                navigationBar
+                TabTopBar(title: "Learning Apps", style: topBarStyle) {
+                    sessionManager.exitToSelection()
+                }
 
-                // Main Content
                 ScrollView {
                     VStack(spacing: 0) {
                         summaryCard
                             .padding(.horizontal, 16)
-                            .padding(.top, 16)
+                            .padding(.top, 4)
 
                         if !viewModel.learningSnapshots.isEmpty {
                             selectedAppsSection
@@ -45,92 +45,81 @@ struct LearningTabView: View {
                     }
                 }
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
             // Floating Action Button
             addAppsButton
         }
-        .navigationBarHidden(true)
         .refreshable {
             await viewModel.refresh()
         }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
-}
-
-private extension LearningTabView {
-    // MARK: - Navigation Bar
-    var navigationBar: some View {
-        HStack(spacing: 0) {
-            // Back Button
-            Button(action: {
-                presentationMode.wrappedValue.dismiss()
-            }) {
-                Image(systemName: "chevron.backward")
-                    .font(.system(size: 20, weight: .medium))
-                    .foregroundColor(Colors.text(for: colorScheme))
-                    .frame(width: 48, height: 48)
-            }
-
-            Spacer()
-
-            // Title
-            Text("Learning Apps")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Colors.text(for: colorScheme))
-
-            Spacer()
-
-            // Placeholder for balance
-            Color.clear
-                .frame(width: 48, height: 48)
-        }
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-        .padding(.bottom, 8)
-        .background(
-            Colors.card(for: colorScheme)
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
-        )
-    }
 
     // MARK: - Summary Card
     var summaryCard: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text("Total Learning Points per Minute")
-                .font(.system(size: 16, weight: .medium))
-                .foregroundColor(Colors.text(for: colorScheme))
+        HStack(spacing: 16) {
+            // Icon with gradient background
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [AppTheme.vibrantTeal.opacity(0.3), AppTheme.sunnyYellow.opacity(0.3)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 56, height: 56)
 
-            HStack(alignment: .bottom, spacing: 12) {
-                VStack(alignment: .leading, spacing: 4) {
+                Image(systemName: "book.fill")
+                    .font(.system(size: 28))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Total Points per Minute")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                HStack(alignment: .bottom, spacing: 8) {
                     Text("\(totalPointsPerMinute)")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(Colors.actionBlue)
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(AppTheme.sunnyYellow)
                         .tracking(-0.5)
 
-                    Text("This is the total potential points your child can earn every minute from the selected apps.")
-                        .font(.system(size: 14))
-                        .foregroundColor(Colors.lightSlateGray(for: colorScheme))
-                        .fixedSize(horizontal: false, vertical: true)
+                    Text("pts/min")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .padding(.bottom, 4)
                 }
-
-                Spacer()
             }
+
+            Spacer()
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Colors.mutedTeal(for: colorScheme))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        )
     }
 
     // MARK: - Selected Apps Section
     var selectedAppsSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("Selected Apps")
-                .font(.system(size: 18, weight: .bold))
-                .foregroundColor(Colors.text(for: colorScheme))
-                .padding(.horizontal, 16)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+            HStack(spacing: 8) {
+                Image(systemName: "books.vertical.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("Learning Apps")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+            .padding(.bottom, 8)
 
             // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
             let columns = horizontalSizeClass == .regular ? [
@@ -157,7 +146,7 @@ private extension LearningTabView {
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
-        VStack(spacing: 0) {
+        VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: 16) {
                 // App Icon - Standardized smaller size
                 if #available(iOS 15.2, *) {
@@ -183,82 +172,36 @@ private extension LearningTabView {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
                             .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(Colors.text(for: colorScheme))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                             .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(Colors.text(for: colorScheme))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                             .lineLimit(1)
                             .truncationMode(.tail)
                     }
 
-                    Text("+\(snapshot.pointsPerMinute) Points/minute")
-                        .font(.system(size: 14))
-                        .foregroundColor(Colors.lightSlateGray(for: colorScheme))
-                        .lineLimit(1)
-                        .truncationMode(.tail)
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.sunnyYellow)
+
+                        Text("+\(snapshot.pointsPerMinute) pts/min")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.sunnyYellow)
+                            .lineLimit(1)
+                            .truncationMode(.tail)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
 
-                Spacer(minLength: 8)
-
-                // Remove Button
-                Button(action: {
-                    removeLearningApp(snapshot.token)
-                }) {
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(Colors.softRed)
-                        .frame(width: 32, height: 32)
-                }
-                .buttonStyle(PlainButtonStyle())
+                Spacer()
             }
             .padding(12)
-
-            // Points adjustment section
-            VStack(spacing: 8) {
-                Divider()
-                    .background(Colors.lightSlateGray(for: colorScheme).opacity(0.2))
-
-                HStack(spacing: 12) {
-                    Text("Points per minute:")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(Colors.text(for: colorScheme))
-
-                    Spacer()
-
-                    // Stepper control
-                    HStack(spacing: 8) {
-                        Button(action: {
-                            adjustPoints(for: snapshot.token, delta: -1)
-                        }) {
-                            Image(systemName: "minus.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundColor(snapshot.pointsPerMinute > 1 ? Colors.actionBlue : Colors.lightSlateGray(for: colorScheme).opacity(0.3))
-                        }
-                        .disabled(snapshot.pointsPerMinute <= 1)
-
-                        Text("\(snapshot.pointsPerMinute)")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(Colors.actionBlue)
-                            .frame(minWidth: 40)
-
-                        Button(action: {
-                            adjustPoints(for: snapshot.token, delta: 1)
-                        }) {
-                            Image(systemName: "plus.circle.fill")
-                                .font(.system(size: 28))
-                                .foregroundColor(Colors.actionBlue)
-                        }
-                    }
-                }
-                .padding(.horizontal, 12)
-                .padding(.vertical, 8)
-            }
         }
         .background(
-            Colors.card(for: colorScheme)
-                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+            AppTheme.card(for: colorScheme)
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         )
         .cornerRadius(8)
     }
@@ -269,8 +212,8 @@ private extension LearningTabView {
             // Gradient overlay
             LinearGradient(
                 gradient: Gradient(colors: [
-                    Colors.background(for: colorScheme).opacity(0),
-                    Colors.background(for: colorScheme)
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -284,84 +227,34 @@ private extension LearningTabView {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16))
-                    Text("Add Learning App")
+                    Text("Manage Learning apps")
                         .font(.system(size: 16, weight: .bold))
                 }
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                .background(Colors.actionBlue)
+                .background(AppTheme.vibrantTeal)
                 .cornerRadius(8)
                 .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(Colors.background(for: colorScheme))
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 
-    // MARK: - Helper Methods
-    private func removeLearningApp(_ token: ApplicationToken) {
-        #if DEBUG
-        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[LearningTabView] Requesting removal of learning app: \(appName)")
-        #endif
-
-        let warningMessage = viewModel.getRemovalWarningMessage(for: token)
-        #if DEBUG
-        print("[LearningTabView] Removal warning: \(warningMessage)")
-        #endif
-
-        viewModel.removeApp(token)
-    }
-
-    private func adjustPoints(for token: ApplicationToken, delta: Int) {
-        let currentPoints = viewModel.rewardPoints[token] ?? 1
-        let newPoints = max(1, currentPoints + delta)
-
-        #if DEBUG
-        let appName = viewModel.resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[LearningTabView] Adjusting points for \(appName): \(currentPoints) -> \(newPoints)")
-        #endif
-
-        viewModel.rewardPoints[token] = newPoints
-        viewModel.saveCategoryAssignments()
-
-        // Refresh snapshots to update UI with new point values
-        viewModel.refreshSnapshotsOnly()
-    }
 }
 
 // MARK: - Design Tokens
 private extension LearningTabView {
-    struct Colors {
-        // Primary Colors
-        static let actionBlue = Color(hex: "137fec")
-        static let softRed = Color(hex: "ef4444")
-
-        // Background Colors
-        static func background(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? Color(hex: "101922") : Color(hex: "f6f7f8")
-        }
-
-        // Card Colors
-        static func card(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? Color(hex: "1d2935") : Color(hex: "ffffff")
-        }
-
-        // Teal Colors (for summary card)
-        static func mutedTeal(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? Color(hex: "1a3b3a") : Color(hex: "e0f2f1")
-        }
-
-        // Text Colors
-        static func text(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? Color(hex: "e1e3e5") : Color(hex: "111418")
-        }
-
-        static func lightSlateGray(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ? Color.gray.opacity(0.8) : Color(hex: "617589")
-        }
+    var topBarStyle: TabTopBarStyle {
+        TabTopBarStyle(
+            background: AppTheme.background(for: colorScheme),
+            titleColor: AppTheme.textPrimary(for: colorScheme),
+            iconColor: AppTheme.vibrantTeal,
+            iconBackground: AppTheme.card(for: colorScheme),
+            dividerColor: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.06)
+        )
     }
 }
 
@@ -369,5 +262,6 @@ struct LearningTabView_Previews: PreviewProvider {
     static var previews: some View {
         LearningTabView()
             .environmentObject(AppUsageViewModel())
+            .environmentObject(SessionManager.shared)
     }
 }

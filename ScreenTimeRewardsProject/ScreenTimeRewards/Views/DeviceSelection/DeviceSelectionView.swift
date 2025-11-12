@@ -5,10 +5,31 @@ struct DeviceSelectionView: View {
     @State private var showingConfirmation = false
     @State private var selectedMode: DeviceMode?
     @State private var deviceName = ""
+    var showBackButton: Bool = false
+    var onDeviceSelected: ((DeviceMode, String) -> Void)?
+    var onBack: (() -> Void)?
+    var initialMode: DeviceMode? = nil
+    var initialDeviceName: String? = nil
+
+    private var trimmedDeviceName: String {
+        deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 
     var body: some View {
         NavigationView {
             VStack(spacing: 0) {
+                if showBackButton {
+                    HStack {
+                        Button(action: { onBack?() }) {
+                            Label("Back", systemImage: "chevron.left")
+                        }
+                        .buttonStyle(.borderless)
+                        Spacer()
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
+                }
+
                 // Content Area - Main content
                 VStack(spacing: 32) {
                     // Headline Text Component
@@ -82,7 +103,7 @@ struct DeviceSelectionView: View {
 
                     // Single Button Component
                     Button(action: {
-                        if selectedMode != nil && !deviceName.isEmpty {
+                        if selectedMode != nil && !trimmedDeviceName.isEmpty {
                             showingConfirmation = true
                         }
                     }) {
@@ -91,10 +112,10 @@ struct DeviceSelectionView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
-                            .background((selectedMode != nil && !deviceName.isEmpty) ? AppColors.primary : AppColors.primary.opacity(0.5))
+                            .background((selectedMode != nil && !trimmedDeviceName.isEmpty) ? AppColors.primary : AppColors.primary.opacity(0.5))
                             .cornerRadius(12)
                     }
-                    .disabled(selectedMode == nil || deviceName.isEmpty)
+                    .disabled(selectedMode == nil || trimmedDeviceName.isEmpty)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: 512) // max-w-lg
@@ -107,7 +128,11 @@ struct DeviceSelectionView: View {
                 ) {
                     Button("Confirm") {
                         if let mode = selectedMode {
-                            modeManager.setDeviceMode(mode, deviceName: deviceName)
+                            if let callback = onDeviceSelected {
+                                callback(mode, trimmedDeviceName)
+                            } else {
+                                modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
+                            }
                         }
                     }
 
@@ -126,6 +151,14 @@ struct DeviceSelectionView: View {
             .navigationBarHidden(true)
         }
         .navigationViewStyle(.stack)
+        .onAppear {
+            if selectedMode == nil, let initialMode {
+                selectedMode = initialMode
+            }
+            if deviceName.isEmpty, let initialDeviceName {
+                deviceName = initialDeviceName
+            }
+        }
     }
 }
 

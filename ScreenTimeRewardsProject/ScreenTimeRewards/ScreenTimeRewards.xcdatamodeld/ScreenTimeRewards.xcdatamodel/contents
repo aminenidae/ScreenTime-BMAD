@@ -182,6 +182,7 @@
         <attribute name="lastSyncDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="parentDeviceID" optional="YES" attributeType="String"/>
         <attribute name="registrationDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="subscriptionTier" optional="YES" attributeType="String" defaultValueString="free"/>
         <fetchIndex name="byDeviceID">
             <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
         </fetchIndex>
@@ -223,6 +224,27 @@
         </fetchIndex>
         <fetchIndex name="byStatus">
             <fetchIndexElement property="status" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+    <entity name="UserSubscription" representedClassName="UserSubscription" syncable="YES">
+        <attribute name="autoRenewEnabled" optional="YES" attributeType="Boolean" defaultValueString="YES" usesScalarValueType="YES"/>
+        <attribute name="expiryDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="graceEndDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="lastValidatedDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="originalTransactionID" optional="YES" attributeType="String"/>
+        <attribute name="purchaseDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="subscriptionID" optional="YES" attributeType="String"/>
+        <attribute name="subscriptionStatus" optional="YES" attributeType="String" defaultValueString="trial"/>
+        <attribute name="subscriptionTier" optional="YES" attributeType="String" defaultValueString="free"/>
+        <attribute name="transactionID" optional="YES" attributeType="String"/>
+        <attribute name="trialEndDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="trialStartDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="userDeviceID" optional="YES" attributeType="String"/>
+        <fetchIndex name="byUserDeviceID">
+            <fetchIndexElement property="userDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byOriginalTransactionID">
+            <fetchIndexElement property="originalTransactionID" type="Binary" order="ascending"/>
         </fetchIndex>
     </entity>
     <entity name="UsageRecord" representedClassName="UsageRecord" syncable="YES">

@@ -10,7 +10,7 @@ struct ChildDashboardView: View {
     var body: some View {
         ZStack {
             // Background color
-            (colorScheme == .dark ? DesignColors.navyBlue : DesignColors.backgroundLight)
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             ScrollView {
@@ -53,29 +53,6 @@ struct ChildDashboardView: View {
     }
 }
 
-// MARK: - Design Colors
-private extension ChildDashboardView {
-    struct DesignColors {
-        static let primary = Color(hex: "13ec13")
-        static let backgroundLight = Color(hex: "f6f8f6")
-        static let backgroundDark = Color(hex: "102210")
-        static let navyBlue = Color(hex: "1e293b")
-        static let teal = Color(hex: "2dd4bf")
-        static let sunnyYellow = Color(hex: "facc15")
-        static let coral = Color(hex: "fb7185")
-        static let skyBlue = Color(hex: "e0f2fe")
-
-        // Context colors
-        static let slate900 = Color(hex: "0f172a")
-        static let slate800 = Color(hex: "1e293b")
-        static let slate500 = Color(hex: "64748b")
-        static let slate400 = Color(hex: "94a3b8")
-        static let slate200 = Color(hex: "e2e8f0")
-        static let slate700 = Color(hex: "334155")
-        static let white = Color.white
-        static let blue500 = Color(hex: "3b82f6")
-    }
-}
 
 // MARK: - View Components
 private extension ChildDashboardView {
@@ -86,7 +63,7 @@ private extension ChildDashboardView {
                 Circle()
                     .fill(
                         LinearGradient(
-                            gradient: Gradient(colors: [DesignColors.teal.opacity(0.3), DesignColors.coral.opacity(0.3)]),
+                            gradient: Gradient(colors: [AppTheme.vibrantTeal.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)]),
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -94,14 +71,14 @@ private extension ChildDashboardView {
                     .frame(width: 48, height: 48)
                     .overlay(
                         Circle()
-                            .stroke(DesignColors.teal.opacity(0.5), lineWidth: 2)
+                            .stroke(AppTheme.vibrantTeal.opacity(0.5), lineWidth: 2)
                     )
 
                 // Greeting
                 Text("Hi Alex!")
                     .font(.system(size: 20, weight: .bold))
                     .tracking(-0.015 * 20)
-                    .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
@@ -109,18 +86,18 @@ private extension ChildDashboardView {
                 HStack(spacing: 6) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 24))
-                        .foregroundColor(DesignColors.sunnyYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
 
                     Text("\(viewModel.learningRewardPoints)")
                         .font(.system(size: 18, weight: .bold))
                         .tracking(0.015 * 18)
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 8)
                 .background(
                     RoundedRectangle(cornerRadius: 9999)
-                        .fill(DesignColors.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                        .fill(AppTheme.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
                 )
             }
             .padding(.horizontal, 16)
@@ -135,7 +112,7 @@ private extension ChildDashboardView {
             Text("Your Quests!")
                 .font(.system(size: 22, weight: .bold))
                 .tracking(-0.015 * 22)
-                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .padding(.horizontal, 16)
                 .padding(.top, 20)
                 .padding(.bottom, 12)
@@ -144,7 +121,13 @@ private extension ChildDashboardView {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 16) {
                     ForEach(Array(viewModel.activeChallenges.prefix(3).enumerated()), id: \.element.id) { index, challenge in
-                        questCard(challenge: challenge, index: index)
+                        NavigationLink(destination: ChildChallengeDetailView(
+                            challenge: challenge,
+                            progress: viewModel.challengeProgress[challenge.challengeID ?? ""]
+                        )) {
+                            questCard(challenge: challenge, index: index)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
                 .padding(.horizontal, 16)
@@ -154,9 +137,9 @@ private extension ChildDashboardView {
 
     func questCard(challenge: Challenge, index: Int) -> some View {
         let colors = [
-            (icon: "function", bgColor: DesignColors.teal, barColor: DesignColors.teal),
-            (icon: "book", bgColor: DesignColors.coral, barColor: DesignColors.coral),
-            (icon: "flask", bgColor: DesignColors.blue500, barColor: DesignColors.blue500)
+            (icon: "function", bgColor: AppTheme.vibrantTeal, barColor: AppTheme.vibrantTeal),
+            (icon: "book", bgColor: AppTheme.playfulCoral, barColor: AppTheme.playfulCoral),
+            (icon: "flask", bgColor: AppTheme.vibrantTeal, barColor: AppTheme.vibrantTeal)
         ]
         let colorSet = colors[index % colors.count]
 
@@ -181,11 +164,11 @@ private extension ChildDashboardView {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(challenge.title ?? "Challenge")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                     Text(challenge.challengeDescription ?? "Complete the challenge")
                         .font(.system(size: 14))
-                        .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
             }
 
@@ -194,7 +177,7 @@ private extension ChildDashboardView {
                 GeometryReader { geometry in
                     ZStack(alignment: .leading) {
                         RoundedRectangle(cornerRadius: 9999)
-                            .fill(colorScheme == .dark ? DesignColors.slate700 : DesignColors.slate200)
+                            .fill(AppTheme.progressTrack(for: colorScheme))
                             .frame(height: 10)
 
                         RoundedRectangle(cornerRadius: 9999)
@@ -208,11 +191,11 @@ private extension ChildDashboardView {
                 HStack(spacing: 4) {
                     Image(systemName: "star.fill")
                         .font(.system(size: 18))
-                        .foregroundColor(DesignColors.sunnyYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
 
                     Text("+\(challenge.bonusPercentage)% bonus")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(colorScheme == .dark ? DesignColors.slate200 : DesignColors.slate800)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 }
             }
 
@@ -227,8 +210,8 @@ private extension ChildDashboardView {
         .frame(width: 280)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
-                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         )
     }
 
@@ -238,7 +221,7 @@ private extension ChildDashboardView {
             Text("Learning Zone")
                 .font(.system(size: 22, weight: .bold))
                 .tracking(-0.015 * 22)
-                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 12)
@@ -276,12 +259,12 @@ private extension ChildDashboardView {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(DesignColors.teal.opacity(0.2))
+                    .fill(AppTheme.vibrantTeal.opacity(0.2))
                     .frame(width: iconSize, height: iconSize)
                     .overlay(
                         Image(systemName: "book.fill")
                             .font(.system(size: fallbackIconSize))
-                            .foregroundColor(DesignColors.teal)
+                            .foregroundColor(AppTheme.vibrantTeal)
                     )
             }
 
@@ -291,16 +274,16 @@ private extension ChildDashboardView {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 }
 
                 Text("\(viewModel.formatTime(snapshot.totalSeconds))")
                     .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
 
             Spacer()
@@ -308,8 +291,8 @@ private extension ChildDashboardView {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
-                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         )
     }
 
@@ -319,7 +302,7 @@ private extension ChildDashboardView {
             Text("Play Zone")
                 .font(.system(size: 22, weight: .bold))
                 .tracking(-0.015 * 22)
-                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .padding(.horizontal, 16)
                 .padding(.top, 32)
                 .padding(.bottom, 12)
@@ -360,12 +343,12 @@ private extension ChildDashboardView {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(DesignColors.coral.opacity(0.2))
+                    .fill(AppTheme.playfulCoral.opacity(0.2))
                     .frame(width: iconSize, height: iconSize)
                     .overlay(
                         Image(systemName: "gamecontroller.fill")
                             .font(.system(size: fallbackIconSize))
-                            .foregroundColor(DesignColors.coral)
+                            .foregroundColor(AppTheme.playfulCoral)
                     )
             }
 
@@ -375,24 +358,24 @@ private extension ChildDashboardView {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                         .font(.system(size: 8, weight: .medium))
-                        .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                         .lineLimit(1)
                         .truncationMode(.tail)
                 }
 
                 Text(isUnlocked ? "\(viewModel.formatTime(snapshot.totalSeconds)) unlocked" : "Complete a quest to unlock")
                     .font(.system(size: 14, weight: isUnlocked ? .medium : .regular))
-                    .foregroundColor(isUnlocked ? DesignColors.teal : (colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500))
+                    .foregroundColor(isUnlocked ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
                     .lineLimit(1)
 
                 if let minutes = challengeMinutes, !isUnlocked {
                     Text("Unlock for \(minutes) min")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(DesignColors.sunnyYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
                         .lineLimit(1)
                 }
             }
@@ -403,38 +386,18 @@ private extension ChildDashboardView {
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(colorScheme == .dark ? DesignColors.slate800 : .white)
-                .shadow(color: .black.opacity(0.05), radius: 2, x: 0, y: 1)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         )
         .opacity(isUnlocked ? 1.0 : 0.5)
-    }
-
-    var rewardNameLookup: [String: String] {
-        viewModel.rewardSnapshots.reduce(into: [:]) { result, snapshot in
-            let name = snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName
-            result[snapshot.logicalID] = name
-        }
     }
 
     func rewardCallout(for challenge: Challenge) -> String? {
         let ids = challenge.rewardAppIDs
         guard !ids.isEmpty else { return nil }
 
-        let names = ids.compactMap { rewardNameLookup[$0] }
-        let base: String
-        if names.isEmpty {
-            base = "\(ids.count) reward apps"
-        } else if names.count == 1 {
-            base = names[0]
-        } else if names.count == 2 {
-            base = "\(names[0]) & \(names[1])"
-        } else {
-            base = "\(names[0]) & \(names.count - 1) more"
-        }
-
-        let minutes = challenge.rewardUnlockMinutes()
-        let minuteLabel = minutes == 1 ? "minute" : "minutes"
-        return "\(base) · \(minutes) \(minuteLabel)"
+        let targetMinutes = Int(challenge.targetValue)
+        return "Complete \(targetMinutes) minutes of Learning"
     }
 
 
@@ -455,7 +418,7 @@ private extension ChildDashboardView {
             Circle()
                 .fill(
                     LinearGradient(
-                        gradient: Gradient(colors: [DesignColors.teal.opacity(0.2), DesignColors.coral.opacity(0.2)]),
+                        gradient: Gradient(colors: [AppTheme.vibrantTeal.opacity(0.2), AppTheme.playfulCoral.opacity(0.2)]),
                         startPoint: .topLeading,
                         endPoint: .bottomTrailing
                     )
@@ -464,17 +427,17 @@ private extension ChildDashboardView {
                 .overlay(
                     Image(systemName: "face.smiling")
                         .font(.system(size: 72))
-                        .foregroundColor(DesignColors.slate400)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 )
 
             Text("All Done for Now!")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(colorScheme == .dark ? .white : DesignColors.slate900)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .padding(.top, 16)
 
             Text("Great job on finishing your quests! Ask a parent to add a new adventure for you.")
                 .font(.system(size: 14))
-                .foregroundColor(colorScheme == .dark ? DesignColors.slate400 : DesignColors.slate500)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.top, 8)
                 .frame(maxWidth: 280)

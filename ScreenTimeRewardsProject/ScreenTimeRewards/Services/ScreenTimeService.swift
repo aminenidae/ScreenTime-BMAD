@@ -702,12 +702,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
     
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
-        switch category {
-        case .learning:
-            return 20
-        case .reward:
-            return 10
-        }
+        // Use a single default so every new app starts at 10 pts/min
+        return 10
     }
 
     private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {

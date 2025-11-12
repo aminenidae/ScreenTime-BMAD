@@ -5,6 +5,7 @@ struct MainTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Receive shared view model
     var isParentMode: Bool = false  // Add parameter to indicate parent mode
     @EnvironmentObject var sessionManager: SessionManager  // Add session manager
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     
     var body: some View {
         #if DEBUG
@@ -13,45 +14,41 @@ struct MainTabView: View {
         #endif
         
         NavigationView {
-            TabView {
-                RewardsTabView()
-                    .tabItem {
-                        Label("Rewards", systemImage: "gamecontroller.fill")
+            VStack(spacing: 0) {
+                TrialBannerView()
+
+                TabView {
+                    RewardsTabView()
+                        .tabItem {
+                            Label("Rewards", systemImage: "gamecontroller.fill")
+                        }
+                        .navigationTitle("Rewards")
+
+                    LearningTabView()
+                        .tabItem {
+                            Label("Learning", systemImage: "book.fill")
+                        }
+                        .navigationTitle("Learning")
+
+                    // Settings Tab (Parent Mode only) - Phase 2
+                    if isParentMode {
+                        SettingsTabView()
+                            .tabItem {
+                                Label("Settings", systemImage: "gearshape.fill")
+                            }
+                            .navigationTitle("Settings")
                     }
-                    .navigationTitle("Rewards")
 
-                LearningTabView()
-                    .tabItem {
-                        Label("Learning", systemImage: "book.fill")
+                    // Challenges Tab (Parent Mode only)
+                    if isParentMode {
+                        ParentChallengesTabView()
+                            .tabItem {
+                                Label("Challenges", systemImage: "trophy.fill")
+                            }
+                            .navigationTitle("Challenges")
                     }
-                    .navigationTitle("Learning")
-
-                // Settings Tab (Parent Mode only) - Phase 2
-                if isParentMode {
-                    SettingsTabView()
-                        .tabItem {
-                            Label("Settings", systemImage: "gearshape.fill")
-                        }
-                        .navigationTitle("Settings")
                 }
-
-                // Challenges Tab (Parent Mode only)
-                if isParentMode {
-                    ParentChallengesTabView()
-                        .tabItem {
-                            Label("Challenges", systemImage: "trophy.fill")
-                        }
-                        .navigationTitle("Challenges")
-                }
-
-                // Challenges Tab (Child Mode only)
-                if !isParentMode {
-                    ChildChallengesTabView()
-                        .tabItem {
-                            Label("Challenges", systemImage: "star.fill")
-                        }
-                        .navigationTitle("Challenges")
-                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .environmentObject(viewModel)  // Task 0: Pass shared view model to tabs
             .navigationViewStyle(.stack)
@@ -68,48 +65,6 @@ struct MainTabView: View {
             if !isPresented {
                 viewModel.onFamilyPickerDismissed()
             }
-        }
-        .sheet(isPresented: $viewModel.isCategoryAssignmentPresented) {
-            // Task 0: Consolidated sheet based on activePickerContext
-            Group {
-                if viewModel.currentPickerContext == .learning {
-                    CategoryAssignmentView(
-                        selection: viewModel.getSelectionForCategoryAssignment(),  // Task 0: Use pending selection when available
-                        categoryAssignments: $viewModel.categoryAssignments,
-                        rewardPoints: $viewModel.rewardPoints,
-                        fixedCategory: .learning,
-                        usageTimes: viewModel.getUsageTimes(),
-                        onSave: {
-                            viewModel.onCategoryAssignmentSave()
-                            viewModel.startMonitoring()
-                        },
-                        onCancel: {
-                            viewModel.cancelCategoryAssignment()
-                        }
-                    )
-                } else {
-                    CategoryAssignmentView(
-                        selection: viewModel.getSelectionForCategoryAssignment(),  // Task 0: Use pending selection when available
-                        categoryAssignments: $viewModel.categoryAssignments,
-                        rewardPoints: $viewModel.rewardPoints,
-                        fixedCategory: .reward,  // Auto-categorize as Reward
-                        usageTimes: viewModel.getUsageTimes(),  // Pass usage times for display
-                        onSave: {
-                            viewModel.onCategoryAssignmentSave()
-
-                            // Immediately shield (block) reward apps
-                            viewModel.blockRewardApps()
-
-                            // Start monitoring usage
-                            viewModel.startMonitoring()
-                        },
-                        onCancel: {
-                            viewModel.cancelCategoryAssignment()
-                        }
-                    )
-                }
-            }
-            .environmentObject(viewModel)  // Task M: Pass ViewModel reference to CategoryAssignmentView
         }
     }
 }

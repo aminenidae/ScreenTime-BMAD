@@ -22,7 +22,25 @@ fileprivate struct AuthColors {
 }
 
 struct AuthorizationRequestScreen: View {
+    let title: String
+    let message: String
+    let buttonTitle: String
     let onAuthorized: () -> Void
+    let onBack: (() -> Void)?
+
+    init(
+        title: String = "Enable Family Controls",
+        message: String = "To create a healthy and rewarding screen time experience, we need your permission to manage app access.",
+        buttonTitle: String = "Grant Permission",
+        onBack: (() -> Void)? = nil,
+        onAuthorized: @escaping () -> Void
+    ) {
+        self.title = title
+        self.message = message
+        self.buttonTitle = buttonTitle
+        self.onBack = onBack
+        self.onAuthorized = onAuthorized
+    }
 
     @State private var isRequesting = false
     @State private var showError = false
@@ -34,6 +52,17 @@ struct AuthorizationRequestScreen: View {
             VStack(spacing: 0) {
                 // Max width container for centered content
                 VStack(spacing: 0) {
+                    if let onBack {
+                        HStack {
+                            Button(action: onBack) {
+                                Label("Back", systemImage: "chevron.left")
+                            }
+                            .buttonStyle(.borderless)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        .padding(.bottom, 24)
+                    }
+
                     // Icon container
                     ZStack {
                         RoundedRectangle(cornerRadius: 16)
@@ -47,7 +76,7 @@ struct AuthorizationRequestScreen: View {
                     .padding(.bottom, 24)
 
                     // Title
-                    Text("Enable Family Controls")
+                    Text(title)
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(AuthColors.text)
                         .multilineTextAlignment(.center)
@@ -55,7 +84,7 @@ struct AuthorizationRequestScreen: View {
                         .padding(.bottom, 12)
 
                     // Description
-                    Text("To create a healthy and rewarding screen time experience, we need your permission to manage app access.")
+                    Text(message)
                         .font(.system(size: 16))
                         .foregroundColor(AuthColors.subtext)
                         .multilineTextAlignment(.center)
@@ -98,7 +127,7 @@ struct AuthorizationRequestScreen: View {
                                 ProgressView()
                                     .progressViewStyle(CircularProgressViewStyle(tint: .white))
                             } else {
-                                Text("Grant Permission")
+                                Text(buttonTitle)
                                     .font(.system(size: 16, weight: .bold))
                             }
                         }

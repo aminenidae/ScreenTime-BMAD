@@ -3,51 +3,48 @@ import SwiftUI
 struct ParentChallengesTabView: View {
     @StateObject private var viewModel = ChallengeViewModel()
     @State private var showingChallengeBuilder = false
+    @State private var showSubscriptionPaywall = false
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+    @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
 
     var body: some View {
         ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [
-                    Color(red: 0.96, green: 0.95, blue: 1.0),
-                    Color(red: 0.95, green: 0.97, blue: 1.0),
-                    Color(red: 1.0, green: 0.97, blue: 0.95)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Background
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header
-                    headerSection
-
-                    // Create Challenge Button
-                    createChallengeButton
-
-                    // Active Challenges List
-                    if !viewModel.activeChallenges.isEmpty {
-                        activeChallengesSection
-                    } else {
-                        emptyStateView
-                    }
-
-                    Spacer()
+            VStack(spacing: 0) {
+                TabTopBar(title: "Challenges", style: challengeTopBarStyle) {
+                    sessionManager.exitToSelection()
                 }
-                .padding()
+
+                ScrollView {
+                    VStack(spacing: 24) {
+                        // Header
+                        headerSection
+
+                        // Create Challenge Button
+                        createChallengeButton
+
+                        // Active Challenges List
+                        if !viewModel.activeChallenges.isEmpty {
+                            activeChallengesSection
+                        } else {
+                            emptyStateView
+                        }
+
+                        Spacer()
+                    }
+                    .padding()
+                }
             }
         }
         .sheet(isPresented: $showingChallengeBuilder) {
-            if useChallengeBuilderV2 {
-                ChallengeBuilderFlowView(viewModel: viewModel)
-                    .environmentObject(appUsageViewModel)
-            } else {
-                ChallengeBuilderView()
-                    .environmentObject(appUsageViewModel)
-            }
+            ChallengeBuilderFlowView(viewModel: viewModel)
+                .environmentObject(appUsageViewModel)
         }
         .task {
             await viewModel.loadChallenges()
@@ -58,27 +55,43 @@ struct ParentChallengesTabView: View {
 // MARK: - Subviews
 
 private extension ParentChallengesTabView {
-    var useChallengeBuilderV2: Bool {
-        guard let value = ProcessInfo.processInfo.environment["USE_CHALLENGE_BUILDER_V2"] else {
-            return false
-        }
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        return ["1", "true", "yes", "on"].contains(normalized)
+    var challengeTopBarStyle: TabTopBarStyle {
+        TabTopBarStyle(
+            background: AppTheme.background(for: colorScheme),
+            titleColor: AppTheme.textPrimary(for: colorScheme),
+            iconColor: AppTheme.sunnyYellow,
+            iconBackground: AppTheme.card(for: colorScheme),
+            dividerColor: AppTheme.border(for: colorScheme)
+        )
     }
 
     var headerSection: some View {
         VStack(spacing: 8) {
-            Image(systemName: "trophy.fill")
-                .font(.system(size: 60))
-                .foregroundColor(.orange)
+            // Gradient circle with trophy
+            ZStack {
+                Circle()
+                    .fill(
+                        LinearGradient(
+                            colors: [AppTheme.sunnyYellow.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
+                            startPoint: .topLeading,
+                            endPoint: .bottomTrailing
+                        )
+                    )
+                    .frame(width: 100, height: 100)
+
+                Image(systemName: "trophy.fill")
+                    .font(.system(size: 48))
+                    .foregroundColor(AppTheme.sunnyYellow)
+            }
 
             Text("Challenges")
                 .font(.largeTitle)
                 .fontWeight(.bold)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             Text("Motivate learning with goals and rewards")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
         }
         .padding(.top, 20)
@@ -86,7 +99,11 @@ private extension ParentChallengesTabView {
 
     var createChallengeButton: some View {
         Button(action: {
-            showingChallengeBuilder = true
+            if subscriptionManager.canCreateChallenge {
+                showingChallengeBuilder = true
+            } else {
+                showSubscriptionPaywall = true
+            }
         }) {
             HStack {
                 Image(systemName: "plus.circle.fill")
@@ -94,18 +111,38 @@ private extension ParentChallengesTabView {
             }
             .frame(maxWidth: .infinity)
             .padding()
-            .background(Color.blue)
+            .background(AppTheme.vibrantTeal)
             .foregroundColor(.white)
             .cornerRadius(12)
         }
         .padding(.horizontal)
+        .sheet(isPresented: $showSubscriptionPaywall) {
+            SubscriptionPaywallView()
+        }
     }
 
     var activeChallengesSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("Active Challenges (\(viewModel.activeChallenges.count))")
-                .font(.headline)
-                .padding(.horizontal)
+            HStack(spacing: 8) {
+                Image(systemName: "star.circle.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("Active Challenges")
+                    .font(.headline)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.sunnyYellow.opacity(0.2))
+                        .frame(width: 28, height: 28)
+
+                    Text("\(viewModel.activeChallenges.count)")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                }
+            }
+            .padding(.horizontal)
 
             // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
             let columns = horizontalSizeClass == .regular ? [
@@ -140,15 +177,16 @@ private extension ParentChallengesTabView {
         VStack(spacing: 16) {
             Image(systemName: "star.circle")
                 .font(.system(size: 80))
-                .foregroundColor(.gray.opacity(0.5))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.5))
 
             Text("No Active Challenges")
                 .font(.title3)
                 .fontWeight(.semibold)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             Text("Create a challenge to motivate your child's learning")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 40)
         }
