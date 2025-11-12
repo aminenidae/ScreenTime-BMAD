@@ -96,28 +96,33 @@ struct OnboardingPathSelectionScreen: View {
                 }
 
                 // Content
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(alignment: .firstTextBaseline) {
-                        Text(title)
-                            .font(.system(size: 22, weight: .bold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(title)
+                        .font(.system(size: 22, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .lineLimit(1)
 
+                    HStack(spacing: 6) {
+                        Image(systemName: "clock")
+                            .font(.system(size: 12))
+                            .foregroundColor(color)
                         Text(duration)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(color)
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(
-                                Capsule()
-                                    .fill(color.opacity(0.15))
-                            )
                     }
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 5)
+                    .background(
+                        Capsule()
+                            .fill(color.opacity(0.15))
+                    )
 
                     Text(description)
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
+                        .lineLimit(3)
                 }
 
                 Spacer()

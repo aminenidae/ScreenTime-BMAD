@@ -130,16 +130,21 @@ struct QuickRewardSetupScreen: View {
             return
         }
 
-        // Save to AppUsageViewModel
+        // IMPORTANT: Merge with existing familySelection to preserve learning apps
+        var combinedSelection = appUsageViewModel.familySelection
+        combinedSelection.applicationTokens.formUnion(pendingSelection.applicationTokens)
+
+        // Save to AppUsageViewModel - set both familySelection and pendingSelection
+        appUsageViewModel.familySelection = combinedSelection
+        appUsageViewModel.pendingSelection = combinedSelection
+
+        // Assign categories and points for the reward apps
         for token in tokens {
             appUsageViewModel.categoryAssignments[token] = .reward
             appUsageViewModel.rewardPoints[token] = 10
         }
 
-        // Update the viewModel's pending selection
-        appUsageViewModel.pendingSelection = pendingSelection
-
-        // Save and start monitoring
+        // Save and start monitoring - this will merge into masterSelection
         appUsageViewModel.onCategoryAssignmentSave()
         appUsageViewModel.startMonitoring()
 

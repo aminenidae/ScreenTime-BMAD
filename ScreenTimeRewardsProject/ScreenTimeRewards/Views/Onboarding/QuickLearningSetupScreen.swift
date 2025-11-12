@@ -123,16 +123,17 @@ struct QuickLearningSetupScreen: View {
         let tokens = pendingSelection.applicationTokens
         guard !tokens.isEmpty else { return }
 
-        // Save to AppUsageViewModel
+        // Save to AppUsageViewModel - set both familySelection and pendingSelection
+        appUsageViewModel.familySelection = pendingSelection
+        appUsageViewModel.pendingSelection = pendingSelection
+
+        // Assign categories and points
         for token in tokens {
             appUsageViewModel.categoryAssignments[token] = .learning
             appUsageViewModel.rewardPoints[token] = 10
         }
 
-        // Update the viewModel's pending selection so it knows what was selected
-        appUsageViewModel.pendingSelection = pendingSelection
-
-        // Save and start monitoring
+        // Save and start monitoring - this will merge into masterSelection
         appUsageViewModel.onCategoryAssignmentSave()
         appUsageViewModel.startMonitoring()
 

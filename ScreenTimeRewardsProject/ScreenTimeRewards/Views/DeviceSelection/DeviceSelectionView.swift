@@ -30,8 +30,9 @@ struct DeviceSelectionView: View {
                     .padding(.top, 16)
                 }
 
-                // Content Area - Main content
-                VStack(spacing: 32) {
+                // Content Area - Main content wrapped in ScrollView
+                ScrollView {
+                    VStack(spacing: 32) {
                     // Headline Text Component
                     Text("Welcome! Who will be using this device?")
                         .font(.system(size: 32, weight: .bold))
@@ -84,9 +85,9 @@ struct DeviceSelectionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: 512) // max-w-lg
+                    }
+                    .padding(.bottom, 16) // Add bottom padding to ScrollView content
                 }
-
-                Spacer()
 
                 // Footer Area
                 VStack(spacing: 16) {
