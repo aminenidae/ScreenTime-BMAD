@@ -2,7 +2,7 @@ import Foundation
 
 /// Represents a configurable mapping between learning time and reward time.
 struct LearningToRewardRatio: Equatable, Codable {
-    static let `default` = LearningToRewardRatio(learningMinutes: 60, rewardMinutes: 30)
+    static let `default` = LearningToRewardRatio(learningMinutes: 30, rewardMinutes: 30)
 
     /// Preset ratios exposed in the UI for quick selection.
     static let presetRatios: [LearningToRewardRatio] = [

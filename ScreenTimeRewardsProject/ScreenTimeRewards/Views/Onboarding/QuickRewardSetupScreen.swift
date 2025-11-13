@@ -27,15 +27,22 @@ struct QuickRewardSetupScreen: View {
                 onBack: onBack
             )
 
-            selectionCard
+            Button(action: { isPickerPresented = true }) {
+                Label("Select Apps", systemImage: "plus.circle.fill")
+                    .font(.system(size: 16, weight: .semibold))
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 48)
+                    .foregroundColor(.white)
+                    .background(AppTheme.playfulCoral)
+                    .cornerRadius(12)
+            }
+            .padding(.horizontal)
 
             if pendingSelection.applicationTokens.isEmpty {
                 emptyState
             } else {
                 SelectedAppGrid(tokens: Array(pendingSelection.applicationTokens))
             }
-
-            tipCard
 
             Spacer()
 
@@ -63,63 +70,23 @@ struct QuickRewardSetupScreen: View {
         .familyActivityPicker(isPresented: $isPickerPresented, selection: $pendingSelection)
     }
 
-    private var selectionCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Pick 2-3 fun apps your child can unlock with earned points.")
-                .font(.subheadline)
-
-            Button(action: { isPickerPresented = true }) {
-                Label("Select Apps", systemImage: "plus.circle.fill")
-                    .font(.system(size: 16, weight: .semibold))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 48)
-                    .foregroundColor(.white)
-                    .background(AppTheme.playfulCoral)
-                    .cornerRadius(12)
-            }
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.systemBackground))
-                .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 6)
-        )
-    }
-
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "star.circle")
+            Image(systemName: "gamecontroller.fill")
                 .font(.system(size: 42))
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.playfulCoral)
             Text("No reward apps selected")
                 .font(.headline)
             Text("That's okay! You can add them later from the Rewards tab.")
                 .font(.subheadline)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.playfulCoral.opacity(0.7))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemBackground))
-        )
-    }
-
-    private var tipCard: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Label("Pro tip", systemImage: "sparkles")
-                .font(.headline)
-            Text("Choose apps your child loves but should limit. These become rewards that motivate learning!")
-                .font(.subheadline)
-                .foregroundColor(.secondary)
-        }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemBackground))
+                .fill(AppTheme.playfulCoral.opacity(0.1))
         )
     }
 
@@ -148,76 +115,101 @@ struct QuickRewardSetupScreen: View {
         appUsageViewModel.onCategoryAssignmentSave()
         appUsageViewModel.startMonitoring()
 
+        // CRITICAL: Block (shield) reward apps immediately after configuration
+        appUsageViewModel.blockRewardApps()
+
         onContinue()
     }
 }
 
-// MARK: - Subviews (reuse from QuickLearningSetupScreen)
+// MARK: - Subviews
 
 private struct SelectedAppGrid: View {
     let tokens: [ApplicationToken]
 
-    private let columns = [
-        GridItem(.flexible()),
-        GridItem(.flexible())
-    ]
-
     var body: some View {
-        ScrollView {
-            LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(tokens, id: \.self) { token in
-                    AppCard(token: token)
-                }
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 8) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.playfulCoral)
+                Text("Selected Apps")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(.primary)
             }
-            .padding(.vertical, 8)
+            .padding(.horizontal)
+
+            ScrollView {
+                VStack(spacing: 8) {
+                    ForEach(tokens, id: \.self) { token in
+                        AppRow(token: token)
+                    }
+                }
+                .padding(.horizontal)
+            }
         }
     }
 
-    private struct AppCard: View {
+    private struct AppRow: View {
         let token: ApplicationToken
 
+        // Match Learning tab icon sizes
+        let iconSize: CGFloat = 34
+        let iconScale: CGFloat = 1.35
+        let fallbackIconSize: CGFloat = 24
+
         var body: some View {
-            VStack(spacing: 12) {
-                // Use Label from FamilyControls to display app icon and name
+            HStack(spacing: 16) {
+                // App Icon
                 if #available(iOS 15.2, *) {
                     Label(token)
                         .labelStyle(.iconOnly)
-                        .frame(width: 60, height: 60)
-                        .background(
-                            Circle()
-                                .fill(AppTheme.playfulCoral.opacity(0.2))
-                        )
-
-                    Label(token)
-                        .labelStyle(.titleOnly)
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
+                        .scaleEffect(iconScale)
+                        .frame(width: iconSize, height: iconSize)
+                        .clipShape(RoundedRectangle(cornerRadius: 8))
                 } else {
-                    // Fallback for older iOS versions
-                    Circle()
+                    RoundedRectangle(cornerRadius: 8)
                         .fill(AppTheme.playfulCoral.opacity(0.2))
-                        .frame(width: 60, height: 60)
+                        .frame(width: iconSize, height: iconSize)
                         .overlay(
                             Image(systemName: "app.fill")
+                                .font(.system(size: fallbackIconSize))
                                 .foregroundColor(AppTheme.playfulCoral)
                         )
-
-                    Text("App")
-                        .font(.headline)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(2)
                 }
 
-                Text("10 pts/min")
-                    .font(.subheadline)
-                    .foregroundColor(.secondary)
+                // App Info
+                VStack(alignment: .leading, spacing: 2) {
+                    if #available(iOS 15.2, *) {
+                        Label(token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                    } else {
+                        Text("Reward App")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(.primary)
+                            .lineLimit(1)
+                    }
+
+                    HStack(spacing: 4) {
+                        Image(systemName: "star.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.playfulCoral)
+                        Text("Costs 10 pts/min")
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.playfulCoral)
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer()
             }
-            .padding()
-            .frame(maxWidth: .infinity, minHeight: 180)
+            .padding(12)
             .background(
-                RoundedRectangle(cornerRadius: 18)
-                    .fill(Color(.secondarySystemBackground))
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(Color(.systemBackground))
+                    .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
             )
         }
     }

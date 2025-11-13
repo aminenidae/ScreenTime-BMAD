@@ -93,6 +93,63 @@ struct ChallengeBuilderData: Equatable {
 
             return true
         }
+
+        /// Returns the maximum number of consecutive active days in the schedule
+        func maxConsecutiveDays() -> Int {
+            guard !activeDays.isEmpty else { return 0 }
+
+            // Convert Set to sorted array (1-7 for Mon-Sun)
+            let sortedDays = activeDays.sorted()
+
+            // If all 7 days are selected, return 7
+            if sortedDays.count == 7 {
+                return 7
+            }
+
+            var maxStreak = 1
+            var currentStreak = 1
+
+            for i in 1..<sortedDays.count {
+                // Check if days are consecutive (allowing wrap-around from Sunday to Monday)
+                if sortedDays[i] == sortedDays[i-1] + 1 {
+                    currentStreak += 1
+                    maxStreak = max(maxStreak, currentStreak)
+                } else {
+                    currentStreak = 1
+                }
+            }
+
+            // Check wrap-around: Sunday (7) to Monday (1)
+            if sortedDays.contains(7) && sortedDays.contains(1) {
+                // Count consecutive days from the end and beginning
+                var endStreak = 1
+                for i in stride(from: sortedDays.count - 2, through: 0, by: -1) {
+                    if sortedDays[i] == sortedDays[i+1] - 1 {
+                        endStreak += 1
+                    } else {
+                        break
+                    }
+                }
+
+                var startStreak = 1
+                for i in 1..<sortedDays.count {
+                    if sortedDays[i] == sortedDays[i-1] + 1 {
+                        startStreak += 1
+                    } else {
+                        break
+                    }
+                }
+
+                maxStreak = max(maxStreak, endStreak + startStreak)
+            }
+
+            return maxStreak
+        }
+
+        /// Check if schedule meets the minimum consecutive days requirement
+        func meetsStreakRequirement(targetDays: Int) -> Bool {
+            return maxConsecutiveDays() >= targetDays
+        }
     }
 
     static let dailyMinutesRange: ClosedRange<Int> = 10...240
@@ -127,7 +184,14 @@ struct ChallengeBuilderData: Equatable {
     }
 
     var isScheduleStepValid: Bool {
-        schedule.isValid
+        guard schedule.isValid else { return false }
+
+        // If streak bonus is enabled, ensure schedule meets streak requirement
+        if streakBonus.enabled {
+            return schedule.meetsStreakRequirement(targetDays: streakBonus.targetDays)
+        }
+
+        return true
     }
 
     var isProgressTrackingModeValid: Bool {

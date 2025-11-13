@@ -4,17 +4,22 @@ struct SettingsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @State private var showingPairingView = false
+    @State private var showingSubscriptionManagement = false
     @State private var showResetConfirmation = false
     @StateObject private var pairingService = DevicePairingService.shared
     @StateObject private var modeManager = DeviceModeManager.shared
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        NavigationView {
-            ZStack {
-                // Background
-                AppTheme.background(for: colorScheme)
-                    .ignoresSafeArea()
+        ZStack(alignment: .bottom) {
+            // Background
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
+
+            VStack(spacing: 0) {
+                TabTopBar(title: "Settings", style: topBarStyle) {
+                    sessionManager.exitToSelection()
+                }
 
                 ScrollView {
                     VStack(spacing: 32) {
@@ -46,31 +51,17 @@ struct SettingsTabView: View {
                         }
                     }
                     .padding(.horizontal, 16)
-                    .padding(.top, 24)
+                    .padding(.top, 4)
                     .padding(.bottom, 24)
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    Text("Settings")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                }
-
-                ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: {
-                        sessionManager.exitToSelection()
-                    }) {
-                        Image(systemName: "chevron.backward")
-                            .font(.system(size: 24))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
-                }
-            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         }
         .sheet(isPresented: $showingPairingView) {
             ChildPairingView()
+        }
+        .sheet(isPresented: $showingSubscriptionManagement) {
+            SubscriptionManagementView()
         }
     }
 }
@@ -244,7 +235,9 @@ private extension SettingsTabView {
     }
 
     var subscriptionRow: some View {
-        NavigationLink(destination: SubscriptionManagementView()) {
+        Button(action: {
+            showingSubscriptionManagement = true
+        }) {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 8)
@@ -297,6 +290,18 @@ private extension SettingsTabView {
     }
 }
 
+// MARK: - Design Tokens
+private extension SettingsTabView {
+    var topBarStyle: TabTopBarStyle {
+        TabTopBarStyle(
+            background: AppTheme.background(for: colorScheme),
+            titleColor: AppTheme.textPrimary(for: colorScheme),
+            iconColor: AppTheme.vibrantTeal,
+            iconBackground: AppTheme.card(for: colorScheme),
+            dividerColor: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.06)
+        )
+    }
+}
 
 struct SettingsTabView_Previews: PreviewProvider {
     static var previews: some View {

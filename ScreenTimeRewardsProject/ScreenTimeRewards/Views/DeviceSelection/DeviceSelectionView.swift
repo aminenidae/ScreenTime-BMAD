@@ -2,7 +2,6 @@ import SwiftUI
 
 struct DeviceSelectionView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
-    @State private var showingConfirmation = false
     @State private var selectedMode: DeviceMode?
     @State private var deviceName = ""
     var showBackButton: Bool = false
@@ -16,32 +15,31 @@ struct DeviceSelectionView: View {
     }
 
     var body: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                if showBackButton {
-                    HStack {
-                        Button(action: { onBack?() }) {
-                            Label("Back", systemImage: "chevron.left")
-                        }
-                        .buttonStyle(.borderless)
-                        Spacer()
+        VStack(spacing: 0) {
+            if showBackButton {
+                HStack {
+                    Button(action: { onBack?() }) {
+                        Label("Back", systemImage: "chevron.left")
                     }
+                    .buttonStyle(.borderless)
+                    Spacer()
+                }
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
+            }
+
+            // Content Area - Main content wrapped in ScrollView
+            ScrollView {
+                VStack(spacing: 32) {
+                // Headline Text Component
+                Text("Welcome! Who will be using this device?")
+                    .font(.system(size: 32, weight: .bold))
+                    .foregroundColor(AppColors.textPrimary)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(nil)
+                    .fixedSize(horizontal: false, vertical: true)
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
-                }
-
-                // Content Area - Main content wrapped in ScrollView
-                ScrollView {
-                    VStack(spacing: 32) {
-                    // Headline Text Component
-                    Text("Welcome! Who will be using this device?")
-                        .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(AppColors.textPrimary)
-                        .multilineTextAlignment(.center)
-                        .lineLimit(nil)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 16)
-                        .padding(.top, 48)
 
                     // Text Grid Component - Device Cards
                     VStack(spacing: 16) {
@@ -91,21 +89,14 @@ struct DeviceSelectionView: View {
 
                 // Footer Area
                 VStack(spacing: 16) {
-                    // Page Indicators Component
-                    HStack(spacing: 12) {
-                        Circle()
-                            .fill(AppColors.primary)
-                            .frame(width: 10, height: 10)
-                        Circle()
-                            .fill(AppColors.border)
-                            .frame(width: 10, height: 10)
-                    }
-                    .padding(.vertical, 20)
-
                     // Single Button Component
                     Button(action: {
-                        if selectedMode != nil && !trimmedDeviceName.isEmpty {
-                            showingConfirmation = true
+                        if let mode = selectedMode, !trimmedDeviceName.isEmpty {
+                            if let callback = onDeviceSelected {
+                                callback(mode, trimmedDeviceName)
+                            } else {
+                                modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
+                            }
                         }
                     }) {
                         Text("Get Started")
@@ -120,38 +111,14 @@ struct DeviceSelectionView: View {
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                     .frame(maxWidth: 512) // max-w-lg
-                }
-                .padding(.bottom, 24)
-                .confirmationDialog(
-                    "Confirm Device Selection",
-                    isPresented: $showingConfirmation,
-                    titleVisibility: .visible
-                ) {
-                    Button("Confirm") {
-                        if let mode = selectedMode {
-                            if let callback = onDeviceSelected {
-                                callback(mode, trimmedDeviceName)
-                            } else {
-                                modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
-                            }
-                        }
-                    }
-
-                    Button("Cancel", role: .cancel) {
-                        // Do nothing
-                    }
-                } message: {
-                    if let mode = selectedMode {
-                        Text("Set this device as a \(mode.displayName)?\n\n\(mode.description)")
-                    }
-                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .background(AppColors.background)
-            .navigationTitle("")
-            .navigationBarHidden(true)
+            .padding(.bottom, 24)
         }
-        .navigationViewStyle(.stack)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(
+            AppColors.background
+                .ignoresSafeArea()
+        )
         .onAppear {
             if selectedMode == nil, let initialMode {
                 selectedMode = initialMode

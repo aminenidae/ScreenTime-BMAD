@@ -3,7 +3,6 @@ import SwiftUI
 /// Coordinates the child device onboarding flow.
 struct ChildOnboardingCoordinator: View {
     enum ChildStep {
-        case pathSelection
         case authorization
         case learningSetup
         case rewardSetup
@@ -12,10 +11,10 @@ struct ChildOnboardingCoordinator: View {
         case completion
     }
 
-    @State private var currentStep: ChildStep = .pathSelection
-    @State private var selectedPath: OnboardingPath?
+    @State private var currentStep: ChildStep = .authorization
     @AppStorage("hasCompletedChildOnboarding") private var childComplete = false
     @StateObject private var challengeViewModel = ChallengeViewModel()
+    @EnvironmentObject private var appUsageViewModel: AppUsageViewModel
 
     let deviceName: String
     let onBack: () -> Void
@@ -24,20 +23,13 @@ struct ChildOnboardingCoordinator: View {
     var body: some View {
         Group {
             switch currentStep {
-            case .pathSelection:
-                OnboardingPathSelectionScreen(
-                    deviceName: deviceName,
-                    onBack: onBack,
-                    onPathSelected: handlePathSelection
-                )
-
             case .authorization:
                 AuthorizationRequestScreen(
                     title: "Grant Device Permissions",
                     message: "ScreenTime Rewards needs FamilyControls access to track learning time and unlock rewards.",
                     buttonTitle: "Allow Access",
-                    onBack: { currentStep = .pathSelection },
-                    onAuthorized: handleAuthorizationComplete
+                    onBack: onBack,
+                    onAuthorized: { currentStep = .learningSetup }
                 )
 
             case .learningSetup:
@@ -65,7 +57,7 @@ struct ChildOnboardingCoordinator: View {
 
             case .paywall:
                 ChildPaywallStepView(
-                    onBack: handlePaywallBack,
+                    onBack: { currentStep = .challengeBuilder },
                     onComplete: { currentStep = .completion }
                 )
 
@@ -78,35 +70,17 @@ struct ChildOnboardingCoordinator: View {
         .animation(.easeInOut(duration: 0.25), value: currentStep)
     }
 
-    private func handlePathSelection(_ path: OnboardingPath) {
-        selectedPath = path
-        currentStep = .authorization
-    }
-
-    private func handleAuthorizationComplete() {
-        switch selectedPath {
-        case .quickStart:
-            currentStep = .paywall
-        case .fullSetup:
-            currentStep = .learningSetup
-        case .none:
-            currentStep = .paywall
-        }
-    }
-
-    private func handlePaywallBack() {
-        switch selectedPath {
-        case .quickStart:
-            currentStep = .authorization
-        case .fullSetup:
-            currentStep = .challengeBuilder
-        case .none:
-            currentStep = .authorization
-        }
-    }
-
     private func completeChildOnboarding() {
         childComplete = true
+
+        // CRITICAL: Ensure reward apps are shielded when onboarding completes
+        // This applies shields when user:
+        // - Subscribes
+        // - Accepts free trial
+        // - Skips (30-day trial)
+        // Only after they complete onboarding (not if they abandon)
+        appUsageViewModel.blockRewardApps()
+
         onComplete()
     }
 }

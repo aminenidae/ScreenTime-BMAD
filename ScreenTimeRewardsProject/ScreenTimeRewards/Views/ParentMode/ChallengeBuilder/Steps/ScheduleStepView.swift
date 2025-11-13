@@ -1,7 +1,11 @@
 import SwiftUI
 
 struct ScheduleStepView: View {
-    @Binding var schedule: ChallengeBuilderData.Schedule
+    @Binding var data: ChallengeBuilderData
+
+    private var schedule: Binding<ChallengeBuilderData.Schedule> {
+        $data.schedule
+    }
 
     private let dayItems: [(Int, String)] = [
         (1, "Mon"),
@@ -16,6 +20,12 @@ struct ScheduleStepView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             sectionHeader("Schedule", subtitle: "Define when this challenge is active.", icon: "calendar.circle.fill", color: AppTheme.vibrantTeal)
+
+            // Streak validation warning
+            if data.streakBonus.enabled && !data.schedule.meetsStreakRequirement(targetDays: data.streakBonus.targetDays) {
+                streakWarningBanner
+            }
+
             dateRangeSection
             repeatSection
             daySelectionSection
@@ -26,6 +36,40 @@ struct ScheduleStepView: View {
         .background(
             RoundedRectangle(cornerRadius: 24)
                 .fill(ChallengeBuilderTheme.cardBackground)
+        )
+    }
+
+    // MARK: - Streak Warning Banner
+    private var streakWarningBanner: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 15))
+                    .foregroundColor(AppTheme.playfulCoral)
+
+                Text("Streak Requirement Not Met")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.playfulCoral)
+            }
+
+            Text("Your \(data.streakBonus.targetDays)-day streak requires at least \(data.streakBonus.targetDays) consecutive active days. Current schedule allows \(data.schedule.maxConsecutiveDays()) consecutive days maximum.")
+                .font(.system(size: 14))
+                .foregroundColor(ChallengeBuilderTheme.text)
+
+            if data.streakBonus.targetDays >= 7 {
+                Text("Tip: Enable all 7 days to meet this requirement.")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 18)
+                .fill(AppTheme.playfulCoral.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 18)
+                        .strokeBorder(AppTheme.playfulCoral.opacity(0.3), lineWidth: 1)
+                )
         )
     }
 
@@ -45,10 +89,10 @@ struct ScheduleStepView: View {
             DatePicker(
                 "Start Date",
                 selection: Binding(
-                    get: { schedule.startDate },
+                    get: { schedule.wrappedValue.startDate },
                     set: { newDate in
-                        schedule.startDate = newDate
-                        schedule.enforceDateConsistency()
+                        schedule.wrappedValue.startDate = newDate
+                        schedule.wrappedValue.enforceDateConsistency()
                     }
                 ),
                 displayedComponents: [.date]
@@ -56,10 +100,10 @@ struct ScheduleStepView: View {
             .datePickerStyle(.compact)
 
             Toggle(isOn: Binding(
-                get: { schedule.hasEndDate },
+                get: { schedule.wrappedValue.hasEndDate },
                 set: { newValue in
-                    schedule.hasEndDate = newValue
-                    schedule.enforceDateConsistency()
+                    schedule.wrappedValue.hasEndDate = newValue
+                    schedule.wrappedValue.enforceDateConsistency()
                 }
             )) {
                 Text("Specify End Date")
@@ -68,17 +112,17 @@ struct ScheduleStepView: View {
             }
             .toggleStyle(SwitchToggleStyle(tint: ChallengeBuilderTheme.primary))
 
-            if schedule.hasEndDate {
+            if schedule.wrappedValue.hasEndDate {
                 DatePicker(
                     "End Date",
                     selection: Binding(
-                        get: { schedule.endDate ?? schedule.startDate },
+                        get: { schedule.wrappedValue.endDate ?? schedule.wrappedValue.startDate },
                         set: { newDate in
-                            schedule.endDate = newDate
-                            schedule.enforceDateConsistency()
+                            schedule.wrappedValue.endDate = newDate
+                            schedule.wrappedValue.enforceDateConsistency()
                         }
                     ),
-                    in: schedule.startDate...,
+                    in: schedule.wrappedValue.startDate...,
                     displayedComponents: [.date]
                 )
                 .datePickerStyle(.compact)
@@ -89,7 +133,7 @@ struct ScheduleStepView: View {
     // MARK: - Repeat Section
     private var repeatSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Toggle(isOn: $schedule.repeatWeekly) {
+            Toggle(isOn: schedule.repeatWeekly) {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Repeat Weekly")
                         .font(.system(size: 16, weight: .semibold))
@@ -120,7 +164,7 @@ struct ScheduleStepView: View {
                 Spacer()
 
                 Button("Clear") {
-                    schedule.activeDays.removeAll()
+                    schedule.wrappedValue.activeDays.removeAll()
                 }
                 .font(.system(size: 14, weight: .semibold))
                 .foregroundColor(AppTheme.playfulCoral)
@@ -128,21 +172,21 @@ struct ScheduleStepView: View {
 
             FlexibleDayGrid(
                 items: dayItems,
-                selected: schedule.activeDays,
+                selected: schedule.wrappedValue.activeDays,
                 onToggle: toggleDay
             )
 
-            Text(schedule.activeDays.isEmpty ? "Select at least one day." : "Tap to toggle individual days.")
+            Text(schedule.wrappedValue.activeDays.isEmpty ? "Select at least one day." : "Tap to toggle individual days.")
                 .font(.system(size: 13))
-                .foregroundColor(schedule.activeDays.isEmpty ? .red : ChallengeBuilderTheme.mutedText)
+                .foregroundColor(schedule.wrappedValue.activeDays.isEmpty ? .red : ChallengeBuilderTheme.mutedText)
         }
     }
 
     private func toggleDay(_ day: Int) {
-        if schedule.activeDays.contains(day) {
-            schedule.activeDays.remove(day)
+        if schedule.wrappedValue.activeDays.contains(day) {
+            schedule.wrappedValue.activeDays.remove(day)
         } else {
-            schedule.activeDays.insert(day)
+            schedule.wrappedValue.activeDays.insert(day)
         }
     }
 
@@ -150,9 +194,9 @@ struct ScheduleStepView: View {
     private var timeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
             Toggle(isOn: Binding(
-                get: { schedule.isFullDay },
+                get: { schedule.wrappedValue.isFullDay },
                 set: { newValue in
-                    schedule.setFullDay(newValue)
+                    schedule.wrappedValue.setFullDay(newValue)
                 }
             )) {
                 VStack(alignment: .leading, spacing: 4) {
@@ -166,12 +210,12 @@ struct ScheduleStepView: View {
             }
             .toggleStyle(SwitchToggleStyle(tint: ChallengeBuilderTheme.primary))
 
-            if schedule.usesCustomTimeRange {
-                VStack(spacing: 12) {
-                    timePicker(title: "Start Time", selection: $schedule.startTime)
-                    timePicker(title: "End Time", selection: $schedule.endTime)
+            if schedule.wrappedValue.usesCustomTimeRange {
+                VStack(spacing: 16) {
+                    customTimePicker(title: "Start Time", selection: schedule.startTime)
+                    customTimePicker(title: "End Time", selection: schedule.endTime)
 
-                    if schedule.startTime >= schedule.endTime {
+                    if schedule.wrappedValue.startTime >= schedule.wrappedValue.endTime {
                         Text("End time must be after start time.")
                             .font(.system(size: 13))
                             .foregroundColor(.red)
@@ -181,13 +225,30 @@ struct ScheduleStepView: View {
         }
     }
 
-    private func timePicker(title: String, selection: Binding<Date>) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(ChallengeBuilderTheme.text)
+    private func customTimePicker(title: String, selection: Binding<Date>) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text(title)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
             DatePicker("", selection: selection, displayedComponents: [.hourAndMinute])
-                .datePickerStyle(.wheel)
+                .datePickerStyle(.compact)
+                .labelsHidden()
+                .padding(12)
+                .background(
+                    RoundedRectangle(cornerRadius: 14)
+                        .fill(ChallengeBuilderTheme.inputBackground)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 14)
+                                .stroke(ChallengeBuilderTheme.border, lineWidth: 1)
+                        )
+                )
         }
     }
 

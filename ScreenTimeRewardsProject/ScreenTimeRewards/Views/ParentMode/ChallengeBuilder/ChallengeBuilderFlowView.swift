@@ -189,7 +189,7 @@ struct ChallengeBuilderFlowView: View {
         case .rewardConfig:
             RewardConfigStepView(data: $coordinator.data)
         case .schedule:
-            ScheduleStepView(schedule: $coordinator.data.schedule)
+            ScheduleStepView(data: $coordinator.data)
         case .summary:
             SummaryStepView(data: $coordinator.data) { step in
                 coordinator.setStep(step)

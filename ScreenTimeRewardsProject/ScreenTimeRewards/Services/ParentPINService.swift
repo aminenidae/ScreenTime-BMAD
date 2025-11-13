@@ -8,11 +8,13 @@
 
 import Foundation
 import CryptoKit
+import Security
 
 class ParentPINService {
     static let shared = ParentPINService()
 
-    private let keyChainKey = "com.screentime.rewards.parentpin"
+    private let keychainService = "com.screentime.rewards"
+    private let keychainAccount = "parentpin"
 
     private init() {}
 
@@ -120,20 +122,91 @@ class ParentPINService {
         return digest.map { String(format: "%02hhx", $0) }.joined()
     }
 
-    /// Store hashed PIN in UserDefaults (could be upgraded to Keychain)
+    /// Store hashed PIN in Keychain
     /// - Parameter hash: Hashed PIN to store
     /// - Returns: True if storage successful, false otherwise
     private func storeHashedPIN(_ hash: String) -> Bool {
-        UserDefaults.standard.set(hash, forKey: keyChainKey)
-        UserDefaults.standard.synchronize()
+        guard let data = hash.data(using: .utf8) else {
+            #if DEBUG
+            print("[ParentPINService] ❌ Failed to convert hash to data")
+            #endif
+            return false
+        }
 
-        // Verify storage was successful
-        return UserDefaults.standard.string(forKey: keyChainKey) == hash
+        #if DEBUG
+        print("[ParentPINService] Storing PIN hash in Keychain: \(hash.prefix(10))...")
+        print("[ParentPINService] Service: \(keychainService), Account: \(keychainAccount)")
+        #endif
+
+        // First, try to delete any existing item
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new item
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+
+        #if DEBUG
+        if status == errSecSuccess {
+            print("[ParentPINService] ✅ PIN hash stored successfully in Keychain")
+
+            // Immediate verification
+            if let retrieved = retrieveStoredPINHash() {
+                print("[ParentPINService] ✅ Immediate verification successful: \(retrieved.prefix(10))...")
+            } else {
+                print("[ParentPINService] ⚠️ Immediate verification failed!")
+            }
+        } else {
+            print("[ParentPINService] ❌ Failed to store PIN in Keychain, status: \(status)")
+        }
+        #endif
+
+        return status == errSecSuccess
     }
 
-    /// Retrieve hashed PIN from UserDefaults
+    /// Retrieve hashed PIN from Keychain
     /// - Returns: Hashed PIN if configured, nil otherwise
     private func retrieveStoredPINHash() -> String? {
-        UserDefaults.standard.string(forKey: keyChainKey)
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let hash = String(data: data, encoding: .utf8) else {
+            #if DEBUG
+            if status == errSecItemNotFound {
+                print("[ParentPINService] ⚠️ No PIN hash found in Keychain (item not found)")
+            } else {
+                print("[ParentPINService] ⚠️ Failed to retrieve PIN from Keychain, status: \(status)")
+            }
+            print("[ParentPINService] Service: \(keychainService), Account: \(keychainAccount)")
+            #endif
+            return nil
+        }
+
+        #if DEBUG
+        print("[ParentPINService] ✅ Retrieved PIN hash from Keychain: \(hash.prefix(10))...")
+        #endif
+
+        return hash
     }
 }

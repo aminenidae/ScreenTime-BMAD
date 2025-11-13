@@ -6,16 +6,18 @@ struct MainTabView: View {
     var isParentMode: Bool = false  // Add parameter to indicate parent mode
     @EnvironmentObject var sessionManager: SessionManager  // Add session manager
     @EnvironmentObject var subscriptionManager: SubscriptionManager
-    
+    @AppStorage("hasCompletedChildOnboarding") private var hasCompletedOnboarding = false
+
     var body: some View {
         #if DEBUG
         let _ = print("[MainTabView] Rendering with isParentMode: \(isParentMode)")
         let _ = print("[MainTabView] sessionManager: \(sessionManager)")
         #endif
-        
+
         NavigationView {
             VStack(spacing: 0) {
-                TrialBannerView()
+                // Free Trial banner hidden - will be re-enabled in future update
+                // TrialBannerView()
 
                 TabView {
                     RewardsTabView()

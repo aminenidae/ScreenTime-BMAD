@@ -186,7 +186,16 @@ final class ChallengeBuilderCoordinator: ObservableObject {
         case .rewardConfig:
             return "Set a valid learning-to-reward ratio before continuing."
         case .schedule:
-            return "Choose at least one active day and a valid time range."
+            if data.schedule.activeDays.isEmpty {
+                return "Choose at least one active day."
+            }
+            if !data.schedule.isValid {
+                return "Choose a valid time range."
+            }
+            if data.streakBonus.enabled && !data.schedule.meetsStreakRequirement(targetDays: data.streakBonus.targetDays) {
+                return "Schedule must have at least \(data.streakBonus.targetDays) consecutive active days to meet the streak requirement."
+            }
+            return nil
         case .summary:
             return "Complete the required steps before creating the challenge."
         case .learningApps, .rewardApps:

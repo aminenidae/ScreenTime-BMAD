@@ -40,77 +40,11 @@ struct ChallengeDetailsStepView: View {
                         .cornerRadius(12)
                 }
             }
-
-            Divider().background(ChallengeBuilderTheme.border)
-
-            sectionHeader("Daily Goal", subtitle: "Set the learning minutes to complete each day.", icon: "target", color: AppTheme.vibrantTeal)
-
-            goalValueControl()
         }
         .padding(24)
         .background(
             RoundedRectangle(cornerRadius: 24)
                 .fill(ChallengeBuilderTheme.cardBackground)
-        )
-    }
-
-    @ViewBuilder
-    private func goalValueControl() -> some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                HStack(spacing: 6) {
-                    Image(systemName: "flag.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(AppTheme.sunnyYellow)
-
-                    Text("Daily Minutes Goal")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(ChallengeBuilderTheme.text)
-                }
-
-                Spacer()
-
-                HStack(spacing: 4) {
-                    Text("\(data.dailyMinutesGoal)")
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(AppTheme.vibrantTeal)
-
-                    Text("min/day")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ChallengeBuilderTheme.mutedText)
-                }
-            }
-
-            Slider(
-                value: Binding(
-                    get: { Double(data.dailyMinutesGoal) },
-                    set: { newValue in
-                        data.setDailyMinutesGoal(Int(newValue))
-                    }
-                ),
-                in: Double(ChallengeBuilderData.dailyMinutesRange.lowerBound)...Double(ChallengeBuilderData.dailyMinutesRange.upperBound),
-                step: 5.0
-            )
-            .accentColor(ChallengeBuilderTheme.primary)
-
-            HStack {
-                Text("\(ChallengeBuilderData.dailyMinutesRange.lowerBound) min")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(ChallengeBuilderTheme.mutedText)
-                Spacer()
-                Text("\(ChallengeBuilderData.dailyMinutesRange.upperBound) min")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(ChallengeBuilderTheme.mutedText)
-            }
-
-            Text("This is the amount of learning time your child needs to complete each day.")
-                .font(.system(size: 13))
-                .foregroundColor(ChallengeBuilderTheme.mutedText)
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(ChallengeBuilderTheme.inputBackground.opacity(0.5))
         )
     }
 

@@ -145,18 +145,38 @@ struct ParentPINSetupView: View {
     
     private func confirmPINSetup() {
         guard confirmPIN.count == 4 else { return }
-        
+
         isSettingUp = true
         errorMessage = nil
-        
+
         // Check if PINs match
         if pin == confirmPIN {
-            // In a real implementation, this would call the AuthenticationService
-            // to store the PIN. For now, we'll simulate the setup.
-            
-            DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
-                isSettingUp = false
-                onPINSetup()
+            #if DEBUG
+            print("[ParentPINSetupView] PINs match, saving to keychain...")
+            #endif
+
+            // Actually save the PIN to keychain via AuthenticationService
+            let authService = AuthenticationService()
+            authService.setupParentPIN(pin) { result in
+                DispatchQueue.main.async {
+                    isSettingUp = false
+
+                    switch result {
+                    case .success:
+                        #if DEBUG
+                        print("[ParentPINSetupView] ✅ PIN saved successfully")
+                        #endif
+                        onPINSetup()
+
+                    case .failure(let error):
+                        #if DEBUG
+                        print("[ParentPINSetupView] ❌ PIN save failed: \(error)")
+                        #endif
+                        errorMessage = error.localizedDescription
+                        confirmPIN = ""
+                        isConfirming = false
+                    }
+                }
             }
         } else {
             isSettingUp = false

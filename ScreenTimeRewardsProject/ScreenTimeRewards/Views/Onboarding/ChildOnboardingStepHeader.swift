@@ -28,7 +28,7 @@ struct ChildOnboardingStepHeader: View {
 
                 Text(subtitle)
                     .font(.system(size: 16))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
             }
         }
     }

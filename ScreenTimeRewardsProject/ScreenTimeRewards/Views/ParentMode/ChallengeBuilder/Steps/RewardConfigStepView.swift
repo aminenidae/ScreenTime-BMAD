@@ -15,6 +15,8 @@ struct RewardConfigStepView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
+            dailyGoalSection
+            Divider().background(ChallengeBuilderTheme.border)
             ratioSection
             presetButtons
             streakBonusSection
@@ -28,6 +30,75 @@ struct RewardConfigStepView: View {
         .onAppear(perform: syncInputsWithData)
         .onChange(of: data.learningToRewardRatio) { _ in
             syncInputsWithData()
+        }
+    }
+
+    // MARK: - Daily Goal Section
+    private var dailyGoalSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader(
+                title: "Daily Goal",
+                subtitle: "Set the learning minutes to complete each day.",
+                icon: "target",
+                color: AppTheme.vibrantTeal
+            )
+
+            VStack(alignment: .leading, spacing: 12) {
+                HStack {
+                    HStack(spacing: 6) {
+                        Image(systemName: "flag.fill")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppTheme.sunnyYellow)
+
+                        Text("Daily Minutes Goal")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(ChallengeBuilderTheme.text)
+                    }
+
+                    Spacer()
+
+                    HStack(spacing: 4) {
+                        Text("\(data.dailyMinutesGoal)")
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+
+                        Text("min/day")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    }
+                }
+
+                Slider(
+                    value: Binding(
+                        get: { Double(data.dailyMinutesGoal) },
+                        set: { newValue in
+                            data.setDailyMinutesGoal(Int(newValue))
+                        }
+                    ),
+                    in: Double(ChallengeBuilderData.dailyMinutesRange.lowerBound)...Double(ChallengeBuilderData.dailyMinutesRange.upperBound),
+                    step: 5.0
+                )
+                .accentColor(ChallengeBuilderTheme.primary)
+
+                HStack {
+                    Text("\(ChallengeBuilderData.dailyMinutesRange.lowerBound) min")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    Spacer()
+                    Text("\(ChallengeBuilderData.dailyMinutesRange.upperBound) min")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(ChallengeBuilderTheme.mutedText)
+                }
+
+                Text("This is the amount of learning time your child needs to complete each day.")
+                    .font(.system(size: 13))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 20)
+                    .fill(ChallengeBuilderTheme.inputBackground.opacity(0.5))
+            )
         }
     }
 
@@ -263,7 +334,15 @@ struct RewardConfigStepView: View {
                         Slider(
                             value: Binding(
                                 get: { Double(data.streakBonus.targetDays) },
-                                set: { data.setStreakTargetDays(Int($0)) }
+                                set: { newValue in
+                                    let days = Int(newValue)
+                                    data.setStreakTargetDays(days)
+
+                                    // Auto-enable full week when streak >= 7
+                                    if days >= 7 {
+                                        data.schedule.activeDays = Set([1, 2, 3, 4, 5, 6, 7])
+                                    }
+                                }
                             ),
                             in: Double(ChallengeBuilderData.StreakBonus.targetDaysRange.lowerBound)...Double(ChallengeBuilderData.StreakBonus.targetDaysRange.upperBound),
                             step: 1
