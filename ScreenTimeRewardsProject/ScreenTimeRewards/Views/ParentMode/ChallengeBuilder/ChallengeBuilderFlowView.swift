@@ -13,6 +13,7 @@ struct ChallengeBuilderFlowView: View {
     init(
         viewModel: ChallengeViewModel,
         isOnboarding: Bool = false,
+        initialData: ChallengeBuilderData? = nil,
         onBack: (() -> Void)? = nil,
         onComplete: (() -> Void)? = nil,
         onSkip: (() -> Void)? = nil
@@ -21,7 +22,10 @@ struct ChallengeBuilderFlowView: View {
         self.onBack = onBack
         self.onComplete = onComplete
         self.onSkip = onSkip
-        _coordinator = StateObject(wrappedValue: ChallengeBuilderCoordinator(challengeViewModel: viewModel))
+        _coordinator = StateObject(wrappedValue: ChallengeBuilderCoordinator(
+            challengeViewModel: viewModel,
+            initialData: initialData
+        ))
     }
 
     var body: some View {

@@ -231,6 +231,68 @@ struct ChallengeBuilderData: Equatable {
     mutating func applyRatioPreset(_ ratio: LearningToRewardRatio) {
         learningToRewardRatio = ratio
     }
+
+    /// Load existing challenge data into the builder for editing
+    static func fromChallenge(_ challenge: Challenge) -> ChallengeBuilderData {
+        var data = ChallengeBuilderData()
+
+        // Basic info
+        data.title = challenge.title ?? ""
+        data.description = challenge.challengeDescription ?? ""
+
+        // Goal type and target
+        if let goalTypeString = challenge.goalType,
+           let goalType = ChallengeGoalType(rawValue: goalTypeString) {
+            data.goalType = goalType
+        }
+        data.dailyMinutesGoal = Int(challenge.targetValue)
+
+        // Learning and reward apps
+        let learningApps = challenge.targetAppIDs
+        if !learningApps.isEmpty {
+            data.selectedLearningAppIDs = Set(learningApps)
+        }
+        let rewardApps = challenge.rewardAppIDs
+        if !rewardApps.isEmpty {
+            data.selectedRewardAppIDs = Set(rewardApps)
+        }
+
+        // Learning to reward ratio
+        if let ratio = challenge.learningToRewardRatio {
+            data.learningToRewardRatio = ratio
+        }
+
+        // Streak bonus
+        data.streakBonus.enabled = challenge.streakBonusEnabled
+        data.streakBonus.targetDays = Int(challenge.streakTargetDays)
+        data.streakBonus.bonusPercentage = Int(challenge.streakBonusPercentage)
+
+        // Schedule
+        if let startDate = challenge.startDate {
+            data.schedule.startDate = startDate
+        }
+        if let endDate = challenge.endDate {
+            data.schedule.hasEndDate = true
+            data.schedule.endDate = endDate
+        }
+        let activeDaysArray = challenge.scheduledActiveDays
+        if !activeDaysArray.isEmpty {
+            data.schedule.activeDays = Set(activeDaysArray)
+        }
+        if let startTime = challenge.startTime, let endTime = challenge.endTime {
+            data.schedule.isFullDay = false
+            data.schedule.startTime = startTime
+            data.schedule.endTime = endTime
+        }
+
+        // Progress tracking mode
+        if let modeString = challenge.progressTrackingMode,
+           let mode = ProgressTrackingMode(rawValue: modeString) {
+            data.progressTrackingMode = mode
+        }
+
+        return data
+    }
 }
 
 private extension ClosedRange where Bound: Comparable {

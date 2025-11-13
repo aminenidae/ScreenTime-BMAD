@@ -39,10 +39,19 @@ final class ChallengeBuilderCoordinator: ObservableObject {
 
     init(
         challengeViewModel: ChallengeViewModel,
-        challengeService: ChallengeService = .shared
+        challengeService: ChallengeService = .shared,
+        initialData: ChallengeBuilderData? = nil
     ) {
         self.challengeViewModel = challengeViewModel
         self.challengeService = challengeService
+
+        // If initial data is provided (edit mode), use it
+        if let initialData = initialData {
+            self.data = initialData
+            #if DEBUG
+            print("[ChallengeBuilderCoordinator] ✏️ Initialized with existing data: \(initialData.title)")
+            #endif
+        }
     }
 
     var currentStepIndex: Int {

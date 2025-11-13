@@ -9,10 +9,12 @@ struct ChallengeDetailView: View {
     @Environment(\.presentationMode) var presentationMode
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.managedObjectContext) private var viewContext
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
     @EnvironmentObject var appUsageViewModel: AppUsageViewModel
 
     @State private var showingEndAlert = false
     @State private var showingPauseAlert = false
+    @State private var showingEditBuilder = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -86,13 +88,28 @@ struct ChallengeDetailView: View {
             }
             ToolbarItem(placement: .navigationBarTrailing) {
                 Button(action: {
-                    // Edit action
+                    #if DEBUG
+                    print("[ChallengeDetailView] 📝 Edit button tapped for challenge: \(challenge.title ?? "Untitled")")
+                    #endif
+                    showingEditBuilder = true
                 }) {
                     Text("Edit")
                         .font(.system(size: 16, weight: .bold))
                         .foregroundColor(colorScheme == .dark ? Colors.primaryDark : Colors.primary)
                 }
             }
+        }
+        .sheet(isPresented: $showingEditBuilder) {
+            EditChallengeBuilderWrapper(
+                challenge: challenge,
+                isPresented: $showingEditBuilder
+            )
+            .environmentObject(appUsageViewModel)
+        }
+        .onChange(of: showingEditBuilder) { newValue in
+            #if DEBUG
+            print("[ChallengeDetailView] 🔄 showingEditBuilder changed to: \(newValue)")
+            #endif
         }
     }
 
@@ -273,47 +290,90 @@ struct ChallengeDetailView: View {
     }
 
     private func appListRow(token: ApplicationToken) -> some View {
-        HStack(spacing: 16) {
-            // Real App Icon using Label - larger size
+        // Standardized icon sizes to match Learning tab
+        let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
+        let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
+        let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
+
+        // Get usage data for this app
+        let dailyUsage = getDailyUsageMinutes(for: token)
+
+        return HStack(spacing: 16) {
+            // App Icon - Standardized smaller size to match Learning tab
             if #available(iOS 15.2, *) {
                 Label(token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(2.5)
-                    .frame(width: 64, height: 64)
-                    .background(Color.clear)
-                    .cornerRadius(12)
+                    .scaleEffect(iconScale)
+                    .frame(width: iconSize, height: iconSize)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
-                RoundedRectangle(cornerRadius: 12)
+                RoundedRectangle(cornerRadius: 8)
                     .fill(Color.gray.opacity(0.2))
-                    .frame(width: 64, height: 64)
+                    .frame(width: iconSize, height: iconSize)
                     .overlay(
                         Image(systemName: "app.fill")
-                            .font(.system(size: 40))
+                            .font(.system(size: fallbackIconSize))
                             .foregroundColor(.gray)
                     )
             }
 
-            // Real App Name using Label - same style as Schedule text
-            if #available(iOS 15.2, *) {
-                Label(token)
-                    .labelStyle(.titleOnly)
-                    .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
-                    .lineLimit(1)
-            } else {
-                Text("App")
-                    .font(.system(size: 14))
-                    .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
+            // App Info
+            VStack(alignment: .leading, spacing: 2) {
+                // App Name
+                if #available(iOS 15.2, *) {
+                    Label(token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
+                        .lineLimit(1)
+                } else {
+                    Text("App")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Colors.textHeadingDark : Colors.textHeading)
+                        .lineLimit(1)
+                }
+
+                // Daily Usage Time
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(colorScheme == .dark ? Colors.secondaryDark : Colors.secondary)
+
+                    Text(dailyUsage)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(colorScheme == .dark ? Colors.textBodyDark : Colors.textBody)
+                }
             }
+            .frame(maxWidth: .infinity, alignment: .leading)
 
             Spacer()
         }
-        .padding(16)
+        .padding(12)
         .background(
             RoundedRectangle(cornerRadius: DesignTokens.cardCornerRadius)
                 .fill(colorScheme == .dark ? Colors.cardBackgroundDark : Colors.cardBackground)
                 .shadow(color: Color.black.opacity(0.05), radius: 12, x: 0, y: 4)
         )
+    }
+
+    // Helper to get daily usage time for an app
+    private func getDailyUsageMinutes(for token: ApplicationToken) -> String {
+        // Get the logical ID for this token
+        let tokenHash = token.hashValue.description
+
+        // Look up in learning snapshots
+        if let snapshot = appUsageViewModel.learningSnapshots.first(where: { $0.tokenHash == tokenHash }) {
+            let minutes = Int(snapshot.totalSeconds / 60)
+            return "\(minutes) min today"
+        }
+
+        // Look up in reward snapshots
+        if let snapshot = appUsageViewModel.rewardSnapshots.first(where: { $0.tokenHash == tokenHash }) {
+            let minutes = Int(snapshot.totalSeconds / 60)
+            return "\(minutes) min today"
+        }
+
+        return "0 min today"
     }
 
     // MARK: - Action Buttons
@@ -486,13 +546,14 @@ struct ChallengeDetailView: View {
     }
 
     private var rewardPlanText: String {
-        let components = [
-            rewardSummaryText,
-            rewardRatioDescription,
-            rewardUnlockMinutesDescription,
-            "+\(challenge.bonusPercentage)% bonus"
-        ]
-        return components.joined(separator: "\n")
+        let count = rewardAppTokens.count
+        if count == 0 {
+            return "No reward apps"
+        } else if count == 1 {
+            return "1 app to unlock"
+        } else {
+            return "\(count) apps to unlock"
+        }
     }
 
     private var rewardBonusDescription: String {
@@ -596,5 +657,51 @@ extension ChallengeDetailView {
         // Danger Colors
         static let danger = Color(hex: "#DC2626")
         static let dangerDark = Color(hex: "#EF4444")
+    }
+}
+
+// MARK: - Edit Challenge Builder Wrapper
+struct EditChallengeBuilderWrapper: View {
+    let challenge: Challenge
+    @Binding var isPresented: Bool
+    @StateObject private var challengeViewModel = ChallengeViewModel()
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+
+    // Compute edit data once, not on every body evaluation
+    private var editData: ChallengeBuilderData {
+        var data = ChallengeBuilderData.fromChallenge(challenge)
+
+        // Clear app IDs since we don't have tokens in edit mode
+        // User will need to re-select apps
+        data.selectedLearningAppIDs = []
+        data.selectedRewardAppIDs = []
+
+        return data
+    }
+
+    var body: some View {
+        // IMPORTANT: Present the builder WITHOUT nested NavigationView
+        // to avoid FamilyControls Label hierarchy conflicts
+        ChallengeBuilderFlowView(
+            viewModel: challengeViewModel,
+            initialData: editData
+        )
+        .environmentObject(appUsageViewModel)
+        .interactiveDismissDisabled(false)
+        .onAppear {
+            #if DEBUG
+            print("[EditChallengeBuilderWrapper] ✅ Builder appeared for challenge: \(challenge.title ?? "Untitled")")
+            print("[EditChallengeBuilderWrapper] 📝 Title: \(editData.title), Goal: \(editData.dailyMinutesGoal) min")
+            print("[EditChallengeBuilderWrapper] 📝 Ratio: \(editData.learningToRewardRatio.formattedDescription)")
+            print("[EditChallengeBuilderWrapper] 📝 Streak: \(editData.streakBonus.enabled), Target: \(editData.streakBonus.targetDays) days")
+            print("[EditChallengeBuilderWrapper] ⚠️ App selections cleared - user must re-select apps")
+            #endif
+        }
+        .onDisappear {
+            #if DEBUG
+            print("[EditChallengeBuilderWrapper] ❌ Builder disappeared")
+            #endif
+            isPresented = false
+        }
     }
 }
