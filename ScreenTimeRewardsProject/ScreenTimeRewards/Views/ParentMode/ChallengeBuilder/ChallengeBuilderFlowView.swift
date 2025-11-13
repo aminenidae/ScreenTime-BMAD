@@ -4,7 +4,23 @@ struct ChallengeBuilderFlowView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var coordinator: ChallengeBuilderCoordinator
 
-    init(viewModel: ChallengeViewModel) {
+    // Onboarding mode support
+    let isOnboarding: Bool
+    let onBack: (() -> Void)?
+    let onComplete: (() -> Void)?
+    let onSkip: (() -> Void)?
+
+    init(
+        viewModel: ChallengeViewModel,
+        isOnboarding: Bool = false,
+        onBack: (() -> Void)? = nil,
+        onComplete: (() -> Void)? = nil,
+        onSkip: (() -> Void)? = nil
+    ) {
+        self.isOnboarding = isOnboarding
+        self.onBack = onBack
+        self.onComplete = onComplete
+        self.onSkip = onSkip
         _coordinator = StateObject(wrappedValue: ChallengeBuilderCoordinator(challengeViewModel: viewModel))
     }
 
@@ -46,20 +62,37 @@ struct ChallengeBuilderFlowView: View {
                     .frame(maxWidth: .infinity)
                 }
 
-                ChallengeBuilderNavigationFooter(
-                    backTitle: "Back",
-                    nextTitle: coordinator.isOnLastStep ? "Create Challenge" : "Next",
-                    showBackButton: coordinator.currentStep != .details,
-                    isBackEnabled: true,
-                    isNextEnabled: coordinator.isStepValid(coordinator.currentStep),
-                    isLoading: coordinator.isSaving,
-                    onBack: {
-                        coordinator.goToPrevious()
-                    },
-                    onNext: {
-                        coordinator.handlePrimaryAction()
+                VStack(spacing: 0) {
+                    // Skip button for onboarding mode
+                    if isOnboarding, let onSkip = onSkip {
+                        Button(action: onSkip) {
+                            Text("Skip for now")
+                                .font(.system(size: 15, weight: .medium))
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.top, 8)
+                        .padding(.bottom, 12)
                     }
-                )
+
+                    ChallengeBuilderNavigationFooter(
+                        backTitle: "Back",
+                        nextTitle: coordinator.isOnLastStep ? "Create Challenge" : "Next",
+                        showBackButton: isOnboarding ? true : coordinator.currentStep != .details,
+                        isBackEnabled: true,
+                        isNextEnabled: coordinator.isStepValid(coordinator.currentStep),
+                        isLoading: coordinator.isSaving,
+                        onBack: {
+                            if isOnboarding && coordinator.currentStep == .details {
+                                onBack?()
+                            } else {
+                                coordinator.goToPrevious()
+                            }
+                        },
+                        onNext: {
+                            coordinator.handlePrimaryAction()
+                        }
+                    )
+                }
                 .padding(.horizontal, 20)
                 .background(.ultraThinMaterial)
             }
@@ -67,7 +100,11 @@ struct ChallengeBuilderFlowView: View {
         .navigationBarHidden(true)
         .onAppear {
             coordinator.onSubmit = { _ in
-                dismiss()
+                if isOnboarding {
+                    onComplete?()
+                } else {
+                    dismiss()
+                }
             }
         }
     }
@@ -76,15 +113,17 @@ struct ChallengeBuilderFlowView: View {
         let primaryEnabled = coordinator.isStepValid(coordinator.currentStep)
 
         return HStack(spacing: 12) {
-            Button(action: { dismiss() }) {
-                ZStack {
-                    Circle()
-                        .fill(AppTheme.playfulCoral.opacity(0.15))
-                        .frame(width: 36, height: 36)
+            if !isOnboarding {
+                Button(action: { dismiss() }) {
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.playfulCoral.opacity(0.15))
+                            .frame(width: 36, height: 36)
 
-                    Image(systemName: "xmark")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundColor(AppTheme.playfulCoral)
+                        Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundColor(AppTheme.playfulCoral)
+                    }
                 }
             }
 

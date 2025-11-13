@@ -15,6 +15,7 @@ struct ChildOnboardingCoordinator: View {
     @State private var currentStep: ChildStep = .pathSelection
     @State private var selectedPath: OnboardingPath?
     @AppStorage("hasCompletedChildOnboarding") private var childComplete = false
+    @StateObject private var challengeViewModel = ChallengeViewModel()
 
     let deviceName: String
     let onBack: () -> Void
@@ -54,9 +55,12 @@ struct ChildOnboardingCoordinator: View {
                 )
 
             case .challengeBuilder:
-                OnboardingChallengeBuilderScreen(
+                ChallengeBuilderFlowView(
+                    viewModel: challengeViewModel,
+                    isOnboarding: true,
                     onBack: { currentStep = .rewardSetup },
-                    onContinue: { currentStep = .paywall }
+                    onComplete: { currentStep = .paywall },
+                    onSkip: { currentStep = .paywall }
                 )
 
             case .paywall:
