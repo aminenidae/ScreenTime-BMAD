@@ -2,11 +2,12 @@ import SwiftUI
 import FamilyControls
 
 struct MainTabView: View {
-    @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Receive shared view model
-    var isParentMode: Bool = false  // Add parameter to indicate parent mode
-    @EnvironmentObject var sessionManager: SessionManager  // Add session manager
+    @EnvironmentObject var viewModel: AppUsageViewModel
+    var isParentMode: Bool = false
+    @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @AppStorage("hasCompletedChildOnboarding") private var hasCompletedOnboarding = false
+    @State private var selectedTab = 0
 
     var body: some View {
         #if DEBUG
@@ -14,11 +15,57 @@ struct MainTabView: View {
         let _ = print("[MainTabView] sessionManager: \(sessionManager)")
         #endif
 
+        if isParentMode {
+            parentModeView
+        } else {
+            childModeView
+        }
+    }
+
+    // MARK: - Parent Mode with Swipe Navigation
+    private var parentModeView: some View {
         NavigationView {
             VStack(spacing: 0) {
-                // Free Trial banner hidden - will be re-enabled in future update
-                // TrialBannerView()
+                // Custom tab indicator
+                ParentTabIndicator(selectedTab: $selectedTab)
 
+                // Swipeable pages
+                TabView(selection: $selectedTab) {
+                    LearningTabView()
+                        .tag(0)
+
+                    RewardsTabView()
+                        .tag(1)
+
+                    ParentChallengesTabView()
+                        .tag(2)
+
+                    SettingsTabView()
+                        .tag(3)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .environmentObject(viewModel)
+            .navigationViewStyle(.stack)
+            .navigationBarHidden(true)
+        }
+        .navigationViewStyle(.stack)
+        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+        .onChange(of: viewModel.familySelection) { _ in
+            viewModel.onPickerSelectionChange()
+        }
+        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+            if !isPresented {
+                viewModel.onFamilyPickerDismissed()
+            }
+        }
+    }
+
+    // MARK: - Child Mode with Bottom Tab Bar
+    private var childModeView: some View {
+        NavigationView {
+            VStack(spacing: 0) {
                 TabView {
                     RewardsTabView()
                         .tabItem {
@@ -31,32 +78,12 @@ struct MainTabView: View {
                             Label("Learning", systemImage: "book.fill")
                         }
                         .navigationTitle("Learning")
-
-                    // Settings Tab (Parent Mode only) - Phase 2
-                    if isParentMode {
-                        SettingsTabView()
-                            .tabItem {
-                                Label("Settings", systemImage: "gearshape.fill")
-                            }
-                            .navigationTitle("Settings")
-                    }
-
-                    // Challenges Tab (Parent Mode only)
-                    if isParentMode {
-                        ParentChallengesTabView()
-                            .tabItem {
-                                Label("Challenges", systemImage: "trophy.fill")
-                            }
-                            .navigationTitle("Challenges")
-                    }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-            .environmentObject(viewModel)  // Task 0: Pass shared view model to tabs
+            .environmentObject(viewModel)
             .navigationViewStyle(.stack)
             .navigationBarTitleDisplayMode(.inline)
-            // REMOVE Exit button from toolbar (lines 31-42):
-            // ToolbarItem removed - Exit Parent Mode button moved to Settings tab
         }
         .navigationViewStyle(.stack)
         .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
@@ -68,5 +95,54 @@ struct MainTabView: View {
                 viewModel.onFamilyPickerDismissed()
             }
         }
+    }
+}
+
+// MARK: - Parent Tab Indicator
+struct ParentTabIndicator: View {
+    @Binding var selectedTab: Int
+
+    private let tabs: [(String, String)] = [
+        ("Learning", "book.fill"),
+        ("Rewards", "gamecontroller.fill"),
+        ("Challenges", "trophy.fill"),
+        ("Settings", "gearshape.fill")
+    ]
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<tabs.count, id: \.self) { index in
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        selectedTab = index
+                    }
+                }) {
+                    VStack(spacing: 6) {
+                        Image(systemName: tabs[index].1)
+                            .font(.system(size: 20, weight: selectedTab == index ? .bold : .medium))
+                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : .secondary)
+
+                        Text(tabs[index].0)
+                            .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
+                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : .secondary)
+
+                        // Active indicator
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(selectedTab == index ? AppTheme.vibrantTeal : Color.clear)
+                            .frame(height: 3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(.ultraThinMaterial)
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(Color.secondary.opacity(0.2)),
+            alignment: .bottom
+        )
     }
 }
