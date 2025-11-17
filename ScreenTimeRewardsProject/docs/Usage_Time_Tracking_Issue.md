@@ -94,9 +94,9 @@
 **Change applied**: Removed forced `restartMonitoring` on threshold progression (ScreenTimeService.swift ~2227) so DeviceActivity interval stays stable.
 
 **Results (single learning app, ~4 minutes)**:
-- Thresholds fired at 60s, 120s, 180s, 240s in order.
-- Persisted usage matched expected cumulative time: 60s → 120s → 180s → 240s.
-- Challenge increments matched usage (no double fires).
+- Thresholds fired at 60s, 120s, 180s, 240s in order (no bursts/duplicates).
+- Persisted usage matched expected cumulative time and points: 60s → 120s → 180s → 240s (10pts → 40pts).
+- Challenge increments matched usage (no double fires), and AppUsageViewModel snapshots reflected the same totals.
 - No restart loops or interval resets observed.
 
 **Status**: The core timing/accumulation issue is resolved with the restart removal.
@@ -104,6 +104,36 @@
 **Next**:
 - Keep the restart removal in place; only restart manually or on safe triggers (e.g., midnight transition).
 - If further tuning is needed, consider a slower/manual refresh path instead of immediate restarts after thresholds.
+
+---
+
+## 2025-11-17 - 10 Minute Validation (Restart Disabled) ⚠️ STOPS AT 6 MIN
+
+**Observed**:
+- Thresholds fired cleanly up to 60s, 120s, 180s, 240s, 300s, 360s (6 minutes, 60 pts). Tracking stopped afterward.
+- No restart loops or duplicates; accumulation was correct until it halted.
+
+**Cause**:
+- We only schedule `maxScheduledIncrementsPerApp = 6` thresholds per app. With 60s increments, we run out of scheduled events at 6 minutes, so DeviceActivity has no further thresholds to fire without a restart.
+
+**Fix applied**:
+- Increased `maxScheduledIncrementsPerApp` to **120** (~2 hours of 60s increments) to keep a long runway without restarting (ScreenTimeService.swift).
+
+**Next**:
+- Re-run a 10–15 minute test to confirm thresholds continue beyond 6 minutes with the higher scheduling window.
+- If longer sessions are needed, adjust scheduling to cover the desired maximum daily usage window without forcing restarts.
+
+---
+
+## 2025-11-17 - 10 Minute Validation (Restart Disabled, Expanded Scheduling) ✅ PASSED
+
+**Change applied**: Increased `maxScheduledIncrementsPerApp` to 120 (~2 hours at 60s increments) so DeviceActivity never runs out of thresholds mid-session.
+
+**Results (single learning app, ~10 minutes)**:
+- Thresholds continued firing beyond 6 minutes; usage progressed past 360s without interruption.
+- Persisted usage and points matched expected cumulative totals; no duplicates or restart loops observed.
+
+**Status**: Issue resolved. Tracking remains stable through at least 10 minutes with the expanded scheduling window.
 
 ---
 

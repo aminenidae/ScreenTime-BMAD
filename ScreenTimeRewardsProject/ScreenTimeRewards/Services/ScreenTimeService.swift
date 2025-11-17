@@ -53,7 +53,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
-    private let maxScheduledIncrementsPerApp = 6  // queue ahead to avoid restart gaps
+    private let maxScheduledIncrementsPerApp = 120  // queue ahead (~2 hours of 60s increments) to avoid restart gaps
 
     // MARK: - App Name Extraction Helpers
 
