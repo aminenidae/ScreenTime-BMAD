@@ -4,6 +4,7 @@ import DeviceActivity
 import FamilyControls
 import ManagedSettings
 import CoreData
+import UIKit
 
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
@@ -29,7 +30,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
     
     private let deviceActivityCenter: DeviceActivityCenter
-    private let activityName = DeviceActivityName("ScreenTimeTracking")
+    private let primaryActivityName = DeviceActivityName("ScreenTimeTracking.primary")
+    private var activityNames: [DeviceActivityName] { [primaryActivityName] }
     private var appUsages: [String: AppUsage] = [:]  // Key = logicalID
     private var hasSeededSampleData = false
     private var authorizationGranted = false
@@ -40,15 +42,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private static let intervalDidEndNotification = CFNotificationName(ScreenTimeNotifications.intervalDidEnd as CFString)
     private static let intervalWillStartNotification = CFNotificationName(ScreenTimeNotifications.intervalWillStart as CFString)
     private static let intervalWillEndNotification = CFNotificationName(ScreenTimeNotifications.intervalWillEnd as CFString)
+    private static let usageRecordedNotification = CFNotificationName(ScreenTimeNotifications.usageRecorded as CFString)
 
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
+    private let notificationGapLogKey = "notification_gap_log"
 
     // Shared persistence helper for logical ID-based storage
     private(set) var usagePersistence = UsagePersistence()
 
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
+    private let maxScheduledIncrementsPerApp = 6  // queue ahead to avoid restart gaps
 
     // MARK: - App Name Extraction Helpers
 
@@ -123,6 +128,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let category: AppUsage.AppCategory
         let threshold: DateComponents
         let applications: [MonitoredApplication]
+        let increment: TimeInterval
 
         func deviceActivityEvent() -> DeviceActivityEvent {
             // Create DeviceActivityEvent using application tokens
@@ -134,6 +140,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
             #endif
 
+            // Always count fresh usage after each restart to prevent immediate re-triggers
             return DeviceActivityEvent(
                 applications: Set(tokens),
                 threshold: threshold
@@ -142,12 +149,26 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     private let activityMonitor = ScreenTimeActivityMonitor()
-    private let defaultThreshold = DateComponents(minute: 1)
+    private let incrementSeconds: TimeInterval = 60  // Default increment when no category override is provided
     private var monitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
+    private var monitoredApplicationsByCategory: [AppUsage.AppCategory: [MonitoredApplication]] = [:]
+    private var currentThresholds: [AppUsage.AppCategory: DateComponents] = [:]
+    private var cumulativeExpectedUsage: [String: TimeInterval] = [:]
+    private var recentUsageEvents: [String: Date] = [:]
+    private var isRestarting = false
+    private let cumulativeTrackingKey = "cumulativeExpectedUsage"
+    private let firstLaunchFlagKey = "hasLaunchedBefore"
+    private let cumulativeValidationTolerance: TimeInterval = 120
+    private let minimumAutoRestartInterval: TimeInterval = 300
+    private let extensionHeartbeatTimeout: TimeInterval = 180
+    private let extensionHealthEventGraceWindow: TimeInterval = 180
+    private var lastRestartDate: Date?
+    private var lastEventFireTimestamps: [DeviceActivityEvent.Name: Date] = [:]
+    private let eventDeduplicationWindow: TimeInterval = 2
 
-    // Timer for continuous tracking - restarts monitoring periodically to reset events
-    private var monitoringRestartTimer: Timer?
-    private let restartInterval: TimeInterval = 120  // 2 minutes
+    private var healthCheckTimer: Timer?
+    private var lastReceivedSequence: Int = 0
+    private var lastEventTimestamp: Date?
 
     // Store category assignments and selection for sharing across ViewModels
     private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
@@ -159,6 +180,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         super.init()
         activityMonitor.delegate = self
         registerForExtensionNotifications()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleAppDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
         loadPersistedAssignments()
     }
 
@@ -255,6 +282,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] 🔄 Loading persisted data using bundleID-based persistence...")
         #endif
 
+        loadCumulativeTracking()
+
         // Load all persisted apps from shared storage
         let persistedApps = usagePersistence.loadAllApps()
 
@@ -334,7 +363,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 do {
                     try scheduleActivity()
                     isMonitoring = true
-                    startMonitoringRestartTimer()
 
                     #if DEBUG
                     print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch")
@@ -588,7 +616,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 totalSeconds: existingApp?.totalSeconds ?? 0,
                 earnedPoints: existingApp?.earnedPoints ?? 0,
                 createdAt: existingApp?.createdAt ?? now,
-                lastUpdated: existingApp?.lastUpdated ?? now
+                lastUpdated: existingApp?.lastUpdated ?? now,
+                todaySeconds: existingApp?.todaySeconds ?? 0,
+                todayPoints: existingApp?.todayPoints ?? 0,
+                lastResetDate: existingApp?.lastResetDate
             )
             usagePersistence.saveApp(persistedApp)
 
@@ -625,72 +656,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // CRITICAL FIX: Create one event per app for accurate individual tracking
-        // (DeviceActivity has a limit of ~8 events, so this works for small app counts)
-        var eventIndex = 0
-        monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
-            let (category, applications) = entry
-            guard !applications.isEmpty else {
-                #if DEBUG
-                print("[ScreenTimeService] No applications in category \(category.rawValue)")
-                #endif
-                return
-            }
-            let threshold = providedThresholds[category] ?? defaultThreshold
-
-            // Create separate event for each app
-            for app in applications {
-                let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex)")
-                eventIndex += 1
-
-                #if DEBUG
-                print("[ScreenTimeService] Creating monitored event for app: \(app.displayName)")
-                print("[ScreenTimeService] Event name: \(eventName.rawValue)")
-                print("[ScreenTimeService] Category: \(category.rawValue)")
-                print("[ScreenTimeService] Threshold: \(threshold)")
-                #endif
-
-                result[eventName] = MonitoredEvent(
-                    name: eventName,
-                    category: category,
-                    threshold: threshold,
-                    applications: [app]  // Single app per event!
-                )
-            }
+        monitoredApplicationsByCategory = groupedApplications
+        currentThresholds = providedThresholds
+        let activeLogicalIDs = Set(groupedApplications.values.flatMap { $0.map(\.logicalID) })
+        let filteredTracking = cumulativeExpectedUsage.filter { activeLogicalIDs.contains($0.key) }
+        if filteredTracking.count != cumulativeExpectedUsage.count {
+            cumulativeExpectedUsage = filteredTracking
+            saveCumulativeTracking()
         }
-
-        #if DEBUG
-        print("[ScreenTimeService] Created \(monitoredEvents.count) monitored events")
-        for (name, event) in monitoredEvents {
-            print("[ScreenTimeService]   Event: \(name.rawValue) with \(event.applications.count) apps")
-        }
-        #endif
-
-        // Save event name → logical ID mapping for extension
-        saveEventMappings()
-
         hasSeededSampleData = false
-
-        // CRITICAL FIX: Always reload from persistence to get updated rewardPoints configuration
-        // When user changes points/minute, we save the new config above (line 508-521)
-        // but we must reload it here to ensure in-memory AppUsage uses the NEW rate
-        var refreshedUsages: [String: AppUsage] = [:]
-        for apps in groupedApplications.values {
-            for app in apps {
-                // Always reload from persistence to get the latest configuration
-                if let persisted = usagePersistence.app(for: app.logicalID) {
-                    refreshedUsages[app.logicalID] = appUsage(from: persisted)
-                    #if DEBUG
-                    print("[ScreenTimeService] Reloaded \(app.displayName): \(persisted.rewardPoints) pts/min, \(persisted.earnedPoints) earned, \(persisted.totalSeconds)s total")
-                    #endif
-                }
-            }
-        }
-        appUsages = refreshedUsages
-        notifyUsageChange()
+        regenerateMonitoredEvents(refreshUsageCache: true)
 
         if isMonitoring {
-            deviceActivityCenter.stopMonitoring([activityName])
+            deviceActivityCenter.stopMonitoring(activityNames)
             do {
                 try scheduleActivity()
             } catch {
@@ -708,13 +686,42 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
         let category = AppUsage.AppCategory(rawValue: persisted.category) ?? .learning
-        let session = AppUsage.UsageSession(startTime: persisted.createdAt, endTime: persisted.lastUpdated)
+
+        // Create today's session if there's usage today
+        var sessions: [AppUsage.UsageSession] = []
+        let now = Date()
+        let calendar = Calendar.current
+        let todayStart = calendar.startOfDay(for: now)
+
+        // Migration: If todaySeconds is 0 but totalSeconds > 0, this is old data
+        // Assume all usage is from today for backward compatibility
+        let usageSecondsToday = persisted.todaySeconds > 0 ? persisted.todaySeconds : persisted.totalSeconds
+
+        if usageSecondsToday > 0 {
+            // Create a session representing today's accumulated usage
+            // endTime is set to lastUpdated if it's today, otherwise use current time
+            let sessionEnd = calendar.isDate(persisted.lastUpdated, inSameDayAs: now) ? persisted.lastUpdated : now
+            let sessionStart = sessionEnd.addingTimeInterval(-TimeInterval(usageSecondsToday))
+
+            let todaySession = AppUsage.UsageSession(
+                startTime: max(sessionStart, todayStart), // Don't go before today
+                endTime: sessionEnd
+            )
+            sessions.append(todaySession)
+
+            #if DEBUG
+            if persisted.todaySeconds == 0 && persisted.totalSeconds > 0 {
+                print("[ScreenTimeService] 📦 Migration: Treating \(persisted.totalSeconds)s as today's usage for \(persisted.displayName)")
+            }
+            #endif
+        }
+
         return AppUsage(
             bundleIdentifier: persisted.logicalID,
             appName: persisted.displayName,
             category: category,
             totalTime: TimeInterval(persisted.totalSeconds),
-            sessions: [session],
+            sessions: sessions,
             firstAccess: persisted.createdAt,
             lastAccess: persisted.lastUpdated,
             rewardPoints: persisted.rewardPoints,
@@ -725,9 +732,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Save event name → app info mapping for extension to use
     private func saveEventMappings() {
         guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            #if DEBUG
-            print("[ScreenTimeService] ⚠️ Failed to save event mappings")
-            #endif
+            NSLog("[ScreenTimeService] ❌ CRITICAL: Cannot access app group to save event mappings")
             return
         }
 
@@ -740,19 +745,194 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             mappings[eventName.rawValue] = [
                 "logicalID": app.logicalID,
                 "displayName": app.displayName,
+                "category": app.category.rawValue,
                 "rewardPoints": app.rewardPoints,
-                "thresholdSeconds": Int(thresholdSeconds)
+                "thresholdSeconds": Int(thresholdSeconds),
+                "incrementSeconds": Int(event.increment)
             ]
+        }
+
+        NSLog("[ScreenTimeService] 💾 Saving \(mappings.count) event mappings for extension:")
+        for (eventName, info) in mappings {
+            let displayName = info["displayName"] as? String ?? "?"
+            let logicalID = info["logicalID"] as? String ?? "?"
+            NSLog("[ScreenTimeService]   '\(eventName)' → \(displayName) (\(logicalID))")
         }
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
             sharedDefaults.set(data, forKey: "eventMappings")
+            sharedDefaults.removeObject(forKey: "currentRestartGeneration")
+            sharedDefaults.removeObject(forKey: "previousRestartGeneration")
             sharedDefaults.synchronize()
-
-            #if DEBUG
-            print("[ScreenTimeService] 💾 Saved \(mappings.count) event mappings for extension")
-            #endif
+            NSLog("[ScreenTimeService] ✅ Event mappings saved successfully to app group")
+        } else {
+            NSLog("[ScreenTimeService] ❌ FAILED to serialize event mappings to JSON")
         }
+    }
+
+    private func saveCumulativeTracking() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            NSLog("[ScreenTimeService] ⚠️ Cannot save cumulative tracking - no app group access")
+            return
+        }
+
+        defaults.set(cumulativeExpectedUsage.mapValues { $0 }, forKey: cumulativeTrackingKey)
+        defaults.synchronize()
+
+        NSLog("[ScreenTimeService] 💾 Saved cumulative tracking for \(cumulativeExpectedUsage.count) apps")
+        for (logicalID, expected) in cumulativeExpectedUsage {
+            NSLog("[ScreenTimeService]   \(logicalID): \(Int(expected))s")
+        }
+    }
+
+    private func loadCumulativeTracking() {
+        let standardDefaults = UserDefaults.standard
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            NSLog("[ScreenTimeService] ⚠️ Cannot load cumulative tracking - no app group access")
+            cumulativeExpectedUsage.removeAll()
+            return
+        }
+
+        let hasLaunchedBefore = standardDefaults.bool(forKey: firstLaunchFlagKey)
+        if !hasLaunchedBefore {
+            NSLog("[ScreenTimeService] 🆕 First launch detected - clearing persisted usage caches")
+            usagePersistence.clearAllAppData(reason: "first_launch")
+            cumulativeExpectedUsage.removeAll()
+            defaults.removeObject(forKey: cumulativeTrackingKey)
+            defaults.synchronize()
+            saveCumulativeTracking()
+            standardDefaults.set(true, forKey: firstLaunchFlagKey)
+            standardDefaults.synchronize()
+            return
+        }
+
+        if let saved = defaults.dictionary(forKey: cumulativeTrackingKey) as? [String: TimeInterval] {
+            cumulativeExpectedUsage = saved
+            NSLog("[ScreenTimeService] 📂 Loaded cumulative tracking for \(saved.count) apps")
+            for (logicalID, expected) in saved {
+                NSLog("[ScreenTimeService]   \(logicalID): \(Int(expected))s")
+            }
+        } else {
+            cumulativeExpectedUsage.removeAll()
+            NSLog("[ScreenTimeService] 📂 No cumulative tracking found, starting fresh")
+        }
+    }
+
+    private func reconcileCumulativeTrackingWithPersistedUsage(_ persistedSnapshot: [String: UsagePersistence.PersistedApp]? = nil) {
+        guard !cumulativeExpectedUsage.isEmpty else { return }
+
+        let persistedApps = persistedSnapshot ?? usagePersistence.reloadAppsFromDisk()
+        var didMutate = false
+
+        for logicalID in Array(cumulativeExpectedUsage.keys) {
+            guard let persisted = persistedApps[logicalID] else {
+                NSLog("[ScreenTimeService] ⚠️ No persisted usage for \(logicalID) - removing cumulative tracking entry")
+                cumulativeExpectedUsage.removeValue(forKey: logicalID)
+                didMutate = true
+                continue
+            }
+
+            let actualTodaySeconds = TimeInterval(persisted.todaySeconds)
+            let expected = cumulativeExpectedUsage[logicalID] ?? 0
+            if expected > actualTodaySeconds + cumulativeValidationTolerance {
+                NSLog("[ScreenTimeService] ⚠️ Cumulative tracking for \(persisted.displayName) (\(logicalID)) is stale: expected \(Int(expected))s vs actual \(Int(actualTodaySeconds))s - resetting")
+                cumulativeExpectedUsage[logicalID] = actualTodaySeconds
+                didMutate = true
+            }
+        }
+
+        if didMutate {
+            saveCumulativeTracking()
+        }
+    }
+
+    func resetDailyTracking() {
+        usagePersistence.resetDailyCounters()
+        cumulativeExpectedUsage.removeAll()
+        saveCumulativeTracking()
+        reloadAppUsagesFromPersistence()
+        NSLog("[ScreenTimeService] 🔄 Reset cumulative tracking for new day")
+    }
+
+    @MainActor
+    func handleMidnightTransition() async {
+        NSLog("[ScreenTimeService] 🌅 Handling calendar day change")
+        resetDailyTracking()
+        if isMonitoring {
+            await restartMonitoring(reason: "midnight_transition", force: true)
+        }
+    }
+
+    // MARK: - Extension Health Monitoring
+
+    private func startHealthMonitoring() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { [weak self] _ in
+            self?.checkExtensionHealth()
+        }
+        checkExtensionHealth()
+    }
+
+    private func stopHealthMonitoring() {
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
+    }
+
+    func checkExtensionHealth() {
+        guard isMonitoring else { return }
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        let lastHeartbeat = sharedDefaults.double(forKey: "extension_heartbeat")
+        guard lastHeartbeat > 0 else { return }
+
+        let now = Date()
+        let gapSeconds = now.timeIntervalSince1970 - lastHeartbeat
+        guard gapSeconds > extensionHeartbeatTimeout else { return }
+
+        if let lastEventTimestamp {
+            let sinceLastEvent = now.timeIntervalSince(lastEventTimestamp)
+            if sinceLastEvent < extensionHealthEventGraceWindow {
+                #if DEBUG
+                print("[ScreenTimeService] ⏱️ Skipping health restart (\(Int(gapSeconds))s gap) because last event fired \(Int(sinceLastEvent))s ago")
+                #endif
+                return
+            }
+        }
+
+        NotificationCenter.default.post(
+            name: .extensionUnhealthy,
+            object: nil,
+            userInfo: ["gap_seconds": Int(gapSeconds)]
+        )
+
+        Task { [weak self] in
+            await self?.restartMonitoring(reason: "extension_health_gap_\(Int(gapSeconds))s")
+        }
+    }
+
+    func getExtensionHealthStatus() -> ExtensionHealthStatus {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return ExtensionHealthStatus(
+                lastHeartbeat: .distantPast,
+                heartbeatGapSeconds: Int.max,
+                isHealthy: false,
+                memoryUsageMB: 0
+            )
+        }
+
+        let lastHeartbeat = sharedDefaults.double(forKey: "extension_heartbeat")
+        let memoryUsage = sharedDefaults.double(forKey: "extension_memory_mb")
+
+        let gapSeconds = lastHeartbeat > 0
+            ? Int(Date().timeIntervalSince1970 - lastHeartbeat)
+            : Int.max
+        let heartbeatDate = lastHeartbeat > 0 ? Date(timeIntervalSince1970: lastHeartbeat) : .distantPast
+
+        return ExtensionHealthStatus(
+            lastHeartbeat: heartbeatDate,
+            heartbeatGapSeconds: gapSeconds,
+            isHealthy: gapSeconds < 120,
+            memoryUsageMB: memoryUsage
+        )
     }
 
     private func registerForExtensionNotifications() {
@@ -769,7 +949,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
          Self.intervalDidStartNotification,
          Self.intervalDidEndNotification,
          Self.intervalWillStartNotification,
-         Self.intervalWillEndNotification].forEach { notification in
+         Self.intervalWillEndNotification,
+         Self.usageRecordedNotification].forEach { notification in
             CFNotificationCenterAddObserver(
                 center,
                 observer,
@@ -779,6 +960,98 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 .deliverImmediately
             )
         }
+    }
+
+    @objc private func handleAppDidBecomeActive() {
+        let status = AuthorizationCenter.shared.authorizationStatus
+        let granted = (status == .approved)
+        authorizationGranted = granted
+        NSLog("[ScreenTimeService] 🔐 App active - authorization status: \(status.rawValue), granted flag: \(granted)")
+
+        let didSyncUsage = processSharedUsageData(reason: "app_active")
+        if didSyncUsage {
+            reloadAppUsagesFromPersistence()
+        }
+
+    }
+
+    // MARK: - Gap Detection
+
+    func detectUsageGaps() -> [UsageGap] {
+        var gaps = [UsageGap]()
+        gaps.append(contentsOf: detectNotificationGaps())
+        gaps.append(contentsOf: detectHeartbeatGaps())
+        gaps.append(contentsOf: detectSessionGaps())
+        return gaps.sorted { $0.startTime < $1.startTime }
+    }
+
+    func shouldAlertUserAboutGaps() -> Bool {
+        let totalLostMinutes = detectUsageGaps().reduce(0) { $0 + $1.durationMinutes }
+        return totalLostMinutes > 15
+    }
+
+    private func detectNotificationGaps() -> [UsageGap] {
+        loadNotificationGapLogs().map { log in
+            let endDate = Date(timeIntervalSince1970: log.detectedAt)
+            let durationMinutes = max(1, log.missedCount)
+            let startDate = endDate.addingTimeInterval(TimeInterval(-durationMinutes * 60))
+            return UsageGap(
+                startTime: startDate,
+                endTime: endDate,
+                durationMinutes: durationMinutes,
+                detectionMethod: "notification_gap"
+            )
+        }
+    }
+
+    private func detectHeartbeatGaps() -> [UsageGap] {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return [] }
+        let lastHeartbeat = defaults.double(forKey: "extension_heartbeat")
+        guard lastHeartbeat > 0 else { return [] }
+
+        let gapSeconds = Date().timeIntervalSince1970 - lastHeartbeat
+        guard gapSeconds > 300 else { return [] }
+
+        return [UsageGap(
+            startTime: Date(timeIntervalSince1970: lastHeartbeat),
+            endTime: Date(),
+            durationMinutes: Int(gapSeconds / 60),
+            detectionMethod: "heartbeat_stale"
+        )]
+    }
+
+    private func detectSessionGaps() -> [UsageGap] {
+        let context = PersistenceController.shared.container.viewContext
+        let request: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+        let startOfDay = Calendar.current.startOfDay(for: Date())
+        request.predicate = NSPredicate(format: "sessionEnd >= %@ OR sessionStart >= %@", startOfDay as NSDate, startOfDay as NSDate)
+        request.sortDescriptors = [NSSortDescriptor(key: "sessionEnd", ascending: true)]
+
+        guard let records = try? context.fetch(request), records.count > 1 else {
+            return []
+        }
+
+        var gaps: [UsageGap] = []
+
+        for index in 0..<(records.count - 1) {
+            let current = records[index]
+            let next = records[index + 1]
+
+            guard let currentEnd = current.sessionEnd ?? current.sessionStart,
+                  let nextStart = next.sessionStart ?? next.sessionEnd else { continue }
+
+            let gapSeconds = nextStart.timeIntervalSince(currentEnd)
+            if gapSeconds > 600 {
+                gaps.append(UsageGap(
+                    startTime: currentEnd,
+                    endTime: nextStart,
+                    durationMinutes: Int(gapSeconds / 60),
+                    detectionMethod: "session_gap"
+                ))
+            }
+        }
+
+        return gaps
     }
 
     private func handleDarwinNotification(name: CFNotificationName, userInfo: CFDictionary?) {
@@ -856,12 +1129,127 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
                 handleIntervalWillEndWarning(for: DeviceActivityName(activityRaw))
             }
+        case Self.usageRecordedNotification:
+            handleUsageSequenceNotification(sharedDefaults: sharedDefaults)
         default:
             #if DEBUG
             print("[ScreenTimeService] Unknown notification received: \(name.rawValue)")
             #endif
             break
         }
+    }
+
+    private func handleUsageSequenceNotification(sharedDefaults: UserDefaults) {
+        NSLog("[ScreenTimeService] 📨 Received usage sequence notification")
+
+        var currentSequence = sharedDefaults.integer(forKey: "usageNotificationSequence")
+        if currentSequence == 0 {
+            currentSequence = sharedDefaults.integer(forKey: "notification_sequence")
+            if currentSequence > 0 {
+                sharedDefaults.set(currentSequence, forKey: "usageNotificationSequence")
+            }
+        }
+
+        NSLog("[ScreenTimeService] 📨 Current sequence: \(currentSequence), Last received: \(lastReceivedSequence)")
+
+        if currentSequence > 0 && lastReceivedSequence > 0 {
+            let missedCount = max(0, currentSequence - lastReceivedSequence - 1)
+            NSLog("[ScreenTimeService] 📨 Sequence check result: missed \(missedCount) notifications")
+
+            if missedCount > 0 {
+                NSLog("[ScreenTimeService] ⚠️ Detected \(missedCount) missed usage notifications")
+                NotificationCenter.default.post(
+                    name: .missedUsageNotifications,
+                    object: nil,
+                    userInfo: ["missed_count": missedCount]
+                )
+                recordNotificationGap(missedCount: missedCount)
+            }
+        }
+
+        lastReceivedSequence = currentSequence
+        NSLog("[ScreenTimeService] 📨 Processing shared usage data...")
+        let didSyncUsage = processSharedUsageData(reason: "usage_notification")
+        if didSyncUsage {
+            reloadAppUsagesFromPersistence()
+        } else {
+            NSLog("[ScreenTimeService] 📨 No persisted usage deltas detected")
+        }
+        NSLog("[ScreenTimeService] 📨 Usage notification processed")
+    }
+
+    @discardableResult
+    private func processSharedUsageData(reason: String = "manual") -> Bool {
+        let persistedApps = usagePersistence.reloadAppsFromDisk()
+        guard !persistedApps.isEmpty else { return false }
+
+        var didUpdateUsage = false
+
+        for (logicalID, persistedApp) in persistedApps {
+            let previousTotal = Int(appUsages[logicalID]?.totalTime ?? 0)
+            if persistedApp.totalSeconds > previousTotal {
+                let deltaSeconds = persistedApp.totalSeconds - previousTotal
+                let category = AppUsage.AppCategory(rawValue: persistedApp.category) ?? .learning
+                persistUsageDelta(
+                    logicalID: logicalID,
+                    displayName: persistedApp.displayName,
+                    category: category,
+                    rewardPoints: persistedApp.rewardPoints,
+                    deltaSeconds: deltaSeconds,
+                    endingAt: persistedApp.lastUpdated
+                )
+                didUpdateUsage = true
+            }
+
+            appUsages[logicalID] = appUsage(from: persistedApp)
+        }
+
+        if didUpdateUsage {
+            NSLog("[ScreenTimeService] 🔄 Synced usage from shared defaults (\(reason))")
+            // REMOVED: Restart monitoring after usage notification
+            // This was causing duplicate threshold events:
+            // 1. Extension writes usage → sends usageRecorded notification
+            // 2. Main app syncs and restarts monitoring (HERE)
+            // 3. Restart re-fires threshold events already fired by extension
+            // 4. Extension also sends eventDidReachThreshold notification
+            // 5. Result: ChallengeService updated twice for same usage
+            //
+            // if reason == "usage_notification" && isMonitoring {
+            //     NSLog("[ScreenTimeService] 🔁 Restarting monitoring after usage notification (continuous loop)")
+            //     NSLog("[ScreenTimeService] 🔁 Creating restart Task...")
+            //     Task { @MainActor in
+            //         NSLog("[ScreenTimeService] 🔁 INSIDE restart Task - executing...")
+            //         await restartMonitoring()
+            //         NSLog("[ScreenTimeService] 🔁 Restart Task completed")
+            //     }
+            //     NSLog("[ScreenTimeService] 🔁 Restart Task created")
+            // }
+        }
+
+        return didUpdateUsage
+    }
+
+    private func recordNotificationGap(missedCount: Int) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        var logs = loadNotificationGapLogs()
+        logs.append(NotificationGapLog(detectedAt: Date().timeIntervalSince1970, missedCount: missedCount))
+
+        if logs.count > 20 {
+            logs = Array(logs.suffix(20))
+        }
+
+        if let data = try? JSONEncoder().encode(logs) {
+            defaults.set(data, forKey: notificationGapLogKey)
+        }
+    }
+
+    private func loadNotificationGapLogs() -> [NotificationGapLog] {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier),
+              let data = defaults.data(forKey: notificationGapLogKey),
+              let decoded = try? JSONDecoder().decode([NotificationGapLog].self, from: data) else {
+            return []
+        }
+        return decoded
     }
     
     // MARK: - Authorization & Monitoring
@@ -903,9 +1291,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             switch result {
             case .success:
                 do {
+                    self.loadCumulativeTracking()
+                    NSLog("[ScreenTimeService] 📂 Loaded cumulative tracking for \(self.cumulativeExpectedUsage.count) apps before scheduling")
                     try self.scheduleActivity()
                     self.isMonitoring = true
-                    self.startMonitoringRestartTimer()
+                    self.startHealthMonitoring()
 
                     // Persist monitoring state for auto-restart on app launch
                     if let sharedDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
@@ -935,8 +1325,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     func stopMonitoring() {
-        deviceActivityCenter.stopMonitoring([activityName])
-        stopMonitoringRestartTimer()
+        deviceActivityCenter.stopMonitoring(activityNames)
+        stopHealthMonitoring()
         isMonitoring = false
 
         // Persist monitoring state so we don't auto-restart on next launch
@@ -949,95 +1339,174 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
-    // MARK: - Continuous Tracking via Periodic Restarts
+    /// Force a monitoring restart (stop + reschedule) to recover from gaps.
+    func restartMonitoring(reason: String = "manual", force: Bool = false, file: String = #fileID, line: Int = #line) async {
+        let callStack = Thread.callStackSymbols.joined(separator: "\n")
+        NSLog("[ScreenTimeService] 🔁 restartMonitoring() requested | reason=\(reason) | force=\(force) | caller=\(file):\(line)")
 
-    /// Start a timer that periodically restarts monitoring to reset threshold events
-    /// This allows continuous tracking beyond the first threshold
-    private func startMonitoringRestartTimer() {
-        // Stop existing timer if any
-        stopMonitoringRestartTimer()
+        let now = Date()
+        if !force, let lastRestartDate {
+            let delta = now.timeIntervalSince(lastRestartDate)
+            if delta < minimumAutoRestartInterval {
+                NSLog("[ScreenTimeService] 🔁 restartMonitoring() skipped - last restart \(Int(delta))s ago (<\(Int(minimumAutoRestartInterval))s).")
+                return
+            }
+        }
 
-        #if DEBUG
-        print("[ScreenTimeService] 🔄 Starting monitoring restart timer (interval: \(restartInterval)s)")
-        print("[ScreenTimeService] This enables continuous tracking by resetting events every \(Int(restartInterval/60)) minutes")
-        #endif
+        lastRestartDate = now
+        await executeMonitorRestart(reason: reason, callStack: callStack)
+        NSLog("[ScreenTimeService] 🔁 restartMonitoring() completed | reason=\(reason)")
+    }
 
-        monitoringRestartTimer = Timer.scheduledTimer(withTimeInterval: restartInterval, repeats: true) { [weak self] _ in
-            guard let self = self else { return }
-            
-            Task { @MainActor in
-                guard self.isMonitoring else { return }
+    private func scheduleActivity() throws {
+        regenerateMonitoredEvents(refreshUsageCache: false)
+        try startMonitoringActivity(primaryActivityName)
+    }
 
-                #if DEBUG
-                print("[ScreenTimeService] ⏰ Timer fired - restarting monitoring to reset events...")
-                #endif
+    private func regenerateMonitoredEvents(refreshUsageCache: Bool) {
+        guard !monitoredApplicationsByCategory.isEmpty else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ No monitored applications available to generate events")
+            #endif
+            return
+        }
 
-                // BUG FIX: Stop monitoring first to clear accumulated state
-                // This prevents spurious events from firing for background apps
-                self.deviceActivityCenter.stopMonitoring([self.activityName])
+        let persistedApps = usagePersistence.reloadAppsFromDisk()
+        reconcileCumulativeTrackingWithPersistedUsage(persistedApps)
 
-                #if DEBUG
-                print("[ScreenTimeService] 🛑 Stopped monitoring to clear accumulated state")
-                #endif
+        var eventIndex = 0
 
-                do {
-                    try self.scheduleActivity()
+        monitoredEvents = monitoredApplicationsByCategory.reduce(into: [:]) { result, entry in
+            let (category, applications) = entry
+            guard !applications.isEmpty else { return }
+            let categoryThreshold = currentThresholds[category] ?? DateComponents(second: Int(incrementSeconds))
+            let incrementValue = max(1, seconds(from: categoryThreshold))
+
+            for app in applications {
+                let logicalID = app.logicalID
+                let actualTodaySeconds = TimeInterval(persistedApps[logicalID]?.todaySeconds ?? 0)
+                let completedIncrements = floor(actualTodaySeconds / incrementValue)
+                let nextThreshold = (completedIncrements + 1) * incrementValue
+
+                NSLog("[ScreenTimeService] 📊 Event for \(app.displayName):")
+                NSLog("[ScreenTimeService]   Today's usage: \(Int(actualTodaySeconds))s")
+                NSLog("[ScreenTimeService]   Increment: \(Int(incrementValue))s")
+                NSLog("[ScreenTimeService]   Next threshold (base): \(Int(nextThreshold))s (daily cumulative)")
+
+                for offset in 0..<maxScheduledIncrementsPerApp {
+                    let thresholdValue = nextThreshold + (incrementValue * Double(offset))
+                    let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex)")
+                    eventIndex += 1
+
                     #if DEBUG
-                    print("[ScreenTimeService] ✅ Monitoring restarted successfully")
+                    print("[ScreenTimeService]   ↳ Scheduling threshold at \(Int(thresholdValue))s (offset \(offset)) as event \(eventName.rawValue)")
                     #endif
-                } catch {
+
+                    result[eventName] = MonitoredEvent(
+                        name: eventName,
+                        category: category,
+                        threshold: DateComponents(second: Int(thresholdValue)),
+                        applications: [app],
+                        increment: incrementValue
+                    )
+                }
+            }
+        }
+
+        NSLog("[ScreenTimeService] ✅ Generated \(monitoredEvents.count) events with incremental thresholds")
+
+        saveEventMappings()
+
+        if refreshUsageCache {
+            reloadAppUsagesFromPersistence()
+        }
+    }
+
+    private func reloadAppUsagesFromPersistence() {
+        var refreshedUsages: [String: AppUsage] = [:]
+        for apps in monitoredApplicationsByCategory.values {
+            for app in apps {
+                if let persisted = usagePersistence.app(for: app.logicalID) {
+                    refreshedUsages[app.logicalID] = appUsage(from: persisted)
                     #if DEBUG
-                    print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+                    print("[ScreenTimeService] 📦 Reloaded \(app.displayName): \(persisted.totalSeconds)s total, \(persisted.earnedPoints) pts")
                     #endif
                 }
             }
         }
+        appUsages = refreshedUsages
+        notifyUsageChange()
     }
 
-    /// Stop the monitoring restart timer
-    private func stopMonitoringRestartTimer() {
-        monitoringRestartTimer?.invalidate()
-        monitoringRestartTimer = nil
-
-        #if DEBUG
-        print("[ScreenTimeService] 🛑 Stopped monitoring restart timer")
-        #endif
-    }
-    
-    private func scheduleActivity() throws {
-        let schedule = DeviceActivitySchedule(
-            intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
+    private func dailyDeviceActivitySchedule() -> DeviceActivitySchedule {
+        let startComponents = DateComponents(hour: 0, minute: 0, second: 0)
+        let endComponents = DateComponents(hour: 23, minute: 59, second: 59)
+        NSLog("[ScreenTimeService] 📅 Creating midnight-to-midnight daily schedule (repeats: true)")
+        return DeviceActivitySchedule(
+            intervalStart: startComponents,
+            intervalEnd: endComponents,
             repeats: true
         )
-        
+    }
+
+    private func startMonitoringActivity(_ activity: DeviceActivityName) throws {
+        let schedule = dailyDeviceActivitySchedule()
+
         let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
             result[entry.key] = entry.value.deviceActivityEvent()
         }
-        
-        #if DEBUG
-        print("[ScreenTimeService] Scheduling activity:")
-        print("[ScreenTimeService]   Activity name: \(activityName.rawValue)")
-        print("[ScreenTimeService]   Schedule: 00:00 - 23:59 (repeating)")
-        print("[ScreenTimeService]   Events count: \(events.count)")
-        
-        for (name, event) in events {
-            print("[ScreenTimeService]   Event: \(name.rawValue)")
-            print("[ScreenTimeService]     Applications count: \(event.applications.count)")
-            print("[ScreenTimeService]     Threshold: \(event.threshold)")
-            
-            // Log application details
-            for (index, token) in event.applications.enumerated() {
-                print("[ScreenTimeService]       App \(index): Token \(token)")
-            }
+
+        NSLog("[ScreenTimeService] ▶️ Starting monitoring '\(activity.rawValue)'")
+        NSLog("[ScreenTimeService]   Schedule: 00:00:00 → 23:59:59 (repeats daily)")
+        NSLog("[ScreenTimeService]   Event count: \(events.count)")
+        NSLog("[ScreenTimeService]   Event names: \(events.keys.map { $0.rawValue }.joined(separator: ", "))")
+
+        try deviceActivityCenter.startMonitoring(activity, during: schedule, events: events)
+
+        NSLog("[ScreenTimeService] ✅ Monitoring started successfully")
+    }
+
+    private func executeMonitorRestart(reason: String, callStack: String) async {
+        NSLog("[ScreenTimeService] 🔁 executeMonitorRestart() ENTRY - reason: \(reason)")
+        NSLog("[ScreenTimeService] 🔁 restart call stack:\n\(callStack)")
+        let authStatus = AuthorizationCenter.shared.authorizationStatus
+        NSLog("[ScreenTimeService] 🔐 Authorization status during restart: \(authStatus.rawValue)")
+        if authStatus != .approved {
+            NSLog("[ScreenTimeService] ⚠️ Authorization status is \(authStatus.rawValue), proceeding because monitoring is active")
         }
-        #endif
-        
-        try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
-        
-        #if DEBUG
-        print("[ScreenTimeService] Successfully started monitoring")
-        #endif
+
+        if isRestarting {
+            NSLog("[ScreenTimeService] ⚠️ Restart already in progress, skipping duplicate request")
+            return
+        }
+
+        isRestarting = true
+        defer {
+            isRestarting = false
+            NSLog("[ScreenTimeService] 🔓 Restart lock released")
+        }
+
+        NSLog("[ScreenTimeService] 🔒 Restart lock acquired")
+        NSLog("[ScreenTimeService] 🔁 Stopping current monitoring...")
+        deviceActivityCenter.stopMonitoring(activityNames)
+        NSLog("[ScreenTimeService] ✅ Monitoring stopped")
+
+        NSLog("[ScreenTimeService] 🔁 Regenerating monitored events...")
+        regenerateMonitoredEvents(refreshUsageCache: false)
+        NSLog("[ScreenTimeService] ✅ Events regenerated (count: \(monitoredEvents.count))")
+
+        do {
+            NSLog("[ScreenTimeService] 🔁 Scheduling new activity...")
+            try scheduleActivity()
+            NSLog("[ScreenTimeService] ✅ Activity scheduled successfully")
+            NSLog("[ScreenTimeService] ✅ Monitoring restarted (\(reason))")
+        } catch {
+            NSLog("[ScreenTimeService] ❌ Failed to restart monitoring (\(reason)): \(error)")
+            NSLog("[ScreenTimeService] ❌ Error type: \(type(of: error))")
+            NSLog("[ScreenTimeService] ❌ Error details: \(String(describing: error))")
+        }
+
+        NSLog("[ScreenTimeService] 🔁 executeMonitorRestart() EXIT")
     }
     
     // MARK: - Data Accessors
@@ -1308,7 +1777,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
     }
 
-    private func recordUsage(for applications: [MonitoredApplication], duration: TimeInterval, endingAt endDate: Date = Date()) {
+    private func recordUsage(for applications: [MonitoredApplication], duration: TimeInterval, endingAt endDate: Date = Date(), eventTimestamp: Date = Date()) {
         #if DEBUG
         print("[ScreenTimeService] Recording usage for \(applications.count) applications, duration: \(duration) seconds")
         for app in applications {
@@ -1331,6 +1800,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Use a set to track logical IDs we've already processed to avoid duplicates
         var processedLogicalIDs: Set<String> = []
 
+        // Prune dedup cache periodically
+        recentUsageEvents = recentUsageEvents.filter { eventTimestamp.timeIntervalSince($0.value) < 3600 }
+
         for application in applications {
             // Check if app is currently shielded (blocked)
             if currentlyShielded.contains(application.token) {
@@ -1350,6 +1822,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
                 continue
             }
+
+            if let last = recentUsageEvents[logicalID], eventTimestamp.timeIntervalSince(last) < 55 {
+                #if DEBUG
+                print("[ScreenTimeService] ⚠️ Deduped \(application.displayName) - last event \(eventTimestamp.timeIntervalSince(last))s ago")
+                #endif
+                continue
+            }
+            recentUsageEvents[logicalID] = eventTimestamp
         
             // Mark this logical ID as processed
             processedLogicalIDs.insert(logicalID)
@@ -1395,7 +1875,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 totalSeconds: Int(appUsage.totalTime),
                 earnedPoints: appUsage.earnedRewardPoints,
                 createdAt: appUsage.firstAccess,
-                lastUpdated: appUsage.lastAccess
+                lastUpdated: appUsage.lastAccess,
+                todaySeconds: Int(appUsage.todayUsage),
+                todayPoints: appUsage.todayPoints
             )
             usagePersistence.saveApp(persistedApp)
 
@@ -1548,6 +2030,51 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
+    private func persistUsageDelta(logicalID: String,
+                                   displayName: String,
+                                   category: AppUsage.AppCategory,
+                                   rewardPoints: Int,
+                                   deltaSeconds: Int,
+                                   endingAt: Date) {
+        guard deltaSeconds > 0 else { return }
+
+        let context = PersistenceController.shared.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        if let recentRecord = findRecentUsageRecord(
+            logicalID: logicalID,
+            deviceID: deviceID,
+            withinSeconds: sessionAggregationWindowSeconds
+        ) {
+            recentRecord.sessionEnd = endingAt
+            recentRecord.totalSeconds += Int32(deltaSeconds)
+            let totalMinutes = Int(recentRecord.totalSeconds / 60)
+            recentRecord.earnedPoints = Int32(totalMinutes * rewardPoints)
+            recentRecord.isSynced = false
+        } else {
+            let usageRecord = UsageRecord(context: context)
+            usageRecord.recordID = UUID().uuidString
+            usageRecord.deviceID = deviceID
+            usageRecord.logicalID = logicalID
+            usageRecord.displayName = displayName
+            usageRecord.category = category.rawValue
+            usageRecord.totalSeconds = Int32(deltaSeconds)
+            usageRecord.sessionStart = endingAt.addingTimeInterval(-TimeInterval(deltaSeconds))
+            usageRecord.sessionEnd = endingAt
+            let recordMinutes = Int(deltaSeconds / 60)
+            usageRecord.earnedPoints = Int32(recordMinutes * rewardPoints)
+            usageRecord.isSynced = false
+        }
+
+        do {
+            try context.save()
+        } catch {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Failed to persist usage delta for \(logicalID): \(error)")
+            #endif
+        }
+    }
+
     /// Find the most recent UsageRecord for a given app within a time window
     /// - Parameters:
     ///   - logicalID: The logical ID of the app
@@ -1619,39 +2146,69 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     fileprivate func handleEventThresholdReached(_ event: DeviceActivityEvent.Name, timestamp: Date = Date()) {
-        #if DEBUG
-        print("[ScreenTimeService] Event threshold reached: \(event.rawValue) at \(timestamp)")
-        print("[ScreenTimeService] Monitored events count: \(monitoredEvents.count)")
-        print("[ScreenTimeService] Looking for event: \(event.rawValue)")
-        #endif
-    
-        guard let configuration = monitoredEvents[event] else { 
-            #if DEBUG
-            print("[ScreenTimeService] No configuration found for event \(event.rawValue)")
-            print("[ScreenTimeService] Available events: \(monitoredEvents.keys.map { $0.rawValue })")
-            #endif
-            return 
+        NSLog("[ScreenTimeService] ⏰ Event threshold reached: \(event.rawValue) at \(timestamp)")
+        NSLog("[ScreenTimeService] Monitored events count: \(monitoredEvents.count)")
+        NSLog("[ScreenTimeService] Looking for event: \(event.rawValue)")
+
+        guard let configuration = monitoredEvents[event] else {
+            NSLog("[ScreenTimeService] ❌ No configuration found for event \(event.rawValue)")
+            NSLog("[ScreenTimeService] Available events: \(monitoredEvents.keys.map { $0.rawValue })")
+            return
         }
-    
-        #if DEBUG
-        print("[ScreenTimeService] Found configuration for event \(event.rawValue)")
-        print("[ScreenTimeService] Category: \(configuration.category.rawValue)")
-        print("[ScreenTimeService] Applications: \(configuration.applications.map { $0.displayName })")
-        #endif
-    
-        let duration = seconds(from: configuration.threshold)
-        #if DEBUG
-        print("[ScreenTimeService] Recording usage with duration: \(duration) seconds")
-        #endif
-        recordUsage(for: configuration.applications, duration: duration, endingAt: timestamp)
-        
+
+        if let lastFire = lastEventFireTimestamps[event],
+           timestamp.timeIntervalSince(lastFire) < eventDeduplicationWindow {
+            NSLog("[ScreenTimeService] ⚠️ Duplicate threshold \(event.rawValue) detected \(timestamp.timeIntervalSince(lastFire))s after previous fire - ignoring")
+            return
+        }
+        lastEventFireTimestamps[event] = timestamp
+
+        NSLog("[ScreenTimeService] Found configuration for event \(event.rawValue)")
+        NSLog("[ScreenTimeService] Category: \(configuration.category.rawValue)")
+        NSLog("[ScreenTimeService] Applications: \(configuration.applications.map { $0.displayName })")
+
+        let cumulativeThreshold = seconds(from: configuration.threshold)
+        let incrementDuration = max(configuration.increment, 1)
+
+        for app in configuration.applications {
+            let logicalID = app.logicalID
+            let previousExpected = cumulativeExpectedUsage[logicalID] ?? 0
+            cumulativeExpectedUsage[logicalID] = cumulativeThreshold
+
+            NSLog("[ScreenTimeService] 📊 \(app.displayName) cumulative tracking:")
+            NSLog("[ScreenTimeService]   Previous: \(Int(previousExpected))s")
+            NSLog("[ScreenTimeService]   Current: \(Int(cumulativeThreshold))s")
+            NSLog("[ScreenTimeService]   Increment: \(Int(incrementDuration))s")
+        }
+
+        saveCumulativeTracking()
+
+        lastEventTimestamp = timestamp
+
+        // FIX: Don't call recordUsage() because it writes to UserDefaults (causing double-write)
+        // The extension already wrote to UserDefaults. We only need to update ChallengeService.
+        // Update ChallengeService directly for learning apps
+        for application in configuration.applications {
+            if application.category == .learning {
+                let earnedPointsForChallenge = max(0, Int(incrementDuration / 60) * application.rewardPoints)
+                Task {
+                    await ChallengeService.shared.updateProgressForUsage(
+                        appID: application.logicalID,
+                        duration: incrementDuration,
+                        earnedPoints: earnedPointsForChallenge,
+                        deviceID: DeviceModeManager.shared.deviceID
+                    )
+                }
+            }
+        }
+
         // === TASK 7 TRIGGER IMPLEMENTATION ===
         // Trigger immediate usage upload to parent when threshold is reached (near real-time sync)
         Task { [weak self] in
             #if DEBUG
             print("[ScreenTimeService] Triggering immediate usage upload to parent...")
             #endif
-            
+
             // Check if device is paired with a parent
             if UserDefaults.standard.string(forKey: "parentDeviceID") != nil {
                 let childSyncService = ChildBackgroundSyncService.shared
@@ -1663,6 +2220,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
         // === END TASK 7 TRIGGER IMPLEMENTATION ===
+
+        // Do not force a restart on threshold progression; keeping the interval stable prevents counter resets
     }
 
     fileprivate func handleEventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name) {
@@ -1715,7 +2274,13 @@ func configureForTesting(
 
         // Note: Can't create real MonitoredApplication without tokens
         // In testing, we'll manually trigger usage recording instead
-        result[name] = MonitoredEvent(name: name, category: category, threshold: threshold, applications: [])
+        result[name] = MonitoredEvent(
+            name: name,
+            category: category,
+            threshold: threshold,
+            applications: [],
+            increment: seconds(from: threshold)
+        )
     }
 
     hasSeededSampleData = false
@@ -1836,7 +2401,9 @@ func configureWithTestApplications() {
                 totalSeconds: Int(appUsage.totalTime),
                 earnedPoints: appUsage.earnedRewardPoints,
                 createdAt: appUsage.firstAccess,
-                lastUpdated: appUsage.lastAccess
+                lastUpdated: appUsage.lastAccess,
+                todaySeconds: Int(appUsage.todayUsage),
+                todayPoints: appUsage.todayPoints
             )
             usagePersistence.saveApp(persistedApp)
         }
