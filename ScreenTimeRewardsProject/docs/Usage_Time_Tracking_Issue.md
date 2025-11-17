@@ -137,6 +137,19 @@
 
 ---
 
+## 2025-11-17 - Runway Extension to 6 Hours
+
+**Change**: Increased `maxScheduledIncrementsPerApp` to **360** (~6 hours at 60s increments) to cover unlikely long learning sessions without needing restarts.
+
+**Rationale**:
+- Avoids cutting off tracking for edge cases where a kid runs a learning app >2 hours.
+- Still modest event volume per app; safer than forcing restarts.
+
+**Next**:
+- Optionally make runway configurable per release (e.g., `hoursOfRunway * 60 / incrementSeconds` with a clamp) if we need to tune further.
+
+---
+
 ### 🚨🚨 ARCHITECTURAL FLAW: Thresholds Fire at Completely Wrong Times (2025-11-17 NIGHT - ORIGINAL DISCOVERY)
 
 **BLOCKING ISSUE**: DeviceActivity thresholds fire at completely incorrect times, making ALL usage tracking unreliable!
