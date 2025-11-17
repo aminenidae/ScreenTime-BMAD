@@ -50,6 +50,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Shared persistence helper for logical ID-based storage
     private(set) var usagePersistence = UsagePersistence()
+    private var appUsageHistories: [String: [UsagePersistence.DailyUsageSummary]] = [:]  // Key = logicalID
 
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
@@ -287,10 +288,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Load all persisted apps from shared storage
         let persistedApps = usagePersistence.loadAllApps()
 
-        // Convert to AppUsage dictionary
+        // Convert to AppUsage dictionary and capture history
         self.appUsages = persistedApps.reduce(into: [:]) { result, entry in
             let (logicalID, persisted) = entry
             result[logicalID] = appUsage(from: persisted)
+        }
+        self.appUsageHistories = persistedApps.reduce(into: [:]) { result, entry in
+            result[entry.key] = entry.value.dailyHistory
         }
 
         #if DEBUG
@@ -455,6 +459,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             calculator.bundleIdentifier: calculator,
             music.bundleIdentifier: music
         ]
+        appUsageHistories = [:]
     }
 
     private func categorizeApp(bundleIdentifier: String) -> AppUsage.AppCategory {
@@ -1202,6 +1207,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             appUsages[logicalID] = appUsage(from: persistedApp)
+            appUsageHistories[logicalID] = persistedApp.dailyHistory
         }
 
         if didUpdateUsage {
@@ -1424,10 +1430,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     private func reloadAppUsagesFromPersistence() {
         var refreshedUsages: [String: AppUsage] = [:]
+        var refreshedHistories: [String: [UsagePersistence.DailyUsageSummary]] = [:]
         for apps in monitoredApplicationsByCategory.values {
             for app in apps {
                 if let persisted = usagePersistence.app(for: app.logicalID) {
                     refreshedUsages[app.logicalID] = appUsage(from: persisted)
+                    refreshedHistories[app.logicalID] = persisted.dailyHistory
                     #if DEBUG
                     print("[ScreenTimeService] 📦 Reloaded \(app.displayName): \(persisted.totalSeconds)s total, \(persisted.earnedPoints) pts")
                     #endif
@@ -1435,6 +1443,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
         appUsages = refreshedUsages
+        appUsageHistories = refreshedHistories
         notifyUsageChange()
     }
 
@@ -1513,6 +1522,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     
     func getAppUsages() -> [AppUsage] {
         Array(appUsages.values)
+    }
+
+    func getDailyHistory(for logicalID: String) -> [UsagePersistence.DailyUsageSummary] {
+        appUsageHistories[logicalID] ?? []
+    }
+
+    func getDailyHistory(for token: ApplicationToken) -> [UsagePersistence.DailyUsageSummary] {
+        let tokenHash = usagePersistence.tokenHash(for: token)
+        guard let logicalID = usagePersistence.logicalID(for: tokenHash) else { return [] }
+        return appUsageHistories[logicalID] ?? []
+    }
+
+    func getDailyHistories() -> [String: [UsagePersistence.DailyUsageSummary]] {
+        appUsageHistories
     }
 
     func getUsage(for token: ApplicationToken) -> AppUsage? {

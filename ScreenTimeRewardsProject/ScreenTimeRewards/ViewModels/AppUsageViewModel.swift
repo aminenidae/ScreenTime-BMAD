@@ -71,6 +71,7 @@ class AppUsageViewModel: ObservableObject {
     @Published var rewardPoints: [ApplicationToken: Int] = [:]
     // Task 0: Add pending selection to capture picker results before they're merged
     @Published var pendingSelection: FamilyActivitySelection = .init(includeEntireCategory: true)
+    @Published var appHistoryMapping: [String: [UsagePersistence.DailyUsageSummary]] = [:]
     
     // Track when the picker produced a fresh selection that should be auto-applied
     @Published private var shouldUsePendingSelectionForSheet = false
@@ -993,6 +994,7 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel] Refreshing data")
         #endif
         appUsages = service.getAppUsages().sorted { $0.totalTime > $1.totalTime }
+        appHistoryMapping = service.getDailyHistories()
         #if DEBUG
         print("[AppUsageViewModel] Retrieved \(appUsages.count) app usages")
         for usage in appUsages {

@@ -4,6 +4,7 @@ import FamilyControls
 struct LearningAppDetailView: View {
     let snapshot: LearningAppSnapshot
     @State private var usage: AppUsage?
+    @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
     private let service = ScreenTimeService.shared
 
@@ -14,7 +15,8 @@ struct LearningAppDetailView: View {
                 subtitle: "Learning app overview",
                 accentColor: AppTheme.vibrantTeal,
                 usage: usage,
-                pointsPerMinute: snapshot.pointsPerMinute
+                pointsPerMinute: snapshot.pointsPerMinute,
+                dailyHistory: history
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -41,6 +43,7 @@ struct LearningAppDetailView: View {
         }
         .onAppear {
             usage = service.getUsage(for: snapshot.token)
+            history = service.getDailyHistory(for: snapshot.token)
         }
     }
 }
@@ -48,6 +51,7 @@ struct LearningAppDetailView: View {
 struct RewardAppDetailView: View {
     let snapshot: RewardAppSnapshot
     @State private var usage: AppUsage?
+    @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
     private let service = ScreenTimeService.shared
 
@@ -58,7 +62,8 @@ struct RewardAppDetailView: View {
                 subtitle: "Reward app overview",
                 accentColor: AppTheme.playfulCoral,
                 usage: usage,
-                pointsPerMinute: snapshot.pointsPerMinute
+                pointsPerMinute: snapshot.pointsPerMinute,
+                dailyHistory: history
             )
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -85,6 +90,7 @@ struct RewardAppDetailView: View {
         }
         .onAppear {
             usage = service.getUsage(for: snapshot.token)
+            history = service.getDailyHistory(for: snapshot.token)
         }
     }
 }
@@ -97,6 +103,7 @@ private struct AppUsageDetailContent: View {
     let accentColor: Color
     let usage: AppUsage?
     let pointsPerMinute: Int
+    let dailyHistory: [UsagePersistence.DailyUsageSummary]
     @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
@@ -120,6 +127,9 @@ private struct AppUsageDetailContent: View {
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             HStack(spacing: 12) {
+                let weeklyUsage = usage?.weeklyUsage(dailyHistory: dailyHistory) ?? 0
+                let monthlyUsage = usage?.monthlyUsage(dailyHistory: dailyHistory) ?? 0
+
                 UsagePill(
                     title: "Daily",
                     minutes: minutesText(for: usage?.last24HoursUsage ?? 0),
@@ -128,14 +138,14 @@ private struct AppUsageDetailContent: View {
                 )
                 UsagePill(
                     title: "Weekly",
-                    minutes: minutesText(for: usage?.last7DaysUsage ?? 0),
-                    annotation: "\(pointsEarned(for: usage?.last7DaysUsage ?? 0)) pts",
+                    minutes: minutesText(for: weeklyUsage),
+                    annotation: "\(pointsEarned(for: weeklyUsage)) pts",
                     accent: accentColor.opacity(0.9)
                 )
                 UsagePill(
                     title: "Monthly",
-                    minutes: minutesText(for: usage?.last30DaysUsage ?? 0),
-                    annotation: "\(pointsEarned(for: usage?.last30DaysUsage ?? 0)) pts",
+                    minutes: minutesText(for: monthlyUsage),
+                    annotation: "\(pointsEarned(for: monthlyUsage)) pts",
                     accent: accentColor.opacity(0.7)
                 )
             }

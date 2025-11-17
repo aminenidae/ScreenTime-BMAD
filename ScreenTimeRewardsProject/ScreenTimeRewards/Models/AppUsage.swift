@@ -204,4 +204,126 @@ struct AppUsage: Codable, Identifiable {
             return Calendar.current.isDate(sessionDate, inSameDayAs: today)
         }.reduce(0) { $0 + $1.duration }
     }
+
+    /// Points earned today based on completed session minutes
+    var todayPoints: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return sessions.reduce(0) { total, session in
+            let sessionDate = session.endTime ?? session.startTime
+            guard calendar.isDate(sessionDate, inSameDayAs: today) else {
+                return total
+            }
+            let sessionMinutes = Int(session.duration / 60)
+            guard sessionMinutes > 0 else { return total }
+            return total + (sessionMinutes * rewardPoints)
+        }
+    }
+}
+
+extension AppUsage {
+    private func usage(since startDate: Date) -> TimeInterval {
+        let now = Date()
+        return sessions.reduce(0) { partial, session in
+            let sessionStart = session.startTime
+            let sessionEnd = session.endTime ?? now
+
+            guard sessionEnd > startDate else { return partial }
+
+            let clampedStart = max(sessionStart, startDate)
+            let clampedEnd = min(sessionEnd, now)
+            let overlap = clampedEnd.timeIntervalSince(clampedStart)
+
+            return overlap > 0 ? partial + overlap : partial
+        }
+    }
+
+    func usage(inLastDays days: Int) -> TimeInterval {
+        guard days > 0 else { return 0 }
+        let start = Calendar.current.date(byAdding: .day, value: -days, to: Date()) ?? Date()
+        return usage(since: start)
+    }
+
+    var last24HoursUsage: TimeInterval {
+        usage(since: Date().addingTimeInterval(-86_400))
+    }
+
+    var last7DaysUsage: TimeInterval {
+        usage(inLastDays: 7)
+    }
+
+    var last30DaysUsage: TimeInterval {
+        usage(inLastDays: 30)
+    }
+
+    var averageSessionDuration: TimeInterval {
+        guard !sessions.isEmpty else { return 0 }
+        let total = sessions.reduce(0) { $0 + $1.duration }
+        return total / Double(sessions.count)
+    }
+
+    var longestSessionDuration: TimeInterval {
+        sessions.map { $0.duration }.max() ?? 0
+    }
+
+    var sessionsTodayCount: Int {
+        let today = Calendar.current
+        return sessions.filter {
+            if let end = $0.endTime {
+                return today.isDateInToday(end)
+            }
+            return today.isDateInToday($0.startTime)
+        }.count
+    }
+}
+
+// MARK: - Historical Usage from Daily Summaries
+
+extension AppUsage {
+    /// Returns total usage in the last N days (includes today) using persisted daily summaries plus current-day sessions.
+    func historicalUsage(inLastDays days: Int, dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+        guard days > 0 else { return 0 }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let cutoffDate = calendar.date(byAdding: .day, value: -days + 1, to: today) ?? today
+
+        let historicalSeconds = dailyHistory
+            .filter { $0.date >= cutoffDate && $0.date < today }
+            .reduce(0) { $0 + $1.seconds }
+
+        return TimeInterval(historicalSeconds) + todayUsage
+    }
+
+    /// Returns usage for the current week (Monday through today).
+    func weeklyUsage(dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else {
+            return todayUsage
+        }
+
+        let historicalSeconds = dailyHistory
+            .filter { $0.date >= weekStart && $0.date < today }
+            .reduce(0) { $0 + $1.seconds }
+
+        return TimeInterval(historicalSeconds) + todayUsage
+    }
+
+    /// Returns usage for the current month (1st through today).
+    func monthlyUsage(dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+        guard let monthStart = calendar.dateInterval(of: .month, for: now)?.start else {
+            return todayUsage
+        }
+
+        let historicalSeconds = dailyHistory
+            .filter { $0.date >= monthStart && $0.date < today }
+            .reduce(0) { $0 + $1.seconds }
+
+        return TimeInterval(historicalSeconds) + todayUsage
+    }
 }

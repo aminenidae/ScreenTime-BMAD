@@ -1357,3 +1357,742 @@ The midnight-to-midnight daily schedule was implemented (all 5 parts) but testin
 **Last Updated**: 2025-11-18 04:50 UTC
 **Status**: CRITICAL FAILURES - Architecture fix insufficient, new issues discovered
 **Next Action**: Find phantom restart source and fix double threshold fires IMMEDIATELY
+
+---
+
+# ISSUE: Weekly and Monthly Usage Counters Show Only Daily Data
+
+**Issue ID**: TRACK-002
+**Date Discovered**: 2025-11-17
+**Status**: 🔴 CRITICAL - Historical data not persisted
+**Priority**: HIGH - Affects dashboard accuracy
+**Severity**: User-facing - Weekly/monthly stats are incorrect
+
+---
+
+## Problem Summary
+
+### 🚨 Observed Behavior
+
+The app's dashboard shows weekly and monthly usage counters, but they **always display only today's usage** instead of proper aggregated historical data:
+
+- **Weekly counter**: Should show Monday-Sunday total → Currently shows only today
+- **Monthly counter**: Should show 1st-last day total → Currently shows only today
+- **24h counter**: Works correctly (shows today's usage)
+
+**User Impact**:
+- Cannot track weekly progress across multiple days
+- Cannot see monthly trends
+- Dashboard stats are misleading (show 1 day as "weekly" total)
+
+---
+
+## Root Cause Analysis
+
+### Critical Finding: Sessions Are Not Persisted
+
+**The fundamental problem**: `UsagePersistence` stores only **aggregate counters**, not individual sessions. When the app restarts, historical session data is lost.
+
+#### Data Flow Breakdown
+
+**1. Session Recording (In-Memory Only)** ✓ Works
+- File: `AppUsage.swift` lines 185-197
+- Sessions are appended to in-memory `sessions` array
+- Each session has `startTime` and `endTime`
+
+```swift
+mutating func recordUsage(duration: TimeInterval, endingAt endDate: Date = Date()) {
+    let session = UsageSession(startTime: startDate, endTime: adjustedEnd)
+    sessions.append(session)  // ✓ Added to memory
+    totalTime += duration
+}
+```
+
+**2. Persistence Layer (Aggregate Only)** ❌ Problem
+- File: `UsagePersistence.swift` lines 15-64
+- `PersistedApp` structure has NO sessions field:
+
+```swift
+struct PersistedApp: Codable {
+    let logicalID: LogicalAppID
+    let displayName: String
+    var totalSeconds: Int      // ✓ Persisted
+    var todaySeconds: Int      // ✓ Persisted
+    var todayPoints: Int       // ✓ Persisted
+    // ❌ NO sessions: [PersistedSession]
+}
+```
+
+**3. Session Reconstruction (Today Only)** ❌ Problem
+- File: `ScreenTimeService.swift` lines 687-730
+- When loading from persistence, only today's session is created:
+
+```swift
+private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
+    var sessions: [AppUsage.UsageSession] = []
+
+    if persisted.todaySeconds > 0 {
+        // ⚠️ Creates ONE session for today only
+        let todaySession = AppUsage.UsageSession(
+            startTime: todayStart,
+            endTime: now
+        )
+        sessions.append(todaySession)  // Only today!
+    }
+
+    return AppUsage(
+        sessions: sessions,  // ❌ Missing yesterday, last week, last month
+        // ...
+    )
+}
+```
+
+**4. Weekly/Monthly Calculation (Correct Logic, Wrong Data)** ❌ Problem
+- File: `AppUsage.swift` lines 225-257
+- Logic correctly filters sessions by date range
+- But sessions array only contains today → result is today's usage
+
+```swift
+var last7DaysUsage: TimeInterval {
+    usage(inLastDays: 7)  // Filters sessions from last 7 days
+}
+
+private func usage(inLastDays days: Int) -> TimeInterval {
+    let start = Calendar.current.date(byAdding: .day, value: -days, to: Date())
+    return sessions.reduce(0) { /* filter by date range */ }
+    // ❌ sessions only has today's entry!
+}
+```
+
+---
+
+## Evidence from Code
+
+### Location 1: AppUsageDetailViews.swift (Lines 130-148)
+
+**UI displays weekly/monthly from AppUsage properties:**
+
+```swift
+UsagePill(
+    title: "24h",
+    minutes: minutesText(for: usage?.last24HoursUsage ?? 0),
+    annotation: "\(pointsEarned(for: usage?.last24HoursUsage ?? 0)) pts",
+    accent: accentColor
+)
+UsagePill(
+    title: "Weekly",
+    minutes: minutesText(for: usage?.last7DaysUsage ?? 0),  // ← Shows only today
+    annotation: "\(pointsEarned(for: usage?.last7DaysUsage ?? 0)) pts",
+    accent: accentColor.opacity(0.9)
+)
+UsagePill(
+    title: "Monthly",
+    minutes: minutesText(for: usage?.last30DaysUsage ?? 0),  // ← Shows only today
+    annotation: "\(pointsEarned(for: usage?.last30DaysUsage ?? 0)) pts",
+    accent: accentColor.opacity(0.7)
+)
+```
+
+### Location 2: AppUsage.swift (Lines 225-245)
+
+**Filtering logic is correct but input data is incomplete:**
+
+```swift
+private func usage(since startDate: Date) -> TimeInterval {
+    let now = Date()
+    return sessions.reduce(0) { partial, session in
+        let sessionEnd = session.endTime ?? now
+        guard sessionEnd > startDate else { return partial }
+
+        // ✓ Correctly calculates overlap between session and date range
+        let clampedStart = max(sessionStart, startDate)
+        let clampedEnd = min(sessionEnd, now)
+        let overlap = clampedEnd.timeIntervalSince(clampedStart)
+        return overlap > 0 ? partial + overlap : partial
+    }
+}
+```
+
+**The logic above is PERFECT** - it handles:
+- Sessions spanning multiple days
+- Partial overlaps with date ranges
+- Active sessions (endTime = nil)
+
+**But it fails because** `sessions` array only has 1 entry (today).
+
+### Location 3: UsagePersistence.swift (Lines 189-239)
+
+**Only aggregate counters are saved:**
+
+```swift
+func recordUsage(logicalID: LogicalAppID,
+                 additionalSeconds: Int,
+                 rewardPointsPerMinute: Int) {
+    guard var app = cachedApps[logicalID] else { return }
+
+    // Updates counters
+    app.totalSeconds += additionalSeconds      // ✓ Persisted
+    app.todaySeconds += additionalSeconds      // ✓ Persisted
+    app.todayPoints += earnedPointsThisInterval // ✓ Persisted
+    app.lastUpdated = now                      // ✓ Persisted
+
+    cachedApps[logicalID] = app
+    persistApps()  // ❌ Saves to UserDefaults, but NO sessions array
+}
+```
+
+---
+
+## Why This Happens
+
+### Timeline of Data Loss
+
+**Day 1 - Monday 10:00 AM:**
+1. User opens YouTube for 20 minutes
+2. Session created: `{ start: 10:00, end: 10:20 }`
+3. In-memory `sessions = [session1]`
+4. Persisted: `todaySeconds = 1200`
+
+**Day 1 - Monday 8:00 PM:**
+1. App restarts (background eviction)
+2. Loads from persistence: `todaySeconds = 1200`
+3. Reconstructs: `sessions = [{ start: estimated, end: 20:00 }]`
+4. ✓ Weekly total = 1200s (correct)
+
+**Day 2 - Tuesday 12:00 AM (Midnight):**
+1. Midnight reset runs
+2. Sets `todaySeconds = 0` for new day
+3. Persisted state: `{ totalSeconds: 1200, todaySeconds: 0 }`
+4. **Monday's session data is NEVER saved to persistence**
+
+**Day 2 - Tuesday 10:00 AM:**
+1. User opens app
+2. Loads: `todaySeconds = 0` (reset at midnight)
+3. Reconstructs: `sessions = []` (empty! Monday is gone)
+4. User opens YouTube for 15 minutes
+5. Creates: `sessions = [{ start: 10:00, end: 10:15 }]`
+6. ❌ Weekly total = 900s (only today, Monday's 1200s is lost!)
+
+**Expected**: Weekly = 1200s (Mon) + 900s (Tue) = 2100s = 35 min
+**Actual**: Weekly = 900s = 15 min
+
+---
+
+## Impact Assessment
+
+### Immediate Impact
+- ❌ Weekly stats are wrong (show 1-7x less than actual)
+- ❌ Monthly stats are wrong (show 1-30x less than actual)
+- ❌ Users cannot track multi-day progress
+- ❌ Dashboard analytics are meaningless
+
+### Long-term Impact
+- Parents cannot see accurate weekly/monthly patterns
+- Cannot identify trends (e.g., "child uses more screen time on weekends")
+- Reward system based on weekly/monthly goals won't work correctly
+
+---
+
+## Solution Design
+
+### Recommended Approach: Daily Historical Aggregates (Option B)
+
+**Why Not Full Session History?**
+- Sessions can grow unbounded (100s per day × 30 days = thousands of entries)
+- Overkill for dashboard needs (only need daily summaries)
+- Complex migration from current structure
+
+**Why Daily Aggregates?**
+- Efficient: 30 entries max per app (rolling 30-day window)
+- Simple: Each day = one summary record
+- Sufficient: Dashboard shows weekly/monthly totals (doesn't need minute-by-minute detail)
+- Natural cleanup: Automatically drop entries > 30 days old
+
+---
+
+## Implementation Plan
+
+### Phase 1: Add Daily History Storage
+
+#### 1A. Define Daily History Structure
+
+**File**: `UsagePersistence.swift` (add after `PersistedApp` definition)
+
+```swift
+/// Represents usage summary for a single calendar day
+struct DailyUsageSummary: Codable, Equatable {
+    let date: Date           // Start of day (00:00:00)
+    var seconds: Int         // Total seconds used that day
+    var points: Int          // Total points earned that day
+
+    init(date: Date, seconds: Int, points: Int) {
+        // Normalize to start of day
+        self.date = Calendar.current.startOfDay(for: date)
+        self.seconds = seconds
+        self.points = points
+    }
+}
+```
+
+#### 1B. Add History to PersistedApp
+
+**File**: `UsagePersistence.swift` (update `PersistedApp` struct, lines ~15-64)
+
+```swift
+struct PersistedApp: Codable {
+    let logicalID: LogicalAppID
+    let displayName: String
+    var category: String
+    var rewardPoints: Int
+    var totalSeconds: Int
+    var earnedPoints: Int
+    let createdAt: Date
+    var lastUpdated: Date
+    var todaySeconds: Int
+    var todayPoints: Int
+    var lastResetDate: Date
+
+    // NEW: Historical daily summaries (rolling 30-day window)
+    var dailyHistory: [DailyUsageSummary]
+
+    // Custom decoder for backward compatibility
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+
+        // ... existing field decoding ...
+
+        // NEW: Default to empty history for existing apps
+        self.dailyHistory = try container.decodeIfPresent([DailyUsageSummary].self, forKey: .dailyHistory) ?? []
+    }
+}
+```
+
+#### 1C. Update Midnight Reset Logic
+
+**File**: `UsagePersistence.swift` (update `recordUsage()` method, lines ~189-239)
+
+```swift
+func recordUsage(logicalID: LogicalAppID,
+                 additionalSeconds: Int,
+                 rewardPointsPerMinute: Int) {
+    guard var app = cachedApps[logicalID] else { return }
+
+    let now = Date()
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: now)
+
+    // Check if day changed since last update
+    if !calendar.isDate(app.lastResetDate, inSameDayAs: today) {
+        // NEW: Archive yesterday's usage before resetting
+        if app.todaySeconds > 0 {
+            let yesterdayStart = calendar.startOfDay(for: app.lastResetDate)
+            let yesterdaySummary = DailyUsageSummary(
+                date: yesterdayStart,
+                seconds: app.todaySeconds,
+                points: app.todayPoints
+            )
+
+            // Add to history
+            app.dailyHistory.append(yesterdaySummary)
+
+            // Cleanup: Keep only last 30 days
+            let cutoffDate = calendar.date(byAdding: .day, value: -30, to: today)!
+            app.dailyHistory.removeAll { $0.date < cutoffDate }
+
+            NSLog("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s on \(yesterdayStart)")
+        }
+
+        // Reset today's counters
+        app.todaySeconds = 0
+        app.todayPoints = 0
+        app.lastResetDate = today
+    }
+
+    // Record new usage (existing logic)
+    let earnedPointsThisInterval = (additionalSeconds / 60) * rewardPointsPerMinute
+    app.totalSeconds += additionalSeconds
+    app.earnedPoints += earnedPointsThisInterval
+    app.todaySeconds += additionalSeconds
+    app.todayPoints += earnedPointsThisInterval
+    app.lastUpdated = now
+
+    cachedApps[logicalID] = app
+    persistApps()
+}
+```
+
+---
+
+### Phase 2: Update AppUsage to Use Historical Data
+
+#### 2A. Add History-Based Computed Properties
+
+**File**: `AppUsage.swift` (add new computed properties, after line ~257)
+
+```swift
+// MARK: - Historical Usage (from daily summaries)
+
+/// Returns total usage in the last N days (includes today)
+/// Uses dailyHistory from persistence for accurate multi-day tracking
+func historicalUsage(inLastDays days: Int, from dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+    guard days > 0 else { return 0 }
+
+    let calendar = Calendar.current
+    let today = calendar.startOfDay(for: Date())
+    let cutoffDate = calendar.date(byAdding: .day, value: -days + 1, to: today)!
+
+    // Sum historical days
+    let historicalSeconds = dailyHistory
+        .filter { $0.date >= cutoffDate && $0.date < today }
+        .reduce(0) { $0 + $1.seconds }
+
+    // Add today's usage (from in-memory sessions)
+    let todaySeconds = todayUsage
+
+    return TimeInterval(historicalSeconds) + todaySeconds
+}
+
+/// Returns usage for current week (Monday to today)
+func weeklyUsage(from dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+    let calendar = Calendar.current
+    let now = Date()
+    let today = calendar.startOfDay(for: now)
+
+    // Find start of current week (Monday)
+    guard let weekStart = calendar.dateInterval(of: .weekOfYear, for: now)?.start else {
+        return todayUsage
+    }
+
+    // Sum from Monday to yesterday
+    let historicalSeconds = dailyHistory
+        .filter { $0.date >= weekStart && $0.date < today }
+        .reduce(0) { $0 + $1.seconds }
+
+    // Add today
+    return TimeInterval(historicalSeconds) + todayUsage
+}
+
+/// Returns usage for current month (1st to today)
+func monthlyUsage(from dailyHistory: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+    let calendar = Calendar.current
+    let now = Date()
+    let today = calendar.startOfDay(for: now)
+
+    // Find start of current month
+    guard let monthStart = calendar.dateInterval(of: .month, for: now)?.start else {
+        return todayUsage
+    }
+
+    // Sum from 1st to yesterday
+    let historicalSeconds = dailyHistory
+        .filter { $0.date >= monthStart && $0.date < today }
+        .reduce(0) { $0 + $1.seconds }
+
+    // Add today
+    return TimeInterval(historicalSeconds) + todayUsage
+}
+```
+
+---
+
+### Phase 3: Update ScreenTimeService to Pass History
+
+#### 3A. Modify appUsage(from:) Constructor
+
+**File**: `ScreenTimeService.swift` (update method around lines 687-730)
+
+**Current code** only creates today's session. **New approach**: Store reference to daily history.
+
+**Option 1: Store history reference in AppUsage (requires AppUsage model change)**
+
+```swift
+// In AppUsage.swift, add property:
+let dailyHistory: [UsagePersistence.DailyUsageSummary]
+
+// In ScreenTimeService.swift:
+private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
+    // ... existing session reconstruction for today ...
+
+    return AppUsage(
+        bundleIdentifier: persisted.logicalID,
+        appName: persisted.displayName,
+        category: category,
+        totalTime: TimeInterval(persisted.totalSeconds),
+        sessions: sessions,  // Today's session
+        dailyHistory: persisted.dailyHistory,  // NEW: Pass history
+        firstAccess: persisted.createdAt,
+        lastAccess: persisted.lastUpdated,
+        rewardPoints: persisted.rewardPoints,
+        earnedRewardPoints: persisted.earnedPoints
+    )
+}
+```
+
+**Option 2: AppUsageViewModel stores mapping (simpler, no model change)**
+
+```swift
+// In AppUsageViewModel.swift, add property:
+private var appHistoryMapping: [String: [UsagePersistence.DailyUsageSummary]] = [:]
+
+// When loading usage:
+func refreshData() {
+    // ... existing code ...
+
+    for persistedApp in service.usagePersistence.apps {
+        let appUsage = service.getUsage(for: persistedApp.logicalID)
+        appUsages.append(appUsage)
+
+        // NEW: Store history separately
+        appHistoryMapping[persistedApp.logicalID] = persistedApp.dailyHistory
+    }
+
+    updateSnapshots()
+    updateCategoryTotals()
+}
+
+// When calculating weekly/monthly in snapshots:
+let history = appHistoryMapping[logicalID] ?? []
+let weeklySeconds = appUsage.weeklyUsage(from: history)
+```
+
+**Recommendation**: Use **Option 2** (ViewModel mapping) to avoid changing AppUsage model signature.
+
+---
+
+### Phase 4: Update UI to Display Historical Usage
+
+#### 4A. Update AppUsageDetailViews
+
+**File**: `AppUsageDetailViews.swift` (lines ~130-148)
+
+**Current code**:
+```swift
+UsagePill(
+    title: "Weekly",
+    minutes: minutesText(for: usage?.last7DaysUsage ?? 0),
+    ...
+)
+```
+
+**Change to**:
+```swift
+UsagePill(
+    title: "Weekly",
+    minutes: minutesText(for: getWeeklyUsage(for: snapshot)),
+    annotation: "\(pointsEarned(for: getWeeklyUsage(for: snapshot))) pts",
+    accent: accentColor.opacity(0.9)
+)
+
+UsagePill(
+    title: "Monthly",
+    minutes: minutesText(for: getMonthlyUsage(for: snapshot)),
+    annotation: "\(pointsEarned(for: getMonthlyUsage(for: snapshot))) pts",
+    accent: accentColor.opacity(0.7)
+)
+
+// Helper methods:
+private func getWeeklyUsage(for snapshot: LearningAppSnapshot) -> TimeInterval {
+    let service = ScreenTimeService.shared
+    guard let persistedApp = service.usagePersistence.app(for: snapshot.logicalID) else {
+        return 0
+    }
+
+    // Use new weeklyUsage method with history
+    let appUsage = service.getUsage(for: snapshot.token)
+    return appUsage?.weeklyUsage(from: persistedApp.dailyHistory) ?? 0
+}
+
+private func getMonthlyUsage(for snapshot: LearningAppSnapshot) -> TimeInterval {
+    let service = ScreenTimeService.shared
+    guard let persistedApp = service.usagePersistence.app(for: snapshot.logicalID) else {
+        return 0
+    }
+
+    let appUsage = service.getUsage(for: snapshot.token)
+    return appUsage?.monthlyUsage(from: persistedApp.dailyHistory) ?? 0
+}
+```
+
+#### 4B. Update ParentDashboardView (Optional - Add Weekly/Monthly)
+
+**File**: `ParentDashboardView.swift`
+
+Currently only shows today's usage. Could add weekly/monthly summary cards:
+
+```swift
+// Add to dashboard:
+VStack(spacing: 12) {
+    HStack(spacing: 12) {
+        StatCard(
+            title: "This Week",
+            value: weeklyLearningMinutes,
+            subtitle: "learning",
+            color: AppTheme.vibrantTeal
+        )
+        StatCard(
+            title: "This Month",
+            value: monthlyLearningMinutes,
+            subtitle: "learning",
+            color: AppTheme.vibrantTeal.opacity(0.8)
+        )
+    }
+}
+
+// Computed properties in ViewModel:
+var weeklyLearningMinutes: Int {
+    // Sum weekly usage from all learning apps
+    Int(weeklyLearningTime / 60)
+}
+
+// In AppUsageViewModel, add:
+func calculateWeeklyUsage(for category: AppUsage.AppCategory) -> TimeInterval {
+    return appUsages
+        .filter { $0.category == category }
+        .reduce(0) { total, app in
+            let history = appHistoryMapping[app.bundleIdentifier] ?? []
+            return total + app.weeklyUsage(from: history)
+        }
+}
+```
+
+---
+
+### Phase 5: Migration & Testing
+
+#### 5A. Handle Existing Users
+
+**Migration strategy**:
+1. Existing `PersistedApp` objects have no `dailyHistory` field
+2. Custom decoder sets `dailyHistory = []` (empty array)
+3. Starting from update day, daily summaries begin accumulating
+4. After 7 days → accurate weekly stats
+5. After 30 days → accurate monthly stats
+
+**User communication**:
+- Show note: "Weekly/monthly stats will be available after 7/30 days of usage"
+- Or: Estimate historical data from `totalSeconds / days_since_install`
+
+#### 5B. Testing Checklist
+
+**Unit Tests**:
+- [ ] `DailyUsageSummary` normalizes dates to midnight
+- [ ] Midnight reset archives yesterday's usage
+- [ ] History cleanup removes entries > 30 days old
+- [ ] Weekly calculation includes Monday-Sunday
+- [ ] Monthly calculation includes 1st-last day
+
+**Integration Tests**:
+- [ ] Record usage on Day 1 → archives at midnight → Day 2 shows weekly = Day1 + Day2
+- [ ] Weekly counter resets on Monday (shows 0 if no usage yet this week)
+- [ ] Monthly counter resets on 1st of month
+- [ ] Multiple apps track independent histories
+
+**Manual Tests**:
+- [ ] Use app Mon-Fri → Friday shows 5 days aggregated
+- [ ] Use app on 15th → Monthly shows 1st-15th total
+- [ ] Delete and reinstall → history preserved in App Group
+- [ ] Background/foreground → history survives app restart
+
+---
+
+## Files Requiring Changes
+
+### Must Modify:
+1. **`UsagePersistence.swift`** (~100 lines)
+   - Add `DailyUsageSummary` struct
+   - Add `dailyHistory` field to `PersistedApp`
+   - Update `recordUsage()` to archive yesterday's usage
+   - Add custom decoder for backward compatibility
+
+2. **`AppUsage.swift`** (~50 lines)
+   - Add `historicalUsage(inLastDays:from:)` method
+   - Add `weeklyUsage(from:)` method
+   - Add `monthlyUsage(from:)` method
+
+3. **`AppUsageViewModel.swift`** (~30 lines)
+   - Add `appHistoryMapping` property
+   - Update `refreshData()` to populate mapping
+
+4. **`AppUsageDetailViews.swift`** (~40 lines)
+   - Add `getWeeklyUsage(for:)` helper
+   - Add `getMonthlyUsage(for:)` helper
+   - Update Weekly/Monthly `UsagePill` calls
+
+### Optional (Enhancement):
+5. **`ParentDashboardView.swift`** (~50 lines)
+   - Add weekly/monthly summary cards
+
+### Total Estimated Changes: ~270 lines
+### Estimated Implementation Time: 4-6 hours
+### Testing Time: 2-3 hours
+
+---
+
+## Success Criteria
+
+### Before Fix:
+- Weekly counter = today's usage (e.g., 15 min on Tuesday)
+- Monthly counter = today's usage (e.g., 15 min on 15th)
+
+### After Fix:
+- Weekly counter = Mon + Tue + Wed + Thu + Fri + Sat + Sun (e.g., 175 min)
+- Monthly counter = 1st + 2nd + ... + 15th (e.g., 450 min)
+- Survives app restarts and midnight resets
+- Automatically cleans up data > 30 days old
+
+---
+
+## Risks & Mitigations
+
+### Risk 1: Performance with 30-day History
+**Impact**: Filtering 30 entries per app × 20 apps = 600 entries
+**Mitigation**: Daily summaries are tiny (24 bytes each), total ~15KB
+**Acceptable**: Negligible memory/CPU impact
+
+### Risk 2: Migration from Existing Users
+**Impact**: Users lose historical data before update
+**Mitigation**: Document limitation, accurate data after update
+**Alternative**: Estimate from `totalSeconds / days_active` (not recommended - inaccurate)
+
+### Risk 3: Midnight Reset Not Called
+**Impact**: Yesterday's usage not archived → lost
+**Mitigation**: Check on every `recordUsage()` call (not just midnight timer)
+**Implemented**: Already in `recordUsage()` via date comparison
+
+---
+
+## Alternative Approaches Considered
+
+### Alternative 1: Store Full Session History
+**Pros**: Most detailed data, supports minute-level queries
+**Cons**: Unbounded growth (thousands of sessions), complex queries, migration nightmare
+**Verdict**: ❌ Overkill for dashboard needs
+
+### Alternative 2: Only Store Weekly/Monthly Totals
+**Pros**: Simplest storage (2 numbers per app)
+**Cons**: Cannot answer "show me Monday vs Friday" or "first week vs second week"
+**Verdict**: ❌ Too limited for future features
+
+### Alternative 3: Use Core Data for History
+**Pros**: Built-in querying, relationships, migration
+**Cons**: Heavier framework, complexity, already using UserDefaults
+**Verdict**: ❌ Not justified for simple daily summaries
+
+### Alternative 4: Daily Summaries (CHOSEN) ✅
+**Pros**: Right balance of detail/simplicity, efficient, natural cleanup
+**Cons**: None significant
+**Verdict**: ✅ **Recommended approach**
+
+---
+
+## Implementation Status (2025-11-17)
+
+- ✅ Persistence: Added `DailyUsageSummary`, `dailyHistory` in `PersistedApp`, archiving on day change with 30-day cleanup.
+- ✅ Calculations: Historical helpers in `AppUsage` (weekly/monthly via daily summaries + today).
+- ✅ Service/ViewModel: Expose daily histories to UI.
+- ✅ UI: Weekly/Monthly pills now use historical data; scheduling runway extended to 6h for long sessions.
+
+**Last Updated**: 2025-11-17
+**Status**: ✅ IMPLEMENTED
+**Next Action**: Monitor in QA; optionally add configurable runway and dashboard weekly/monthly cards.
+**Assigned To**: Dev Agent
