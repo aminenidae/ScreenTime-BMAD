@@ -595,15 +595,28 @@ class AppUsageViewModel: ObservableObject {
             
             // Pull usage from appUsages[logicalID] (default to zero)
             let appUsage = service.getUsage(for: token)
-            let totalSeconds = appUsage?.totalTime ?? 0
-            
+            var totalSeconds = appUsage?.todayUsage ?? 0
+            var earnedPoints = appUsage?.todayPoints ?? 0
+
+            // Fallback: Read directly from UsagePersistence if primary lookup fails
+            if totalSeconds == 0 {
+                if let persistedApp = service.usagePersistence.app(for: logicalID) {
+                    totalSeconds = TimeInterval(persistedApp.todaySeconds)
+                    earnedPoints = persistedApp.todayPoints
+
+                    NSLog("[AppUsageViewModel] 🔄 Fallback: Using persisted data for '\(displayName)' - \(persistedApp.todaySeconds)s, \(persistedApp.todayPoints)pts")
+                }
+            }
+
+            #if DEBUG
+            if totalSeconds > 0 {
+                print("[AppUsageViewModel] 🔍 DIAGNOSTIC: Reading usage for '\(displayName)'")
+                print("[AppUsageViewModel] 🔍 DIAGNOSTIC: logicalID=\(logicalID), todayUsage=\(totalSeconds)s")
+            }
+            #endif
+
             // Look up assigned points
             let pointsPerMinute = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
-            
-            // Create appropriate snapshot based on category
-            // TASK L: Include tokenHash in snapshot creation
-            // Get earned points from the actual AppUsage (not calculated!)
-            let earnedPoints = appUsage?.earnedRewardPoints ?? 0
 
             switch category {
             case AppUsage.AppCategory.learning:
@@ -1018,10 +1031,10 @@ class AppUsageViewModel: ObservableObject {
     
         learningTime = appUsages
             .filter { $0.category == AppUsage.AppCategory.learning }
-            .reduce(0) { $0 + $1.totalTime }
+            .reduce(0) { $0 + $1.todayUsage }
         rewardTime = appUsages
             .filter { $0.category == AppUsage.AppCategory.reward }
-            .reduce(0) { $0 + $1.totalTime }
+            .reduce(0) { $0 + $1.todayUsage }
         
         #if DEBUG
         if previousLearningTime != learningTime || previousRewardTime != rewardTime {

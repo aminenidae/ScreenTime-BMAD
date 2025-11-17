@@ -358,8 +358,9 @@ struct ChallengeDetailView: View {
 
     // Helper to get daily usage time for an app
     private func getDailyUsageMinutes(for token: ApplicationToken) -> String {
-        // Get the logical ID for this token
-        let tokenHash = token.hashValue.description
+        // Use the same hash calculation as snapshots (via ScreenTimeService)
+        let service = ScreenTimeService.shared
+        let tokenHash = service.usagePersistence.tokenHash(for: token)
 
         // Look up in learning snapshots
         if let snapshot = appUsageViewModel.learningSnapshots.first(where: { $0.tokenHash == tokenHash }) {
@@ -701,7 +702,6 @@ struct EditChallengeBuilderWrapper: View {
             #if DEBUG
             print("[EditChallengeBuilderWrapper] ❌ Builder disappeared")
             #endif
-            isPresented = false
         }
     }
 }
