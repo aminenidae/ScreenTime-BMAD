@@ -12,6 +12,7 @@ import CoreData
 class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     static let shared = ScreenTimeService()
     static let usageDidChangeNotification = Notification.Name("ScreenTimeService.usageDidChange")
+    static let reportRefreshRequestedNotification = Notification.Name("reportRefreshRequested")
     
     enum ScreenTimeServiceError: LocalizedError {
         case authorizationDenied(Error?)
@@ -1009,6 +1010,175 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] ❌ Failed to re-arm monitoring: \(error)")
             #endif
         }
+    }
+
+    // MARK: - Usage report sync helpers
+
+    /// Ask the DeviceActivityReport extension to refresh its snapshot and notify listeners.
+    func requestUsageReportRefresh() {
+        NSLog("[ScreenTimeService] 📊 Requesting DeviceActivityReport refresh...")
+
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            defaults.set(Date().timeIntervalSince1970, forKey: "report_request_timestamp")
+            defaults.synchronize()
+        }
+
+        NotificationCenter.default.post(name: Self.reportRefreshRequestedNotification, object: nil)
+    }
+
+    /// Read the latest snapshot written by the DeviceActivityReport extension and reconcile usage.
+    func syncFromReportSnapshot() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            NSLog("[ScreenTimeService] ❌ Cannot access app group for report sync")
+            return
+        }
+
+        guard let snapshot = defaults.dictionary(forKey: "report_snapshot") else {
+            NSLog("[ScreenTimeService] ℹ️ No report snapshot available yet")
+            return
+        }
+
+        guard let timestamp = snapshot["timestamp"] as? TimeInterval,
+              let appsData = snapshot["apps"] as? [String: Int] else {
+            NSLog("[ScreenTimeService] ⚠️ Invalid report snapshot format")
+            return
+        }
+
+        let snapshotDate = Date(timeIntervalSince1970: timestamp)
+        let age = Date().timeIntervalSince(snapshotDate)
+
+        guard age < 60 else {
+            NSLog("[ScreenTimeService] ⚠️ Report snapshot is stale (\(Int(age))s old)")
+            return
+        }
+
+        NSLog("[ScreenTimeService] 📊 Processing report snapshot from \(snapshotDate) with \(appsData.count) apps")
+
+        var didUpdateAnyApp = false
+
+        for (bundleID, reportedSeconds) in appsData {
+            guard let logicalID = findLogicalID(for: bundleID) else {
+                NSLog("[ScreenTimeService] ⚠️ No logical ID found for bundle: \(bundleID)")
+                continue
+            }
+
+            guard let persistedApp = usagePersistence.app(for: logicalID) else {
+                NSLog("[ScreenTimeService] ⚠️ No persisted app found for: \(logicalID)")
+                continue
+            }
+
+            let currentSeconds = persistedApp.todaySeconds
+
+            if reportedSeconds > currentSeconds {
+                let additionalSeconds = reportedSeconds - currentSeconds
+
+                NSLog("[ScreenTimeService] 🔄 Syncing \(persistedApp.displayName): \(currentSeconds)s → \(reportedSeconds)s (+\(additionalSeconds)s)")
+
+                usagePersistence.recordUsage(
+                    logicalID: logicalID,
+                    additionalSeconds: additionalSeconds,
+                    rewardPointsPerMinute: persistedApp.rewardPoints
+                )
+
+                Task {
+                    await ChallengeService.shared.updateProgressForUsage(
+                        appID: logicalID,
+                        duration: TimeInterval(additionalSeconds),
+                        earnedPoints: max(0, (additionalSeconds / 60) * persistedApp.rewardPoints),
+                        deviceID: DeviceModeManager.shared.deviceID
+                    )
+                }
+
+                didUpdateAnyApp = true
+            } else if reportedSeconds < currentSeconds {
+                NSLog("[ScreenTimeService] ℹ️ Report shows less usage than persisted for \(persistedApp.displayName) (report: \(reportedSeconds)s, persisted: \(currentSeconds)s)")
+            }
+        }
+
+        if didUpdateAnyApp {
+            reloadAppUsagesFromPersistence()
+            notifyUsageChange()
+            NSLog("[ScreenTimeService] ✅ Manual sync complete - UI refreshed")
+        } else {
+            NSLog("[ScreenTimeService] ℹ️ Manual sync complete - no updates needed")
+        }
+    }
+
+    /// Map a bundle identifier from the report back to a logical ID in persistence.
+    private func findLogicalID(for bundleID: String) -> String? {
+        if usagePersistence.app(for: bundleID) != nil {
+            return bundleID
+        }
+        return nil
+    }
+
+    /// Reload persisted usage into memory. Currently just refreshes the persistence cache.
+    private func reloadAppUsagesFromPersistence() {
+        _ = usagePersistence.reloadAppsFromDisk()
+    }
+
+    /// Handle day rollover: reset daily counters and refresh in-memory state.
+    func handleMidnightTransition() {
+        usagePersistence.resetDailyCounters()
+        reloadAppUsagesFromPersistence()
+        notifyUsageChange()
+    }
+
+    /// Return daily histories for all apps keyed by logical ID.
+    func getDailyHistories() -> [String: [UsagePersistence.DailyUsageSummary]] {
+        let apps = usagePersistence.loadAllApps()
+        var histories: [String: [UsagePersistence.DailyUsageSummary]] = [:]
+        for (logicalID, app) in apps {
+            histories[logicalID] = app.dailyHistory
+        }
+        return histories
+    }
+
+    /// Return the daily history for a specific app by logical ID.
+    func getDailyHistory(for logicalID: String) -> [UsagePersistence.DailyUsageSummary] {
+        usagePersistence.app(for: logicalID)?.dailyHistory ?? []
+    }
+
+    /// Convenience overload: resolve history from an application token via stored mapping.
+    func getDailyHistory(for token: ManagedSettings.ApplicationToken) -> [UsagePersistence.DailyUsageSummary] {
+        let tokenHash = usagePersistence.tokenHash(for: token)
+        if let logicalID = usagePersistence.logicalID(for: tokenHash) {
+            return getDailyHistory(for: logicalID)
+        }
+        return []
+    }
+
+    // MARK: - Diagnostics helpers
+
+    /// Simple restart wrapper used by diagnostics views.
+    func restartMonitoring(reason: String, force: Bool = false) async {
+        #if DEBUG
+        print("[ScreenTimeService] ♻️ Restart requested (")
+        #endif
+        stopMonitoring()
+        do {
+            try scheduleActivity()
+            isMonitoring = true
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Restarted monitoring (")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+            #endif
+        }
+    }
+
+    /// Returns a basic extension health snapshot (placeholder values until full telemetry is wired).
+    func getExtensionHealthStatus() -> ExtensionHealthStatus {
+        let now = Date()
+        // Placeholder: assume healthy with no gap; memory usage unknown
+        return ExtensionHealthStatus(lastHeartbeat: now, heartbeatGapSeconds: 0, isHealthy: true, memoryUsageMB: 0)
+    }
+
+    /// Detect usage gaps from persisted history (placeholder: returns empty).
+    func detectUsageGaps() -> [UsageGap] {
+        return []
     }
     
     private func scheduleActivity() throws {
