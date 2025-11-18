@@ -48,15 +48,6 @@ struct ChildChallengeDetailView: View {
             }
         }
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarLeading) {
-                Button(action: { dismiss() }) {
-                    Image(systemName: "xmark.circle.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                }
-            }
-        }
         .task {
             await fetchAppProgressRecords()
         }
@@ -126,57 +117,47 @@ struct ChildChallengeDetailView: View {
             }
 
             if let progress = progress {
-                // Progress stats
-                HStack(spacing: 32) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Current")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        Text("\(progress.currentValue)")
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
+                VStack(spacing: 16) {
+                    // Circular Progress
+                    ZStack {
+                        // Background circle
+                        Circle()
+                            .stroke(
+                                Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2),
+                                lineWidth: 14
+                            )
+                            .frame(width: 160, height: 160)
 
-                    Image(systemName: "arrow.right")
-                        .font(.system(size: 24))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        // Progress circle
+                        Circle()
+                            .trim(from: 0, to: min(progress.progressPercentage / 100, 1.0))
+                            .stroke(
+                                goalTypeColor,
+                                style: StrokeStyle(
+                                    lineWidth: 14,
+                                    lineCap: .round
+                                )
+                            )
+                            .frame(width: 160, height: 160)
+                            .rotationEffect(.degrees(-90))
 
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Target")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        Text("\(progress.targetValue)")
-                            .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(goalTypeColor)
-                    }
-                }
+                        // Center content
+                        VStack(spacing: 4) {
+                            Text("\(Int(progress.progressPercentage))%")
+                                .font(.system(size: 40, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                // Progress bar
-                VStack(spacing: 8) {
-                    HStack {
-                        Text("\(Int(progress.progressPercentage))% Complete")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                        Spacer()
-
-                        Text("\(progress.targetValue - progress.currentValue) to go!")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(goalTypeColor)
-                    }
-
-                    GeometryReader { geometry in
-                        ZStack(alignment: .leading) {
-                            RoundedRectangle(cornerRadius: 999)
-                                .fill(AppTheme.progressTrack(for: colorScheme))
-                                .frame(height: 20)
-
-                            RoundedRectangle(cornerRadius: 999)
-                                .fill(goalTypeColor)
-                                .frame(width: geometry.size.width * min(progress.progressPercentage / 100, 1.0), height: 20)
+                            Text("\(progress.currentValue)/\(progress.targetValue)m")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
                     }
-                    .frame(height: 20)
+                    .frame(maxWidth: .infinity)
+
+                    // To go text
+                    Text("\(progress.targetValue - progress.currentValue) to go!")
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(goalTypeColor)
                 }
             }
         }
@@ -256,10 +237,6 @@ struct ChildChallengeDetailView: View {
             }
 
             Spacer()
-
-            Image(systemName: "checkmark.circle.fill")
-                .font(.system(size: 20))
-                .foregroundColor(AppTheme.vibrantTeal)
         }
         .padding(12)
         .background(
@@ -361,10 +338,6 @@ struct ChildChallengeDetailView: View {
             }
 
             Spacer()
-
-            Image(systemName: "lock.fill")
-                .font(.system(size: 20))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.5))
         }
         .padding(12)
         .background(

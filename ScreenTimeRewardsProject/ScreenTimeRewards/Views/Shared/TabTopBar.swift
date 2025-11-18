@@ -49,11 +49,13 @@ struct TabTopBar: View {
 
     private var resolvedTopPadding: CGFloat {
         let inset = topSafeAreaInset
-        // Mirror Settings spacing: hug the safe area but pull the content up a bit on notched devices.
+        // Minimize top padding to eliminate unused space
         if inset > 20 {
-            return inset - 14
+            // On notched devices, use minimal padding above safe area
+            return 4
         } else {
-            return inset + 6
+            // On non-notched devices, add slight padding
+            return 8
         }
     }
 }

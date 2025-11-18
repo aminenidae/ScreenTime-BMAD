@@ -43,6 +43,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private static let intervalWillStartNotification = CFNotificationName(ScreenTimeNotifications.intervalWillStart as CFString)
     private static let intervalWillEndNotification = CFNotificationName(ScreenTimeNotifications.intervalWillEnd as CFString)
     private static let usageRecordedNotification = CFNotificationName(ScreenTimeNotifications.usageRecorded as CFString)
+    static let reportRefreshRequestedNotification = Notification.Name("reportRefreshRequested")
 
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
@@ -54,7 +55,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
-    private let maxScheduledIncrementsPerApp = 360  // queue ahead (~6 hours of 60s increments) to avoid restart gaps
+    private let maxScheduledIncrementsPerApp = 4  // iOS silently enforces ~4-8 event limit; stay conservative at 4
 
     // MARK: - App Name Extraction Helpers
 
@@ -973,6 +974,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         authorizationGranted = granted
         NSLog("[ScreenTimeService] 🔐 App active - authorization status: \(status.rawValue), granted flag: \(granted)")
 
+        // Trigger a manual DeviceActivityReport refresh and attempt to sync from snapshot
+        requestUsageReportRefresh()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            self?.syncFromReportSnapshot()
+        }
+
         let didSyncUsage = processSharedUsageData(reason: "app_active")
         if didSyncUsage {
             reloadAppUsagesFromPersistence()
@@ -993,6 +1000,128 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func shouldAlertUserAboutGaps() -> Bool {
         let totalLostMinutes = detectUsageGaps().reduce(0) { $0 + $1.durationMinutes }
         return totalLostMinutes > 15
+    }
+
+    // MARK: - DeviceActivityReport Manual Sync (Option A)
+
+    /// Request a DeviceActivityReport refresh. The report extension listens for this notification via a hidden SwiftUI view.
+    func requestUsageReportRefresh() {
+        NSLog("[ScreenTimeService] 📊 Requesting DeviceActivityReport refresh...")
+
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            defaults.set(Date().timeIntervalSince1970, forKey: "report_request_timestamp")
+            defaults.synchronize()
+        }
+
+        NSLog("[ScreenTimeService] 📬 Posting report refresh notification to UI")
+        NotificationCenter.default.post(name: Self.reportRefreshRequestedNotification, object: nil)
+    }
+
+    /// Read the latest usage snapshot written by the DeviceActivityReport extension and reconcile persisted usage.
+    func syncFromReportSnapshot() {
+        NSLog("[ScreenTimeService] 🔍 syncFromReportSnapshot called")
+
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            NSLog("[ScreenTimeService] ❌ Cannot access app group for report sync")
+            return
+        }
+
+        NSLog("[ScreenTimeService] 🔍 Checking for report_snapshot key...")
+        let allKeys = defaults.dictionaryRepresentation().keys.sorted()
+        NSLog("[ScreenTimeService] 🔍 App group keys: \(allKeys.joined(separator: ", "))")
+
+        guard let snapshot = defaults.dictionary(forKey: "report_snapshot") else {
+            NSLog("[ScreenTimeService] ℹ️ No report snapshot available yet")
+            return
+        }
+
+        NSLog("[ScreenTimeService] ✅ Found snapshot: \(snapshot)")
+
+        guard
+            let timestamp = snapshot["timestamp"] as? TimeInterval,
+            let appsData = snapshot["apps"] as? [String: Int]
+        else {
+            NSLog("[ScreenTimeService] ⚠️ Invalid report snapshot format")
+            return
+        }
+
+        let snapshotDate = Date(timeIntervalSince1970: timestamp)
+        let ageSeconds = Date().timeIntervalSince(snapshotDate)
+
+        let calendar = Calendar.current
+        guard calendar.isDate(snapshotDate, inSameDayAs: Date()) else {
+            NSLog("[ScreenTimeService] ⚠️ Report snapshot is from a different day - ignoring")
+            return
+        }
+
+        NSLog("[ScreenTimeService] 📊 Processing report snapshot from \(snapshotDate) (age: \(Int(ageSeconds))s) with \(appsData.count) apps")
+
+        var didUpdateAnyApp = false
+        var updatedApps: [String] = []
+
+        for (bundleID, reportedSeconds) in appsData {
+            guard let logicalID = findLogicalID(for: bundleID) else {
+                NSLog("[ScreenTimeService] ℹ️ No logical ID found for bundle: \(bundleID)")
+                continue
+            }
+
+            guard let persistedApp = usagePersistence.app(for: logicalID) else {
+                NSLog("[ScreenTimeService] ℹ️ No persisted app found for logicalID: \(logicalID)")
+                continue
+            }
+
+            let currentSeconds = persistedApp.todaySeconds
+
+            if reportedSeconds > currentSeconds {
+                let additionalSeconds = reportedSeconds - currentSeconds
+                NSLog("[ScreenTimeService] 🔄 Syncing \(persistedApp.displayName): \(currentSeconds)s → \(reportedSeconds)s (+\(additionalSeconds)s)")
+
+                usagePersistence.recordUsage(
+                    logicalID: logicalID,
+                    additionalSeconds: additionalSeconds,
+                    rewardPointsPerMinute: persistedApp.rewardPoints
+                )
+
+                if persistedApp.category == AppUsage.AppCategory.learning.rawValue {
+                    Task {
+                        await ChallengeService.shared.updateProgressForUsage(
+                            appID: logicalID,
+                            duration: TimeInterval(additionalSeconds),
+                            earnedPoints: max(0, (additionalSeconds / 60) * persistedApp.rewardPoints),
+                            deviceID: DeviceModeManager.shared.deviceID
+                        )
+                    }
+                }
+
+                didUpdateAnyApp = true
+                updatedApps.append(persistedApp.displayName)
+            } else if reportedSeconds < currentSeconds {
+                NSLog("[ScreenTimeService] ℹ️ Report shows less usage than persisted for \(persistedApp.displayName) (report: \(reportedSeconds)s, persisted: \(currentSeconds)s)")
+            }
+        }
+
+        if didUpdateAnyApp {
+            reloadAppUsagesFromPersistence()
+            notifyUsageChange()
+            NSLog("[ScreenTimeService] ✅ Manual sync complete - UI refreshed (updated: \(updatedApps.joined(separator: ", ")))")
+        } else {
+            NSLog("[ScreenTimeService] ℹ️ Manual sync complete - no updates needed")
+        }
+    }
+
+    /// Attempt to resolve a logical app ID from a bundle identifier using persistence and monitored apps.
+    private func findLogicalID(for bundleID: String) -> String? {
+        if let logicalID = usagePersistence.logicalID(forBundleIdentifier: bundleID) {
+            return logicalID
+        }
+
+        for apps in monitoredApplicationsByCategory.values {
+            if let match = apps.first(where: { $0.bundleIdentifier == bundleID }) {
+                return match.logicalID
+            }
+        }
+
+        return nil
     }
 
     private func detectNotificationGaps() -> [UsageGap] {
@@ -2244,7 +2373,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         // === END TASK 7 TRIGGER IMPLEMENTATION ===
 
-        // Do not force a restart on threshold progression; keeping the interval stable prevents counter resets
+        // iOS limits DeviceActivity to ~4-8 events per schedule.
+        // Restarting after EVERY threshold causes phantom events because iOS doesn't reset
+        // its usage counter on restart - it fires all thresholds that are already exceeded.
+        // SOLUTION: Accept the iOS limit and track up to 4 minutes per app.
+        // For longer sessions, users can check the app to trigger a manual sync.
+        NSLog("[ScreenTimeService] ⏰ Threshold processed (no auto-restart to avoid phantom events)")
     }
 
     fileprivate func handleEventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name) {

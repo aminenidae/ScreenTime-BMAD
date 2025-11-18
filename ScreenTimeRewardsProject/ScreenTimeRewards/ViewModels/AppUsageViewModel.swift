@@ -153,6 +153,15 @@ class AppUsageViewModel: ObservableObject {
         return basePoints + bonusPoints
     }
 
+    /// Bonus points from challenges and streaks
+    var bonusLearningPoints: Int {
+        let basePoints = learningRewardPoints
+        return challengeService.calculateBonusPoints(
+            basePoints: basePoints,
+            for: DeviceModeManager.shared.deviceID
+        )
+    }
+
     // MARK: - Challenge Integration
     @Published var activeChallenges: [Challenge] = []
     @Published var challengeProgress: [String: ChallengeProgress] = [:]
@@ -2605,5 +2614,62 @@ extension AppUsageViewModel {
         if !rewardAppIDs.isEmpty {
             unlockRewardAppsFromChallenge(logicalIDs: rewardAppIDs, minutes: unlockMinutes)
         }
+    }
+
+    // MARK: - Chart Data Helpers
+
+    /// Returns aggregated daily usage for a category over the last N days
+    /// - Parameters:
+    ///   - category: The app category (learning or reward)
+    ///   - days: Number of days to include (default 7)
+    /// - Returns: Dictionary of date -> total minutes for that day
+    func getDailyUsageForCategory(_ category: AppUsage.AppCategory, lastDays days: Int = 7) -> [Date: Int] {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let startDate = calendar.date(byAdding: .day, value: -(days - 1), to: today)!
+
+        // Initialize all dates with 0 minutes
+        var dailyUsage: [Date: Int] = [:]
+        for dayOffset in 0..<days {
+            if let date = calendar.date(byAdding: .day, value: dayOffset, to: startDate) {
+                dailyUsage[date] = 0
+            }
+        }
+
+        // Get all apps in this category
+        let categoryApps = appUsages.filter { $0.category == category }
+
+        // Aggregate usage from all apps
+        for app in categoryApps {
+            // Get daily history for this app
+            let history = service.getDailyHistory(for: app.bundleIdentifier)
+
+            // Add each day's usage to the total
+            for daySummary in history {
+                let dayStart = calendar.startOfDay(for: daySummary.date)
+                if dayStart >= startDate && dayStart <= today {
+                    let minutes = daySummary.seconds / 60
+                    dailyUsage[dayStart, default: 0] += minutes
+                }
+            }
+        }
+
+        // Add today's usage (not yet in history)
+        let todayMinutes = Int((category == .learning ? learningTime : rewardTime) / 60)
+        dailyUsage[today] = todayMinutes
+
+        return dailyUsage
+    }
+
+    /// Returns sorted array of daily usage data for charting
+    /// - Parameters:
+    ///   - category: The app category
+    ///   - days: Number of days to include
+    /// - Returns: Array of (date, minutes) tuples sorted by date
+    func getChartDataForCategory(_ category: AppUsage.AppCategory, lastDays days: Int = 7) -> [(date: Date, minutes: Int)] {
+        let dailyUsage = getDailyUsageForCategory(category, lastDays: days)
+        return dailyUsage
+            .sorted { $0.key < $1.key }
+            .map { (date: $0.key, minutes: $0.value) }
     }
 }

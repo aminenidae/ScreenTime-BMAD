@@ -7,33 +7,11 @@ struct ChildModeView: View {
 
     var body: some View {
         NavigationView {
-            TabView {
-                ChildDashboardView()
-                    .tabItem {
-                        Label("Dashboard", systemImage: "house.fill")
-                    }
-                    .navigationTitle("Dashboard")
-
-                ChildChallengesTabView()
-                    .tabItem {
-                        Label("Challenges", systemImage: "star.fill")
-                    }
-                    .navigationTitle("Challenges")
-            }
-            .environmentObject(viewModel)
-            .environmentObject(sessionManager)
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Exit") {
-                        sessionManager.exitToSelection()
-                    }
-                    .foregroundColor(AppTheme.error)
-                    .font(.headline)
-                }
-            }
+            ChildChallengesTabView()
+                .environmentObject(viewModel)
+                .environmentObject(sessionManager)
         }
-        .navigationViewStyle(.stack)  // Add this to fix iPad layout issue
+        .navigationViewStyle(.stack)
     }
 }
 

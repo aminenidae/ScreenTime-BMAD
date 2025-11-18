@@ -4,6 +4,8 @@ import UserNotifications
 import BackgroundTasks
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    private var midnightResetObserver: NSObjectProtocol?
+
     func application(
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
@@ -16,6 +18,8 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         
         // Register background tasks using our service
         ChildBackgroundSyncService.shared.registerBackgroundTasks()
+
+        setupMidnightResetObserver()
         
         return true
     }
@@ -38,6 +42,25 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     /// Schedule next config check task
     private func scheduleNextConfigCheck() {
         ChildBackgroundSyncService.shared.scheduleNextConfigCheck()
+    }
+
+    private func setupMidnightResetObserver() {
+        midnightResetObserver = NotificationCenter.default.addObserver(
+            forName: .NSCalendarDayChanged,
+            object: nil,
+            queue: .main
+        ) { _ in
+            NSLog("[AppDelegate] 🌅 New day detected - resetting cumulative tracking")
+            Task { @MainActor in
+                await ScreenTimeService.shared.handleMidnightTransition()
+            }
+        }
+    }
+
+    deinit {
+        if let midnightResetObserver {
+            NotificationCenter.default.removeObserver(midnightResetObserver)
+        }
     }
     
     func application(

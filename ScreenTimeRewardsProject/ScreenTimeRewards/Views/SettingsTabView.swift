@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct SettingsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
@@ -6,6 +7,7 @@ struct SettingsTabView: View {
     @State private var showingPairingView = false
     @State private var showingSubscriptionManagement = false
     @State private var showResetConfirmation = false
+    @State private var isManualSyncing = false
     @StateObject private var pairingService = DevicePairingService.shared
     @StateObject private var modeManager = DeviceModeManager.shared
     @Environment(\.colorScheme) var colorScheme
@@ -38,6 +40,13 @@ struct SettingsTabView: View {
                             pairingStatusRow
                         }
 
+                        // Diagnostics Section
+                        settingsSection(title: "DIAGNOSTICS") {
+                            manualSyncRow
+                            extensionDiagnosticsRow
+                            diagnosticsRow
+                        }
+
                         // Danger Zone Section
                         VStack(alignment: .leading, spacing: 8) {
                             settingsSection(title: "DANGER ZONE") {
@@ -56,6 +65,10 @@ struct SettingsTabView: View {
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+
+            // Hidden report view to ensure extension is triggered from this screen
+            HiddenUsageReportView()
+                .allowsHitTesting(false)
         }
         .sheet(isPresented: $showingPairingView) {
             ChildPairingView()
@@ -287,6 +300,174 @@ private extension SettingsTabView {
             .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    @ViewBuilder
+    var manualSyncRow: some View {
+        #if DEBUG
+        let _ = NSLog("[SettingsTabView] 🏗️ Building manualSyncRow, isManualSyncing=\(isManualSyncing)")
+        #endif
+
+        Button(action: triggerManualSync) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [AppTheme.vibrantTeal.opacity(0.15), AppTheme.playfulCoral.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+
+                    if isManualSyncing {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(AppTheme.vibrantTeal)
+                    } else {
+                        Image(systemName: "arrow.triangle.2.circlepath")
+                            .font(.system(size: 18, weight: .medium))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Manual Usage Sync")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                    Text("Update progress beyond 4-minute limit")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+            .padding(16)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(16)
+            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        }
+        .contentShape(Rectangle())
+        .buttonStyle(.plain)
+        .disabled(isManualSyncing)
+    }
+
+    var extensionDiagnosticsRow: some View {
+        NavigationLink {
+            ExtensionDiagnosticsView()
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.red.opacity(0.15), Color.orange.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Extension Diagnostics")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                    Text("Debug extension execution and errors")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+            .padding(16)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(16)
+            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var diagnosticsRow: some View {
+        NavigationLink {
+            TrackingHealthView()
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [AppTheme.vibrantTeal.opacity(0.15), AppTheme.sunnyYellow.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: "heart.text.square.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Tracking Health")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                    Text("View diagnostics and troubleshoot issues")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+            .padding(16)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(16)
+            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+}
+
+// MARK: - Actions
+private extension SettingsTabView {
+    func triggerManualSync() {
+        NSLog("[SettingsTabView] 🔘 Manual Sync button CLICKED")
+        print("[SettingsTabView] 🔘 Manual Sync button CLICKED")
+
+        isManualSyncing = true
+
+        // Haptic feedback for reliability confirmation
+        UIImpactFeedbackGenerator(style: .light).impactOccurred()
+
+        ScreenTimeService.shared.requestUsageReportRefresh()
+
+        // Give the extension time to respond before reading the snapshot
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) {
+            ScreenTimeService.shared.syncFromReportSnapshot()
+            isManualSyncing = false
+            NSLog("[SettingsTabView] ✅ Manual sync flow completed")
+        }
     }
 }
 

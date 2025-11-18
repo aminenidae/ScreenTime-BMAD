@@ -30,8 +30,8 @@ struct ChildChallengesTabView: View {
                             activeChallengesSection
                         }
 
-                        // Badge Collection Section
-                        badgesSection
+                        // Time Progress Section
+                        timeProgressSection
 
                         // Empty State / Future Adventures
                         if viewModel.activeChallenges.isEmpty {
@@ -240,91 +240,58 @@ private extension ChildChallengesTabView {
         challenge.goalTypeEnum?.accentColor ?? AppTheme.vibrantTeal
     }
 
-    var badgesSection: some View {
+    var timeProgressSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.medium) {
-            Text("Badge Collection")
+            Text("Today's Progress")
                 .font(AppTheme.Typography.title2)
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .padding(.top, AppTheme.Spacing.large)
 
-            if viewModel.badges.isEmpty {
-                // Show placeholder badges when none earned yet
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(0..<5, id: \.self) { index in
-                            lockedBadgeItem
-                        }
-                    }
-                    .padding(.bottom, 16)
-                }
-            } else {
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: 16) {
-                        ForEach(viewModel.badges) { badge in
-                            earnedBadgeItem(for: badge)
-                        }
+            HStack(spacing: 24) {
+                // Learning Time Circle
+                CircularProgressView(
+                    title: "Learning Goal",
+                    current: learningTimeMinutes,
+                    total: learningTimeGoal,
+                    color: AppTheme.vibrantTeal,
+                    icon: "book.fill"
+                )
 
-                        // Add locked badges to show what's remaining
-                        let remainingBadges = max(5 - viewModel.badges.count, 0)
-                        ForEach(0..<remainingBadges, id: \.self) { _ in
-                            lockedBadgeItem
-                        }
-                    }
-                    .padding(.bottom, 16)
-                }
+                // Reward Time Circle
+                CircularProgressView(
+                    title: "Reward Earned",
+                    current: rewardTimeMinutes,
+                    total: rewardTimeTotal,
+                    color: AppTheme.sunnyYellow,
+                    icon: "gamecontroller.fill"
+                )
             }
+            .padding(.vertical, AppTheme.Spacing.medium)
         }
     }
 
-    func earnedBadgeItem(for badge: Badge) -> some View {
-        VStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(AppTheme.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
-                    .frame(width: 96, height: 96)
-                    .overlay(
-                        Circle()
-                            .stroke(AppTheme.sunnyYellow, lineWidth: 4)
-                    )
-
-                Image(systemName: "star.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(AppTheme.sunnyYellow)
-            }
-
-            Text(badge.badgeName ?? "Badge")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .multilineTextAlignment(.center)
-                .frame(width: 96)
-        }
-        .frame(width: 96)
+    // Calculate learning time from snapshots
+    private var learningTimeMinutes: Int {
+        let totalSeconds = viewModel.learningSnapshots.reduce(0) { $0 + $1.totalSeconds }
+        return Int(totalSeconds / 60)
     }
 
-    var lockedBadgeItem: some View {
-        VStack(spacing: 8) {
-            ZStack {
-                Circle()
-                    .fill(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2))
-                    .frame(width: 96, height: 96)
-                    .overlay(
-                        Circle()
-                            .stroke(Color.gray.opacity(0.4), lineWidth: 4)
-                    )
+    // Get learning goal from active challenges
+    private var learningTimeGoal: Int {
+        guard let firstChallenge = viewModel.activeChallenges.first else { return 60 }
+        return Int(firstChallenge.targetValue)
+    }
 
-                Image(systemName: "lock.fill")
-                    .font(.system(size: 40))
-                    .foregroundColor(Color.gray.opacity(0.5))
-            }
+    // Calculate reward time from snapshots
+    private var rewardTimeMinutes: Int {
+        let totalSeconds = viewModel.rewardSnapshots.reduce(0) { $0 + $1.totalSeconds }
+        return Int(totalSeconds / 60)
+    }
 
-            Text("Mystery Badge")
-                .font(.system(size: 14, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .multilineTextAlignment(.center)
-                .frame(width: 96)
-        }
-        .frame(width: 96)
-        .opacity(0.5)
+    // Calculate total reward time available
+    private var rewardTimeTotal: Int {
+        guard let firstChallenge = viewModel.activeChallenges.first else { return 30 }
+        return firstChallenge.rewardUnlockMinutes()
     }
 
     var emptyStateView: some View {

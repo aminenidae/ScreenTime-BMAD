@@ -194,6 +194,20 @@ final class UsagePersistence {
         cachedTokenMappings[tokenHash]?.logicalID
     }
 
+    /// Resolve logical ID from a bundle identifier (when available).
+    /// Falls back to direct app lookup where logical IDs are stored as bundle IDs.
+    func logicalID(forBundleIdentifier bundleID: String) -> LogicalAppID? {
+        if cachedApps[bundleID] != nil {
+            return bundleID
+        }
+
+        if let mapping = cachedTokenMappings.values.first(where: { $0.bundleIdentifier == bundleID }) {
+            return mapping.logicalID
+        }
+
+        return nil
+    }
+
     func loadAllApps() -> [LogicalAppID: PersistedApp] {
         cachedApps
     }

@@ -194,8 +194,18 @@ class ChallengeService: ObservableObject {
 
         resetProgressIfNeeded(progress, using: resetStrategy)
 
+        #if DEBUG
+        let beforeValue = progress.currentValue
+        print("[ChallengeService] 🔍 DIAGNOSTIC: Updating progress for challenge '\(challenge.title ?? "unknown")'")
+        print("[ChallengeService] 🔍 DIAGNOSTIC: Before: currentValue=\(beforeValue), incrementBy=\(amount)")
+        #endif
+
         progress.currentValue += Int32(amount)
         progress.lastUpdated = Date()
+
+        #if DEBUG
+        print("[ChallengeService] 🔍 DIAGNOSTIC: After: currentValue=\(progress.currentValue), timestamp=\(Date())")
+        #endif
 
         if progress.currentValue >= progress.targetValue && !progress.isCompleted {
             await complete(challenge: challenge, with: progress)
@@ -661,7 +671,16 @@ class ChallengeService: ObservableObject {
         fetchRequest.fetchLimit = 1
 
         let results = try context.fetch(fetchRequest)
-        return results.first
+        let progress = results.first
+
+        #if DEBUG
+        if let progress = progress {
+            print("[ChallengeService] 🔍 DIAGNOSTIC: Fetched progress for challengeID '\(challengeID)'")
+            print("[ChallengeService] 🔍 DIAGNOSTIC: currentValue=\(progress.currentValue), targetValue=\(progress.targetValue)")
+        }
+        #endif
+
+        return progress
     }
 
     private func ensureStarterBadgesExist(for deviceID: String, in context: NSManagedObjectContext) throws {

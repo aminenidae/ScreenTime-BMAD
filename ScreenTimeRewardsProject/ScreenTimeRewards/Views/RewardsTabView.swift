@@ -7,6 +7,7 @@ struct RewardsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @State private var selectedRewardSnapshot: RewardAppSnapshot?
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -108,6 +109,9 @@ struct RewardsTabView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        .sheet(item: $selectedRewardSnapshot) { snapshot in
+            RewardAppDetailView(snapshot: snapshot)
+        }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
 }
@@ -186,66 +190,86 @@ private extension RewardsTabView {
 
     @ViewBuilder
     func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
-        // Standardized icon sizes (match Learning tab)
         let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(alignment: .center, spacing: 12) {
-                // App Icon - consistent sizing with learning tab
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .labelStyle(.iconOnly)
-                        .scaleEffect(iconScale)
-                        .frame(width: iconSize, height: iconSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(width: iconSize, height: iconSize)
-                        .overlay(
-                            Image(systemName: "app.fill")
-                                .font(.system(size: fallbackIconSize))
-                                .foregroundColor(.gray)
-                        )
-                }
-
-                // App Info - using Label with 8pt font for long names
-                VStack(alignment: .leading, spacing: 4) {
+        Button {
+            selectedRewardSnapshot = snapshot
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(alignment: .center, spacing: 12) {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
-                            .labelStyle(.titleOnly)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .labelStyle(.iconOnly)
+                            .scaleEffect(iconScale)
+                            .frame(width: iconSize, height: iconSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
-                        Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(width: iconSize, height: iconSize)
+                            .overlay(
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: fallbackIconSize))
+                                    .foregroundColor(.gray)
+                            )
                     }
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "clock.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.playfulCoral)
+                    VStack(alignment: .leading, spacing: 4) {
+                        if #available(iOS 15.2, *) {
+                            Label(snapshot.token)
+                                .labelStyle(.titleOnly)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        } else {
+                            Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
 
-                        Text("\(snapshot.pointsPerMinute) pts/min")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(AppTheme.playfulCoral)
-                            .lineLimit(1)
+                        HStack(spacing: 4) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 12))
+                                .foregroundColor(AppTheme.playfulCoral)
+
+                            Text("+\(snapshot.pointsPerMinute) pts/min")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(AppTheme.playfulCoral)
+                                .lineLimit(1)
+                        }
+
+                        Text(formatTime(snapshot.totalSeconds))
+                            .font(.caption)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
+
+                    Spacer()
+
+                    Image(systemName: "chevron.right")
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer()
+                .padding(16)
             }
-            .padding(12)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(12)
+            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
         }
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(12)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        .buttonStyle(.plain)
+    }
+
+    func formatTime(_ seconds: TimeInterval) -> String {
+        let minutes = Int(seconds / 60)
+        let hours = minutes / 60
+        let remaining = minutes % 60
+
+        if hours > 0 {
+            return "\(hours)h \(remaining)m"
+        } else {
+            return "\(minutes)m"
+        }
     }
 
 }

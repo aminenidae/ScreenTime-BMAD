@@ -8,6 +8,8 @@ struct LearningTabView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
+    @State private var selectedLearningSnapshot: LearningAppSnapshot?
+
     private var hasLearningApps: Bool {
         !viewModel.learningSnapshots.isEmpty
     }
@@ -52,6 +54,9 @@ struct LearningTabView: View {
         }
         .refreshable {
             await viewModel.refresh()
+        }
+        .sheet(item: $selectedLearningSnapshot) { snapshot in
+            LearningAppDetailView(snapshot: snapshot)
         }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
@@ -146,64 +151,67 @@ struct LearningTabView: View {
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
 
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 16) {
-                // App Icon - Standardized smaller size
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .labelStyle(.iconOnly)
-                        .scaleEffect(iconScale)
-                        .frame(width: iconSize, height: iconSize)
-                        .clipShape(RoundedRectangle(cornerRadius: 8))
-                } else {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(Color.gray.opacity(0.2))
-                        .frame(width: iconSize, height: iconSize)
-                        .overlay(
-                            Image(systemName: "app.fill")
-                                .font(.system(size: fallbackIconSize))
-                                .foregroundColor(.gray)
-                        )
-                }
-
-                // App Info - using 8pt font for long names
-                VStack(alignment: .leading, spacing: 2) {
+        Button {
+            selectedLearningSnapshot = snapshot
+        } label: {
+            VStack(alignment: .leading, spacing: 0) {
+                HStack(spacing: 16) {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
-                            .labelStyle(.titleOnly)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .labelStyle(.iconOnly)
+                            .scaleEffect(iconScale)
+                            .frame(width: iconSize, height: iconSize)
+                            .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
-                        Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                            .font(.system(size: 8, weight: .medium))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(0.2))
+                            .frame(width: iconSize, height: iconSize)
+                            .overlay(
+                                Image(systemName: "app.fill")
+                                    .font(.system(size: fallbackIconSize))
+                                    .foregroundColor(.gray)
+                            )
                     }
 
-                    HStack(spacing: 4) {
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.sunnyYellow)
+                    VStack(alignment: .leading, spacing: 2) {
+                        if #available(iOS 15.2, *) {
+                            Label(snapshot.token)
+                                .labelStyle(.titleOnly)
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        } else {
+                            Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
+                                .font(.system(size: 8, weight: .medium))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
 
-                        Text("+\(snapshot.pointsPerMinute) pts/min")
-                            .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(AppTheme.sunnyYellow)
-                            .lineLimit(1)
-                            .truncationMode(.tail)
+                        HStack(spacing: 4) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(AppTheme.sunnyYellow)
+
+                            Text("+\(snapshot.pointsPerMinute) pts/min")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(AppTheme.sunnyYellow)
+                                .lineLimit(1)
+                                .truncationMode(.tail)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Spacer()
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-
-                Spacer()
+                .padding(12)
             }
-            .padding(12)
+            .background(
+                AppTheme.card(for: colorScheme)
+                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+            )
+            .cornerRadius(8)
         }
-        .background(
-            AppTheme.card(for: colorScheme)
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-        )
-        .cornerRadius(8)
+        .buttonStyle(.plain)
     }
 
     // MARK: - Add Apps Button (FAB)

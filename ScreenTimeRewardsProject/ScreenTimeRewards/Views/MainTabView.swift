@@ -24,76 +24,87 @@ struct MainTabView: View {
 
     // MARK: - Parent Mode with Swipe Navigation
     private var parentModeView: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                // Custom tab indicator
-                ParentTabIndicator(selectedTab: $selectedTab)
+        ZStack {
+            NavigationView {
+                VStack(spacing: 0) {
+                    // Swipeable pages
+                    TabView(selection: $selectedTab) {
+                        ParentDashboardView()
+                            .tag(0)
 
-                // Swipeable pages
-                TabView(selection: $selectedTab) {
-                    LearningTabView()
-                        .tag(0)
+                        LearningTabView()
+                            .tag(1)
 
-                    RewardsTabView()
-                        .tag(1)
+                        RewardsTabView()
+                            .tag(2)
 
-                    ParentChallengesTabView()
-                        .tag(2)
+                        ParentChallengesTabView()
+                            .tag(3)
 
-                    SettingsTabView()
-                        .tag(3)
+                        SettingsTabView()
+                            .tag(4)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // Custom tab indicator at bottom
+                    ParentTabIndicator(selectedTab: $selectedTab)
                 }
-                .tabViewStyle(.page(indexDisplayMode: .never))
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environmentObject(viewModel)
+                .navigationViewStyle(.stack)
+                .navigationBarHidden(true)
             }
-            .environmentObject(viewModel)
             .navigationViewStyle(.stack)
-            .navigationBarHidden(true)
-        }
-        .navigationViewStyle(.stack)
-        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { _ in
-            viewModel.onPickerSelectionChange()
-        }
-        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
-            if !isPresented {
-                viewModel.onFamilyPickerDismissed()
+            .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+            .onChange(of: viewModel.familySelection) { _ in
+                viewModel.onPickerSelectionChange()
             }
+            .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+                if !isPresented {
+                    viewModel.onFamilyPickerDismissed()
+                }
+            }
+
+            HiddenUsageReportView()
         }
     }
 
     // MARK: - Child Mode with Bottom Tab Bar
     private var childModeView: some View {
-        NavigationView {
-            VStack(spacing: 0) {
-                TabView {
-                    RewardsTabView()
-                        .tabItem {
-                            Label("Rewards", systemImage: "gamecontroller.fill")
-                        }
-                        .navigationTitle("Rewards")
+        ZStack {
+            NavigationView {
+                VStack(spacing: 0) {
+                    TabView {
+                        RewardsTabView()
+                            .tabItem {
+                                Label("Rewards", systemImage: "gamecontroller.fill")
+                            }
+                            .navigationTitle("Rewards")
 
-                    LearningTabView()
-                        .tabItem {
-                            Label("Learning", systemImage: "book.fill")
-                        }
-                        .navigationTitle("Learning")
+                        LearningTabView()
+                            .tabItem {
+                                Label("Learning", systemImage: "book.fill")
+                            }
+                            .navigationTitle("Learning")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .environmentObject(viewModel)
+                .navigationViewStyle(.stack)
+                .navigationBarTitleDisplayMode(.inline)
             }
-            .environmentObject(viewModel)
             .navigationViewStyle(.stack)
-            .navigationBarTitleDisplayMode(.inline)
-        }
-        .navigationViewStyle(.stack)
-        .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
-        .onChange(of: viewModel.familySelection) { _ in
-            viewModel.onPickerSelectionChange()
-        }
-        .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
-            if !isPresented {
-                viewModel.onFamilyPickerDismissed()
+            .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+            .onChange(of: viewModel.familySelection) { _ in
+                viewModel.onPickerSelectionChange()
             }
+            .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+                if !isPresented {
+                    viewModel.onFamilyPickerDismissed()
+                }
+            }
+
+            HiddenUsageReportView()
         }
     }
 }
@@ -103,6 +114,7 @@ struct ParentTabIndicator: View {
     @Binding var selectedTab: Int
 
     private let tabs: [(String, String)] = [
+        ("Dashboard", "chart.bar.fill"),
         ("Learning", "book.fill"),
         ("Rewards", "gamecontroller.fill"),
         ("Challenges", "trophy.fill"),
