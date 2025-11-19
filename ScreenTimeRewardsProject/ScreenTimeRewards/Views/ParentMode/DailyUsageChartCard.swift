@@ -4,8 +4,23 @@ import Charts
 struct DailyUsageChartCard: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.colorScheme) var colorScheme
+    @State private var selectedPeriod: TimePeriod = .daily
 
-    private let daysToShow = 7
+    enum TimePeriod: String, CaseIterable, Identifiable {
+        case daily = "Daily Usage"
+        case weekly = "Weekly Usage"
+        case monthly = "Monthly Usage"
+
+        var id: String { rawValue }
+
+        var periodsToShow: Int {
+            switch self {
+            case .daily: return 7    // Last 7 days
+            case .weekly: return 4   // Last 4 weeks
+            case .monthly: return 6  // Last 6 months
+            }
+        }
+    }
 
     var body: some View {
         VStack(spacing: AppTheme.Spacing.medium) {
@@ -15,22 +30,36 @@ struct DailyUsageChartCard: View {
                     .font(.system(size: 20))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("Weekly Usage Trend")
+                Text("Usage Trend")
                     .font(AppTheme.Typography.title3)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
-                // Time period label
-                Text("Last 7 Days")
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                // Time period picker (dropdown)
+                Menu {
+                    Picker("Period", selection: $selectedPeriod) {
+                        ForEach(TimePeriod.allCases) { period in
+                            Text(period.rawValue).tag(period)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(selectedPeriod.rawValue)
+                            .font(AppTheme.Typography.caption)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 6)
                     .background(
                         Capsule()
                             .fill(AppTheme.textSecondary(for: colorScheme).opacity(0.1))
                     )
+                }
             }
 
             // Chart
@@ -68,14 +97,15 @@ struct DailyUsageChartCard: View {
 
     @available(iOS 16.0, *)
     private var chartView: some View {
-        let learningData = viewModel.getChartDataForCategory(.learning, lastDays: daysToShow)
-        let rewardData = viewModel.getChartDataForCategory(.reward, lastDays: daysToShow)
+        let learningData = getChartData(for: .learning)
+        let rewardData = getChartData(for: .reward)
+        let xAxisUnit = selectedPeriod == .daily ? Calendar.Component.day : (selectedPeriod == .weekly ? .weekOfYear : .month)
 
         return Chart {
             // Learning bars
             ForEach(learningData, id: \.date) { item in
                 BarMark(
-                    x: .value("Day", item.date, unit: .day),
+                    x: .value(selectedPeriod == .daily ? "Day" : (selectedPeriod == .weekly ? "Week" : "Month"), item.date, unit: xAxisUnit),
                     y: .value("Minutes", item.minutes)
                 )
                 .foregroundStyle(AppTheme.vibrantTeal.gradient)
@@ -85,7 +115,7 @@ struct DailyUsageChartCard: View {
             // Reward bars
             ForEach(rewardData, id: \.date) { item in
                 BarMark(
-                    x: .value("Day", item.date, unit: .day),
+                    x: .value(selectedPeriod == .daily ? "Day" : (selectedPeriod == .weekly ? "Week" : "Month"), item.date, unit: xAxisUnit),
                     y: .value("Minutes", item.minutes)
                 )
                 .foregroundStyle(AppTheme.playfulCoral.gradient)
@@ -93,10 +123,10 @@ struct DailyUsageChartCard: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day)) { value in
+            AxisMarks(values: .stride(by: xAxisUnit)) { value in
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
-                        Text(dayLabel(for: date))
+                        Text(xAxisLabel(for: date))
                             .font(AppTheme.Typography.caption2)
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
@@ -128,6 +158,84 @@ struct DailyUsageChartCard: View {
         }
     }
 
+    // MARK: - Data Functions
+
+    private func getChartData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
+        switch selectedPeriod {
+        case .daily:
+            return viewModel.getChartDataForCategory(category, lastDays: 7)
+        case .weekly:
+            return getWeeklyData(for: category)
+        case .monthly:
+            return getMonthlyData(for: category)
+        }
+    }
+
+    private func getWeeklyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
+        let dailyData = viewModel.getChartDataForCategory(category, lastDays: 28) // 4 weeks
+        let calendar = Calendar.current
+
+        // Group by week
+        var weeklyData: [Date: Int] = [:]
+
+        for item in dailyData {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: item.date)?.start {
+                weeklyData[weekStart, default: 0] += item.minutes
+            }
+        }
+
+        return weeklyData
+            .sorted { $0.key < $1.key }
+            .map { (date: $0.key, minutes: $0.value) }
+    }
+
+    private func getMonthlyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
+        let dailyData = viewModel.getChartDataForCategory(category, lastDays: 180) // ~6 months
+        let calendar = Calendar.current
+
+        // Group by month
+        var monthlyData: [Date: Int] = [:]
+
+        for item in dailyData {
+            if let monthStart = calendar.dateInterval(of: .month, for: item.date)?.start {
+                monthlyData[monthStart, default: 0] += item.minutes
+            }
+        }
+
+        return monthlyData
+            .sorted { $0.key < $1.key }
+            .suffix(6) // Last 6 months
+            .map { (date: $0.key, minutes: $0.value) }
+    }
+
+    // MARK: - Label Functions
+
+    private func xAxisLabel(for date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+
+        switch selectedPeriod {
+        case .daily:
+            let today = calendar.startOfDay(for: Date())
+            if calendar.isDate(date, inSameDayAs: today) {
+                return "Today"
+            } else if calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: today)!) {
+                return "Yest."
+            } else {
+                formatter.dateFormat = "EEE" // Mon, Tue, etc.
+                return formatter.string(from: date)
+            }
+
+        case .weekly:
+            formatter.dateFormat = "MMM d" // Jan 15
+            return formatter.string(from: date)
+
+        case .monthly:
+            formatter.dateFormat = "MMM" // Jan, Feb, etc.
+            return formatter.string(from: date)
+        }
+    }
+
     private func legendItem(color: Color, label: String, value: Int) -> some View {
         HStack(spacing: 8) {
             Circle()
@@ -145,28 +253,15 @@ struct DailyUsageChartCard: View {
         }
     }
 
-    private func dayLabel(for date: Date) -> String {
-        let calendar = Calendar.current
-        let today = calendar.startOfDay(for: Date())
-
-        if calendar.isDate(date, inSameDayAs: today) {
-            return "Today"
-        } else if calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: today)!) {
-            return "Yest."
-        } else {
-            let formatter = DateFormatter()
-            formatter.dateFormat = "EEE" // Mon, Tue, etc.
-            return formatter.string(from: date)
-        }
-    }
+    // MARK: - Totals
 
     private var totalLearningMinutes: Int {
-        viewModel.getChartDataForCategory(.learning, lastDays: daysToShow)
+        getChartData(for: .learning)
             .reduce(0) { $0 + $1.minutes }
     }
 
     private var totalRewardMinutes: Int {
-        viewModel.getChartDataForCategory(.reward, lastDays: daysToShow)
+        getChartData(for: .reward)
             .reduce(0) { $0 + $1.minutes }
     }
 }
