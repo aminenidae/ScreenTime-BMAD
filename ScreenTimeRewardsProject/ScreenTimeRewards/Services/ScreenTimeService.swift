@@ -1879,6 +1879,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] App: \(configuration.applications.first?.displayName ?? "unknown")")
         #endif
 
+        // Record threshold fire for validation service (duplicate detection & accuracy monitoring)
+        UsageValidationService.shared.recordThresholdFire(eventID: eventName, at: timestamp)
+
         // Each threshold event represents exactly 60 seconds of usage
         // (Except first minute which represents 0→60s, but that's still 60s)
         let incrementalDuration: TimeInterval = 60.0

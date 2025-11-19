@@ -42,6 +42,7 @@ struct SettingsTabView: View {
 
                         // Diagnostics Section
                         settingsSection(title: "DIAGNOSTICS") {
+                            usageAccuracyRow
                             manualSyncRow
                             extensionDiagnosticsRow
                             diagnosticsRow
@@ -430,6 +431,51 @@ private extension SettingsTabView {
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                     Text("View diagnostics and troubleshoot issues")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+            .padding(16)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(16)
+            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var usageAccuracyRow: some View {
+        NavigationLink {
+            UsageAccuracyDiagnosticsView()
+        } label: {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(
+                            LinearGradient(
+                                colors: [Color.green.opacity(0.15), AppTheme.vibrantTeal.opacity(0.15)],
+                                startPoint: .topLeading,
+                                endPoint: .bottomTrailing
+                            )
+                        )
+                        .frame(width: 40, height: 40)
+
+                    Image(systemName: "checkmark.circle.badge.questionmark.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.green)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Usage Accuracy")
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                    Text("Validate tracking and detect iOS bugs")
                         .font(.system(size: 13))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
