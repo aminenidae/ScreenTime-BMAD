@@ -3,7 +3,7 @@ import FamilyControls
 
 struct LearningAppDetailView: View {
     let snapshot: LearningAppSnapshot
-    @State private var usage: AppUsage?
+    @State private var persistedUsage: UsagePersistence.PersistedApp?
     @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
     private let service = ScreenTimeService.shared
@@ -14,7 +14,7 @@ struct LearningAppDetailView: View {
                 title: snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName,
                 subtitle: "Learning app overview",
                 accentColor: AppTheme.vibrantTeal,
-                usage: usage,
+                persistedUsage: persistedUsage,
                 pointsPerMinute: snapshot.pointsPerMinute,
                 dailyHistory: history
             )
@@ -42,15 +42,19 @@ struct LearningAppDetailView: View {
             }
         }
         .onAppear {
-            usage = service.getUsage(for: snapshot.token)
-            history = service.getDailyHistory(for: snapshot.token)
+            // Load from persistence (single source of truth)
+            let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
+            if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
+                persistedUsage = service.usagePersistence.app(for: logicalID)
+                history = persistedUsage?.dailyHistory ?? []
+            }
         }
     }
 }
 
 struct RewardAppDetailView: View {
     let snapshot: RewardAppSnapshot
-    @State private var usage: AppUsage?
+    @State private var persistedUsage: UsagePersistence.PersistedApp?
     @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
     private let service = ScreenTimeService.shared
@@ -61,7 +65,7 @@ struct RewardAppDetailView: View {
                 title: snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName,
                 subtitle: "Reward app overview",
                 accentColor: AppTheme.playfulCoral,
-                usage: usage,
+                persistedUsage: persistedUsage,
                 pointsPerMinute: snapshot.pointsPerMinute,
                 dailyHistory: history
             )
@@ -89,8 +93,12 @@ struct RewardAppDetailView: View {
             }
         }
         .onAppear {
-            usage = service.getUsage(for: snapshot.token)
-            history = service.getDailyHistory(for: snapshot.token)
+            // Load from persistence (single source of truth)
+            let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
+            if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
+                persistedUsage = service.usagePersistence.app(for: logicalID)
+                history = persistedUsage?.dailyHistory ?? []
+            }
         }
     }
 }
@@ -101,7 +109,7 @@ private struct AppUsageDetailContent: View {
     let title: String
     let subtitle: String
     let accentColor: Color
-    let usage: AppUsage?
+    let persistedUsage: UsagePersistence.PersistedApp?
     let pointsPerMinute: Int
     let dailyHistory: [UsagePersistence.DailyUsageSummary]
     @Environment(\.colorScheme) private var colorScheme
@@ -127,13 +135,15 @@ private struct AppUsageDetailContent: View {
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             HStack(spacing: 12) {
-                let weeklyUsage = usage?.weeklyUsage(dailyHistory: dailyHistory) ?? 0
-                let monthlyUsage = usage?.monthlyUsage(dailyHistory: dailyHistory) ?? 0
+                // Calculate from persistence data
+                let dailySeconds = TimeInterval(persistedUsage?.todaySeconds ?? 0)
+                let weeklyUsage = calculateWeeklyUsage(from: dailyHistory) + dailySeconds  // Include today
+                let monthlyUsage = calculateMonthlyUsage(from: dailyHistory) + dailySeconds  // Include today
 
                 UsagePill(
                     title: "Daily",
-                    minutes: minutesText(for: usage?.last24HoursUsage ?? 0),
-                    annotation: "\(pointsEarned(for: usage?.last24HoursUsage ?? 0)) pts",
+                    minutes: minutesText(for: dailySeconds),
+                    annotation: "\(persistedUsage?.todayPoints ?? 0) pts",  // Direct from persistence
                     accent: accentColor
                 )
                 UsagePill(
@@ -169,38 +179,40 @@ private struct AppUsageDetailContent: View {
                 insightRow(
                     icon: "bolt.fill",
                     title: "Points Earned Today",
-                    value: "\(pointsEarned(for: usage?.last24HoursUsage ?? 0)) pts"
+                    value: "\(persistedUsage?.todayPoints ?? 0) pts"  // ✅ From persistence
                 )
 
                 insightRow(
-                    icon: "clock.arrow.circlepath",
-                    title: "Average Session",
-                    value: formattedDuration(usage?.averageSessionDuration ?? 0)
-                )
-
-                insightRow(
-                    icon: "flame.fill",
-                    title: "Longest Session",
-                    value: formattedDuration(usage?.longestSessionDuration ?? 0)
-                )
-
-                insightRow(
-                    icon: "calendar",
-                    title: "Last Active",
-                    value: usage?.lastAccess.formatted(date: .abbreviated, time: .shortened) ?? "No data"
-                )
-
-                insightRow(
-                    icon: "line.3.horizontal.decrease.circle",
-                    title: "Sessions Today",
-                    value: "\(usage?.sessionsTodayCount ?? 0)"
+                    icon: "clock.fill",
+                    title: "Total Time Ever",
+                    value: TimeFormatting.formatSecondsCompact(TimeInterval(persistedUsage?.totalSeconds ?? 0))  // ✅ From persistence
                 )
 
                 insightRow(
                     icon: "star.circle.fill",
-                    title: "Total Points",
-                    value: "\(usage?.earnedRewardPoints ?? 0) pts"
+                    title: "Total Points Ever",
+                    value: "\(persistedUsage?.earnedPoints ?? 0) pts"  // ✅ From persistence
                 )
+
+                insightRow(
+                    icon: "calendar.badge.clock",
+                    title: "First Used",
+                    value: persistedUsage?.createdAt.formatted(date: .abbreviated, time: .omitted) ?? "No data"  // ✅ From persistence
+                )
+
+                insightRow(
+                    icon: "calendar",
+                    title: "Last Updated",
+                    value: persistedUsage?.lastUpdated.formatted(date: .abbreviated, time: .shortened) ?? "No data"  // ✅ From persistence
+                )
+
+                if let lastReset = persistedUsage?.lastResetDate {
+                    insightRow(
+                        icon: "arrow.counterclockwise",
+                        title: "Last Reset",
+                        value: lastReset.formatted(date: .abbreviated, time: .omitted)  // ✅ From persistence
+                    )
+                }
             }
         }
         .padding(20)
@@ -228,6 +240,28 @@ private struct AppUsageDetailContent: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(AppTheme.background(for: colorScheme).opacity(0.6))
         )
+    }
+
+    // MARK: - Helper Functions
+
+    /// Calculate weekly usage from daily history
+    private func calculateWeeklyUsage(from history: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+        let calendar = Calendar.current
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
+
+        return TimeInterval(history
+            .filter { $0.date >= sevenDaysAgo }
+            .reduce(0) { $0 + $1.seconds })
+    }
+
+    /// Calculate monthly usage from daily history
+    private func calculateMonthlyUsage(from history: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
+        let calendar = Calendar.current
+        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: Date())!
+
+        return TimeInterval(history
+            .filter { $0.date >= thirtyDaysAgo }
+            .reduce(0) { $0 + $1.seconds })
     }
 
     private func usageDuration(for interval: TimeInterval) -> Int {
