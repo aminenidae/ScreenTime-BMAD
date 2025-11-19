@@ -1041,13 +1041,12 @@ class AppUsageViewModel: ObservableObject {
     private func updateCategoryTotals() {
         let previousLearningTime = learningTime
         let previousRewardTime = rewardTime
-    
-        learningTime = appUsages
-            .filter { $0.category == AppUsage.AppCategory.learning }
-            .reduce(0) { $0 + $1.todayUsage }
-        rewardTime = appUsages
-            .filter { $0.category == AppUsage.AppCategory.reward }
-            .reduce(0) { $0 + $1.todayUsage }
+
+        // Read from snapshots (which use todaySeconds) instead of appUsages (which use stale sessions)
+        learningTime = learningSnapshots
+            .reduce(0) { $0 + $1.totalSeconds }
+        rewardTime = rewardSnapshots
+            .reduce(0) { $0 + $1.totalSeconds }
         
         #if DEBUG
         if previousLearningTime != learningTime || previousRewardTime != rewardTime {
