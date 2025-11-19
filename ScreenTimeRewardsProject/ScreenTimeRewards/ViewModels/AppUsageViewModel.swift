@@ -603,19 +603,16 @@ class AppUsageViewModel: ObservableObject {
             // Determine category
             let category = categoryAssignments[token] ?? AppUsage.AppCategory.learning
             
-            // Pull usage from appUsages[logicalID] (default to zero)
-            let appUsage = service.getUsage(for: token)
-            var totalSeconds = appUsage?.todayUsage ?? 0
-            var earnedPoints = appUsage?.todayPoints ?? 0
+            // CRITICAL FIX: Read directly from persistence instead of computed todayUsage
+            // BUG: appUsage.todayUsage is computed from sessions array, which contains a mega-session
+            // spanning from createdAt (days ago) to lastUpdated (today), causing huge overcounts
+            // FIX: Use persisted todaySeconds which is accurately updated by threshold events
+            var totalSeconds: TimeInterval = 0
+            var earnedPoints: Int = 0
 
-            // Fallback: Read directly from UsagePersistence if primary lookup fails
-            if totalSeconds == 0 {
-                if let persistedApp = service.usagePersistence.app(for: logicalID) {
-                    totalSeconds = TimeInterval(persistedApp.todaySeconds)
-                    earnedPoints = persistedApp.todayPoints
-
-                    NSLog("[AppUsageViewModel] 🔄 Fallback: Using persisted data for '\(displayName)' - \(persistedApp.todaySeconds)s, \(persistedApp.todayPoints)pts")
-                }
+            if let persistedApp = service.usagePersistence.app(for: logicalID) {
+                totalSeconds = TimeInterval(persistedApp.todaySeconds)
+                earnedPoints = persistedApp.todayPoints
             }
 
             #if DEBUG
@@ -955,15 +952,20 @@ class AppUsageViewModel: ObservableObject {
     }
     
     /// Start monitoring app usage, updating state based on the result
-    func startMonitoring() {
-        guard !isMonitoring else { 
+    /// - Parameter force: If true, bypasses the isMonitoring check (for explicit user-requested starts)
+    func startMonitoring(force: Bool = false) {
+        guard !isMonitoring || force else {
             #if DEBUG
-            print("[AppUsageViewModel] Monitoring already active, skipping start")
+            print("[AppUsageViewModel] ⚠️ Monitoring already active (isMonitoring=\(isMonitoring)), skipping start")
+            print("[AppUsageViewModel] ⚠️ If this blocks a legitimate start attempt, call with force: true")
             #endif
-            return 
+            return
         }
-    
+
         #if DEBUG
+        if force && isMonitoring {
+            print("[AppUsageViewModel] 🔄 Force-starting monitoring despite isMonitoring=true")
+        }
         print("[AppUsageViewModel] Starting monitoring")
         #endif
     

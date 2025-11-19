@@ -102,7 +102,9 @@ struct QuickLearningSetupScreen: View {
 
         // Save and start monitoring - this will merge into masterSelection
         appUsageViewModel.onCategoryAssignmentSave()
-        appUsageViewModel.startMonitoring()
+        // CRITICAL: Use force: true to bypass isMonitoring check
+        // This ensures monitoring starts even if state is inconsistent from auto-restart failure
+        appUsageViewModel.startMonitoring(force: true)
 
         onContinue()
     }

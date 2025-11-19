@@ -122,7 +122,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private struct MonitoredEvent {
         let name: DeviceActivityEvent.Name
         let category: AppUsage.AppCategory
-        let threshold: DateComponents
+        let threshold: DateComponents  // Static 24hr threshold - no more advancement
         let applications: [MonitoredApplication]
 
         func deviceActivityEvent() -> DeviceActivityEvent {
@@ -143,13 +143,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     private let activityMonitor = ScreenTimeActivityMonitor()
+    // Use 1-minute threshold with deduplication guard to prevent cascades
+    // Cascade prevention: no monitoring restarts + 5-second dedup window
     private let defaultThreshold = DateComponents(minute: 1)
     private var monitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
 
-    // Event-driven re-arm instead of periodic timer restarts
-    private var eventDrivenRestartTask: Task<Void, Never>?
-    private var eventDrivenRestartScheduled = false
-    private let eventDrivenRestartDelay: TimeInterval = 1.0  // breathing room for concurrent events
+    // MARK: - Report-based tracking (DISABLED - doesn't work in background)
+    // DeviceActivityReport is a UI-only view extension, won't update in background
+    // Keeping report snapshot reconciliation as backup/validation only
+
+    // MARK: - Snapshot reconciliation safeguards
+    /// Track last processed snapshot to prevent duplicate applications
+    private var lastProcessedSnapshot: [String: (timestamp: TimeInterval, seconds: Int)] = [:]
+    /// Track when each app last received a threshold event (for sanity checks)
+    private var lastThresholdTime: [String: Date] = [:]
+    /// Configuration gate to enable/disable snapshot reconciliation
+    private var enableSnapshotReconciliation: Bool = true
 
     // Store category assignments and selection for sharing across ViewModels
     private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
@@ -341,8 +350,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch")
                     #endif
                 } catch {
+                    // CRITICAL: Reset state on failure to prevent blocking manual start later
+                    isMonitoring = false
+
                     #if DEBUG
                     print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+                    print("[ScreenTimeService] ⚠️ Reset isMonitoring to false - user must start manually")
                     #endif
                 }
             } else {
@@ -626,8 +639,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // CRITICAL FIX: Create one event per app for accurate individual tracking
-        // (DeviceActivity has a limit of ~8 events, so this works for small app counts)
+        // OPTION A: Create multiple static threshold events per app (1min, 2min, 3min... 60min)
+        // This eliminates cascade issues - each threshold fires once naturally when usage crosses it
+        // PDF guidance: "creates a 2-hour schedule and adds events at 5, 10, 15… minutes"
+        let maxMinutes = 60  // Track first hour with minute granularity
         var eventIndex = 0
         monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
             let (category, applications) = entry
@@ -637,26 +652,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
                 return
             }
-            let threshold = providedThresholds[category] ?? defaultThreshold
 
-            // Create separate event for each app
+            #if DEBUG
+            print("[ScreenTimeService] Creating \(maxMinutes) threshold events per app for \(category.rawValue) apps")
+            #endif
+
+            // Create separate events for each app, with multiple thresholds
             for app in applications {
-                let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex)")
-                eventIndex += 1
-
                 #if DEBUG
-                print("[ScreenTimeService] Creating monitored event for app: \(app.displayName)")
-                print("[ScreenTimeService] Event name: \(eventName.rawValue)")
-                print("[ScreenTimeService] Category: \(category.rawValue)")
-                print("[ScreenTimeService] Threshold: \(threshold)")
+                print("[ScreenTimeService] Creating \(maxMinutes) threshold events for app: \(app.displayName)")
                 #endif
 
-                result[eventName] = MonitoredEvent(
-                    name: eventName,
-                    category: category,
-                    threshold: threshold,
-                    applications: [app]  // Single app per event!
-                )
+                // Create 60 events: one for each minute (1min, 2min, 3min... 60min)
+                for minute in 1...maxMinutes {
+                    let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex).min.\(minute)")
+                    let threshold = DateComponents(minute: minute)
+
+                    #if DEBUG
+                    if minute == 1 || minute == maxMinutes {
+                        // Only log first and last to avoid spam
+                        print("[ScreenTimeService]   Event: \(eventName.rawValue), Threshold: \(minute)min")
+                    } else if minute == 2 {
+                        print("[ScreenTimeService]   ... (creating events for minutes 2-\(maxMinutes-1)) ...")
+                    }
+                    #endif
+
+                    result[eventName] = MonitoredEvent(
+                        name: eventName,
+                        category: category,
+                        threshold: threshold,
+                        applications: [app]  // Single app per event!
+                    )
+                }
+
+                eventIndex += 1
             }
         }
 
@@ -709,13 +738,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
         let category = AppUsage.AppCategory(rawValue: persisted.category) ?? .learning
-        let session = AppUsage.UsageSession(startTime: persisted.createdAt, endTime: persisted.lastUpdated)
+
+        // CRITICAL FIX: Don't create mega-session that breaks todayUsage calculation
+        // OLD BUG: Created session with startTime=createdAt (days ago) and endTime=lastUpdated (today)
+        // This caused todayUsage to return ENTIRE lifetime usage if lastUpdated is today
+        // FIX: Use empty sessions array - sessions are only meaningful for live tracking
+        // For persisted data, totalSeconds and earnedPoints are the source of truth
         return AppUsage(
             bundleIdentifier: persisted.logicalID,
             appName: persisted.displayName,
             category: category,
             totalTime: TimeInterval(persisted.totalSeconds),
-            sessions: [session],
+            sessions: [],  // Empty - prevents todayUsage miscalculation
             firstAccess: persisted.createdAt,
             lastAccess: persisted.lastUpdated,
             rewardPoints: persisted.rewardPoints,
@@ -732,17 +766,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
-        // Create mapping: eventName → (logicalID, rewardPoints, thresholdSeconds)
+        // Create mapping: eventName → (logicalID, rewardPoints, thresholdSeconds, incrementSeconds)
         var mappings: [String: [String: Any]] = [:]
         for (eventName, event) in monitoredEvents {
             guard let app = event.applications.first else { continue }
 
             let thresholdSeconds = seconds(from: event.threshold)
+            // CRITICAL: For Option A (60 static thresholds), each event records exactly 60 seconds
+            // regardless of which threshold it represents (1min, 2min, 3min, etc.)
+            // This prevents cumulative recording bug where 3min event would record 180s instead of 60s
+            let incrementSeconds = 60
             mappings[eventName.rawValue] = [
                 "logicalID": app.logicalID,
                 "displayName": app.displayName,
                 "rewardPoints": app.rewardPoints,
-                "thresholdSeconds": Int(thresholdSeconds)
+                "thresholdSeconds": Int(thresholdSeconds),
+                "incrementSeconds": incrementSeconds
             ]
         }
 
@@ -936,7 +975,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
-        cancelEventDrivenRestart()
         isMonitoring = false
 
         // Persist monitoring state so we don't auto-restart on next launch
@@ -949,68 +987,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
-    // MARK: - Event-driven re-arm to avoid minute drops
+    // MARK: - REMOVED: Dynamic threshold advancement (caused cascade fires)
+    // The approach of incrementing thresholds after each fire is fundamentally broken
+    // because DeviceActivity thresholds are cumulative. Restarting monitoring causes
+    // all thresholds < current usage to fire immediately in rapid succession.
+    // Solution: Use static 24hr threshold + DeviceActivityReport for tracking.
 
-    /// Schedule a one-shot re-arm of monitoring after a threshold event so the next minute can be captured.
-    /// This replaces the periodic timer that caused every-other-minute gaps.
-    @MainActor
-    private func scheduleEventDrivenRestart(reason: String) {
-        guard isMonitoring else { return }
-        guard !eventDrivenRestartScheduled else {
-            #if DEBUG
-            print("[ScreenTimeService] 🔁 Event-driven restart already scheduled (\(reason))")
-            #endif
-            return
-        }
-
-        // Cancel any pending task just in case (shouldn't happen with the guard above)
-        cancelEventDrivenRestart()
-
-        eventDrivenRestartScheduled = true
-
-        let task = Task { @MainActor in
-            // Small delay to allow concurrent events at the same timestamp to finish
-            try? await Task.sleep(nanoseconds: UInt64(eventDrivenRestartDelay * 1_000_000_000))
-            await performEventDrivenRestart(reason: reason)
-        }
-
-        eventDrivenRestartTask = task
-    }
-
-    @MainActor
-    private func cancelEventDrivenRestart() {
-        eventDrivenRestartTask?.cancel()
-        eventDrivenRestartTask = nil
-        eventDrivenRestartScheduled = false
-    }
-
-    /// Stop and re-schedule monitoring, preserving the current monitoring flag.
-    @MainActor
-    private func performEventDrivenRestart(reason: String) {
-        defer {
-            eventDrivenRestartScheduled = false
-            eventDrivenRestartTask = nil
-        }
-
-        guard isMonitoring else { return }
-
-        #if DEBUG
-        print("[ScreenTimeService] 🔄 Event-driven restart (\(reason))")
-        #endif
-
-        deviceActivityCenter.stopMonitoring([activityName])
-
-        do {
-            try scheduleActivity()
-            #if DEBUG
-            print("[ScreenTimeService] ✅ Monitoring re-armed after event")
-            #endif
-        } catch {
-            #if DEBUG
-            print("[ScreenTimeService] ❌ Failed to re-arm monitoring: \(error)")
-            #endif
-        }
-    }
+    // MARK: - REMOVED: Event-driven restart & Report refresh timer
+    // Event-driven restarts caused cascade fires - removed
+    // Report refresh timer doesn't work (DeviceActivityReport is UI-only) - removed
+    // Primary tracking now uses 1-min threshold events with deduplication
 
     // MARK: - Usage report sync helpers
 
@@ -1028,6 +1014,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     /// Read the latest snapshot written by the DeviceActivityReport extension and reconcile usage.
     func syncFromReportSnapshot() {
+        // Configuration gate: allow disabling snapshot reconciliation
+        guard enableSnapshotReconciliation else {
+            NSLog("[ScreenTimeService] ℹ️ Snapshot reconciliation is disabled")
+            return
+        }
+
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
             NSLog("[ScreenTimeService] ❌ Cannot access app group for report sync")
             return
@@ -1052,9 +1044,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
-        NSLog("[ScreenTimeService] 📊 Processing report snapshot from \(snapshotDate) with \(appsData.count) apps")
+        NSLog("[ScreenTimeService] 📊 Processing report snapshot from \(snapshotDate) (age: \(Int(age))s) with \(appsData.count) apps")
 
         var didUpdateAnyApp = false
+        var appliedCount = 0
+        var skippedCount = 0
 
         for (bundleID, reportedSeconds) in appsData {
             guard let logicalID = findLogicalID(for: bundleID) else {
@@ -1072,7 +1066,49 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             if reportedSeconds > currentSeconds {
                 let additionalSeconds = reportedSeconds - currentSeconds
 
-                NSLog("[ScreenTimeService] 🔄 Syncing \(persistedApp.displayName): \(currentSeconds)s → \(reportedSeconds)s (+\(additionalSeconds)s)")
+                // SAFEGUARD 1: Check for duplicate snapshot processing
+                if let lastProcessed = lastProcessedSnapshot[logicalID],
+                   lastProcessed.timestamp == timestamp,
+                   lastProcessed.seconds == reportedSeconds {
+                    NSLog("[Snapshot] \(persistedApp.displayName): DUPLICATE snapshot (timestamp: \(timestamp), seconds: \(reportedSeconds)) → SKIPPED")
+                    skippedCount += 1
+                    continue
+                }
+
+                // SAFEGUARD 2: Check if threshold fired recently (within 90s)
+                let now = Date()
+                if let lastThreshold = lastThresholdTime[logicalID] {
+                    let timeSinceThreshold = now.timeIntervalSince(lastThreshold)
+                    if timeSinceThreshold < 90 {
+                        NSLog("[Snapshot] \(persistedApp.displayName): Recent threshold \(Int(timeSinceThreshold))s ago → SKIPPED (too soon)")
+                        skippedCount += 1
+                        continue
+                    }
+                }
+
+                // SAFEGUARD 3: Sanity check on delta size (max 90s per app)
+                if additionalSeconds > 90 {
+                    // Calculate elapsed time since last threshold or last update
+                    var elapsedSeconds: TimeInterval = 90  // default
+                    if let lastThreshold = lastThresholdTime[logicalID] {
+                        elapsedSeconds = now.timeIntervalSince(lastThreshold)
+                    }
+
+                    NSLog("[Snapshot] \(persistedApp.displayName): Large delta detected")
+                    NSLog("[Snapshot]   Reported: \(reportedSeconds)s, Persisted: \(currentSeconds)s, Delta: \(additionalSeconds)s")
+                    NSLog("[Snapshot]   Elapsed since last threshold: \(Int(elapsedSeconds))s")
+
+                    // SAFEGUARD 4: Clamp delta to reasonable value
+                    let maxReasonableDelta = min(Int(elapsedSeconds + 90), additionalSeconds)
+                    if maxReasonableDelta < additionalSeconds {
+                        NSLog("[Snapshot]   → SKIPPED (delta \(additionalSeconds)s exceeds reasonable \(maxReasonableDelta)s)")
+                        skippedCount += 1
+                        continue
+                    }
+                }
+
+                // All safeguards passed - apply the delta
+                NSLog("[Snapshot] \(persistedApp.displayName): \(currentSeconds)s → \(reportedSeconds)s (+\(additionalSeconds)s) → APPLIED")
 
                 usagePersistence.recordUsage(
                     logicalID: logicalID,
@@ -1089,7 +1125,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     )
                 }
 
+                // Track this snapshot as processed
+                lastProcessedSnapshot[logicalID] = (timestamp: timestamp, seconds: reportedSeconds)
+
                 didUpdateAnyApp = true
+                appliedCount += 1
             } else if reportedSeconds < currentSeconds {
                 NSLog("[ScreenTimeService] ℹ️ Report shows less usage than persisted for \(persistedApp.displayName) (report: \(reportedSeconds)s, persisted: \(currentSeconds)s)")
             }
@@ -1098,9 +1138,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         if didUpdateAnyApp {
             reloadAppUsagesFromPersistence()
             notifyUsageChange()
-            NSLog("[ScreenTimeService] ✅ Manual sync complete - UI refreshed")
+            NSLog("[ScreenTimeService] ✅ Snapshot sync complete: applied \(appliedCount), skipped \(skippedCount) - UI refreshed")
         } else {
-            NSLog("[ScreenTimeService] ℹ️ Manual sync complete - no updates needed")
+            NSLog("[ScreenTimeService] ℹ️ Snapshot sync complete: no updates (skipped: \(skippedCount))")
         }
     }
 
@@ -1712,6 +1752,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             recordedCount += 1
+
+            // Track threshold timestamp for snapshot reconciliation safeguards
+            lastThresholdTime[logicalID] = endDate
         }
 
         #if DEBUG
@@ -1798,42 +1841,61 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     fileprivate func handleEventThresholdReached(_ event: DeviceActivityEvent.Name, timestamp: Date = Date()) {
         #if DEBUG
         print("[ScreenTimeService] Event threshold reached: \(event.rawValue) at \(timestamp)")
-        print("[ScreenTimeService] Monitored events count: \(monitoredEvents.count)")
-        print("[ScreenTimeService] Looking for event: \(event.rawValue)")
         #endif
-    
-        guard let configuration = monitoredEvents[event] else { 
-            #if DEBUG
-            print("[ScreenTimeService] No configuration found for event \(event.rawValue)")
-            print("[ScreenTimeService] Available events: \(monitoredEvents.keys.map { $0.rawValue })")
-            #endif
-            return 
-        }
-    
-        #if DEBUG
-        print("[ScreenTimeService] Found configuration for event \(event.rawValue)")
-        print("[ScreenTimeService] Category: \(configuration.category.rawValue)")
-        print("[ScreenTimeService] Applications: \(configuration.applications.map { $0.displayName })")
-        #endif
-    
-        let duration = seconds(from: configuration.threshold)
-        #if DEBUG
-        print("[ScreenTimeService] Recording usage with duration: \(duration) seconds")
-        #endif
-        recordUsage(for: configuration.applications, duration: duration, endingAt: timestamp)
 
-        // Re-arm monitoring after the event so the next minute can fire without losing time.
-        Task { [weak self] in
-            await self?.scheduleEventDrivenRestart(reason: "threshold \(event.rawValue) reached")
+        guard let configuration = monitoredEvents[event] else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ No configuration found for event \(event.rawValue)")
+            #endif
+            return
         }
-        
+
+        // OPTION A: Static thresholds - simplified handler
+        // Each event represents a fixed threshold (1min, 2min, 3min... 60min)
+        // Each threshold fires ONCE when usage crosses that cumulative value
+        // NO cascades because we never restart monitoring
+        // NO deduplication needed because each event fires only once per day
+
+        // Parse minute number from event name (e.g., "usage.app.0.min.5" → 5)
+        let eventName = event.rawValue
+        let components = eventName.split(separator: ".")
+
+        guard components.count >= 4,
+              components[components.count - 2] == "min",
+              let minuteNumber = Int(components.last ?? "") else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Could not parse minute number from event name: \(eventName)")
+            print("[ScreenTimeService] ⚠️ Falling back to threshold value")
+            #endif
+            // Fallback: use threshold value
+            let duration = seconds(from: configuration.threshold)
+            recordUsage(for: configuration.applications, duration: duration, endingAt: timestamp)
+            return
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Threshold event fired: minute \(minuteNumber)")
+        print("[ScreenTimeService] Category: \(configuration.category.rawValue)")
+        print("[ScreenTimeService] App: \(configuration.applications.first?.displayName ?? "unknown")")
+        #endif
+
+        // Each threshold event represents exactly 60 seconds of usage
+        // (Except first minute which represents 0→60s, but that's still 60s)
+        let incrementalDuration: TimeInterval = 60.0
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Recording \(incrementalDuration)s for minute \(minuteNumber)")
+        #endif
+
+        recordUsage(for: configuration.applications, duration: incrementalDuration, endingAt: timestamp)
+
         // === TASK 7 TRIGGER IMPLEMENTATION ===
         // Trigger immediate usage upload to parent when threshold is reached (near real-time sync)
         Task { [weak self] in
             #if DEBUG
             print("[ScreenTimeService] Triggering immediate usage upload to parent...")
             #endif
-            
+
             // Check if device is paired with a parent
             if UserDefaults.standard.string(forKey: "parentDeviceID") != nil {
                 let childSyncService = ChildBackgroundSyncService.shared
@@ -1846,6 +1908,68 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         // === END TASK 7 TRIGGER IMPLEMENTATION ===
     }
+
+    // OPTION A: advanceThreshold() no longer needed with static thresholds
+    // Keeping this function commented out for now in case we need to revert
+    /*
+    /// Advances the threshold for an event by 1 minute to enable continuous tracking
+    /// DeviceActivity thresholds fire ONCE per value, so we must advance to get subsequent fires
+    @MainActor
+    private func advanceThreshold(for event: DeviceActivityEvent.Name, from currentThreshold: DateComponents) async {
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Advancing threshold for event: \(event.rawValue)")
+        print("[ScreenTimeService] Current threshold: \(currentThreshold.minute ?? 0) minutes")
+        #endif
+
+        // Calculate new threshold (current + 1 minute)
+        var newThreshold = currentThreshold
+        let currentMinutes = currentThreshold.minute ?? 1
+        newThreshold.minute = currentMinutes + 1
+
+        #if DEBUG
+        print("[ScreenTimeService] New threshold: \(newThreshold.minute ?? 0) minutes")
+        #endif
+
+        // Look up the current MonitoredEvent
+        guard let currentEvent = monitoredEvents[event] else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Event not found in monitoredEvents, cannot advance threshold")
+            #endif
+            return
+        }
+
+        // Create new MonitoredEvent with incremented threshold
+        let updatedEvent = MonitoredEvent(
+            name: currentEvent.name,
+            category: currentEvent.category,
+            threshold: newThreshold,
+            applications: currentEvent.applications
+        )
+
+        // Update the monitoredEvents dictionary
+        monitoredEvents[event] = updatedEvent
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Updated event threshold in memory")
+        #endif
+
+        // Save event mappings to shared UserDefaults
+        saveEventMappings()
+
+        // Restart monitoring with new threshold
+        // Note: deduplication guard will prevent cascade if user has accumulated usage > new threshold
+        #if DEBUG
+        print("[ScreenTimeService] Restarting monitoring with new threshold...")
+        #endif
+
+        await restartMonitoring(reason: "threshold_advance")
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Threshold advancement complete")
+        #endif
+    }
+    */
+    // END COMMENTED advanceThreshold() - Option A uses static thresholds instead
 
     fileprivate func handleEventWillReachThresholdWarning(_ event: DeviceActivityEvent.Name) {
         #if DEBUG
