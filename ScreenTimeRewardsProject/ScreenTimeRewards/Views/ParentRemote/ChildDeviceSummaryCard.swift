@@ -40,7 +40,7 @@ struct ChildDeviceSummaryCard: View {
                 HStack(spacing: 32) {
                     StatItem(
                         title: "Screen Time",
-                        value: formatSeconds(summary.totalSeconds),
+                        value: TimeFormatting.formatSecondsCompact(TimeInterval(summary.totalSeconds)),
                         icon: "clock.fill",
                         color: .blue
                     )
@@ -94,19 +94,6 @@ struct ChildDeviceSummaryCard: View {
             return "\(Int(interval / 3600))h ago"
         } else {
             return lastSync.formatted(date: .abbreviated, time: .omitted)
-        }
-    }
-
-    private func formatSeconds(_ seconds: Int) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else if minutes > 0 {
-            return "\(minutes)m"
-        } else {
-            return "<1m"
         }
     }
 

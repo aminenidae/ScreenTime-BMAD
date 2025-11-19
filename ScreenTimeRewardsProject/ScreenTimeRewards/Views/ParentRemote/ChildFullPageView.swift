@@ -141,14 +141,7 @@ private struct TodayUsageSummarySection: View {
     let usage: CategoryUsageSummary
 
     var formattedTime: String {
-        let hours = usage.totalSeconds / 3600
-        let minutes = (usage.totalSeconds % 3600) / 60
-
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
-        }
+        TimeFormatting.formatSecondsCompact(TimeInterval(usage.totalSeconds))
     }
 
     var body: some View {

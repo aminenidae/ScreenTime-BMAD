@@ -9,8 +9,6 @@ struct CategoryUsageSummary: Identifiable {
     let apps: [UsageRecord]
 
     var formattedTime: String {
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        return hours > 0 ? "\(hours)h \(minutes)m" : "\(minutes)m"
+        TimeFormatting.formatSecondsCompact(TimeInterval(totalSeconds))
     }
 }

@@ -92,14 +92,14 @@ private struct DailySummaryCard: View {
             VStack(spacing: 8) {
                 StatItem(
                     title: "Learning",
-                    value: formatTime(summary.totalLearningSeconds),
+                    value: TimeFormatting.formatSeconds(summary.totalLearningSeconds),
                     icon: "book",
                     color: .blue
                 )
-                
+
                 StatItem(
                     title: "Reward",
-                    value: formatTime(summary.totalRewardSeconds),
+                    value: TimeFormatting.formatSeconds(summary.totalRewardSeconds),
                     icon: "gamecontroller",
                     color: .green
                 )
@@ -123,18 +123,6 @@ private struct DailySummaryCard: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
         return formatter.string(from: date)
-    }
-    
-    private func formatTime(_ seconds: Int32) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        if hours > 0 {
-            return "\(hours)h"
-        } else if minutes > 0 {
-            return "\(minutes)m"
-        } else {
-            return "0m"
-        }
     }
 }
 
@@ -261,28 +249,18 @@ private struct CategoryBreakdownView: View {
                     HStack {
                         StatBadge(
                             title: "Learning",
-                            value: formatTime(totalLearning),
+                            value: TimeFormatting.formatSeconds(totalLearning),
                             color: .blue
                         )
-                        
+
                         StatBadge(
                             title: "Reward",
-                            value: formatTime(totalReward),
+                            value: TimeFormatting.formatSeconds(totalReward),
                             color: .green
                         )
                     }
                 }
             }
-        }
-    }
-    
-    private func formatTime(_ seconds: Int32) -> String {
-        let hours = seconds / 3600
-        let minutes = (seconds % 3600) / 60
-        if hours > 0 {
-            return "\(hours)h \(minutes)m"
-        } else {
-            return "\(minutes)m"
         }
     }
 }

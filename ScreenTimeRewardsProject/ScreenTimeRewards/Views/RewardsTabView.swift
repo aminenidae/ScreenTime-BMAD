@@ -241,7 +241,7 @@ private extension RewardsTabView {
                                 .lineLimit(1)
                         }
 
-                        Text(formatTime(snapshot.totalSeconds))
+                        Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                             .font(.caption)
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
@@ -259,19 +259,6 @@ private extension RewardsTabView {
         }
         .buttonStyle(.plain)
     }
-
-    func formatTime(_ seconds: TimeInterval) -> String {
-        let minutes = Int(seconds / 60)
-        let hours = minutes / 60
-        let remaining = minutes % 60
-
-        if hours > 0 {
-            return "\(hours)h \(remaining)m"
-        } else {
-            return "\(minutes)m"
-        }
-    }
-
 }
 
 

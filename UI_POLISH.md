@@ -116,3 +116,148 @@
 
 ### Files No Longer Used
 - OnboardingPathSelectionScreen.swift (can be deleted - no longer referenced)
+
+---
+
+## Time Display Consistency Fix (2025-11-18)
+
+### Issue Description
+App usage cards in both Parent Mode and Child Mode displayed time usage inconsistently:
+- Different formats across views: "HH:MM:SS" vs "Xh Ym" vs "Xm"
+- Poor edge case handling (<1 minute showing as "0m")
+- Multiple duplicate format functions (6+ different implementations)
+- Confusing user experience with different formats in different screens
+
+### Root Cause
+**Multiple disconnected time formatting implementations** scattered across the codebase:
+
+1. **AppUsageViewModel.formatTime()**: Returned "HH:MM:SS" format (e.g., "00:15:30")
+2. **CategoryUsageSummary.formattedTime**: Returned "Xh Ym" or "Xm" format (e.g., "15m")
+3. **ChildDeviceSummaryCard.formatSeconds()**: Custom implementation with "<1m" handling
+4. **RewardsTabView.formatTime()**: Another duplicate implementation
+5. **ChildChallengeDetailView.formatTime()**: Yet another duplicate
+6. **HistoricalReportsView.formatTime()** (2 instances): Two nearly identical implementations in same file
+7. **ChildFullPageView.formattedTime**: Computed property with custom logic
+
+### Solution Implemented
+
+#### 1. Created Unified Time Formatting Utility
+
+**File:** `ScreenTimeRewards/Shared/TimeFormatting.swift` (NEW)
+
+Created a centralized enum with three formatting methods:
+
+```swift
+enum TimeFormatting {
+    /// Human-readable format: "X hours", "X minutes", "<1 minute", "0 minutes"
+    static func formatSeconds(_ seconds: TimeInterval) -> String
+
+    /// Compact format: "Xh Ym", "Xm", "<1m", "0m"
+    static func formatSecondsCompact(_ seconds: TimeInterval) -> String
+
+    /// Technical format: "HH:MM:SS"
+    static func formatSecondsAsTime(_ seconds: TimeInterval) -> String
+
+    /// Overloads for Int32 and Int types
+    static func formatSeconds(_ seconds: Int32) -> String
+    static func formatSeconds(_ seconds: Int) -> String
+}
+```
+
+#### 2. Updated All Models and ViewModels
+
+**CategoryUsageSummary.swift** - Simplified from 4 lines to 1 line
+**AppUsageViewModel.swift** - Changed from "HH:MM:SS" to compact format
+
+#### 3. Updated All Views
+
+- ✅ ChildDeviceSummaryCard.swift - Removed local `formatSeconds()` function
+- ✅ RewardsTabView.swift - Removed local `formatTime()` function
+- ✅ ChildChallengeDetailView.swift - Removed local `formatTime()` function
+- ✅ HistoricalReportsView.swift - Removed both duplicate `formatTime()` functions
+- ✅ ChildFullPageView.swift - Simplified computed property
+
+### Impact Analysis
+
+**Code Reduction:**
+- **Removed:** ~80 lines of duplicate code across 6 different implementations
+- **Added:** 1 centralized utility (~100 lines with documentation)
+- **Net result:** Centralized, maintainable, consistent implementation
+
+**Consistency Achieved:**
+All views now display time consistently:
+- **0 seconds:** "0m"
+- **30 seconds:** "<1m" (was "0m" before)
+- **60 seconds:** "1m"
+- **15 minutes:** "15m"
+- **90 minutes:** "1h 30m"
+
+**Views Affected:**
+- ✅ Child Dashboard (learning and reward app cards)
+- ✅ Child Challenge Detail View
+- ✅ Rewards Tab View
+- ✅ Category Usage Cards (Parent Mode)
+- ✅ Child Device Summary Cards (Parent Mode)
+- ✅ Child Full Page View (Parent Mode)
+- ✅ Historical Reports View (Parent Mode)
+
+### Files Modified
+
+**New Files (1):**
+1. `/ScreenTimeRewards/Shared/TimeFormatting.swift` - NEW unified utility
+
+**Modified Files (7):**
+1. `/ScreenTimeRewards/Models/CategoryUsageSummary.swift`
+2. `/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift`
+3. `/ScreenTimeRewards/Views/ParentRemote/ChildDeviceSummaryCard.swift`
+4. `/ScreenTimeRewards/Views/RewardsTabView.swift`
+5. `/ScreenTimeRewards/Views/ChildMode/ChildChallengeDetailView.swift`
+6. `/ScreenTimeRewards/Views/ParentRemote/HistoricalReportsView.swift`
+7. `/ScreenTimeRewards/Views/ParentRemote/ChildFullPageView.swift`
+
+### Compatibility Notes
+
+**Not Affected by Changes:**
+- ✅ **Usage tracking logic** - No changes (UI only)
+- ✅ **Data persistence** - No changes
+- ✅ **ScreenTimeService** - No changes
+- ✅ **UsagePersistence** - No changes
+- ✅ **Threshold events** - No changes
+- ✅ **Option A implementation** - No changes
+
+**Fully compatible with USAGE_TRACKING_ACCURACY.md fixes**
+
+### Migration Notes
+
+For future development, when adding new views that display time duration:
+
+**Do:**
+```swift
+Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
+```
+
+**Don't:**
+```swift
+// Don't create custom formatters!
+func formatTime(_ seconds: TimeInterval) -> String {
+    let minutes = Int(seconds) / 60
+    return "\(minutes)m"
+}
+```
+
+### Build Status
+
+✅ **BUILD SUCCEEDED** (2025-11-18 23:58)
+
+### Summary
+
+**What was fixed:**
+- ❌ **Before:** 6+ different time formatting implementations, inconsistent display
+- ✅ **After:** 1 unified utility, consistent display across all views
+
+**Benefits:**
+1. **Consistency:** All views show time in the same format
+2. **Maintainability:** Single source of truth for time formatting
+3. **Edge cases:** Proper handling of <1 minute, 0 minutes, etc.
+4. **Code quality:** Removed ~80 lines of duplicate code
+5. **User experience:** Clear, consistent time display everywhere

@@ -231,7 +231,7 @@ struct ChildChallengeDetailView: View {
                         .lineLimit(1)
                 }
 
-                Text("\(formatTime(Int(snapshot.totalSeconds))) today")
+                Text("\(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds)) today")
                     .font(.system(size: 12))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
@@ -388,19 +388,6 @@ struct ChildChallengeDetailView: View {
             return "\(minutes) min (+\(bonusMinutes - minutes) bonus)"
         }
         return "\(minutes) min"
-    }
-
-    private func formatTime(_ seconds: Int) -> String {
-        let minutes = seconds / 60
-        if minutes < 60 {
-            return "\(minutes) min"
-        }
-        let hours = minutes / 60
-        let remainingMinutes = minutes % 60
-        if remainingMinutes == 0 {
-            return "\(hours)h"
-        }
-        return "\(hours)h \(remainingMinutes)m"
     }
 
     private func fetchAppProgressRecords() async {
