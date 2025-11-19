@@ -183,17 +183,31 @@ struct ChildChallengeDetailView: View {
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
 
-            if learningAppSnapshots.isEmpty {
+            // Show total usage from ChallengeProgress (same source as "Your Progress" card)
+            if let progress = progress {
+                HStack {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("Total Usage Today")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                        Text("\(progress.currentValue)m")
+                            .font(.system(size: 24, weight: .bold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+
+                    Spacer()
+
+                    Text("of \(progress.targetValue)m goal")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+                .padding(.vertical, 8)
+            } else {
                 Text("All learning apps count!")
                     .font(.system(size: 16))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .padding(.vertical, 8)
-            } else {
-                VStack(spacing: 12) {
-                    ForEach(learningAppSnapshots) { snapshot in
-                        learningAppRow(snapshot: snapshot)
-                    }
-                }
             }
         }
         .padding(20)
@@ -258,12 +272,30 @@ struct ChildChallengeDetailView: View {
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
 
-            if rewardAppSnapshots.isEmpty {
-                Text("No reward apps yet")
-                    .font(.system(size: 16))
+            // Show total reward usage
+            let totalRewardSeconds = rewardAppSnapshots.reduce(0) { $0 + $1.totalSeconds }
+            let maxRewardMinutes = challenge.rewardUnlockMinutes()
+
+            HStack {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Total Used Today")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                    Text("\(Int(totalRewardSeconds / 60))m")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(AppTheme.playfulCoral)
+                }
+
+                Spacer()
+
+                Text("of \(maxRewardMinutes)m unlocked")
+                    .font(.system(size: 14))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .padding(.vertical, 8)
-            } else {
+            }
+            .padding(.vertical, 8)
+
+            if !rewardAppSnapshots.isEmpty {
                 VStack(spacing: 12) {
                     ForEach(rewardAppSnapshots) { snapshot in
                         rewardAppRow(snapshot: snapshot)
@@ -331,10 +363,9 @@ struct ChildChallengeDetailView: View {
                         .lineLimit(1)
                 }
 
-                Text("Earn \(unlockMinutesText)")
+                Text("\(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds)) used today")
                     .font(.system(size: 12))
-                    .foregroundColor(AppTheme.playfulCoral)
-                    .fontWeight(.semibold)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
 
             Spacer()

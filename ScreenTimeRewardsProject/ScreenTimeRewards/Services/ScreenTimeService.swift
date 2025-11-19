@@ -160,6 +160,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Configuration gate to enable/disable snapshot reconciliation
     private var enableSnapshotReconciliation: Bool = true
 
+    // MARK: - Phantom event protection
+    /// Track when monitoring last started to ignore phantom events
+    private var monitoringStartTime: Date?
+    /// Grace period after monitoring starts to ignore all events (prevents phantom historical events)
+    private let phantomEventGracePeriod: TimeInterval = 30.0
+
     // Store category assignments and selection for sharing across ViewModels
     private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     private(set) var rewardPointsAssignments: [ApplicationToken: Int] = [:]
@@ -278,7 +284,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #if DEBUG
         print("[ScreenTimeService] ✅ Loaded \(appUsages.count) apps from persistence")
         for (logicalID, usage) in appUsages {
-            print("[ScreenTimeService]   - \(usage.appName) (\(logicalID)): \(usage.totalTime)s, \(usage.earnedRewardPoints)pts")
+            // Also show todaySeconds and todayPoints from persistence
+            if let persisted = persistedApps[logicalID] {
+                print("[ScreenTimeService]   - \(usage.appName) (\(logicalID)):")
+                print("[ScreenTimeService]       Total: \(usage.totalTime)s, \(usage.earnedRewardPoints)pts")
+                print("[ScreenTimeService]       Today: \(persisted.todaySeconds)s, \(persisted.todayPoints)pts ← Used by snapshots")
+            }
         }
         usagePersistence.printDebugInfo()
         #endif
@@ -602,13 +613,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 totalSeconds: existingApp?.totalSeconds ?? 0,
                 earnedPoints: existingApp?.earnedPoints ?? 0,
                 createdAt: existingApp?.createdAt ?? now,
-                lastUpdated: existingApp?.lastUpdated ?? now
+                lastUpdated: existingApp?.lastUpdated ?? now,
+                todaySeconds: existingApp?.todaySeconds ?? 0,
+                todayPoints: existingApp?.todayPoints ?? 0,
+                lastResetDate: existingApp?.lastResetDate,
+                dailyHistory: existingApp?.dailyHistory ?? []
             )
             usagePersistence.saveApp(persistedApp)
 
             #if DEBUG
             if let existingApp {
-                print("[ScreenTimeService]   💾 Updated app configuration (preserved \(existingApp.totalSeconds)s, \(existingApp.earnedPoints)pts)")
+                print("[ScreenTimeService]   💾 Updated app configuration (preserved total: \(existingApp.totalSeconds)s, \(existingApp.earnedPoints)pts, today: \(existingApp.todaySeconds)s, \(existingApp.todayPoints)pts)")
             } else {
                 print("[ScreenTimeService]   💾 Saved app configuration to persistence")
             }
@@ -1251,9 +1266,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
         
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
-        
+
+        // Set monitoring start time for phantom event protection
+        monitoringStartTime = Date()
+
         #if DEBUG
         print("[ScreenTimeService] Successfully started monitoring")
+        print("[ScreenTimeService] 🛡️ Phantom event protection: ignoring events for \(phantomEventGracePeriod)s")
         #endif
     }
     
@@ -1604,6 +1623,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             // Persist to shared storage immediately
             let appUsage = appUsages[logicalID]!
+
+            // Load existing persisted data to update today's values correctly
+            let existingApp = usagePersistence.app(for: logicalID)
+
+            // Calculate today's incremental values
+            let newTodaySeconds: Int
+            let newTodayPoints: Int
+
+            if let existing = existingApp {
+                // Add to existing today's values
+                newTodaySeconds = existing.todaySeconds + Int(duration)
+                let minutesAdded = Int(duration) / 60
+                newTodayPoints = existing.todayPoints + (minutesAdded * appUsage.rewardPoints)
+
+                #if DEBUG
+                print("[ScreenTimeService] Updating today's values for \(logicalID)")
+                print("[ScreenTimeService]   Previous todaySeconds: \(existing.todaySeconds)")
+                print("[ScreenTimeService]   Adding: \(Int(duration)) seconds")
+                print("[ScreenTimeService]   New todaySeconds: \(newTodaySeconds)")
+                print("[ScreenTimeService]   New todayPoints: \(newTodayPoints)")
+                #endif
+            } else {
+                // First recording today
+                newTodaySeconds = Int(duration)
+                let minutesAdded = Int(duration) / 60
+                newTodayPoints = minutesAdded * appUsage.rewardPoints
+
+                #if DEBUG
+                print("[ScreenTimeService] First recording today for \(logicalID)")
+                print("[ScreenTimeService]   todaySeconds: \(newTodaySeconds)")
+                print("[ScreenTimeService]   todayPoints: \(newTodayPoints)")
+                #endif
+            }
+
             let persistedApp = UsagePersistence.PersistedApp(
                 logicalID: logicalID,
                 displayName: appUsage.appName,
@@ -1612,7 +1665,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 totalSeconds: Int(appUsage.totalTime),
                 earnedPoints: appUsage.earnedRewardPoints,
                 createdAt: appUsage.firstAccess,
-                lastUpdated: appUsage.lastAccess
+                lastUpdated: appUsage.lastAccess,
+                todaySeconds: newTodaySeconds,  // ✅ FIX: Now updated correctly!
+                todayPoints: newTodayPoints,  // ✅ FIX: Now updated correctly!
+                lastResetDate: existingApp?.lastResetDate,
+                dailyHistory: existingApp?.dailyHistory ?? []
             )
             usagePersistence.saveApp(persistedApp)
 
@@ -1805,6 +1862,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
+
     private func seconds(from components: DateComponents) -> TimeInterval {
         let hours = Double(components.hour ?? 0) * 3600
         let minutes = Double(components.minute ?? 0) * 60
@@ -1842,6 +1900,23 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #if DEBUG
         print("[ScreenTimeService] Event threshold reached: \(event.rawValue) at \(timestamp)")
         #endif
+
+        // === PHANTOM EVENT PROTECTION ===
+        // When monitoring starts, iOS fires ALL past threshold events for apps with historical usage
+        // Ignore all events that occur within grace period after monitoring started
+        if let startTime = monitoringStartTime {
+            let timeSinceMonitoringStarted = timestamp.timeIntervalSince(startTime)
+            if timeSinceMonitoringStarted < phantomEventGracePeriod {
+                #if DEBUG
+                print("[ScreenTimeService] 🛡️ PHANTOM EVENT IGNORED")
+                print("[ScreenTimeService]    Event: \(event.rawValue)")
+                print("[ScreenTimeService]    Time since monitoring started: \(String(format: "%.1f", timeSinceMonitoringStarted))s")
+                print("[ScreenTimeService]    Grace period: \(phantomEventGracePeriod)s")
+                print("[ScreenTimeService]    Reason: Historical threshold event fired on monitoring start")
+                #endif
+                return
+            }
+        }
 
         guard let configuration = monitoredEvents[event] else {
             #if DEBUG
@@ -2176,6 +2251,7 @@ func configureWithTestApplications() {
         
         // Persist to shared storage immediately
         if let appUsage = appUsages[logicalID] {
+            let existingApp = usagePersistence.app(for: logicalID)
             let persistedApp = UsagePersistence.PersistedApp(
                 logicalID: logicalID,
                 displayName: appUsage.appName,
@@ -2184,7 +2260,11 @@ func configureWithTestApplications() {
                 totalSeconds: Int(appUsage.totalTime),
                 earnedPoints: appUsage.earnedRewardPoints,
                 createdAt: appUsage.firstAccess,
-                lastUpdated: appUsage.lastAccess
+                lastUpdated: appUsage.lastAccess,
+                todaySeconds: existingApp?.todaySeconds ?? 0,
+                todayPoints: existingApp?.todayPoints ?? 0,
+                lastResetDate: existingApp?.lastResetDate,
+                dailyHistory: existingApp?.dailyHistory ?? []
             )
             usagePersistence.saveApp(persistedApp)
         }

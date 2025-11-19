@@ -270,10 +270,14 @@ private extension ChildChallengesTabView {
         }
     }
 
-    // Calculate learning time from snapshots
+    // Read learning time from ChallengeProgress (same source as working "Your Progress" card)
     private var learningTimeMinutes: Int {
-        let totalSeconds = viewModel.learningSnapshots.reduce(0) { $0 + $1.totalSeconds }
-        return Int(totalSeconds / 60)
+        guard let firstChallenge = viewModel.activeChallenges.first,
+              let challengeID = firstChallenge.challengeID,
+              let progress = viewModel.challengeProgress[challengeID] else {
+            return 0
+        }
+        return Int(progress.currentValue) // currentValue is already in minutes
     }
 
     // Get learning goal from active challenges
@@ -282,7 +286,7 @@ private extension ChildChallengesTabView {
         return Int(firstChallenge.targetValue)
     }
 
-    // Calculate reward time from snapshots
+    // Get actual reward app usage time from snapshots (now reads from reliable UsagePersistence.todaySeconds)
     private var rewardTimeMinutes: Int {
         let totalSeconds = viewModel.rewardSnapshots.reduce(0) { $0 + $1.totalSeconds }
         return Int(totalSeconds / 60)
