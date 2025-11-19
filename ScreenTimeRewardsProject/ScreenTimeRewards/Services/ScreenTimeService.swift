@@ -1879,9 +1879,37 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] App: \(configuration.applications.first?.displayName ?? "unknown")")
         #endif
 
-        // Record threshold fire for validation service (duplicate detection & accuracy monitoring)
-        UsageValidationService.shared.recordThresholdFire(eventID: eventName, at: timestamp)
+        // === LAYER 4: Multi-layer validation before recording ===
+        // Get app identifier for validation (use token hash as unique identifier)
+        let appID = configuration.applications.first.map { String($0.token.hashValue) } ?? "unknown"
 
+        // Validate event through all layers (duplicate/rate-limit/cascade detection)
+        let isValidEvent = UsageValidationService.shared.recordThresholdFire(
+            eventID: eventName,
+            appID: appID,
+            at: timestamp
+        )
+
+        guard isValidEvent else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Event REJECTED by validation service")
+            print("[ScreenTimeService]    Reason: Duplicate/Cascade/Rate-Limit violation")
+            print("[ScreenTimeService]    Event: \(eventName)")
+            print("[ScreenTimeService]    App: \(configuration.applications.first?.displayName ?? "unknown")")
+            print("[ScreenTimeService]    This event will NOT be recorded (overcounting protection)")
+            #endif
+
+            // Post notification for diagnostic tracking
+            NotificationCenter.default.post(
+                name: NSNotification.Name("ScreenTimeEventRejected"),
+                object: nil,
+                userInfo: ["category": configuration.category.rawValue]
+            )
+
+            return  // Don't record usage for invalid events
+        }
+
+        // === Event passed validation - safe to record ===
         // Each threshold event represents exactly 60 seconds of usage
         // (Except first minute which represents 0→60s, but that's still 60s)
         let incrementalDuration: TimeInterval = 60.0
@@ -1891,6 +1919,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
 
         recordUsage(for: configuration.applications, duration: incrementalDuration, endingAt: timestamp)
+
+        // Post notification for diagnostic tracking
+        NotificationCenter.default.post(
+            name: NSNotification.Name("ScreenTimeThresholdFired"),
+            object: nil,
+            userInfo: [
+                "category": configuration.category.rawValue,
+                "duration": incrementalDuration,
+                "timestamp": timestamp
+            ]
+        )
 
         // === TASK 7 TRIGGER IMPLEMENTATION ===
         // Trigger immediate usage upload to parent when threshold is reached (near real-time sync)

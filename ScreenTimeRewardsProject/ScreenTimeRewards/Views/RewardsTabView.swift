@@ -18,6 +18,13 @@ struct RewardsTabView: View {
 
                 ScrollView {
                     VStack(spacing: 0) {
+                        // Diagnostic: Hourly usage chart
+                        if #available(iOS 16.0, *) {
+                            HourlyUsageDiagnosticView(category: .reward)
+                                .padding(.horizontal, 16)
+                                .padding(.top, 4)
+                        }
+
                         // Points Summary Card
                         HStack(spacing: 16) {
                             // Icon with gradient background

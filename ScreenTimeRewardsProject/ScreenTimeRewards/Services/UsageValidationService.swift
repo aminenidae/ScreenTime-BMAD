@@ -102,6 +102,8 @@ class UsageValidationService: ObservableObject {
     // MARK: - Private State
 
     private var thresholdFireHistory: [String: [Date]] = [:]  // eventID -> [fire timestamps]
+    private var appLastFireTime: [String: Date] = [:]  // appID -> last fire timestamp (Layer 2: Rate Limiting)
+    private var recentAppFires: [String: [Date]] = [:]  // appID -> recent fire timestamps (Layer 3: Cascade Detection)
 
     // MARK: - Initialization
 
@@ -111,15 +113,117 @@ class UsageValidationService: ObservableObject {
 
     // MARK: - Public API
 
-    /// Record that a threshold event fired (for duplicate detection)
-    func recordThresholdFire(eventID: String, at timestamp: Date = Date()) {
+    /// Record that a threshold event fired with multi-layer validation
+    /// - Parameters:
+    ///   - eventID: The event identifier (e.g., "usage.app.0.min.16")
+    ///   - appID: The application identifier for rate limiting
+    ///   - timestamp: The time the event fired
+    /// - Returns: `true` if event is valid and should be recorded, `false` if it should be rejected
+    func recordThresholdFire(eventID: String, appID: String, at timestamp: Date = Date()) -> Bool {
+        // === LAYER 1: Duplicate Event Rejection ===
+        // Same eventID should not fire twice within 5 seconds
+        if let lastFire = thresholdFireHistory[eventID]?.last {
+            let timeDiff = timestamp.timeIntervalSince(lastFire)
+
+            if timeDiff < 5.0 {
+                // DUPLICATE DETECTED - reject it
+                NSLog("[UsageValidationService] ❌ REJECTED - Duplicate fire")
+                NSLog("[UsageValidationService]    Event: \(eventID)")
+                NSLog("[UsageValidationService]    Time since last: \(String(format: "%.2f", timeDiff))s")
+
+                let issue = ValidationIssue(
+                    severity: .critical,
+                    title: "Duplicate Threshold Fire Detected",
+                    description: "Event '\(eventID)' fired twice within \(String(format: "%.1f", timeDiff)) seconds. This is a symptom of iOS Screen Time API bugs.",
+                    timestamp: timestamp,
+                    recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time. This is a known iOS 17.6.1+ bug."
+                )
+                detectedIssues.append(issue)
+                updateValidationStatus(issues: [issue])
+
+                return false  // ❌ REJECT
+            }
+        }
+
+        // === LAYER 2: Rate Limiting ===
+        // Same app cannot fire more than 1 event per minute (physically impossible)
+        // Threshold: 55s (5-second buffer for clock precision, allows 59.94s-60s legitimate events)
+        if let lastAppFire = appLastFireTime[appID] {
+            let timeSinceLastFire = timestamp.timeIntervalSince(lastAppFire)
+
+            if timeSinceLastFire < 55.0 {
+                // RATE LIMIT EXCEEDED - physically impossible
+                NSLog("[UsageValidationService] ❌ REJECTED - Rate limit exceeded")
+                NSLog("[UsageValidationService]    App: \(appID)")
+                NSLog("[UsageValidationService]    Event: \(eventID)")
+                NSLog("[UsageValidationService]    Time since last app fire: \(String(format: "%.2f", timeSinceLastFire))s")
+                NSLog("[UsageValidationService]    Threshold: 55.0s (allows clock precision variance)")
+
+                let issue = ValidationIssue(
+                    severity: .critical,
+                    title: "Rate Limit Exceeded",
+                    description: "App '\(appID)' fired events \(String(format: "%.1f", timeSinceLastFire))s apart. Physically impossible (minimum 55s between events, threshold accounts for clock precision).",
+                    timestamp: timestamp,
+                    recommendedAction: "This is likely the iOS Screen Time API overcounting bug. Disable 'Share Across Devices'."
+                )
+                detectedIssues.append(issue)
+                updateValidationStatus(issues: [issue])
+
+                return false  // ❌ REJECT
+            }
+        }
+
+        // === LAYER 3: Cascade Detection ===
+        // Detect when multiple events fire in rapid succession (cascade pattern)
+        if recentAppFires[appID] == nil {
+            recentAppFires[appID] = []
+        }
+
+        // Clean old fires (keep only last 5 seconds)
+        recentAppFires[appID] = recentAppFires[appID]?.filter {
+            timestamp.timeIntervalSince($0) < 5.0
+        } ?? []
+
+        // Check if this would be the 3rd+ event in 5 seconds (cascade)
+        if let fires = recentAppFires[appID], fires.count >= 2 {
+            // CASCADE DETECTED
+            NSLog("[UsageValidationService] ❌ REJECTED - Cascade detected")
+            NSLog("[UsageValidationService]    App: \(appID)")
+            NSLog("[UsageValidationService]    Event: \(eventID)")
+            NSLog("[UsageValidationService]    Events in last 5s: \(fires.count + 1)")
+
+            let issue = ValidationIssue(
+                severity: .critical,
+                title: "Event Cascade Detected",
+                description: "App '\(appID)' fired \(fires.count + 1) events within 5 seconds. This is the iOS Screen Time API cascade bug.",
+                timestamp: timestamp,
+                recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time."
+            )
+            detectedIssues.append(issue)
+            updateValidationStatus(issues: [issue])
+
+            return false  // ❌ REJECT
+        }
+
+        // === ALL LAYERS PASSED - Event is VALID ===
+
+        // Record this fire in history
         if thresholdFireHistory[eventID] == nil {
             thresholdFireHistory[eventID] = []
         }
         thresholdFireHistory[eventID]?.append(timestamp)
 
-        // Check for duplicate fires (within 5 seconds)
-        detectDuplicateFires(eventID: eventID)
+        // Update app-level tracking
+        appLastFireTime[appID] = timestamp
+        recentAppFires[appID]?.append(timestamp)
+
+        #if DEBUG
+        NSLog("[UsageValidationService] ✅ VALID event")
+        NSLog("[UsageValidationService]    Event: \(eventID)")
+        NSLog("[UsageValidationService]    App: \(appID)")
+        #endif
+
+        return true  // ✅ ACCEPT
     }
 
     /// Validate usage accuracy for a specific app
@@ -318,38 +422,14 @@ class UsageValidationService: ObservableObject {
     /// Clear all validation history and reset state
     func resetValidationState() {
         thresholdFireHistory.removeAll()
+        appLastFireTime.removeAll()
+        recentAppFires.removeAll()
         detectedIssues.removeAll()
         lastValidationDate = nil
         validationStatus = .unknown
     }
 
     // MARK: - Private Helpers
-
-    private func detectDuplicateFires(eventID: String) {
-        guard let fires = thresholdFireHistory[eventID], fires.count > 1 else { return }
-
-        // Check if last two fires were within 5 seconds (duplicate detection)
-        let recentFires = fires.suffix(2)
-        if recentFires.count == 2 {
-            let timeDiff = recentFires.last!.timeIntervalSince(recentFires.first!)
-
-            if timeDiff < 5.0 {
-                // Duplicate fire detected!
-                let issue = ValidationIssue(
-                    severity: .critical,
-                    title: "Duplicate Threshold Fire Detected",
-                    description: "Event '\(eventID)' fired twice within \(String(format: "%.1f", timeDiff)) seconds. This is a symptom of iOS Screen Time API bugs.",
-                    timestamp: Date(),
-                    recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time. This is a known iOS 17.6.1+ bug."
-                )
-
-                detectedIssues.append(issue)
-                updateValidationStatus(issues: [issue])
-
-                NSLog("[UsageValidationService] ⚠️ DUPLICATE FIRE: \(eventID) fired twice in \(timeDiff)s")
-            }
-        }
-    }
 
     private func updateValidationStatus(issues: [ValidationIssue]) {
         let hasCritical = issues.contains { $0.severity == .critical }
