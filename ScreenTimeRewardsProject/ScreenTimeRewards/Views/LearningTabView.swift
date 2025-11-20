@@ -14,10 +14,13 @@ struct LearningTabView: View {
         !viewModel.learningSnapshots.isEmpty
     }
 
-    // Calculate total points per minute from all learning apps
-    private var totalPointsPerMinute: Int {
-        viewModel.learningSnapshots.reduce(0) { sum, snapshot in
-            sum + snapshot.pointsPerMinute
+    // Calculate daily goal from active challenges
+    private var dailyGoalMinutes: Int {
+        viewModel.activeChallenges.reduce(0) { sum, challenge in
+            if let progress = viewModel.challengeProgress[challenge.challengeID ?? ""] {
+                return sum + Int(progress.targetValue)
+            }
+            return sum
         }
     }
 
@@ -82,17 +85,17 @@ struct LearningTabView: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text("Total Points per Minute")
+                Text("Daily Goal")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                 HStack(alignment: .bottom, spacing: 8) {
-                    Text("\(totalPointsPerMinute)")
+                    Text("\(dailyGoalMinutes)")
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(AppTheme.sunnyYellow)
                         .tracking(-0.5)
 
-                    Text("pts/min")
+                    Text("minutes")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .padding(.bottom, 4)
@@ -188,13 +191,13 @@ struct LearningTabView: View {
                         }
 
                         HStack(spacing: 4) {
-                            Image(systemName: "star.fill")
+                            Image(systemName: "clock.fill")
                                 .font(.system(size: 10))
-                                .foregroundColor(AppTheme.sunnyYellow)
+                                .foregroundColor(AppTheme.vibrantTeal)
 
-                            Text("+\(snapshot.pointsPerMinute) pts/min")
+                            Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.sunnyYellow)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }

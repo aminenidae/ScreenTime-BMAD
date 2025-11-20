@@ -38,32 +38,30 @@ struct RewardsTabView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Points Available")
+                                Text("Daily Earned Time")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                                 HStack(alignment: .bottom, spacing: 8) {
-                                    Text("\(viewModel.availableLearningPoints)")
+                                    Text("\(Int(viewModel.rewardTime / 60))")
                                         .font(.system(size: 32, weight: .bold))
-                                        .foregroundColor(AppTheme.vibrantTeal)
+                                        .foregroundColor(AppTheme.playfulCoral)
                                         .tracking(-0.5)
 
-                                    Text("points")
+                                    Text("minutes")
                                         .font(.system(size: 14, weight: .semibold))
                                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                         .padding(.bottom, 4)
                                 }
 
-                                if viewModel.reservedLearningPoints > 0 {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "lock.fill")
-                                            .font(.system(size: 10))
-                                            .foregroundColor(AppTheme.sunnyYellow)
+                                HStack(spacing: 4) {
+                                    Image(systemName: "star.fill")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(AppTheme.sunnyYellow)
 
-                                        Text("\(viewModel.reservedLearningPoints) reserved")
-                                            .font(.system(size: 12, weight: .medium))
-                                            .foregroundColor(AppTheme.sunnyYellow)
-                                    }
+                                    Text("\(viewModel.availableLearningPoints) points available")
+                                        .font(.system(size: 12, weight: .medium))
+                                        .foregroundColor(AppTheme.sunnyYellow)
                                 }
                             }
 
@@ -231,19 +229,15 @@ private extension RewardsTabView {
                         }
 
                         HStack(spacing: 4) {
-                            Image(systemName: "flame.fill")
+                            Image(systemName: "clock.fill")
                                 .font(.system(size: 12))
                                 .foregroundColor(AppTheme.playfulCoral)
 
-                            Text("+\(snapshot.pointsPerMinute) pts/min")
+                            Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                                 .font(.system(size: 14, weight: .semibold))
                                 .foregroundColor(AppTheme.playfulCoral)
                                 .lineLimit(1)
                         }
-
-                        Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
 
                     Spacer()
