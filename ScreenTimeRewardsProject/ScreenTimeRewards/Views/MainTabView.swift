@@ -135,7 +135,6 @@ struct ParentTabIndicator: View {
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 48, height: 48)
-                            .opacity(selectedTab == index ? 1.0 : 0.5)
 
                         Text(tabs[index].0)
                             .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
