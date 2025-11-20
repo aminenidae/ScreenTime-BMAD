@@ -20,6 +20,20 @@ struct AppTheme {
     /// Light Cream - Light background (#F7F7F2)
     static let lightCream = Color(red: 0.969, green: 0.969, blue: 0.949)
 
+    // MARK: - Learning Theme Colors (from hourglass icon)
+
+    /// Learning Peach - Soft peachy-coral accent (#FFB4A3)
+    static let learningPeach = Color(red: 1.0, green: 0.706, blue: 0.639)
+
+    /// Learning Peach Light - Lighter peach for backgrounds (#FFC9B9)
+    static let learningPeachLight = Color(red: 1.0, green: 0.788, blue: 0.725)
+
+    /// Learning Peach Soft - Very light peach for cards (#FFE5DC)
+    static let learningPeachSoft = Color(red: 1.0, green: 0.898, blue: 0.863)
+
+    /// Learning Cream - Warm cream tone (#FFF4ED)
+    static let learningCream = Color(red: 1.0, green: 0.957, blue: 0.929)
+
     // MARK: - Contextual Colors
 
     static func background(for scheme: ColorScheme) -> Color {

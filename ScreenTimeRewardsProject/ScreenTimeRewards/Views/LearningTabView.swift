@@ -72,7 +72,7 @@ struct LearningTabView: View {
                 Circle()
                     .fill(
                         LinearGradient(
-                            colors: [AppTheme.vibrantTeal.opacity(0.3), AppTheme.sunnyYellow.opacity(0.3)],
+                            colors: [AppTheme.learningPeachLight.opacity(0.5), AppTheme.learningPeach.opacity(0.4)],
                             startPoint: .topLeading,
                             endPoint: .bottomTrailing
                         )
@@ -81,7 +81,7 @@ struct LearningTabView: View {
 
                 Image(systemName: "book.fill")
                     .font(.system(size: 28))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.learningPeach)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -119,7 +119,7 @@ struct LearningTabView: View {
             HStack(spacing: 8) {
                 Image(systemName: "books.vertical.fill")
                     .font(.system(size: 20))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.learningPeach)
 
                 Text("Learning Apps")
                     .font(.system(size: 18, weight: .bold))
@@ -193,11 +193,11 @@ struct LearningTabView: View {
                         HStack(spacing: 4) {
                             Image(systemName: "clock.fill")
                                 .font(.system(size: 10))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.learningPeach)
 
                             Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.learningPeach)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -244,7 +244,7 @@ struct LearningTabView: View {
                 .foregroundColor(.white)
                 .frame(maxWidth: .infinity)
                 .frame(height: 48)
-                .background(AppTheme.vibrantTeal)
+                .background(AppTheme.learningPeach)
                 .cornerRadius(8)
                 .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
             }
@@ -262,7 +262,7 @@ private extension LearningTabView {
         TabTopBarStyle(
             background: AppTheme.background(for: colorScheme),
             titleColor: AppTheme.textPrimary(for: colorScheme),
-            iconColor: AppTheme.vibrantTeal,
+            iconColor: AppTheme.learningPeach,
             iconBackground: AppTheme.card(for: colorScheme),
             dividerColor: Color.black.opacity(colorScheme == .dark ? 0.15 : 0.06)
         )

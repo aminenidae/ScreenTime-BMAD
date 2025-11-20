@@ -89,7 +89,7 @@ struct ParentDashboardView: View {
                     HStack(spacing: AppTheme.Spacing.small) {
                         Image(systemName: "book.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.learningPeach)
 
                         Text("Learning")
                             .font(AppTheme.Typography.subheadline)
@@ -99,7 +99,7 @@ struct ParentDashboardView: View {
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.learningTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.learningPeach)
 
                         Text("min")
                             .font(AppTheme.Typography.callout)
@@ -111,7 +111,7 @@ struct ParentDashboardView: View {
                 .padding(AppTheme.Spacing.regular)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.2 : 0.1))
+                        .fill(AppTheme.learningPeach.opacity(colorScheme == .dark ? 0.2 : 0.1))
                 )
 
                 // Reward Time
@@ -175,7 +175,7 @@ struct ParentDashboardView: View {
                         icon: "plus.circle.fill",
                         label: "Earned",
                         value: "\(viewModel.learningRewardPoints)",
-                        color: AppTheme.vibrantTeal
+                        color: AppTheme.learningPeach
                     )
 
                     pointStatBox(
@@ -282,12 +282,12 @@ struct ParentDashboardView: View {
             // Challenge icon
             ZStack {
                 Circle()
-                    .fill(AppTheme.vibrantTeal.opacity(0.2))
+                    .fill(AppTheme.learningPeach.opacity(0.2))
                     .frame(width: 40, height: 40)
 
                 Image(systemName: challenge.goalTypeEnum?.iconName ?? "checkmark.circle")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.learningPeach)
             }
 
             VStack(alignment: .leading, spacing: 4) {
@@ -304,7 +304,7 @@ struct ParentDashboardView: View {
                             .frame(height: 6)
 
                         RoundedRectangle(cornerRadius: 4)
-                            .fill(AppTheme.vibrantTeal)
+                            .fill(AppTheme.learningPeach)
                             .frame(
                                 width: geometry.size.width * CGFloat(percentage) / 100,
                                 height: 6
@@ -409,7 +409,7 @@ struct ParentDashboardView: View {
                     icon: "books.vertical.fill",
                     label: "Learning Apps",
                     value: "\(viewModel.learningSnapshots.count)",
-                    color: AppTheme.vibrantTeal
+                    color: AppTheme.learningPeach
                 )
 
                 statTile(
