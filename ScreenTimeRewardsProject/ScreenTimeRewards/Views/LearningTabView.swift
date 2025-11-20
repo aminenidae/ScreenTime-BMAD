@@ -38,13 +38,6 @@ struct LearningTabView: View {
                             .padding(.horizontal, 16)
                             .padding(.top, 4)
 
-                        // Diagnostic: Hourly usage chart
-                        if #available(iOS 16.0, *) {
-                            HourlyUsageDiagnosticView(category: .learning)
-                                .padding(.horizontal, 16)
-                                .padding(.top, 12)
-                        }
-
                         if !viewModel.learningSnapshots.isEmpty {
                             selectedAppsSection
                         }
