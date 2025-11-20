@@ -114,11 +114,11 @@ struct ParentTabIndicator: View {
     @Binding var selectedTab: Int
 
     private let tabs: [(String, String)] = [
-        ("Dashboard", "chart.bar.fill"),
-        ("Learning", "book.fill"),
-        ("Rewards", "gamecontroller.fill"),
-        ("Challenges", "trophy.fill"),
-        ("Settings", "gearshape.fill")
+        ("Dashboard", "DashboardIcon"),
+        ("Learning", "LearningIcon"),
+        ("Rewards", "RewardsIcon"),
+        ("Challenges", "ChallengesIcon"),
+        ("Settings", "SettingsIcon")
     ]
 
     var body: some View {
