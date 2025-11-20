@@ -7,7 +7,6 @@ struct DailyUsageChartCard: View {
     @State private var selectedPeriod: TimePeriod = .daily
 
     enum TimePeriod: String, CaseIterable, Identifiable {
-        case hourly = "Hourly Usage"
         case daily = "Daily Usage"
         case weekly = "Weekly Usage"
         case monthly = "Monthly Usage"
@@ -16,7 +15,6 @@ struct DailyUsageChartCard: View {
 
         var periodsToShow: Int {
             switch self {
-            case .hourly: return 24  // Today's hours (0 to current hour)
             case .daily: return 7    // Last 7 days
             case .weekly: return 4   // Last 4 weeks
             case .monthly: return 6  // Last 6 months
@@ -103,7 +101,6 @@ struct DailyUsageChartCard: View {
         let rewardData = getChartData(for: .reward)
         let xAxisUnit: Calendar.Component = {
             switch selectedPeriod {
-            case .hourly: return .hour
             case .daily: return .day
             case .weekly: return .weekOfYear
             case .monthly: return .month
@@ -171,8 +168,6 @@ struct DailyUsageChartCard: View {
 
     private func getChartData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
         switch selectedPeriod {
-        case .hourly:
-            return getHourlyData(for: category)
         case .daily:
             return viewModel.getChartDataForCategory(category, lastDays: 7)
         case .weekly:
@@ -282,10 +277,6 @@ struct DailyUsageChartCard: View {
         let formatter = DateFormatter()
 
         switch selectedPeriod {
-        case .hourly:
-            let hour = calendar.component(.hour, from: date)
-            return "\(hour)"  // 24-hour format: 0, 1, 2, ... 23
-
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {
