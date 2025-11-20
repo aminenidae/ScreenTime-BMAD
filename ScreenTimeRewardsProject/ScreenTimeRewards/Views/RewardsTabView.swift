@@ -38,7 +38,7 @@ struct RewardsTabView: View {
                             }
 
                             VStack(alignment: .leading, spacing: 4) {
-                                Text("Daily Earned Time")
+                                Text("Daily Usage Time")
                                     .font(.system(size: 14, weight: .medium))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
@@ -55,11 +55,11 @@ struct RewardsTabView: View {
                                 }
 
                                 HStack(spacing: 4) {
-                                    Image(systemName: "star.fill")
+                                    Image(systemName: "clock.badge.checkmark.fill")
                                         .font(.system(size: 10))
                                         .foregroundColor(AppTheme.sunnyYellow)
 
-                                    Text("\(viewModel.availableLearningPoints) points available")
+                                    Text("\(viewModel.availableLearningPoints / 10) minutes available")
                                         .font(.system(size: 12, weight: .medium))
                                         .foregroundColor(AppTheme.sunnyYellow)
                                 }
