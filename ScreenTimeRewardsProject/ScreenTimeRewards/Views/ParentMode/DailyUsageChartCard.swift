@@ -7,6 +7,7 @@ struct DailyUsageChartCard: View {
     @State private var selectedPeriod: TimePeriod = .daily
 
     enum TimePeriod: String, CaseIterable, Identifiable {
+        case hourly = "Hourly Usage"
         case daily = "Daily Usage"
         case weekly = "Weekly Usage"
         case monthly = "Monthly Usage"
@@ -15,6 +16,7 @@ struct DailyUsageChartCard: View {
 
         var periodsToShow: Int {
             switch self {
+            case .hourly: return 24  // Today's hours (0 to current hour)
             case .daily: return 7    // Last 7 days
             case .weekly: return 4   // Last 4 weeks
             case .monthly: return 6  // Last 6 months
@@ -99,7 +101,14 @@ struct DailyUsageChartCard: View {
     private var chartView: some View {
         let learningData = getChartData(for: .learning)
         let rewardData = getChartData(for: .reward)
-        let xAxisUnit = selectedPeriod == .daily ? Calendar.Component.day : (selectedPeriod == .weekly ? .weekOfYear : .month)
+        let xAxisUnit: Calendar.Component = {
+            switch selectedPeriod {
+            case .hourly: return .hour
+            case .daily: return .day
+            case .weekly: return .weekOfYear
+            case .monthly: return .month
+            }
+        }()
 
         return Chart {
             // Learning bars
@@ -162,6 +171,8 @@ struct DailyUsageChartCard: View {
 
     private func getChartData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
         switch selectedPeriod {
+        case .hourly:
+            return getHourlyData(for: category)
         case .daily:
             return viewModel.getChartDataForCategory(category, lastDays: 7)
         case .weekly:
@@ -169,6 +180,62 @@ struct DailyUsageChartCard: View {
         case .monthly:
             return getMonthlyData(for: category)
         }
+    }
+
+    private func getHourlyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
+        let service = ScreenTimeService.shared
+        let calendar = Calendar.current
+        let now = Date()
+        let currentHour = calendar.component(.hour, from: now)
+
+        // Only track hours with actual usage (don't initialize all hours)
+        var hourlyData: [Date: Int] = [:]
+        let today = calendar.startOfDay(for: now)
+
+        // Get all app logicalIDs for this category
+        let logicalIDs: [String] = {
+            if category == .learning {
+                return viewModel.learningSnapshots.map { $0.logicalID }
+            } else {
+                return viewModel.rewardSnapshots.map { $0.logicalID }
+            }
+        }()
+
+        // Get hourly data from each app
+        for logicalID in logicalIDs {
+            if let persistedApp = service.usagePersistence.app(for: logicalID),
+               let hourlySeconds = persistedApp.todayHourlySeconds {
+
+                #if DEBUG
+                print("[DailyUsageChartCard] 📊 App \(logicalID) hourly data: \(hourlySeconds)")
+                #endif
+
+                // Map hour indices [0-23] to actual hour dates for today
+                for (hourIndex, seconds) in hourlySeconds.enumerated() {
+                    // Only include hours with usage up to current hour
+                    if hourIndex <= currentHour && seconds > 0 {
+                        if let hourDate = calendar.date(byAdding: .hour, value: hourIndex, to: today) {
+                            hourlyData[hourDate, default: 0] += seconds / 60  // Convert to minutes
+
+                            #if DEBUG
+                            print("[DailyUsageChartCard] 📊 Hour \(hourIndex): +\(seconds)s (\(seconds/60)m)")
+                            #endif
+                        }
+                    }
+                }
+            }
+        }
+
+        // Return only non-zero hours, sorted by time
+        let result = hourlyData
+            .sorted { $0.key < $1.key }
+            .map { (date: $0.key, minutes: $0.value) }
+
+        #if DEBUG
+        print("[DailyUsageChartCard] 📊 Non-zero hours displayed: \(result.count)")
+        #endif
+
+        return result
     }
 
     private func getWeeklyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
@@ -215,6 +282,10 @@ struct DailyUsageChartCard: View {
         let formatter = DateFormatter()
 
         switch selectedPeriod {
+        case .hourly:
+            let hour = calendar.component(.hour, from: date)
+            return "\(hour)"  // 24-hour format: 0, 1, 2, ... 23
+
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {

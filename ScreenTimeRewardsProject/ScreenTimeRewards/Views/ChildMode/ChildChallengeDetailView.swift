@@ -10,6 +10,7 @@ struct ChildChallengeDetailView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) var colorScheme
     @State private var appProgressRecords: [AppProgress] = []
+    @State private var streakRecord: StreakRecord?
 
     var body: some View {
         ZStack {
@@ -24,8 +25,10 @@ struct ChildChallengeDetailView: View {
                     // Challenge Description (Kid-friendly)
                     descriptionCard
 
-                    // Progress Section with Chart
-                    progressCard
+                    // Streak Card (if streak bonus is enabled)
+                    if challenge.streakBonusEnabled {
+                        streakCard
+                    }
 
                     // Per-App Progress (only for per-app tracking mode)
                     if challenge.isPerAppTracking && !appProgressRecords.isEmpty {
@@ -50,6 +53,7 @@ struct ChildChallengeDetailView: View {
         .navigationBarTitleDisplayMode(.inline)
         .task {
             await fetchAppProgressRecords()
+            await fetchStreakRecord()
         }
     }
 
@@ -143,7 +147,7 @@ struct ChildChallengeDetailView: View {
 
                         // Center content
                         VStack(spacing: 4) {
-                            Text("\(Int(progress.progressPercentage))%")
+                            Text("\(min(Int(progress.progressPercentage), 100))%")
                                 .font(.system(size: 40, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
@@ -154,10 +158,16 @@ struct ChildChallengeDetailView: View {
                     }
                     .frame(maxWidth: .infinity)
 
-                    // To go text
-                    Text("\(progress.targetValue - progress.currentValue) to go!")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(goalTypeColor)
+                    // To go text (or completed message)
+                    if progress.currentValue >= progress.targetValue {
+                        Text("Goal completed! 🎉")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(goalTypeColor)
+                    } else {
+                        Text("\(progress.targetValue - progress.currentValue) to go!")
+                            .font(.system(size: 16, weight: .semibold))
+                            .foregroundColor(goalTypeColor)
+                    }
                 }
             }
         }
@@ -178,36 +188,60 @@ struct ChildChallengeDetailView: View {
                     .font(.system(size: 20))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("Learning Apps")
+                Text("Your Learnings")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
 
-            // Show total usage from ChallengeProgress (same source as "Your Progress" card)
-            if let progress = progress {
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("Total Usage Today")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            // Show total usage with progress bar
+            let totalLearningSeconds = learningAppSnapshots.reduce(0) { $0 + $1.totalSeconds }
+            let totalLearningMinutes = Int(totalLearningSeconds / 60)
+            let targetMinutes = Int(progress?.targetValue ?? 0)
+            let learningProgress = targetMinutes > 0 ? min(Double(totalLearningMinutes) / Double(targetMinutes), 1.0) : 0.0
+            let learningPercentage = Int(learningProgress * 100)
 
-                        Text("\(progress.currentValue)m")
-                            .font(.system(size: 24, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
+                    Text("Total Usage Today")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                     Spacer()
 
-                    Text("of \(progress.targetValue)m goal")
-                        .font(.system(size: 14))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    Text("\(learningPercentage)%")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
-                .padding(.vertical, 8)
-            } else {
-                Text("All learning apps count!")
-                    .font(.system(size: 16))
+
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                            .frame(height: 10)
+
+                        // Progress
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(AppTheme.vibrantTeal)
+                            .frame(width: geometry.size.width * learningProgress, height: 10)
+                    }
+                }
+                .frame(height: 10)
+
+                Text("\(totalLearningMinutes) / \(targetMinutes) minutes goal")
+                    .font(.system(size: 14))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .padding(.vertical, 8)
+            }
+            .padding(.vertical, 8)
+
+            // Individual learning app cards
+            if !learningAppSnapshots.isEmpty {
+                VStack(spacing: 12) {
+                    ForEach(learningAppSnapshots) { snapshot in
+                        learningAppRow(snapshot: snapshot)
+                    }
+                }
             }
         }
         .padding(20)
@@ -272,24 +306,43 @@ struct ChildChallengeDetailView: View {
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
 
-            // Show total reward usage
+            // Show total reward usage with progress bar
             let totalRewardSeconds = rewardAppSnapshots.reduce(0) { $0 + $1.totalSeconds }
+            let totalRewardMinutes = Int(totalRewardSeconds / 60)
             let maxRewardMinutes = challenge.rewardUnlockMinutes()
+            let rewardProgress = maxRewardMinutes > 0 ? min(Double(totalRewardMinutes) / Double(maxRewardMinutes), 1.0) : 0.0
+            let rewardPercentage = Int(rewardProgress * 100)
 
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 8) {
+                HStack {
                     Text("Total Used Today")
                         .font(.system(size: 14))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
-                    Text("\(Int(totalRewardSeconds / 60))m")
-                        .font(.system(size: 24, weight: .bold))
+                    Spacer()
+
+                    Text("\(rewardPercentage)%")
+                        .font(.system(size: 14, weight: .bold))
                         .foregroundColor(AppTheme.playfulCoral)
                 }
 
-                Spacer()
+                // Progress bar
+                GeometryReader { geometry in
+                    ZStack(alignment: .leading) {
+                        // Background
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                            .frame(height: 10)
 
-                Text("of \(maxRewardMinutes)m unlocked")
+                        // Progress
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(AppTheme.playfulCoral)
+                            .frame(width: geometry.size.width * rewardProgress, height: 10)
+                    }
+                }
+                .frame(height: 10)
+
+                Text("\(totalRewardMinutes) / \(maxRewardMinutes) minutes unlocked")
                     .font(.system(size: 14))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
@@ -439,6 +492,132 @@ struct ChildChallengeDetailView: View {
         } catch {
             print("[ChildChallengeDetailView] Error fetching app progress: \(error)")
         }
+    }
+
+    private func fetchStreakRecord() async {
+        let deviceID = DeviceModeManager.shared.deviceID
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest = StreakRecord.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "childDeviceID == %@", deviceID)
+        fetchRequest.fetchLimit = 1
+
+        do {
+            let records = try await context.perform {
+                try context.fetch(fetchRequest)
+            }
+            await MainActor.run {
+                streakRecord = records.first
+            }
+        } catch {
+            print("[ChildChallengeDetailView] Error fetching streak record: \(error)")
+        }
+    }
+
+    // MARK: - Streak Card
+    private var streakCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack(spacing: 8) {
+                Image(systemName: "flame.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(AppTheme.sunnyYellow)
+
+                Text("Streak Progress")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            }
+
+            let currentStreak = Int(streakRecord?.currentStreak ?? 0)
+            let targetDays = Int(challenge.streakTargetDays)
+            let bonusPercentage = Int(challenge.streakBonusPercentage)
+            let streakProgress = min(Double(currentStreak) / Double(targetDays), 1.0)
+
+            HStack(spacing: 20) {
+                // Streak icon and count
+                VStack(spacing: 8) {
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                            .frame(width: 70, height: 70)
+
+                        VStack(spacing: 2) {
+                            Image(systemName: "flame.fill")
+                                .font(.system(size: 24))
+                                .foregroundColor(AppTheme.sunnyYellow)
+
+                            Text("\(currentStreak)")
+                                .font(.system(size: 16, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        }
+                    }
+
+                    Text("Day Streak")
+                        .font(.system(size: 12))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+
+                VStack(alignment: .leading, spacing: 12) {
+                    // Progress bar
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text("Progress to Bonus")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                            Spacer()
+
+                            Text("\(currentStreak)/\(targetDays) days")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+
+                        GeometryReader { geometry in
+                            ZStack(alignment: .leading) {
+                                // Background
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(Color.gray.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                                    .frame(height: 12)
+
+                                // Progress
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(AppTheme.sunnyYellow)
+                                    .frame(width: geometry.size.width * streakProgress, height: 12)
+                            }
+                        }
+                        .frame(height: 12)
+                    }
+
+                    // Bonus info
+                    if currentStreak >= targetDays {
+                        HStack(spacing: 6) {
+                            Image(systemName: "checkmark.circle.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(.green)
+
+                            Text("+\(bonusPercentage)% bonus unlocked!")
+                                .font(.system(size: 14, weight: .semibold))
+                                .foregroundColor(.green)
+                        }
+                    } else {
+                        HStack(spacing: 6) {
+                            Image(systemName: "star.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppTheme.sunnyYellow)
+
+                            Text("Reach \(targetDays) days for +\(bonusPercentage)% bonus!")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: Color.black.opacity(0.05), radius: 4, x: 0, y: 2)
+        )
     }
 }
 

@@ -17,11 +17,15 @@ final class UsagePersistence {
         let date: Date   // Normalized to start-of-day
         var seconds: Int
         var points: Int
+        var hourlySeconds: [Int]?  // Optional: 24-hour breakdown [0-23]
+        var hourlyPoints: [Int]?   // Optional: 24-hour breakdown [0-23]
 
-        init(date: Date, seconds: Int, points: Int) {
+        init(date: Date, seconds: Int, points: Int, hourlySeconds: [Int]? = nil, hourlyPoints: [Int]? = nil) {
             self.date = Calendar.current.startOfDay(for: date)
             self.seconds = seconds
             self.points = points
+            self.hourlySeconds = hourlySeconds
+            self.hourlyPoints = hourlyPoints
         }
     }
 
@@ -38,6 +42,8 @@ final class UsagePersistence {
         var todayPoints: Int
         var lastResetDate: Date
         var dailyHistory: [DailyUsageSummary]
+        var todayHourlySeconds: [Int]?  // Optional: 24-hour breakdown for today [0-23]
+        var todayHourlyPoints: [Int]?   // Optional: 24-hour breakdown for today [0-23]
 
         // Custom init for migration from old format
         init(from decoder: Decoder) throws {
@@ -56,10 +62,12 @@ final class UsagePersistence {
             todayPoints = try container.decodeIfPresent(Int.self, forKey: .todayPoints) ?? 0
             lastResetDate = try container.decodeIfPresent(Date.self, forKey: .lastResetDate) ?? Calendar.current.startOfDay(for: Date())
             dailyHistory = try container.decodeIfPresent([DailyUsageSummary].self, forKey: .dailyHistory) ?? []
+            todayHourlySeconds = try container.decodeIfPresent([Int].self, forKey: .todayHourlySeconds)
+            todayHourlyPoints = try container.decodeIfPresent([Int].self, forKey: .todayHourlyPoints)
         }
 
         enum CodingKeys: String, CodingKey {
-            case logicalID, displayName, category, rewardPoints, totalSeconds, earnedPoints, createdAt, lastUpdated, todaySeconds, todayPoints, lastResetDate, dailyHistory
+            case logicalID, displayName, category, rewardPoints, totalSeconds, earnedPoints, createdAt, lastUpdated, todaySeconds, todayPoints, lastResetDate, dailyHistory, todayHourlySeconds, todayHourlyPoints
         }
 
         // Regular initializer for creating new instances
@@ -74,7 +82,9 @@ final class UsagePersistence {
              todaySeconds: Int = 0,
              todayPoints: Int = 0,
              lastResetDate: Date? = nil,
-             dailyHistory: [DailyUsageSummary] = []) {
+             dailyHistory: [DailyUsageSummary] = [],
+             todayHourlySeconds: [Int]? = nil,
+             todayHourlyPoints: [Int]? = nil) {
             self.logicalID = logicalID
             self.displayName = displayName
             self.category = category
@@ -87,6 +97,8 @@ final class UsagePersistence {
             self.todayPoints = todayPoints
             self.lastResetDate = lastResetDate ?? Calendar.current.startOfDay(for: Date())
             self.dailyHistory = dailyHistory
+            self.todayHourlySeconds = todayHourlySeconds
+            self.todayHourlyPoints = todayHourlyPoints
         }
     }
 
@@ -229,7 +241,8 @@ final class UsagePersistence {
 
     func recordUsage(logicalID: LogicalAppID,
                      additionalSeconds: Int,
-                     rewardPointsPerMinute: Int) {
+                     rewardPointsPerMinute: Int,
+                     timestamp: Date = Date()) {  // ✅ Added timestamp parameter
         guard var app = cachedApps[logicalID] else {
             #if DEBUG
             print("[UsagePersistence] ⚠️ Attempted to record usage for unknown app: \(logicalID)")
@@ -238,7 +251,7 @@ final class UsagePersistence {
         }
 
         // Check if it's a new day and reset daily counters if needed
-        let now = Date()
+        let now = timestamp  // Use provided timestamp
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: now)
 
@@ -246,7 +259,13 @@ final class UsagePersistence {
             // Archive previous day's usage before resetting
             if app.todaySeconds > 0 || app.todayPoints > 0 {
                 let previousDay = calendar.startOfDay(for: app.lastResetDate)
-                let summary = DailyUsageSummary(date: previousDay, seconds: app.todaySeconds, points: app.todayPoints)
+                let summary = DailyUsageSummary(
+                    date: previousDay,
+                    seconds: app.todaySeconds,
+                    points: app.todayPoints,
+                    hourlySeconds: app.todayHourlySeconds,  // ✅ Archive hourly data
+                    hourlyPoints: app.todayHourlyPoints     // ✅ Archive hourly data
+                )
                 app.dailyHistory.append(summary)
 
                 // Cleanup: keep only the last 30 days
@@ -256,12 +275,17 @@ final class UsagePersistence {
 
                 #if DEBUG
                 print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s, \(app.todayPoints)pts on \(previousDay)")
+                if app.todayHourlySeconds != nil {
+                    print("[UsagePersistence] 📅   with hourly breakdown")
+                }
                 #endif
             }
 
             // New day - reset daily counters
             app.todaySeconds = 0
             app.todayPoints = 0
+            app.todayHourlySeconds = nil  // ✅ Reset hourly data
+            app.todayHourlyPoints = nil   // ✅ Reset hourly data
             app.lastResetDate = today
 
             #if DEBUG
@@ -285,6 +309,25 @@ final class UsagePersistence {
         app.todaySeconds += additionalSeconds
         app.todayPoints += earnedPointsThisInterval
         app.lastUpdated = now
+
+        // ✅ Bucket by hour for hourly tracking
+        let hour = calendar.component(.hour, from: now)  // 0-23
+
+        // Initialize hourly arrays if needed
+        if app.todayHourlySeconds == nil {
+            app.todayHourlySeconds = Array(repeating: 0, count: 24)
+        }
+        if app.todayHourlyPoints == nil {
+            app.todayHourlyPoints = Array(repeating: 0, count: 24)
+        }
+
+        // Update the hour bucket
+        app.todayHourlySeconds?[hour] += additionalSeconds
+        app.todayHourlyPoints?[hour] += earnedPointsThisInterval
+
+        #if DEBUG
+        print("[UsagePersistence] 🕐 Bucketed to hour \(hour): +\(additionalSeconds)s, total for hour: \(app.todayHourlySeconds?[hour] ?? 0)s")
+        #endif
 
         cachedApps[logicalID] = app
         persistApps()
