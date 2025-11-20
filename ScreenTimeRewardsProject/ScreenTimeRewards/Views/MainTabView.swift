@@ -131,11 +131,11 @@ struct ParentTabIndicator: View {
                 }) {
                     VStack(spacing: 6) {
                         Image(tabs[index].1)
-                            .renderingMode(.template)
+                            .renderingMode(.original)
                             .resizable()
                             .aspectRatio(contentMode: .fit)
                             .frame(width: 24, height: 24)
-                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : .secondary)
+                            .opacity(selectedTab == index ? 1.0 : 0.5)
 
                         Text(tabs[index].0)
                             .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
