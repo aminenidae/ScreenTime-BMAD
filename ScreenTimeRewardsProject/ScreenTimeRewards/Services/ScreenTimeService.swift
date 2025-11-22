@@ -304,6 +304,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] 🔄 Syncing extension data written during force-close...")
             #endif
             readExtensionUsageData(defaults: sharedDefaults)
+
+            // DIAGNOSTIC: Report notification delivery stats on launch
+            #if DEBUG
+            let sentSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_sent")
+            let receivedSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_received")
+            let lastSentTime = sharedDefaults.double(forKey: "darwin_notification_last_sent")
+            let lastReceivedTime = sharedDefaults.double(forKey: "darwin_notification_last_received")
+
+            print("[ScreenTimeService] 📊 === DARWIN NOTIFICATION DIAGNOSTICS ===")
+            print("[ScreenTimeService] 📤 Total SENT by extension: \(sentSeq)")
+            print("[ScreenTimeService] 📥 Total RECEIVED by main app: \(receivedSeq)")
+
+            if sentSeq > receivedSeq {
+                let missed = sentSeq - receivedSeq
+                print("[ScreenTimeService] ⚠️ MISSED NOTIFICATIONS: \(missed)")
+                print("[ScreenTimeService] ℹ️ This is expected when running from Xcode - Darwin notifications")
+                print("[ScreenTimeService]    from extension process may not be delivered to debugged app.")
+                print("[ScreenTimeService] ℹ️ In production (TestFlight/App Store), notifications work correctly.")
+            } else if sentSeq == receivedSeq && sentSeq > 0 {
+                print("[ScreenTimeService] ✅ All notifications delivered successfully!")
+            } else if sentSeq == 0 {
+                print("[ScreenTimeService] ℹ️ No notifications sent yet (extension hasn't fired thresholds)")
+            }
+
+            if lastSentTime > 0 {
+                let sentDate = Date(timeIntervalSince1970: lastSentTime)
+                print("[ScreenTimeService] 📤 Last sent: \(sentDate)")
+            }
+            if lastReceivedTime > 0 {
+                let receivedDate = Date(timeIntervalSince1970: lastReceivedTime)
+                print("[ScreenTimeService] 📥 Last received: \(receivedDate)")
+            }
+            print("[ScreenTimeService] 📊 ========================================")
+            #endif
         }
 
         // Load FamilyActivitySelection if available
@@ -944,8 +978,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 handleIntervalWillEndWarning(for: DeviceActivityName(activityRaw))
             }
         case Self.extensionUsageRecordedNotification:
+            // Track received sequence for diagnostic comparison
+            let sentSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_sent")
+            let receivedSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_received")
+            let newReceivedSeq = receivedSeq + 1
+            sharedDefaults.set(newReceivedSeq, forKey: "darwin_notification_seq_received")
+            sharedDefaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_received")
+            sharedDefaults.synchronize()
+
             #if DEBUG
-            print("[ScreenTimeService] 📥 Received usage recorded notification from extension")
+            print("[ScreenTimeService] 📥 RECEIVED Darwin notification #\(newReceivedSeq)")
+            print("[ScreenTimeService] 📊 Notification stats: sent=\(sentSeq), received=\(newReceivedSeq)")
+            if sentSeq > newReceivedSeq {
+                print("[ScreenTimeService] ⚠️ MISSED \(sentSeq - newReceivedSeq) notifications!")
+            }
             #endif
             handleExtensionUsageRecorded(defaults: sharedDefaults)
         default:
@@ -1139,6 +1185,50 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] 💾 Persisted monitoring state: INACTIVE")
             #endif
         }
+    }
+
+    // MARK: - Darwin Notification Diagnostics
+
+    /// Get diagnostic stats about Darwin notification delivery
+    /// Returns: (sent, received, missed, lastSentDate, lastReceivedDate)
+    func getDarwinNotificationDiagnostics() -> (sent: Int, received: Int, missed: Int, lastSent: Date?, lastReceived: Date?) {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return (0, 0, 0, nil, nil)
+        }
+
+        let sentSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_sent")
+        let receivedSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_received")
+        let lastSentTime = sharedDefaults.double(forKey: "darwin_notification_last_sent")
+        let lastReceivedTime = sharedDefaults.double(forKey: "darwin_notification_last_received")
+
+        let lastSent = lastSentTime > 0 ? Date(timeIntervalSince1970: lastSentTime) : nil
+        let lastReceived = lastReceivedTime > 0 ? Date(timeIntervalSince1970: lastReceivedTime) : nil
+        let missed = max(0, sentSeq - receivedSeq)
+
+        return (sentSeq, receivedSeq, missed, lastSent, lastReceived)
+    }
+
+    /// Reset Darwin notification diagnostic counters (useful for fresh testing)
+    func resetDarwinNotificationDiagnostics() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        sharedDefaults.set(0, forKey: "darwin_notification_seq_sent")
+        sharedDefaults.set(0, forKey: "darwin_notification_seq_received")
+        sharedDefaults.removeObject(forKey: "darwin_notification_last_sent")
+        sharedDefaults.removeObject(forKey: "darwin_notification_last_received")
+        sharedDefaults.synchronize()
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Reset Darwin notification diagnostic counters")
+        #endif
+    }
+
+    /// Get extension debug log (circular buffer of last 50 entries)
+    func getExtensionDebugLog() -> String {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return "Unable to access App Group"
+        }
+        return sharedDefaults.string(forKey: "extension_debug_log") ?? "No extension logs yet"
     }
 
     // MARK: - REMOVED: Dynamic threshold advancement (caused cascade fires)

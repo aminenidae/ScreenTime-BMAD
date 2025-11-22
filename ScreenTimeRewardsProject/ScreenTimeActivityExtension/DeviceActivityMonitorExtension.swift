@@ -226,8 +226,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    /// Send Darwin notification to main app
+    /// Send Darwin notification to main app with sequence tracking for diagnostics
     private nonisolated func notifyMainApp() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            writeDebugLog("ERROR: Cannot access app group for notification")
+            return
+        }
+
+        // Increment and store sequence number for tracking delivery
+        let currentSeq = defaults.integer(forKey: "darwin_notification_seq_sent")
+        let nextSeq = currentSeq + 1
+        defaults.set(nextSeq, forKey: "darwin_notification_seq_sent")
+        defaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_sent")
+        defaults.synchronize()
+
+        // Post the Darwin notification
         CFNotificationCenterPostNotification(
             CFNotificationCenterGetDarwinNotifyCenter(),
             CFNotificationName("com.screentimerewards.usageRecorded" as CFString),
@@ -235,7 +248,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             nil,
             true
         )
-        writeDebugLog("Sent notification to main app")
+
+        writeDebugLog("📤 SENT Darwin notification #\(nextSeq)")
     }
 
     /// Write debug log (memory-efficient circular buffer)
