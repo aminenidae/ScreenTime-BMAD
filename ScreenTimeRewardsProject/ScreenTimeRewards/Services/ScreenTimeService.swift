@@ -297,6 +297,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         usagePersistence.printDebugInfo()
         #endif
 
+        // Sync extension data written while app was force-closed
+        // This catches any thresholds that fired while the main app wasn't running
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            #if DEBUG
+            print("[ScreenTimeService] 🔄 Syncing extension data written during force-close...")
+            #endif
+            readExtensionUsageData(defaults: sharedDefaults)
+        }
+
         // Load FamilyActivitySelection if available
         let restoredSelection = restoreFamilySelection()
         if !restoredSelection.applications.isEmpty {
@@ -676,17 +685,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] Creating 60 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
-            // Create 60 events per app with minute thresholds 1-60
-            // Starting from existing usage + 1 to avoid re-firing already-passed thresholds
+            // Create 60 events per app with STATIC minute thresholds 1-60
+            // iOS automatically skips thresholds that already fired today
+            // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
             for app in applications {
-                let existingMinutes = getExistingTodayUsageMinutes(for: app.logicalID)
-                let startMinute = existingMinutes + 1  // Start 1 minute ahead of current usage
-                let endMinute = max(startMinute + 59, 60)  // At least 60 minutes of tracking
+                let startMinute = 1   // Always start at 1 minute
+                let endMinute = 60    // Always end at 60 minutes
 
                 #if DEBUG
                 print("[ScreenTimeService]   App: \(app.displayName)")
-                print("[ScreenTimeService]     Existing usage: \(existingMinutes) min")
-                print("[ScreenTimeService]     Thresholds: \(startMinute) to \(endMinute) min")
+                print("[ScreenTimeService]     Thresholds: \(startMinute) to \(endMinute) min (static)")
                 #endif
 
                 for minuteNumber in startMinute...endMinute {
@@ -1007,6 +1015,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #if DEBUG
                 print("[ScreenTimeService] 📊 Updated \(usage.appName): total=\(totalSeconds)s, today=\(todaySeconds)s")
                 #endif
+
+                // Also sync to usagePersistence so UI snapshots show correct data
+                if var persistedApp = usagePersistence.app(for: logicalID) {
+                    // Only update if extension has more recent/higher data
+                    if todaySeconds > persistedApp.todaySeconds {
+                        persistedApp.todaySeconds = todaySeconds
+                        persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
+                        persistedApp.lastUpdated = Date()
+                        usagePersistence.saveApp(persistedApp)
+
+                        #if DEBUG
+                        print("[ScreenTimeService] 💾 Synced to persistence: \(usage.appName) todaySeconds=\(todaySeconds)")
+                        #endif
+                    }
+                }
             }
         }
     }

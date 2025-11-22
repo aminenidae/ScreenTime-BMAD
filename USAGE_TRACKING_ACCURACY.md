@@ -2624,8 +2624,103 @@ The usage tracking system is **fully operational and production-ready**:
 
 ---
 
-**Last Updated:** 2025-11-20 04:19 UTC  
-**Branch:** Usage_fallback  
-**Status:** ✅ Production Ready  
-**Tested By:** Real device, production scenario  
+**Last Updated:** 2025-11-20 04:19 UTC
+**Branch:** Usage_fallback
+**Status:** ✅ Production Ready
+**Tested By:** Real device, production scenario
+**Result:** COMPLETE SUCCESS
+
+---
+
+## Critical Fixes: Static Thresholds & Force-Close Sync (2025-11-22)
+
+**Branch:** `feature/deviceactivityreport-sync`
+
+### Issues Fixed
+
+#### Issue 1: Baseline Offset Mismatch
+
+**Problem:**
+Thresholds were being set with an offset based on our persistence data (e.g., if we had 23 minutes tracked, thresholds started at 24-83 minutes). However, iOS's internal daily usage counter could be different from our persistence (especially after midnight reset), causing thresholds to never fire.
+
+**Example scenario:**
+- Our persistence: 23 minutes
+- We set thresholds: 24-83 minutes
+- iOS's counter (after midnight reset): 0 minutes
+- User uses app for 3 minutes → iOS sees 3 minutes
+- Our 24-minute threshold doesn't fire because iOS hasn't reached 24 minutes!
+
+**Fix:** Changed to static thresholds (always 1-60 minutes) regardless of existing usage. iOS automatically skips thresholds that have already fired today.
+
+**File:** `ScreenTimeService.swift` (lines 679-689)
+```swift
+// BEFORE (broken):
+let existingMinutes = getExistingTodayUsageMinutes(for: app.logicalID)
+let startMinute = existingMinutes + 1
+let endMinute = max(startMinute + 59, 60)
+
+// AFTER (fixed):
+let startMinute = 1   // Always start at 1 minute
+let endMinute = 60    // Always end at 60 minutes
+```
+
+#### Issue 2: Extension Data Not Read on Launch
+
+**Problem:**
+When the main app was force-closed and relaunched, extension data written during force-close was never read. The `readExtensionUsageData()` function was only called when a notification arrived from the extension, not on app launch.
+
+**Fix:** Added call to `readExtensionUsageData()` in `loadPersistedAssignments()` to sync extension data on every app launch.
+
+**File:** `ScreenTimeService.swift` (lines 300-307)
+```swift
+// Sync extension data written while app was force-closed
+if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+    readExtensionUsageData(defaults: sharedDefaults)
+}
+```
+
+#### Issue 3: Extension Data Not Synced to Persistence
+
+**Problem:**
+The `readExtensionUsageData()` function was updating `appUsages` (in-memory) but not `usagePersistence` (JSON storage). The UI snapshots read from `usagePersistence`, so they showed 0 even when extension had data.
+
+**Fix:** Modified `readExtensionUsageData()` to also update `usagePersistence` when extension data is higher.
+
+### Test Results (2025-11-22)
+
+All three test scenarios passed:
+
+| Test Scenario | Duration | Expected | Actual | Status |
+|--------------|----------|----------|--------|--------|
+| Debug mode (Xcode attached) | +3 min | 13 min | 13 min | ✅ |
+| Force-close mode | +5 min | 18 min | 18 min | ✅ |
+| Production mode (Xcode killed) | +2 min | 20 min | 20 min | ✅ |
+
+### How It Works Now
+
+1. **On app launch:**
+   - Load saved data from UsagePersistence (JSON)
+   - Sync extension data from UserDefaults (catches force-close usage)
+   - Configure 60 static thresholds (1-60 min) per app
+
+2. **During app usage (main app running):**
+   - Extension fires thresholds as cumulative daily usage increases
+   - Extension writes to UserDefaults + sends Darwin notification
+   - Main app receives notification and updates immediately
+
+3. **During force-close usage:**
+   - Extension fires thresholds independently (iOS keeps it running)
+   - Extension writes to UserDefaults
+   - On next app launch, data is synced from UserDefaults
+
+4. **Production mode (no debugger):**
+   - Same as force-close - extension runs independently
+   - Data synced on next launch
+
+---
+
+**Last Updated:** 2025-11-22
+**Branch:** feature/deviceactivityreport-sync
+**Status:** ✅ All Tests Passing
+**Tested By:** Real device - Debug, Force-close, Production modes
 **Result:** COMPLETE SUCCESS
