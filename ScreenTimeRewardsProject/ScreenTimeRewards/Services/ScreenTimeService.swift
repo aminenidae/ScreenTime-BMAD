@@ -42,6 +42,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private static let intervalWillStartNotification = CFNotificationName(ScreenTimeNotifications.intervalWillStart as CFString)
     private static let intervalWillEndNotification = CFNotificationName(ScreenTimeNotifications.intervalWillEnd as CFString)
 
+    // Extension re-arm notification - sent when extension records usage and needs threshold re-armed
+    private static let extensionUsageRecordedNotification = CFNotificationName("com.screentimerewards.usageRecorded" as CFString)
+
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
 
@@ -122,7 +125,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private struct MonitoredEvent {
         let name: DeviceActivityEvent.Name
         let category: AppUsage.AppCategory
-        let threshold: DateComponents  // Static 24hr threshold - no more advancement
+        var threshold: DateComponents  // Mutable for re-arm mechanism
         let applications: [MonitoredApplication]
 
         func deviceActivityEvent() -> DeviceActivityEvent {
@@ -654,10 +657,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // OPTION A: Create multiple static threshold events per app (1min, 2min, 3min... 60min)
-        // This eliminates cascade issues - each threshold fires once naturally when usage crosses it
-        // PDF guidance: "creates a 2-hour schedule and adds events at 5, 10, 15… minutes"
-        let maxMinutes = 60  // Track first hour with minute granularity
+        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
+        // Create 60 consecutive 1-minute threshold events per app
+        // Each threshold fires once when that minute is reached - NO re-arm/restart needed
+        // Extension uses memory-efficient primitive key storage (not JSON parsing)
+        // This avoids the bug where restarting monitoring resets iOS usage counters
         var eventIndex = 0
         monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
             let (category, applications) = entry
@@ -669,34 +673,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             #if DEBUG
-            print("[ScreenTimeService] Creating \(maxMinutes) threshold events per app for \(category.rawValue) apps")
+            print("[ScreenTimeService] Creating 60 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
-            // Create separate events for each app, with multiple thresholds
+            // Create 60 events per app with minute thresholds 1-60
+            // Starting from existing usage + 1 to avoid re-firing already-passed thresholds
             for app in applications {
+                let existingMinutes = getExistingTodayUsageMinutes(for: app.logicalID)
+                let startMinute = existingMinutes + 1  // Start 1 minute ahead of current usage
+                let endMinute = max(startMinute + 59, 60)  // At least 60 minutes of tracking
+
                 #if DEBUG
-                print("[ScreenTimeService] Creating \(maxMinutes) threshold events for app: \(app.displayName)")
+                print("[ScreenTimeService]   App: \(app.displayName)")
+                print("[ScreenTimeService]     Existing usage: \(existingMinutes) min")
+                print("[ScreenTimeService]     Thresholds: \(startMinute) to \(endMinute) min")
                 #endif
 
-                // Create 60 events: one for each minute (1min, 2min, 3min... 60min)
-                for minute in 1...maxMinutes {
-                    let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex).min.\(minute)")
-                    let threshold = DateComponents(minute: minute)
-
-                    #if DEBUG
-                    if minute == 1 || minute == maxMinutes {
-                        // Only log first and last to avoid spam
-                        print("[ScreenTimeService]   Event: \(eventName.rawValue), Threshold: \(minute)min")
-                    } else if minute == 2 {
-                        print("[ScreenTimeService]   ... (creating events for minutes 2-\(maxMinutes-1)) ...")
-                    }
-                    #endif
+                for minuteNumber in startMinute...endMinute {
+                    let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex).min.\(minuteNumber)")
+                    let threshold = DateComponents(minute: minuteNumber)
 
                     result[eventName] = MonitoredEvent(
                         name: eventName,
                         category: category,
                         threshold: threshold,
-                        applications: [app]  // Single app per event!
+                        applications: [app]
                     )
                 }
 
@@ -705,10 +706,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         #if DEBUG
-        print("[ScreenTimeService] Created \(monitoredEvents.count) monitored events")
-        for (name, event) in monitoredEvents {
-            print("[ScreenTimeService]   Event: \(name.rawValue) with \(event.applications.count) apps")
-        }
+        let totalEvents = monitoredEvents.count
+        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -751,6 +750,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         return 10
     }
 
+    /// Get existing today's usage in minutes for an app (reads from extension's primitive keys)
+    private func getExistingTodayUsageMinutes(for logicalID: String) -> Int {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return 0 }
+
+        // First try extension's primitive keys
+        let todayKey = "usage_\(logicalID)_today"
+        let todaySeconds = defaults.integer(forKey: todayKey)
+        if todaySeconds > 0 {
+            return todaySeconds / 60
+        }
+
+        // Fallback to persisted data
+        if let persisted = usagePersistence.app(for: logicalID) {
+            return persisted.todaySeconds / 60
+        }
+
+        return 0
+    }
+
     private func appUsage(from persisted: UsagePersistence.PersistedApp) -> AppUsage {
         let category = AppUsage.AppCategory(rawValue: persisted.category) ?? .learning
 
@@ -787,17 +805,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             guard let app = event.applications.first else { continue }
 
             let thresholdSeconds = seconds(from: event.threshold)
-            // CRITICAL: For Option A (60 static thresholds), each event records exactly 60 seconds
-            // regardless of which threshold it represents (1min, 2min, 3min, etc.)
-            // This prevents cumulative recording bug where 3min event would record 180s instead of 60s
+            // Each event records exactly 60 seconds (1 minute increments for continuous tracking)
             let incrementSeconds = 60
             mappings[eventName.rawValue] = [
                 "logicalID": app.logicalID,
                 "displayName": app.displayName,
+                "category": app.category.rawValue,
                 "rewardPoints": app.rewardPoints,
                 "thresholdSeconds": Int(thresholdSeconds),
                 "incrementSeconds": incrementSeconds
             ]
+
+            // Also write primitive keys for memory-efficient extension access
+            // These avoid JSON parsing in the extension (reduces memory from ~16MB to <6MB)
+            sharedDefaults.set(app.logicalID, forKey: "map_\(eventName.rawValue)_id")
+            sharedDefaults.set(incrementSeconds, forKey: "map_\(eventName.rawValue)_inc")
+            sharedDefaults.set(Int(thresholdSeconds), forKey: "map_\(eventName.rawValue)_sec")
         }
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
@@ -805,7 +828,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.synchronize()
 
             #if DEBUG
-            print("[ScreenTimeService] 💾 Saved \(mappings.count) event mappings for extension")
+            print("[ScreenTimeService] 💾 Saved \(mappings.count) event mappings for extension (JSON + primitive keys)")
             #endif
         }
     }
@@ -824,7 +847,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
          Self.intervalDidStartNotification,
          Self.intervalDidEndNotification,
          Self.intervalWillStartNotification,
-         Self.intervalWillEndNotification].forEach { notification in
+         Self.intervalWillEndNotification,
+         Self.extensionUsageRecordedNotification].forEach { notification in
             CFNotificationCenterAddObserver(
                 center,
                 observer,
@@ -911,12 +935,104 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
                 handleIntervalWillEndWarning(for: DeviceActivityName(activityRaw))
             }
+        case Self.extensionUsageRecordedNotification:
+            #if DEBUG
+            print("[ScreenTimeService] 📥 Received usage recorded notification from extension")
+            #endif
+            handleExtensionUsageRecorded(defaults: sharedDefaults)
         default:
             #if DEBUG
             print("[ScreenTimeService] Unknown notification received: \(name.rawValue)")
             #endif
             break
         }
+    }
+
+    // MARK: - Extension Usage Update Handler (60 Static Thresholds)
+
+    /// Handle usage recorded notification from extension
+    /// With 60 static thresholds (1min, 2min, ... 60min), NO restart is needed!
+    /// Each threshold fires once when cumulative usage reaches that minute.
+    private func handleExtensionUsageRecorded(defaults: UserDefaults) {
+        #if DEBUG
+        print("[ScreenTimeService] 📥 Processing extension usage update...")
+        #endif
+
+        // Read updated usage data from extension's primitive keys
+        readExtensionUsageData(defaults: defaults)
+
+        // Clear any re-arm flags (legacy from old single-threshold approach)
+        var updateCount = 0
+        for (logicalID, _) in appUsages {
+            let rearmKey = "rearm_\(logicalID)_requested"
+            if defaults.bool(forKey: rearmKey) {
+                // Clear the flag
+                defaults.set(false, forKey: rearmKey)
+
+                #if DEBUG
+                print("[ScreenTimeService] 📊 Usage update for: \(logicalID)")
+                #endif
+
+                // Just log - NO restart with 60 static thresholds
+                clearRearmFlag(for: logicalID, defaults: defaults)
+                updateCount += 1
+            }
+        }
+
+        defaults.synchronize()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Processed \(updateCount) usage updates (NO restart - 60 static thresholds)")
+        #endif
+
+        // Notify UI of usage updates
+        notifyUsageChange()
+    }
+
+    /// Read usage data from extension's primitive keys
+    private func readExtensionUsageData(defaults: UserDefaults) {
+        for (logicalID, var usage) in appUsages {
+            // Read from extension's primitive keys
+            let totalKey = "usage_\(logicalID)_total"
+            let todayKey = "usage_\(logicalID)_today"
+
+            let totalSeconds = defaults.integer(forKey: totalKey)
+            let todaySeconds = defaults.integer(forKey: todayKey)
+
+            if totalSeconds > 0 || todaySeconds > 0 {
+                // Update in-memory usage - totalTime is the cumulative value
+                usage.totalTime = TimeInterval(totalSeconds)
+                appUsages[logicalID] = usage
+
+                #if DEBUG
+                print("[ScreenTimeService] 📊 Updated \(usage.appName): total=\(totalSeconds)s, today=\(todaySeconds)s")
+                #endif
+            }
+        }
+    }
+
+    /// Handle re-arm request - with 60 static thresholds, NO restart needed
+    /// The thresholds (1min, 2min, 3min... 60min) are already pre-set
+    /// We just clear the re-arm flag and log the update
+    private func clearRearmFlag(for logicalID: String, defaults: UserDefaults) {
+        guard let usage = appUsages[logicalID] else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Cannot clear re-arm: app not found for \(logicalID)")
+            #endif
+            return
+        }
+
+        let todayKey = "usage_\(logicalID)_today"
+        let currentTodaySeconds = defaults.integer(forKey: todayKey)
+        let currentMinutes = currentTodaySeconds / 60
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Usage update for \(usage.appName): \(currentMinutes) minutes recorded")
+        print("[ScreenTimeService]    (60 static thresholds already set - NO restart needed)")
+        #endif
+
+        // NO restart! 60 static thresholds are already in place
+        // Next threshold will fire automatically when usage reaches next minute
     }
     
     // MARK: - Authorization & Monitoring
@@ -1925,33 +2041,29 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
-        // OPTION A: Static thresholds - simplified handler
-        // Each event represents a fixed threshold (1min, 2min, 3min... 60min)
-        // Each threshold fires ONCE when usage crosses that cumulative value
-        // NO cascades because we never restart monitoring
-        // NO deduplication needed because each event fires only once per day
-
-        // Parse minute number from event name (e.g., "usage.app.0.min.5" → 5)
+        // CONTINUOUS TRACKING: Each threshold fire = 60 seconds of usage
+        // Extension handles re-arm signaling, main app handles re-arm execution
         let eventName = event.rawValue
-        let components = eventName.split(separator: ".")
-
-        guard components.count >= 4,
-              components[components.count - 2] == "min",
-              let minuteNumber = Int(components.last ?? "") else {
-            #if DEBUG
-            print("[ScreenTimeService] ⚠️ Could not parse minute number from event name: \(eventName)")
-            print("[ScreenTimeService] ⚠️ Falling back to threshold value")
-            #endif
-            // Fallback: use threshold value
-            let duration = seconds(from: configuration.threshold)
-            recordUsage(for: configuration.applications, duration: duration, endingAt: timestamp)
-            return
-        }
+        let isContinuousEvent = eventName.hasSuffix(".continuous")
 
         #if DEBUG
-        print("[ScreenTimeService] ✅ Threshold event fired: minute \(minuteNumber)")
-        print("[ScreenTimeService] Category: \(configuration.category.rawValue)")
-        print("[ScreenTimeService] App: \(configuration.applications.first?.displayName ?? "unknown")")
+        if isContinuousEvent {
+            let thresholdMinutes = configuration.threshold.minute ?? 0
+            print("[ScreenTimeService] ✅ Continuous tracking event fired")
+            print("[ScreenTimeService]   Event: \(eventName)")
+            print("[ScreenTimeService]   Threshold: \(thresholdMinutes) minutes")
+            print("[ScreenTimeService]   App: \(configuration.applications.first?.displayName ?? "unknown")")
+        } else {
+            // Legacy static threshold event support
+            let components = eventName.split(separator: ".")
+            if components.count >= 4,
+               components[components.count - 2] == "min",
+               let minuteNumber = Int(components.last ?? "") {
+                print("[ScreenTimeService] ✅ Legacy threshold event fired: minute \(minuteNumber)")
+            }
+            print("[ScreenTimeService] Category: \(configuration.category.rawValue)")
+            print("[ScreenTimeService] App: \(configuration.applications.first?.displayName ?? "unknown")")
+        }
         #endif
 
         // === LAYER 4: Multi-layer validation before recording ===
@@ -1988,9 +2100,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Each threshold event represents exactly 60 seconds of usage
         // (Except first minute which represents 0→60s, but that's still 60s)
         let incrementalDuration: TimeInterval = 60.0
+        let thresholdMinutes = configuration.threshold.minute ?? 0
 
         #if DEBUG
-        print("[ScreenTimeService] ✅ Recording \(incrementalDuration)s for minute \(minuteNumber)")
+        print("[ScreenTimeService] ✅ Recording \(incrementalDuration)s for threshold minute \(thresholdMinutes)")
         #endif
 
         recordUsage(for: configuration.applications, duration: incrementalDuration, endingAt: timestamp)
