@@ -18,6 +18,21 @@ struct ModeSelectionView: View {
 
     @Environment(\.colorScheme) var colorScheme
 
+    /// Gets the child's name for display in "Child's Space" button
+    /// Uses the device name if it's a child device, otherwise falls back to "Child"
+    private var childSpaceName: String {
+        let name = modeManager.deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty {
+            return "Child's"
+        }
+        // Add possessive form
+        if name.lowercased().hasSuffix("s") {
+            return "\(name)'"
+        } else {
+            return "\(name)'s"
+        }
+    }
+
     var body: some View {
         ZStack {
             // Background
@@ -64,7 +79,7 @@ struct ModeSelectionView: View {
 
                 // Button Group
                 VStack(spacing: 16) {
-                    // Parent Mode button
+                    // Parent Space button
                     Button(action: handleParentModeSelection) {
                         HStack(spacing: 12) {
                             ZStack {
@@ -77,7 +92,7 @@ struct ModeSelectionView: View {
                                     .foregroundColor(AppTheme.playfulCoral)
                             }
 
-                            Text("Parent Mode")
+                            Text("Parent Space")
                                 .font(.system(size: 16, weight: .bold))
                                 .tracking(0.24)
                         }
@@ -92,7 +107,7 @@ struct ModeSelectionView: View {
                     }
                     .disabled(isAuthenticating)
 
-                    // Child Mode button
+                    // Child Space button - uses the child's name from device setup
                     Button(action: handleChildModeSelection) {
                         HStack(spacing: 12) {
                             ZStack {
@@ -105,7 +120,7 @@ struct ModeSelectionView: View {
                                     .foregroundColor(.white)
                             }
 
-                            Text("Alex's Space")
+                            Text("\(childSpaceName) Space")
                                 .font(.system(size: 16, weight: .bold))
                                 .tracking(0.24)
                         }
