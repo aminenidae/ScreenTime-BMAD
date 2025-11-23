@@ -485,8 +485,31 @@ struct ChallengeDetailView: View {
     }
 
     // MARK: - Computed Properties
+
+    /// Calculate current progress from actual usage data instead of stored ChallengeProgress
+    /// This ensures the displayed value always reflects real-time usage
     private var currentProgressValue: Int {
-        Int(progress?.currentValue ?? 0)
+        // Get target app IDs for this challenge
+        let targetApps = challenge.targetAppIDs
+
+        // Calculate total minutes from learning snapshots
+        var totalMinutes = 0
+
+        if targetApps.isEmpty {
+            // All learning apps count toward this challenge
+            for snapshot in appUsageViewModel.learningSnapshots {
+                totalMinutes += Int(snapshot.totalSeconds / 60)
+            }
+        } else {
+            // Only specific apps count
+            for snapshot in appUsageViewModel.learningSnapshots {
+                if targetApps.contains(snapshot.logicalID) {
+                    totalMinutes += Int(snapshot.totalSeconds / 60)
+                }
+            }
+        }
+
+        return totalMinutes
     }
 
     private var targetProgressValue: Int {
@@ -498,7 +521,9 @@ struct ChallengeDetailView: View {
     }
 
     private var progressPercentageValue: Double {
-        min(progress?.progressPercentage ?? 0, 100)
+        guard targetProgressValue > 0 else { return 0 }
+        let percentage = (Double(currentProgressValue) / Double(targetProgressValue)) * 100
+        return min(percentage, 100)
     }
 
     private var progressBarFraction: Double {

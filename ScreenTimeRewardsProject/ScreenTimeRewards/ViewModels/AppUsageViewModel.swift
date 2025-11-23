@@ -1606,22 +1606,17 @@ func configureWithTestApplications() {
 
     // MARK: - Shield Management
 
-    /// Block (shield) all reward apps
+    /// Sync shields with current reward app selection
+    /// This properly handles both adding AND removing shields when apps are added/removed
     func blockRewardApps() {
         let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
-        guard !rewardTokens.isEmpty else {
-            #if DEBUG
-            print("[AppUsageViewModel] No reward apps to block")
-            #endif
-            return
-        }
-
         #if DEBUG
-        print("[AppUsageViewModel] 🔒 Blocking \(rewardTokens.count) reward apps")
+        print("[AppUsageViewModel] 🔄 Syncing shields with \(rewardTokens.count) reward apps")
         #endif
 
-        service.blockRewardApps(tokens: Set(rewardTokens))
+        // Use sync instead of just block - this handles both additions AND removals
+        service.syncRewardAppShields(currentRewardTokens: Set(rewardTokens))
     }
 
     /// Unblock (unlock) all reward apps

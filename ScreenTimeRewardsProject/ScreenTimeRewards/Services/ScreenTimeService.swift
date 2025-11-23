@@ -1589,6 +1589,50 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         NotificationCenter.default.post(name: .rewardAppsBlocked, object: nil)
     }
 
+    /// Sync shields with the current reward app selection
+    /// IMPORTANT: This REPLACES all shields with only the current reward tokens
+    /// This ensures removed apps get unshielded even after app restart
+    func syncRewardAppShields(currentRewardTokens: Set<ApplicationToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Syncing shields with current reward app selection")
+        print("[ScreenTimeService] Current reward tokens to shield: \(currentRewardTokens.count)")
+        print("[ScreenTimeService] Previous in-memory tracked: \(currentlyShielded.count)")
+        #endif
+
+        // CRITICAL FIX: Replace ALL shields with ONLY the current reward tokens
+        // This ensures that:
+        // 1. Apps removed from rewards get unshielded (even after app restart)
+        // 2. New reward apps get shielded
+        // 3. We don't rely on in-memory state which resets on app launch
+
+        let previousCount = currentlyShielded.count
+
+        // Update our in-memory tracking
+        currentlyShielded = currentRewardTokens
+
+        // REPLACE the entire shield set in ManagedSettingsStore
+        // Setting to nil clears all shields, setting to a set replaces entirely
+        if currentRewardTokens.isEmpty {
+            managedSettingsStore.shield.applications = nil
+            #if DEBUG
+            print("[ScreenTimeService] 🔓 Cleared ALL shields (no reward apps)")
+            #endif
+        } else {
+            managedSettingsStore.shield.applications = currentRewardTokens
+            #if DEBUG
+            print("[ScreenTimeService] 🔒 Replaced shields with \(currentRewardTokens.count) reward apps")
+            #endif
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Shield sync complete")
+        print("[ScreenTimeService] Before: \(previousCount) shielded, After: \(currentRewardTokens.count) shielded")
+        #endif
+
+        // Post notification
+        NotificationCenter.default.post(name: .rewardAppsBlocked, object: nil)
+    }
+
     /// Unblock reward apps (remove shield)
     func unblockRewardApps(tokens: Set<ApplicationToken>) {
         #if DEBUG

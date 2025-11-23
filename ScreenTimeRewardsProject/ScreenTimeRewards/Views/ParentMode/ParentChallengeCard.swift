@@ -3,6 +3,38 @@ import SwiftUI
 struct ParentChallengeCard: View {
     let challenge: Challenge
     let progress: ChallengeProgress?
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+
+    /// Calculate current progress from actual usage data
+    private var calculatedCurrentValue: Int32 {
+        let targetApps = challenge.targetAppIDs
+        var totalMinutes = 0
+
+        if targetApps.isEmpty {
+            // All learning apps count
+            for snapshot in appUsageViewModel.learningSnapshots {
+                totalMinutes += Int(snapshot.totalSeconds / 60)
+            }
+        } else {
+            // Only specific apps count
+            for snapshot in appUsageViewModel.learningSnapshots {
+                if targetApps.contains(snapshot.logicalID) {
+                    totalMinutes += Int(snapshot.totalSeconds / 60)
+                }
+            }
+        }
+        return Int32(totalMinutes)
+    }
+
+    private var calculatedTargetValue: Int32 {
+        progress?.targetValue ?? Int32(challenge.targetValue)
+    }
+
+    private var calculatedProgressPercentage: Double {
+        guard calculatedTargetValue > 0 else { return 0 }
+        let percentage = (Double(calculatedCurrentValue) / Double(calculatedTargetValue)) * 100
+        return min(percentage, 100)
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -28,14 +60,14 @@ struct ParentChallengeCard: View {
                 if let progress = progress, progress.isCompleted {
                     Image(systemName: "checkmark.circle.fill")
                         .foregroundColor(.green)
-                } else if let progress = progress {
-                    Text("\(Int(progress.progressPercentage))%")
+                } else {
+                    Text("\(Int(calculatedProgressPercentage))%")
                         .font(.caption)
                         .padding(.horizontal, 8)
                         .padding(.vertical, 4)
                         .background(
                             Capsule()
-                                .fill(progress.progressPercentage > 50 ? Color.green : Color.blue)
+                                .fill(calculatedProgressPercentage > 50 ? Color.green : Color.blue)
                         )
                         .foregroundColor(.white)
                 }
@@ -43,34 +75,32 @@ struct ParentChallengeCard: View {
 
             rewardConfigurationRow
 
-            // Progress bar
-            if let progress = progress {
-                VStack(alignment: .leading, spacing: 4) {
-                    ProgressView(value: progress.progressPercentage, total: 100)
-                        .progressViewStyle(LinearProgressViewStyle(tint: progress.progressPercentage > 50 ? .green : .blue))
+            // Progress bar - always show with calculated values
+            VStack(alignment: .leading, spacing: 4) {
+                ProgressView(value: calculatedProgressPercentage, total: 100)
+                    .progressViewStyle(LinearProgressViewStyle(tint: calculatedProgressPercentage > 50 ? .green : .blue))
 
-                    HStack {
-                        Text("\(progress.currentValue)/\(progress.targetValue) \(valueUnit)")
+                HStack {
+                    Text("\(calculatedCurrentValue)/\(calculatedTargetValue) \(valueUnit)")
+                        .font(.caption)
+                        .foregroundColor(.secondary)
+                    Spacer()
+                    if challenge.isActive {
+                        Text("Active")
                             .font(.caption)
-                            .foregroundColor(.secondary)
-                        Spacer()
-                        if challenge.isActive {
-                            Text("Active")
-                                .font(.caption)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.green.opacity(0.2))
-                                .foregroundColor(.green)
-                                .cornerRadius(4)
-                        } else {
-                            Text("Inactive")
-                                .font(.caption)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.gray.opacity(0.2))
-                                .foregroundColor(.gray)
-                                .cornerRadius(4)
-                        }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.green.opacity(0.2))
+                            .foregroundColor(.green)
+                            .cornerRadius(4)
+                    } else {
+                        Text("Inactive")
+                            .font(.caption)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(Color.gray.opacity(0.2))
+                            .foregroundColor(.gray)
+                            .cornerRadius(4)
                     }
                 }
             }

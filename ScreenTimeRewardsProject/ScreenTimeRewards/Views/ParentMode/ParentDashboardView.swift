@@ -36,8 +36,8 @@ struct ParentDashboardView: View {
                         // Daily Usage Chart
                         DailyUsageChartCard()
 
-                        // Points Overview
-                        pointsOverviewCard
+                        // Points Overview - HIDDEN (keeping code for future use)
+                        // pointsOverviewCard
 
                         // Active Challenges
                         if !viewModel.activeChallenges.isEmpty {

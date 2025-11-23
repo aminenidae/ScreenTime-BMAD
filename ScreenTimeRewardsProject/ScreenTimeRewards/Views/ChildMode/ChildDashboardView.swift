@@ -82,23 +82,23 @@ private extension ChildDashboardView {
 
                 Spacer()
 
-                // Points badge
-                HStack(spacing: 6) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 24))
-                        .foregroundColor(AppTheme.sunnyYellow)
-
-                    Text("\(viewModel.learningRewardPoints)")
-                        .font(.system(size: 18, weight: .bold))
-                        .tracking(0.015 * 18)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-                .background(
-                    RoundedRectangle(cornerRadius: 9999)
-                        .fill(AppTheme.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
-                )
+                // Points badge - HIDDEN (keeping code for future use)
+                // HStack(spacing: 6) {
+                //     Image(systemName: "star.fill")
+                //         .font(.system(size: 24))
+                //         .foregroundColor(AppTheme.sunnyYellow)
+                //
+                //     Text("\(viewModel.learningRewardPoints)")
+                //         .font(.system(size: 18, weight: .bold))
+                //         .tracking(0.015 * 18)
+                //         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                // }
+                // .padding(.horizontal, 16)
+                // .padding(.vertical, 8)
+                // .background(
+                //     RoundedRectangle(cornerRadius: 9999)
+                //         .fill(AppTheme.sunnyYellow.opacity(colorScheme == .dark ? 0.3 : 0.2))
+                // )
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
@@ -172,32 +172,30 @@ private extension ChildDashboardView {
                 }
             }
 
-            HStack(spacing: 16) {
-                // Progress bar
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 9999)
-                            .fill(AppTheme.progressTrack(for: colorScheme))
-                            .frame(height: 10)
+            // Progress bar (full width now that points are hidden)
+            GeometryReader { geometry in
+                ZStack(alignment: .leading) {
+                    RoundedRectangle(cornerRadius: 9999)
+                        .fill(AppTheme.progressTrack(for: colorScheme))
+                        .frame(height: 10)
 
-                        RoundedRectangle(cornerRadius: 9999)
-                            .fill(colorSet.barColor)
-                            .frame(width: geometry.size.width * progressPercentage, height: 10)
-                    }
-                }
-                .frame(height: 10)
-
-                // Points reward
-                HStack(spacing: 4) {
-                    Image(systemName: "star.fill")
-                        .font(.system(size: 18))
-                        .foregroundColor(AppTheme.sunnyYellow)
-
-                    Text("+\(challenge.bonusPercentage)% bonus")
-                        .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    RoundedRectangle(cornerRadius: 9999)
+                        .fill(colorSet.barColor)
+                        .frame(width: geometry.size.width * progressPercentage, height: 10)
                 }
             }
+            .frame(height: 10)
+
+            // Points reward - HIDDEN (keeping code for future use)
+            // HStack(spacing: 4) {
+            //     Image(systemName: "star.fill")
+            //         .font(.system(size: 18))
+            //         .foregroundColor(AppTheme.sunnyYellow)
+            //
+            //     Text("+\(challenge.bonusPercentage)% bonus")
+            //         .font(.system(size: 16, weight: .bold))
+            //         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            // }
 
             if let callout = rewardCallout(for: challenge) {
                 Text(callout)
