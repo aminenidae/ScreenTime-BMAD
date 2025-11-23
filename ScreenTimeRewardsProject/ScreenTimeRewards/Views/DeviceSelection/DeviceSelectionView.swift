@@ -62,13 +62,17 @@ struct DeviceSelectionView: View {
                     .padding(.horizontal, 16)
                     .frame(maxWidth: 512) // max-w-lg
 
-                    // Text Field Component
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Device Name")
-                            .font(.system(size: 16, weight: .medium))
-                            .foregroundColor(AppColors.textPrimary)
+                    // Text Field Component - Dynamic based on selected mode
+                    if let mode = selectedMode {
+                        VStack(alignment: .leading, spacing: 8) {
+                            Text(mode == .parentDevice ? "Parent's Name" : "Child's Name")
+                                .font(.system(size: 16, weight: .medium))
+                                .foregroundColor(AppColors.textPrimary)
 
-                        TextField("e.g., Mom's iPhone, Sam's iPad", text: $deviceName)
+                            TextField(
+                                mode == .parentDevice ? "e.g., Mom, Dad, Sarah" : "e.g., Sam, Emma, Alex",
+                                text: $deviceName
+                            )
                             .font(.system(size: 16))
                             .padding(15)
                             .frame(height: 56)
@@ -79,10 +83,12 @@ struct DeviceSelectionView: View {
                                     .stroke(deviceName.isEmpty ? Color.red.opacity(0.5) : AppColors.border, lineWidth: 1)
                             )
                             .autocapitalization(.words)
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 12)
+                        .frame(maxWidth: 512) // max-w-lg
+                        .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: 512) // max-w-lg
                     }
                     .padding(.bottom, 16) // Add bottom padding to ScrollView content
                 }
