@@ -667,8 +667,11 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel] 📋 Reward snapshot logical IDs: \(rewardLogicalIDs)")
         print("[AppUsageViewModel] 📋 Reward snapshot token hashes: \(rewardTokenHashes)")
         #endif
+
+        // Sync shield data for dynamic shield messages
+        syncShieldData()
     }
-    
+
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
         // Standardize default rate so new learning/reward apps start at 10 pts/min
         return 10
@@ -2549,6 +2552,9 @@ extension AppUsageViewModel {
                 } else {
                     currentStreak = 0
                 }
+
+                // Sync shield data with updated challenge info
+                syncShieldData()
             } catch {
                 #if DEBUG
                 print("[AppUsageViewModel] ❌ Failed to load challenges: \(error)")
@@ -2608,6 +2614,59 @@ extension AppUsageViewModel {
         if !rewardAppIDs.isEmpty {
             unlockRewardAppsFromChallenge(logicalIDs: rewardAppIDs, minutes: unlockMinutes)
         }
+    }
+
+    // MARK: - Shield Data Sync
+
+    /// Updates the shared shield data for the ShieldConfigurationExtension to display
+    /// Call this whenever learning progress changes
+    func syncShieldData() {
+        // Get the first active challenge (primary challenge for shield display)
+        guard let challenge = activeChallenges.first,
+              challenge.isActive else {
+            // No active challenge - clear shield data
+            ShieldDataService.shared.clearShieldData()
+            return
+        }
+
+        let targetAppIDs = challenge.targetAppIDs
+        let targetMinutes = Int(challenge.targetValue)
+
+        // Calculate current progress from learning snapshots
+        var currentMinutes = 0
+        var targetAppNames: [String] = []
+
+        if targetAppIDs.isEmpty {
+            // All learning apps count
+            for snapshot in learningSnapshots {
+                currentMinutes += Int(snapshot.totalSeconds / 60)
+                if snapshot.totalSeconds > 0 && !targetAppNames.contains(snapshot.displayName) {
+                    targetAppNames.append(snapshot.displayName)
+                }
+            }
+        } else {
+            // Only specific apps count
+            for snapshot in learningSnapshots {
+                if targetAppIDs.contains(snapshot.logicalID) {
+                    currentMinutes += Int(snapshot.totalSeconds / 60)
+                    if !targetAppNames.contains(snapshot.displayName) {
+                        targetAppNames.append(snapshot.displayName)
+                    }
+                }
+            }
+
+            // If no snapshots yet for target apps, use app IDs as names
+            if targetAppNames.isEmpty {
+                targetAppNames = targetAppIDs
+            }
+        }
+
+        ShieldDataService.shared.updateShieldData(
+            challengeTitle: challenge.title ?? "Learning Challenge",
+            targetAppNames: targetAppNames,
+            targetMinutes: targetMinutes,
+            currentMinutes: currentMinutes
+        )
     }
 
     // MARK: - Chart Data Helpers
