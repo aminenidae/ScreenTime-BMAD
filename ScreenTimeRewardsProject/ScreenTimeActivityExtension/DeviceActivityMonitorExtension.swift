@@ -52,6 +52,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Memory-Efficient Usage Recording
 
     /// Record usage using only primitive values - no JSON, no structs
+    /// KEY FIX: Uses SET semantics based on threshold minute, not INCREMENT
+    /// This prevents phantom usage from accumulating
     private nonisolated func recordUsageEfficiently(for eventName: String) -> Bool {
         writeDebugLog("recordUsageEfficiently: \(eventName)")
 
@@ -71,16 +73,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Read increment (default 60s = 1 minute)
-        let mapIncKey = "map_\(eventName)_inc"
-        let mapSecKey = "map_\(eventName)_sec"
-        let increment = defaults.integer(forKey: mapIncKey) > 0
-            ? defaults.integer(forKey: mapIncKey)
-            : (defaults.integer(forKey: mapSecKey) > 0 ? defaults.integer(forKey: mapSecKey) : 60)
+        // 2. Extract the minute number from event name (e.g., "usage.app.0.min.15" → 15)
+        // This is the CUMULATIVE minutes reached, not an increment
+        let thresholdMinutes = extractMinuteFromEventName(eventName)
+        let thresholdSeconds = thresholdMinutes * 60
 
-        writeDebugLog("Found mapping: appID=\(appID), increment=\(increment)s")
+        writeDebugLog("Found mapping: appID=\(appID), thresholdMinutes=\(thresholdMinutes)")
 
-        // 2. Check cooldown (phantom event protection)
+        // 3. Check cooldown (phantom event protection)
         let now = Date().timeIntervalSince1970
         let lastRecordKey = "lastRecorded_\(appID)"
         let lastRecord = defaults.double(forKey: lastRecordKey)
@@ -90,20 +90,80 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // 3. Update usage counters (primitives only)
-        incrementUsage(appID: appID, seconds: increment, defaults: defaults)
+        // 4. SET usage to threshold value (not INCREMENT)
+        // This prevents phantom usage from accumulating
+        let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
 
-        // 4. Update last recorded timestamp
+        if !didUpdate {
+            writeDebugLog("SKIPPED: Current usage already >= threshold (\(thresholdSeconds)s)")
+            return false
+        }
+
+        // 5. Update last recorded timestamp
         defaults.set(now, forKey: lastRecordKey)
 
-        // 5. Signal re-arm request for continuous tracking
+        // 6. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
         defaults.set(now, forKey: "rearm_\(appID)_time")
 
         defaults.synchronize()
 
-        writeDebugLog("SUCCESS: Recorded \(increment)s for \(appID), re-arm requested")
+        writeDebugLog("SUCCESS: Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(appID)")
         return true
+    }
+
+    /// Extract minute number from event name like "usage.app.0.min.15" → 15
+    private nonisolated func extractMinuteFromEventName(_ eventName: String) -> Int {
+        let components = eventName.split(separator: ".")
+        // Look for "min" followed by number
+        for i in 0..<components.count - 1 {
+            if components[i] == "min", let minute = Int(components[i + 1]) {
+                return minute
+            }
+        }
+        // Fallback: check if last component is a number
+        if let lastNum = Int(components.last ?? "") {
+            return lastNum
+        }
+        return 1 // Default to 1 minute if can't parse
+    }
+
+    /// SET usage to threshold value (only if higher than current)
+    /// Returns true if update was applied, false if skipped
+    private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults) -> Bool {
+        // Read current today value
+        let todayKey = "usage_\(appID)_today"
+        let todayResetKey = "usage_\(appID)_reset"
+        let totalKey = "usage_\(appID)_total"
+        let now = Date()
+        let startOfToday = Calendar.current.startOfDay(for: now).timeIntervalSince1970
+        let lastReset = defaults.double(forKey: todayResetKey)
+
+        // Check for day rollover
+        if lastReset < startOfToday {
+            // New day - reset counters and set to threshold
+            defaults.set(thresholdSeconds, forKey: todayKey)
+            defaults.set(startOfToday, forKey: todayResetKey)
+            defaults.set(thresholdSeconds, forKey: totalKey) // Reset total for new day
+            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
+            writeDebugLog("New day detected - set today to \(thresholdSeconds)s")
+            return true
+        }
+
+        // Same day - only update if threshold is higher
+        let currentToday = defaults.integer(forKey: todayKey)
+        if thresholdSeconds > currentToday {
+            defaults.set(thresholdSeconds, forKey: todayKey)
+            // Also update total (add the delta)
+            let currentTotal = defaults.integer(forKey: totalKey)
+            let delta = thresholdSeconds - currentToday
+            defaults.set(currentTotal + delta, forKey: totalKey)
+            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
+            writeDebugLog("Updated counters: today=\(currentToday)→\(thresholdSeconds)s, delta=\(delta)s")
+            return true
+        }
+
+        return false // Current usage already at or above threshold
     }
 
     /// Fallback: Read mapping from JSON eventMappings (for compatibility)
@@ -126,6 +186,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// Record usage using JSON fallback mapping
+    /// KEY FIX: Uses SET semantics based on threshold minute, not INCREMENT
     private nonisolated func recordUsageWithMapping(_ mapping: (appID: String, increment: Int, displayName: String, category: String, rewardPoints: Int), eventName: String, defaults: UserDefaults) -> Bool {
         let now = Date().timeIntervalSince1970
         let lastRecordKey = "lastRecorded_\(mapping.appID)"
@@ -136,11 +197,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Update usage counters
-        incrementUsage(appID: mapping.appID, seconds: mapping.increment, defaults: defaults)
+        // Extract threshold minutes from event name and SET (not increment)
+        let thresholdMinutes = extractMinuteFromEventName(eventName)
+        let thresholdSeconds = thresholdMinutes * 60
+
+        let didUpdate = setUsageToThreshold(appID: mapping.appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
+
+        if !didUpdate {
+            writeDebugLog("SKIPPED (JSON path): Current usage already >= threshold")
+            return false
+        }
 
         // Update JSON persistence for compatibility
-        updateJSONPersistence(appID: mapping.appID, increment: mapping.increment, rewardPoints: mapping.rewardPoints, defaults: defaults)
+        // Delta is 60 seconds (1 threshold = 1 minute)
+        updateJSONPersistence(appID: mapping.appID, increment: 60, rewardPoints: mapping.rewardPoints, defaults: defaults)
 
         // Update timestamp and request re-arm
         defaults.set(now, forKey: lastRecordKey)
@@ -148,7 +218,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
         defaults.synchronize()
 
-        writeDebugLog("SUCCESS (JSON path): Recorded \(mapping.increment)s for \(mapping.displayName)")
+        writeDebugLog("SUCCESS (JSON path): Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(mapping.displayName)")
         return true
     }
 
