@@ -2596,6 +2596,7 @@ extension AppUsageViewModel {
     private func handleChallengeCompletion(challengeID: String, rewardAppIDs: [String], unlockMinutes: Int) {
         #if DEBUG
         print("[AppUsageViewModel] 🎉 Challenge completed! ID: \(challengeID)")
+        print("[AppUsageViewModel] Reward app IDs from challenge: \(rewardAppIDs)")
         #endif
         completedChallengeID = challengeID.isEmpty ? nil : challengeID
         showCompletionCelebration = true
@@ -2611,14 +2612,26 @@ extension AppUsageViewModel {
 
         loadChallengeData()
 
+        // Unlock reward apps
         if !rewardAppIDs.isEmpty {
+            // Challenge has specific reward apps - unlock only those
+            #if DEBUG
+            print("[AppUsageViewModel] Unlocking specific reward apps from challenge: \(rewardAppIDs.count)")
+            #endif
             unlockRewardAppsFromChallenge(logicalIDs: rewardAppIDs, minutes: unlockMinutes)
+        } else {
+            // Challenge has no specific reward apps - unlock ALL configured reward apps
+            #if DEBUG
+            print("[AppUsageViewModel] No specific reward apps in challenge - unlocking ALL reward apps")
+            #endif
+            unlockRewardApps()
         }
     }
 
     // MARK: - Shield Data Sync
 
     /// Updates the shared shield data for the ShieldConfigurationExtension to display
+    /// Also checks if challenge should be completed and unlocks rewards if goal is met
     /// Call this whenever learning progress changes
     func syncShieldData() {
         // Get the first active challenge (primary challenge for shield display)
@@ -2667,6 +2680,38 @@ extension AppUsageViewModel {
             targetMinutes: targetMinutes,
             currentMinutes: currentMinutes
         )
+
+        // CHECK: If learning goal is met based on snapshots, trigger unlock
+        // This catches cases where ChallengeProgress might be out of sync with actual usage
+        if currentMinutes >= targetMinutes {
+            let progress = challengeProgress[challenge.challengeID ?? ""]
+            let alreadyCompleted = progress?.isCompleted ?? false
+
+            if !alreadyCompleted {
+                #if DEBUG
+                print("[AppUsageViewModel] 🎯 Goal achieved based on snapshots! \(currentMinutes)/\(targetMinutes) min")
+                print("[AppUsageViewModel] 🔓 Triggering reward unlock (snapshot-based completion)")
+                #endif
+
+                // Unlock all reward apps since goal is met
+                unlockRewardApps()
+
+                // Also trigger celebration if not already shown
+                if !showCompletionCelebration {
+                    completedChallengeID = challenge.challengeID
+                    showCompletionCelebration = true
+                    lastRewardUnlockMinutes = challenge.rewardUnlockMinutes(defaultValue: 30)
+
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                        guard let self else { return }
+                        Task { @MainActor in
+                            self.showCompletionCelebration = false
+                            self.completedChallengeID = nil
+                        }
+                    }
+                }
+            }
+        }
     }
 
     // MARK: - Chart Data Helpers
