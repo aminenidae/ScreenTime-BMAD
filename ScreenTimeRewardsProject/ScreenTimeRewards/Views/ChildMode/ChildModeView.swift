@@ -27,6 +27,11 @@ struct ChildModeView: View {
         }
         .navigationViewStyle(.stack)
         .onAppear {
+            // CRITICAL: Start monitoring when entering Child Mode
+            // This was missing - monitoring only started during onboarding setup
+            print("[ChildModeView] 📱 Child Mode appeared - starting monitoring")
+            viewModel.startMonitoring(force: false)
+
             // Ensure challenges are loaded
             Task {
                 await viewModel.loadChallengeData()

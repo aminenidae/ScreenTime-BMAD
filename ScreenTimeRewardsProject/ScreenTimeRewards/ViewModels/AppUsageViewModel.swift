@@ -957,38 +957,33 @@ class AppUsageViewModel: ObservableObject {
     /// Start monitoring app usage, updating state based on the result
     /// - Parameter force: If true, bypasses the isMonitoring check (for explicit user-requested starts)
     func startMonitoring(force: Bool = false) {
+        // ALWAYS print this - not wrapped in DEBUG - for troubleshooting
+        print("[AppUsageViewModel] 🎯 startMonitoring() called (force=\(force), isMonitoring=\(isMonitoring))")
+
         guard !isMonitoring || force else {
-            #if DEBUG
-            print("[AppUsageViewModel] ⚠️ Monitoring already active (isMonitoring=\(isMonitoring)), skipping start")
-            print("[AppUsageViewModel] ⚠️ If this blocks a legitimate start attempt, call with force: true")
-            #endif
+            print("[AppUsageViewModel] ⚠️ Monitoring already active, skipping start")
             return
         }
 
-        #if DEBUG
         if force && isMonitoring {
             print("[AppUsageViewModel] 🔄 Force-starting monitoring despite isMonitoring=true")
         }
-        print("[AppUsageViewModel] Starting monitoring")
-        #endif
-    
+        print("[AppUsageViewModel] 🚀 Starting monitoring...")
+
         errorMessage = nil
         service.startMonitoring { [weak self] result in
             guard let self else { return }
             DispatchQueue.main.async {
                 switch result {
                 case .success:
-                    #if DEBUG
-                    print("[AppUsageViewModel] Monitoring started successfully")
-                    print("[AppUsageViewModel] isMonitoring set to true")
-                    #endif
+                    print("[AppUsageViewModel] ✅ Monitoring started successfully!")
                     self.isMonitoring = true
                     self.refreshData()
+                    // Run diagnostics after successful start
+                    self.service.printUsageTrackingDiagnostics()
                 case .failure(let error):
-                    #if DEBUG
-                    print("[AppUsageViewModel] Failed to start monitoring: \(error)")
-                    print("[AppUsageViewModel] Error description: \(error.errorDescription ?? "No description")")
-                    #endif
+                    print("[AppUsageViewModel] ❌ Failed to start monitoring: \(error)")
+                    print("[AppUsageViewModel] ❌ Error: \(error.errorDescription ?? "No description")")
                     self.isMonitoring = false
                     self.errorMessage = error.errorDescription ?? "An unknown monitoring error occurred."
                 }

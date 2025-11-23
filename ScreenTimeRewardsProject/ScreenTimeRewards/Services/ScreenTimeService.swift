@@ -180,6 +180,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         activityMonitor.delegate = self
         registerForExtensionNotifications()
         loadPersistedAssignments()
+
+        // ALWAYS print this - not wrapped in DEBUG - to diagnose tracking issues
+        print("=" + String(repeating: "=", count: 50))
+        print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
+        print("[ScreenTimeService] appUsages count: \(appUsages.count)")
+        print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
+        print("=" + String(repeating: "=", count: 50))
+
+        // Auto-run diagnostics after 2 seconds
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
+            print("[ScreenTimeService] 📊 AUTO-DIAGNOSTICS RUNNING...")
+            self?.printUsageTrackingDiagnostics()
+        }
     }
 
     // MARK: - Helper Methods
@@ -1138,33 +1151,43 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
     
     func startMonitoring(completion: @escaping (Result<Void, ScreenTimeServiceError>) -> Void) {
+        // ALWAYS print - for troubleshooting
+        print("[ScreenTimeService] 🎯 startMonitoring() called")
+
         requestPermission { [weak self] result in
             guard let self else { return }
             switch result {
             case .success:
+                print("[ScreenTimeService] ✅ Permission granted, scheduling activity...")
                 do {
                     try self.scheduleActivity()
                     self.isMonitoring = true
+                    print("[ScreenTimeService] ✅ Activity scheduled successfully!")
 
                     // Persist monitoring state for auto-restart on app launch
                     if let sharedDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
                         sharedDefaults.set(true, forKey: "wasMonitoringActive")
                         sharedDefaults.synchronize()
-                        #if DEBUG
                         print("[ScreenTimeService] 💾 Persisted monitoring state: ACTIVE")
-                        #endif
+                    }
+
+                    // Print diagnostics after monitoring starts (always, not just DEBUG)
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
+                        self.printUsageTrackingDiagnostics()
                     }
 
                     DispatchQueue.main.async {
                         completion(.success(()))
                     }
                 } catch {
+                    print("[ScreenTimeService] ❌ Failed to schedule activity: \(error)")
                     self.isMonitoring = false
                     DispatchQueue.main.async {
                         completion(.failure(.monitoringFailed(error)))
                     }
                 }
             case .failure(let error):
+                print("[ScreenTimeService] ❌ Permission denied: \(error)")
                 self.isMonitoring = false
                 DispatchQueue.main.async {
                     completion(.failure(error))
@@ -1229,6 +1252,75 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return "Unable to access App Group"
         }
         return sharedDefaults.string(forKey: "extension_debug_log") ?? "No extension logs yet"
+    }
+
+    /// Comprehensive diagnostic for troubleshooting usage tracking issues
+    func printUsageTrackingDiagnostics() {
+        print("\n" + String(repeating: "=", count: 60))
+        print("📊 USAGE TRACKING DIAGNOSTICS")
+        print(String(repeating: "=", count: 60))
+
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            print("❌ CRITICAL: Cannot access App Group!")
+            return
+        }
+
+        // 1. Extension heartbeat
+        let heartbeat = defaults.double(forKey: "extension_heartbeat")
+        if heartbeat > 0 {
+            let age = Date().timeIntervalSince1970 - heartbeat
+            print("✅ Extension heartbeat: \(Int(age))s ago")
+        } else {
+            print("⚠️ No extension heartbeat recorded")
+        }
+
+        // 2. Extension initialized
+        let extInit = defaults.bool(forKey: "extension_initialized_flag")
+        print("Extension initialized: \(extInit ? "✅ Yes" : "❌ No")")
+
+        // 3. Darwin notification stats
+        let sent = defaults.integer(forKey: "darwin_notification_seq_sent")
+        let received = defaults.integer(forKey: "darwin_notification_seq_received")
+        print("Darwin notifications: sent=\(sent), received=\(received)")
+
+        // 4. Check event mappings
+        if let mappingData = defaults.data(forKey: "eventMappings"),
+           let mappings = try? JSONSerialization.jsonObject(with: mappingData) as? [String: Any] {
+            print("Event mappings: \(mappings.count) events configured")
+
+            // Show first 3 mappings as sample
+            for (i, key) in mappings.keys.prefix(3).enumerated() {
+                print("  [\(i)] \(key)")
+            }
+        } else {
+            print("⚠️ No event mappings found!")
+        }
+
+        // 5. Check usage counters for known apps
+        print("\n📱 Usage counters (from extension):")
+        for (logicalID, app) in appUsages.prefix(5) {
+            let todayKey = "usage_\(logicalID)_today"
+            let totalKey = "usage_\(logicalID)_total"
+            let today = defaults.integer(forKey: todayKey)
+            let total = defaults.integer(forKey: totalKey)
+            print("  \(app.appName): today=\(today)s, total=\(total)s")
+        }
+
+        // 6. Extension debug log (last 10 lines)
+        print("\n📝 Extension log (last 10 lines):")
+        let log = defaults.string(forKey: "extension_debug_log") ?? ""
+        let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
+        for line in lines.suffix(10) {
+            print("  \(line)")
+        }
+
+        // 7. Monitoring state
+        print("\n🔍 Monitoring state:")
+        print("  isMonitoring: \(isMonitoring)")
+        print("  monitoredEvents count: \(monitoredEvents.count)")
+        print("  appUsages count: \(appUsages.count)")
+
+        print(String(repeating: "=", count: 60) + "\n")
     }
 
     // MARK: - REMOVED: Dynamic threshold advancement (caused cascade fires)
