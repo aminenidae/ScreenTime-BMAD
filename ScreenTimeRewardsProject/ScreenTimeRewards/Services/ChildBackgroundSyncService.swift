@@ -18,17 +18,28 @@ class ChildBackgroundSyncService {
         ) { task in
             self.handleUsageUploadTask(task)
         }
-        
+
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "com.screentimerewards.config-check",
             using: nil
         ) { task in
             self.handleConfigCheckTask(task)
         }
-        
+
+        // PHASE 2 FIX: Register midnight reset task
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.midnight-reset",
+            using: nil
+        ) { task in
+            self.handleMidnightResetTask(task)
+        }
+
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
+
+        // Schedule the midnight reset task for the next midnight
+        scheduleMidnightReset()
     }
     
     /// Schedule a usage upload task
@@ -183,7 +194,7 @@ class ChildBackgroundSyncService {
         let request = BGProcessingTaskRequest(identifier: "com.screentimerewards.config-check")
         request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
         request.requiresNetworkConnectivity = true
-        
+
         do {
             try BGTaskScheduler.shared.submit(request)
             #if DEBUG
@@ -195,7 +206,83 @@ class ChildBackgroundSyncService {
             #endif
         }
     }
-    
+
+    // MARK: - Midnight Reset Task (PHASE 2 FIX)
+
+    /// Handle midnight reset background task
+    func handleMidnightResetTask(_ task: BGTask) {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] 🕐 Handling midnight reset task at \(Date())")
+        #endif
+
+        task.expirationHandler = {
+            task.setTaskCompleted(success: false)
+        }
+
+        // Reset daily usage counters
+        let persistence = UsagePersistence()
+        persistence.resetDailyCounters()
+
+        // Notify the app if it's running
+        NotificationCenter.default.post(name: .dailyUsageReset, object: nil)
+
+        #if DEBUG
+        print("[ChildBackgroundSyncService] ✅ Daily usage counters reset successfully")
+        #endif
+
+        // Schedule the next midnight reset
+        scheduleMidnightReset()
+
+        task.setTaskCompleted(success: true)
+    }
+
+    /// Schedule midnight reset task for the next midnight
+    func scheduleMidnightReset() {
+        let calendar = Calendar.current
+        let now = Date()
+
+        // Calculate next midnight (00:01 to avoid exact midnight edge cases)
+        var components = calendar.dateComponents([.year, .month, .day], from: now)
+        components.hour = 0
+        components.minute = 1
+        components.second = 0
+
+        guard var nextMidnight = calendar.date(from: components) else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ❌ Failed to calculate next midnight")
+            #endif
+            return
+        }
+
+        // If we've already passed 00:01 today, schedule for tomorrow
+        if nextMidnight <= now {
+            guard let tomorrow = calendar.date(byAdding: .day, value: 1, to: nextMidnight) else {
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ❌ Failed to calculate tomorrow's midnight")
+                #endif
+                return
+            }
+            nextMidnight = tomorrow
+        }
+
+        let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.midnight-reset")
+        request.earliestBeginDate = nextMidnight
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            #if DEBUG
+            let formatter = DateFormatter()
+            formatter.dateStyle = .medium
+            formatter.timeStyle = .short
+            print("[ChildBackgroundSyncService] 🕐 Scheduled midnight reset for \(formatter.string(from: nextMidnight))")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ❌ Failed to schedule midnight reset: \(error)")
+            #endif
+        }
+    }
+
     // === TASK 7 TRIGGER IMPLEMENTATION ===
     /// Upload unsynced usage records to parent's shared zone
     func uploadUsageRecordsToParent() async throws {

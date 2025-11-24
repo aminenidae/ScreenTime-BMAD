@@ -34,6 +34,7 @@
 	<array>
 		<string>com.screentimerewards.usage-upload</string>
 		<string>com.screentimerewards.config-check</string>
+		<string>com.screentimerewards.midnight-reset</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

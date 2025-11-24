@@ -713,8 +713,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
-        // Create 60 consecutive 1-minute threshold events per app
+        // PRE-SET 240 MINUTE THRESHOLDS PER APP:
+        // Create 240 consecutive 1-minute threshold events per app (4 hours of tracking)
         // Each threshold fires once when that minute is reached - NO re-arm/restart needed
         // Extension uses memory-efficient primitive key storage (not JSON parsing)
         // This avoids the bug where restarting monitoring resets iOS usage counters
@@ -729,15 +729,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             #if DEBUG
-            print("[ScreenTimeService] Creating 60 threshold events for \(applications.count) \(category.rawValue) app(s)")
+            print("[ScreenTimeService] Creating 240 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
-            // Create 60 events per app with STATIC minute thresholds 1-60
+            // Create 240 events per app with STATIC minute thresholds 1-240
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 60    // Always end at 60 minutes
+                let endMinute = 240   // Track up to 240 minutes (4 hours)
 
                 #if DEBUG
                 print("[ScreenTimeService]   App: \(app.displayName)")
@@ -806,18 +806,38 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     /// Get existing today's usage in minutes for an app (reads from extension's primitive keys)
+    /// FIX: Also checks if the data is from today - returns 0 if it's stale data from a previous day
     private func getExistingTodayUsageMinutes(for logicalID: String) -> Int {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return 0 }
 
         // First try extension's primitive keys
         let todayKey = "usage_\(logicalID)_today"
+        let resetKey = "usage_\(logicalID)_reset"
         let todaySeconds = defaults.integer(forKey: todayKey)
+
         if todaySeconds > 0 {
+            // FIX: Check if this data is actually from today
+            let lastReset = defaults.double(forKey: resetKey)
+            let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+
+            if lastReset < startOfToday {
+                // Data is stale (from yesterday or earlier) - return 0
+                #if DEBUG
+                print("[ScreenTimeService] ⚠️ Stale today data for \(logicalID): lastReset=\(lastReset), startOfToday=\(startOfToday)")
+                #endif
+                return 0
+            }
+
             return todaySeconds / 60
         }
 
-        // Fallback to persisted data
+        // Fallback to persisted data - also check lastResetDate
         if let persisted = usagePersistence.app(for: logicalID) {
+            let startOfToday = Calendar.current.startOfDay(for: Date())
+            if persisted.lastResetDate < startOfToday {
+                // Stale data from yesterday or earlier
+                return 0
+            }
             return persisted.todaySeconds / 60
         }
 
@@ -1015,10 +1035,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
-    // MARK: - Extension Usage Update Handler (60 Static Thresholds)
+    // MARK: - Extension Usage Update Handler (240 Static Thresholds)
 
     /// Handle usage recorded notification from extension
-    /// With 60 static thresholds (1min, 2min, ... 60min), NO restart is needed!
+    /// With 240 static thresholds (1min, 2min, ... 240min), NO restart is needed!
     /// Each threshold fires once when cumulative usage reaches that minute.
     private func handleExtensionUsageRecorded(defaults: UserDefaults) {
         #if DEBUG
@@ -1040,7 +1060,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] 📊 Usage update for: \(logicalID)")
                 #endif
 
-                // Just log - NO restart with 60 static thresholds
+                // Just log - NO restart with 240 static thresholds
                 clearRearmFlag(for: logicalID, defaults: defaults)
                 updateCount += 1
             }
@@ -1049,7 +1069,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         defaults.synchronize()
 
         #if DEBUG
-        print("[ScreenTimeService] ✅ Processed \(updateCount) usage updates (NO restart - 60 static thresholds)")
+        print("[ScreenTimeService] ✅ Processed \(updateCount) usage updates (NO restart - 240 static thresholds)")
         #endif
 
         // Notify UI of usage updates
@@ -1057,6 +1077,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     /// Read usage data from extension's primitive keys
+    /// Read extension usage data and sync to persistence.
+    /// NOTE: Staleness is handled by forceResetAllDailyCounters (v5 migration) and
+    /// resetDailyCounters (day change). This function trusts extension data for real-time sync.
     private func readExtensionUsageData(defaults: UserDefaults) {
         for (logicalID, var usage) in appUsages {
             // Read from extension's primitive keys
@@ -1077,11 +1100,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
                 // Also sync to usagePersistence so UI snapshots show correct data
                 if var persistedApp = usagePersistence.app(for: logicalID) {
-                    // Only update if extension has more recent/higher data
+                    // Sync if extension has newer/higher data
                     if todaySeconds > persistedApp.todaySeconds {
                         persistedApp.todaySeconds = todaySeconds
                         persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
                         persistedApp.lastUpdated = Date()
+                        // Update lastResetDate to today since we have valid today data
+                        persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
                         usagePersistence.saveApp(persistedApp)
 
                         #if DEBUG
@@ -1093,8 +1118,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
-    /// Handle re-arm request - with 60 static thresholds, NO restart needed
-    /// The thresholds (1min, 2min, 3min... 60min) are already pre-set
+    /// Handle re-arm request - with 240 static thresholds, NO restart needed
+    /// The thresholds (1min, 2min, 3min... 240min) are already pre-set
     /// We just clear the re-arm flag and log the update
     private func clearRearmFlag(for logicalID: String, defaults: UserDefaults) {
         guard let usage = appUsages[logicalID] else {
@@ -1110,10 +1135,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         print("[ScreenTimeService] ✅ Usage update for \(usage.appName): \(currentMinutes) minutes recorded")
-        print("[ScreenTimeService]    (60 static thresholds already set - NO restart needed)")
+        print("[ScreenTimeService]    (240 static thresholds already set - NO restart needed)")
         #endif
 
-        // NO restart! 60 static thresholds are already in place
+        // NO restart! 240 static thresholds are already in place
         // Next threshold will fire automatically when usage reaches next minute
     }
     
@@ -1498,6 +1523,36 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         usagePersistence.resetDailyCounters()
         reloadAppUsagesFromPersistence()
         notifyUsageChange()
+    }
+
+    /// Force reset ALL daily counters regardless of lastResetDate.
+    /// This is a one-time migration to fix data corrupted by the faulty decoder default.
+    func forceResetAllDailyCounters() {
+        usagePersistence.forceResetAllDailyCounters()
+        reloadAppUsagesFromPersistence()
+        notifyUsageChange()
+    }
+
+    /// Refresh usage data from extension's UserDefaults.
+    /// Call this when app becomes active to ensure UI shows latest data.
+    func refreshFromExtension() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ refreshFromExtension: Failed to access app group")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 refreshFromExtension: Reading extension data...")
+        #endif
+
+        readExtensionUsageData(defaults: defaults)
+        notifyUsageChange()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ refreshFromExtension: Complete")
+        #endif
     }
 
     /// Return daily histories for all apps keyed by logical ID.

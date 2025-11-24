@@ -60,7 +60,9 @@ final class UsagePersistence {
             // New fields with defaults for migration
             todaySeconds = try container.decodeIfPresent(Int.self, forKey: .todaySeconds) ?? 0
             todayPoints = try container.decodeIfPresent(Int.self, forKey: .todayPoints) ?? 0
-            lastResetDate = try container.decodeIfPresent(Date.self, forKey: .lastResetDate) ?? Calendar.current.startOfDay(for: Date())
+            // FIX: Default to .distantPast so old data without lastResetDate is correctly identified as stale
+            // Previously defaulted to today, which made stale data appear valid
+            lastResetDate = try container.decodeIfPresent(Date.self, forKey: .lastResetDate) ?? .distantPast
             dailyHistory = try container.decodeIfPresent([DailyUsageSummary].self, forKey: .dailyHistory) ?? []
             todayHourlySeconds = try container.decodeIfPresent([Int].self, forKey: .todayHourlySeconds)
             todayHourlyPoints = try container.decodeIfPresent([Int].self, forKey: .todayHourlyPoints)
@@ -358,7 +360,8 @@ final class UsagePersistence {
         #endif
     }
 
-    /// Reset today's usage counters for every persisted app.
+    /// Reset today's usage counters for every persisted app WHERE lastResetDate is NOT today.
+    /// Apps that already have lastResetDate = today are left untouched (they have valid current-day data).
     /// - Parameter referenceDate: Allows tests to supply a custom date for determining the new reset boundary.
     func resetDailyCounters(referenceDate: Date = Date()) {
         let calendar = Calendar.current
@@ -366,8 +369,17 @@ final class UsagePersistence {
         var mutated = false
 
         for (logicalID, var app) in cachedApps {
-            // If we're crossing a day boundary, archive the previous day's usage
-            if !calendar.isDate(app.lastResetDate, inSameDayAs: midnight) && (app.todaySeconds > 0 || app.todayPoints > 0) {
+            // FIX: Only process apps where lastResetDate is NOT today
+            // Apps with lastResetDate = today already have valid current-day data
+            guard !calendar.isDate(app.lastResetDate, inSameDayAs: midnight) else {
+                #if DEBUG
+                print("[UsagePersistence] ✓ Skipping \(app.displayName) - lastResetDate is already today")
+                #endif
+                continue
+            }
+
+            // Archive previous day's usage if there was any
+            if app.todaySeconds > 0 || app.todayPoints > 0 {
                 let summary = DailyUsageSummary(date: app.lastResetDate, seconds: app.todaySeconds, points: app.todayPoints)
                 app.dailyHistory.append(summary)
 
@@ -375,22 +387,79 @@ final class UsagePersistence {
                 if let cutoff = calendar.date(byAdding: .day, value: -30, to: midnight) {
                     app.dailyHistory.removeAll { $0.date < cutoff }
                 }
-            }
 
-            if app.todaySeconds != 0 || app.todayPoints != 0 || !calendar.isDate(app.lastResetDate, inSameDayAs: midnight) {
-                app.todaySeconds = 0
-                app.todayPoints = 0
-                app.lastResetDate = midnight
-                cachedApps[logicalID] = app
-                mutated = true
                 #if DEBUG
-                print("[UsagePersistence] 🌅 Reset daily counters for \(app.displayName) (\(logicalID))")
+                print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s from \(app.lastResetDate)")
                 #endif
             }
+
+            // Reset counters for new day
+            app.todaySeconds = 0
+            app.todayPoints = 0
+            app.lastResetDate = midnight
+            cachedApps[logicalID] = app
+            mutated = true
+
+            #if DEBUG
+            print("[UsagePersistence] 🌅 Reset daily counters for \(app.displayName) (\(logicalID))")
+            #endif
         }
 
         if mutated {
             persistApps()
+        }
+    }
+
+    /// Force reset ALL daily counters regardless of lastResetDate.
+    /// This is a one-time migration to fix data corrupted by the faulty decoder default
+    /// that incorrectly set lastResetDate = today for old data.
+    func forceResetAllDailyCounters() {
+        let calendar = Calendar.current
+        let midnight = calendar.startOfDay(for: Date())
+        var mutated = false
+
+        print("[UsagePersistence] 🔧 FORCE RESET: Resetting ALL apps regardless of lastResetDate")
+
+        for (logicalID, var app) in cachedApps {
+            // Archive previous day's usage if there was any (but don't archive if lastResetDate is already today
+            // and this is real today data from the extension)
+            if app.todaySeconds > 0 || app.todayPoints > 0 {
+                // Only archive to history if this looks like stale data
+                // (i.e., lastResetDate == today but no actual usage events happened today)
+                // For safety, we archive all non-zero data to history before resetting
+                let summary = DailyUsageSummary(date: app.lastResetDate, seconds: app.todaySeconds, points: app.todayPoints)
+                app.dailyHistory.append(summary)
+
+                // Cleanup: Keep only last 30 days
+                if let cutoff = calendar.date(byAdding: .day, value: -30, to: midnight) {
+                    app.dailyHistory.removeAll { $0.date < cutoff }
+                }
+
+                print("[UsagePersistence] 📅 FORCE: Archived \(app.displayName): \(app.todaySeconds)s")
+            }
+
+            // Force reset counters
+            app.todaySeconds = 0
+            app.todayPoints = 0
+            app.todayHourlySeconds = nil
+            app.todayHourlyPoints = nil
+            app.lastResetDate = midnight
+            cachedApps[logicalID] = app
+            mutated = true
+
+            // CRITICAL FIX: Also clear extension's cached usage data in App Group UserDefaults
+            // This prevents readExtensionUsageData() from overwriting the reset with stale values
+            let todayKey = "usage_\(logicalID)_today"
+            userDefaults?.set(0, forKey: todayKey)
+            print("[UsagePersistence] 🔧 FORCE: Cleared extension key \(todayKey)")
+
+            print("[UsagePersistence] 🔧 FORCE: Reset \(app.displayName) - todaySeconds now 0")
+        }
+
+        if mutated {
+            persistApps()
+            userDefaults?.synchronize()  // Ensure extension keys are written
+            print("[UsagePersistence] 💾 FORCE RESET complete - all apps reset to 0")
         }
     }
 
@@ -405,18 +474,27 @@ final class UsagePersistence {
         #endif
     }
 
-    #if DEBUG
+    // Made unconditional for debugging stale data issue
     func printDebugInfo() {
+        let today = Calendar.current.startOfDay(for: Date())
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "MMM d, HH:mm"
+
         print("[UsagePersistence] 📊 Cached apps: \(cachedApps.count)")
-        for (id, app) in cachedApps {
-            print("   • \(app.displayName) -> \(id) (\(app.totalSeconds)s, \(app.earnedPoints)pts)")
+        print("[UsagePersistence] 📅 Today is: \(dateFormatter.string(from: today))")
+        for (_, app) in cachedApps {
+            let isStale = app.lastResetDate < today
+            let staleIndicator = isStale ? "⚠️ STALE" : "✅ VALID"
+            print("   • \(app.displayName):")
+            print("       todaySeconds: \(app.todaySeconds)s (\(app.todaySeconds/60)m)")
+            print("       lastResetDate: \(dateFormatter.string(from: app.lastResetDate)) \(staleIndicator)")
+            print("       totalSeconds: \(app.totalSeconds)s")
         }
         print("[UsagePersistence] 🔐 Token mappings: \(cachedTokenMappings.count)")
         for (hash, mapping) in cachedTokenMappings {
             print("   • \(hash.prefix(16))… -> \(mapping.logicalID) [\(mapping.displayName)]")
         }
     }
-    #endif
 
     // MARK: - Private helpers
 

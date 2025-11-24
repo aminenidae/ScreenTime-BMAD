@@ -1,5 +1,6 @@
 import DeviceActivity
 import Foundation
+import Darwin // For mach_task_self_ and task_info
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -108,7 +109,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         defaults.synchronize()
 
-        writeDebugLog("SUCCESS: Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(appID)")
+        // Log memory usage after recording
+        let memoryMB = getMemoryUsageMB()
+        writeDebugLog("SUCCESS: Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(appID) - Memory: \(String(format: "%.1f", memoryMB))MB")
+
+        // Check for high memory usage
+        if memoryMB > 5.0 {
+            writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
+        }
+
         return true
     }
 
@@ -141,12 +150,29 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Check for day rollover
         if lastReset < startOfToday {
-            // New day - reset counters and set to threshold
+            // PHASE 3 FIX: New day detected - reset ALL apps, not just current one
+            writeDebugLog("🌅 New day detected - performing global reset for all apps")
+
+            // Check if we've already done a global reset today
+            let globalResetKey = "global_daily_reset_timestamp"
+            let lastGlobalReset = defaults.double(forKey: globalResetKey)
+
+            if lastGlobalReset < startOfToday {
+                // Perform global reset for all tracked apps
+                resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
+                defaults.set(startOfToday, forKey: globalResetKey)
+                writeDebugLog("✅ Global reset completed for all apps")
+
+                // Notify main app about the global reset
+                notifyMainApp()
+            }
+
+            // Set current app's usage to threshold
             defaults.set(thresholdSeconds, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(thresholdSeconds, forKey: totalKey) // Reset total for new day
             defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
-            writeDebugLog("New day detected - set today to \(thresholdSeconds)s")
+            writeDebugLog("Set \(appID) today to \(thresholdSeconds)s after global reset")
             return true
         }
 
@@ -218,7 +244,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
         defaults.synchronize()
 
-        writeDebugLog("SUCCESS (JSON path): Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(mapping.displayName)")
+        // Log memory usage after recording
+        let memoryMB = getMemoryUsageMB()
+        writeDebugLog("SUCCESS (JSON path): Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(mapping.displayName) - Memory: \(String(format: "%.1f", memoryMB))MB")
+
+        // Check for high memory usage
+        if memoryMB > 5.0 {
+            writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
+        }
+
         return true
     }
 
@@ -288,12 +322,83 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Utilities
 
+    /// Get current memory usage in MB using task_vm_info for accuracy
+    private nonisolated func getMemoryUsageMB() -> Double {
+        var info = task_vm_info_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<integer_t>.size)
+
+        let kr = withUnsafeMutablePointer(to: &info) { infoPtr in
+            infoPtr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                task_info(mach_task_self_,
+                         task_flavor_t(TASK_VM_INFO),
+                         intPtr,
+                         &count)
+            }
+        }
+
+        guard kr == KERN_SUCCESS else {
+            writeDebugLog("Failed to get memory usage")
+            return 0.0
+        }
+
+        // Convert bytes to MB (phys_footprint is more accurate than resident_size)
+        return Double(info.phys_footprint) / (1024.0 * 1024.0)
+    }
+
     /// Update heartbeat for diagnostics
     private nonisolated func updateHeartbeat() {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_heartbeat")
+
+            // Add memory tracking
+            let memoryMB = getMemoryUsageMB()
+            defaults.set(memoryMB, forKey: "extension_memory_mb")
+
             defaults.synchronize()
+
+            // Log memory for debugging
+            writeDebugLog("Heartbeat updated - Memory: \(String(format: "%.1f", memoryMB))MB")
         }
+    }
+
+    /// Reset daily counters for all tracked apps (PHASE 3 FIX)
+    private nonisolated func resetAllDailyCounters(defaults: UserDefaults, startOfToday: Double) {
+        // Get all keys that match our usage pattern
+        let allKeys = defaults.dictionaryRepresentation().keys
+
+        // Find all app IDs by looking for usage keys
+        var appIDs = Set<String>()
+        for key in allKeys {
+            if key.hasPrefix("usage_") && key.hasSuffix("_today") {
+                // Extract app ID from "usage_<appID>_today"
+                let startIndex = key.index(key.startIndex, offsetBy: 6) // Skip "usage_"
+                let endIndex = key.index(key.endIndex, offsetBy: -6) // Remove "_today"
+                if startIndex < endIndex {
+                    let appID = String(key[startIndex..<endIndex])
+                    appIDs.insert(appID)
+                }
+            }
+        }
+
+        // Reset each app's daily counters
+        for appID in appIDs {
+            let todayKey = "usage_\(appID)_today"
+            let resetKey = "usage_\(appID)_reset"
+            let totalKey = "usage_\(appID)_total"
+            let modifiedKey = "usage_\(appID)_modified"
+
+            // Only reset if this app hasn't been reset today
+            let lastReset = defaults.double(forKey: resetKey)
+            if lastReset < startOfToday {
+                defaults.set(0, forKey: todayKey)
+                defaults.set(startOfToday, forKey: resetKey)
+                defaults.set(0, forKey: totalKey) // Reset total for new day
+                defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
+                writeDebugLog("Reset \(appID): today=0s, reset=\(startOfToday)")
+            }
+        }
+
+        writeDebugLog("Global reset completed for \(appIDs.count) apps")
     }
 
     /// Send Darwin notification to main app with sequence tracking for diagnostics

@@ -18,4 +18,5 @@ extension Notification.Name {
     static let allShieldsCleared = Notification.Name("com.screentimerewards.allShieldsCleared")
     static let extensionUnhealthy = Notification.Name("com.screentimerewards.extensionUnhealthy")
     static let missedUsageNotifications = Notification.Name("com.screentimerewards.missedUsageNotifications")
+    static let dailyUsageReset = Notification.Name("com.screentimerewards.dailyUsageReset")
 }

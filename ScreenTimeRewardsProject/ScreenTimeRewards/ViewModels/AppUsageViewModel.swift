@@ -561,6 +561,37 @@ class AppUsageViewModel: ObservableObject {
     
     /// Build snapshot arrays from sorted applications
     private func updateSnapshots() {
+        // PHASE 1 FIX: Check for and reset stale data at midnight
+        // This ensures usage resets to 0 when the app is opened after midnight
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        var needsReset = false
+
+        // Check if any app has stale data (lastResetDate < today)
+        for application in sortedApplications {
+            guard let token = application.token else { continue }
+            let tokenHash = service.usagePersistence.tokenHash(for: token)
+            let logicalID = service.usagePersistence.logicalID(for: tokenHash) ?? tokenHash
+            if let persistedApp = service.usagePersistence.app(for: logicalID) {
+                if persistedApp.lastResetDate < startOfToday {
+                    needsReset = true
+                    #if DEBUG
+                    print("[AppUsageViewModel] 🕐 Detected stale data for \(persistedApp.displayName): lastResetDate=\(persistedApp.lastResetDate) < today=\(startOfToday)")
+                    #endif
+                    break
+                }
+            }
+        }
+
+        // If any app has stale data, reset all daily counters
+        if needsReset {
+            #if DEBUG
+            print("[AppUsageViewModel] 🔄 Triggering midnight reset for all apps")
+            #endif
+            service.usagePersistence.resetDailyCounters()
+            // Notify other parts of the system about the reset
+            NotificationCenter.default.post(name: .dailyUsageReset, object: nil)
+        }
+
         var newLearningSnapshots: [LearningAppSnapshot] = []
         var newRewardSnapshots: [RewardAppSnapshot] = []
 
@@ -607,12 +638,24 @@ class AppUsageViewModel: ObservableObject {
             // BUG: appUsage.todayUsage is computed from sessions array, which contains a mega-session
             // spanning from createdAt (days ago) to lastUpdated (today), causing huge overcounts
             // FIX: Use persisted todaySeconds which is accurately updated by threshold events
+            // FIX 2: Also check lastResetDate to handle stale data from previous days
             var totalSeconds: TimeInterval = 0
             var earnedPoints: Int = 0
 
             if let persistedApp = service.usagePersistence.app(for: logicalID) {
-                totalSeconds = TimeInterval(persistedApp.todaySeconds)
-                earnedPoints = persistedApp.todayPoints
+                // FIX: Check if the data is actually from today
+                let startOfToday = Calendar.current.startOfDay(for: Date())
+                if persistedApp.lastResetDate >= startOfToday {
+                    totalSeconds = TimeInterval(persistedApp.todaySeconds)
+                    earnedPoints = persistedApp.todayPoints
+                } else {
+                    // Data is stale (from yesterday or earlier) - treat as 0
+                    #if DEBUG
+                    print("[AppUsageViewModel] ⚠️ Stale data for \(displayName): lastResetDate=\(persistedApp.lastResetDate) < startOfToday=\(startOfToday)")
+                    #endif
+                    totalSeconds = 0
+                    earnedPoints = 0
+                }
             }
 
             #if DEBUG

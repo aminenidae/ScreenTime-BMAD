@@ -12,7 +12,8 @@ import CoreData
 @main
 struct ScreenTimeRewardsApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
-    
+    @Environment(\.scenePhase) private var scenePhase
+
     let persistenceController = PersistenceController.shared
     @StateObject private var viewModel = AppUsageViewModel()
     @StateObject private var subscriptionManager = SubscriptionManager.shared
@@ -26,6 +27,15 @@ struct ScreenTimeRewardsApp: App {
                 .environmentObject(viewModel)
                 .environmentObject(sessionManager)
                 .environmentObject(subscriptionManager)
+        }
+        .onChange(of: scenePhase) { newPhase in
+            if newPhase == .active {
+                // Refresh usage data from extension when app becomes active
+                print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
+                Task { @MainActor in
+                    ScreenTimeService.shared.refreshFromExtension()
+                }
+            }
         }
     }
 }

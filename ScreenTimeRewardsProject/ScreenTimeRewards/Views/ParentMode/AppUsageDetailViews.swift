@@ -44,9 +44,25 @@ struct LearningAppDetailView: View {
         .onAppear {
             // Load from persistence (single source of truth)
             let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
+            print("[LearningAppDetailView] 🔍 onAppear for '\(snapshot.displayName)'")
+            print("[LearningAppDetailView] 🔍 tokenHash: \(tokenHash.prefix(32))...")
             if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
+                print("[LearningAppDetailView] 🔍 logicalID: \(logicalID)")
                 persistedUsage = service.usagePersistence.app(for: logicalID)
+                if let usage = persistedUsage {
+                    let startOfToday = Calendar.current.startOfDay(for: Date())
+                    let isStale = usage.lastResetDate < startOfToday
+                    print("[LearningAppDetailView] 🔍 persistedUsage found:")
+                    print("    - todaySeconds: \(usage.todaySeconds)")
+                    print("    - lastResetDate: \(usage.lastResetDate)")
+                    print("    - startOfToday: \(startOfToday)")
+                    print("    - isStale: \(isStale)")
+                } else {
+                    print("[LearningAppDetailView] 🔍 persistedUsage is nil")
+                }
                 history = persistedUsage?.dailyHistory ?? []
+            } else {
+                print("[LearningAppDetailView] 🔍 No logicalID found for tokenHash")
             }
         }
     }
@@ -114,6 +130,28 @@ private struct AppUsageDetailContent: View {
     let dailyHistory: [UsagePersistence.DailyUsageSummary]
     @Environment(\.colorScheme) private var colorScheme
 
+    /// FIX: Returns today's seconds only if lastResetDate is today, otherwise 0
+    /// This prevents stale data from yesterday showing as today's usage
+    private var currentDaySeconds: Int {
+        guard let usage = persistedUsage else { return 0 }
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        // If lastResetDate is before today, the data is stale
+        if usage.lastResetDate < startOfToday {
+            return 0
+        }
+        return usage.todaySeconds
+    }
+
+    /// FIX: Returns today's points only if lastResetDate is today, otherwise 0
+    private var currentDayPoints: Int {
+        guard let usage = persistedUsage else { return 0 }
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        if usage.lastResetDate < startOfToday {
+            return 0
+        }
+        return usage.todayPoints
+    }
+
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
@@ -135,15 +173,15 @@ private struct AppUsageDetailContent: View {
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             HStack(spacing: 12) {
-                // Calculate from persistence data
-                let dailySeconds = TimeInterval(persistedUsage?.todaySeconds ?? 0)
+                // FIX: Use currentDaySeconds which checks for stale data
+                let dailySeconds = TimeInterval(currentDaySeconds)
                 let weeklyUsage = calculateWeeklyUsage(from: dailyHistory) + dailySeconds  // Include today
                 let monthlyUsage = calculateMonthlyUsage(from: dailyHistory) + dailySeconds  // Include today
 
                 UsagePill(
                     title: "Daily",
                     minutes: minutesText(for: dailySeconds),
-                    annotation: "\(persistedUsage?.todayPoints ?? 0) pts",  // Direct from persistence
+                    annotation: "\(currentDayPoints) pts",  // FIX: Use currentDayPoints to handle stale data
                     accent: accentColor
                 )
                 UsagePill(
@@ -179,7 +217,7 @@ private struct AppUsageDetailContent: View {
                 insightRow(
                     icon: "bolt.fill",
                     title: "Points Earned Today",
-                    value: "\(persistedUsage?.todayPoints ?? 0) pts"  // ✅ From persistence
+                    value: "\(currentDayPoints) pts"  // FIX: Use currentDayPoints to handle stale data
                 )
 
                 insightRow(
