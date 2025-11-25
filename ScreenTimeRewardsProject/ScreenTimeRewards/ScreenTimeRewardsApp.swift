@@ -34,6 +34,17 @@ struct ScreenTimeRewardsApp: App {
                 print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
+
+                    // Restart polling timer when app comes to foreground (if monitoring is active)
+                    if ScreenTimeService.shared.isMonitoring {
+                        ScreenTimeService.shared.startUsagePolling()
+                    }
+                }
+            } else if newPhase == .background {
+                // Stop polling when app goes to background to save battery
+                print("[ScreenTimeRewardsApp] 🌙 App went to background - stopping polling timer")
+                Task { @MainActor in
+                    ScreenTimeService.shared.stopUsagePolling()
                 }
             }
         }

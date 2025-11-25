@@ -54,6 +54,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
 
+    // MARK: - Periodic Polling Timer
+    // FIX: Darwin notifications are unreliable - supplement with periodic polling
+    private var usagePollingTimer: Timer?
+    private let pollingIntervalSeconds: TimeInterval = 30.0
+
     // MARK: - App Name Extraction Helpers
 
     /// Common app bundle ID mappings for better display names
@@ -1201,6 +1206,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         self.printUsageTrackingDiagnostics()
                     }
 
+                    // Start polling timer to supplement unreliable Darwin notifications
+                    self.startUsagePolling()
+
                     DispatchQueue.main.async {
                         completion(.success(()))
                     }
@@ -1224,6 +1232,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
         isMonitoring = false
+
+        // Stop polling timer
+        stopUsagePolling()
 
         // Persist monitoring state so we don't auto-restart on next launch
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -3084,6 +3095,46 @@ extension ScreenTimeService {
         } catch {
             print("[ScreenTimeService] ❌ Failed to mark records: \(error)")
         }
+    }
+
+    // MARK: - Periodic Polling Timer Methods
+
+    /// Start periodic polling to supplement unreliable Darwin notifications
+    /// This ensures UI updates even when Darwin notifications are dropped
+    func startUsagePolling() {
+        // Cancel existing timer
+        usagePollingTimer?.invalidate()
+
+        // Create new timer that fires every 30 seconds
+        usagePollingTimer = Timer.scheduledTimer(withTimeInterval: pollingIntervalSeconds, repeats: true) { [weak self] _ in
+            #if DEBUG
+            print("[ScreenTimeService] ⏱️ Polling timer fired - checking extension data")
+            #endif
+
+            // Read extension data even if no Darwin notification arrived
+            Task { @MainActor in
+                self?.refreshFromExtension()
+            }
+        }
+
+        // Add to common run loop mode so it fires during scrolling
+        if let timer = usagePollingTimer {
+            RunLoop.main.add(timer, forMode: .common)
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ⏱️ Started usage polling timer (every \(pollingIntervalSeconds)s)")
+        #endif
+    }
+
+    /// Stop periodic polling (call when monitoring stops or app goes to background)
+    func stopUsagePolling() {
+        usagePollingTimer?.invalidate()
+        usagePollingTimer = nil
+
+        #if DEBUG
+        print("[ScreenTimeService] ⏱️ Stopped usage polling timer")
+        #endif
     }
 }
 #endif
