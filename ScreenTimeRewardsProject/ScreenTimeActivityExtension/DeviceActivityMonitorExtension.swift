@@ -1,6 +1,7 @@
 import DeviceActivity
 import Foundation
 import Darwin // For mach_task_self_ and task_info
+import ManagedSettings // SOLUTION 2: For clearing shields when goal is met
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -45,8 +46,87 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let didRecord = recordUsageEfficiently(for: event.rawValue)
 
         if didRecord {
+            // SOLUTION 2: Check if goal is met and unlock rewards
+            checkGoalAndUnlockIfNeeded()
+
             // Send notification to main app for re-arm and UI update
             notifyMainApp()
+        }
+    }
+
+    // MARK: - Solution 2: Goal Checking and Reward Unlocking
+
+    /// Check if daily goal is met and clear shields to unlock reward apps
+    /// This runs in the extension so rewards unlock even when main app is closed
+    private nonisolated func checkGoalAndUnlockIfNeeded() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            writeDebugLog("❌ Goal check: Cannot access app group")
+            return
+        }
+
+        // Check if already completed today
+        let completedKey = "extension_goal_completed_today"
+        let completedResetKey = "extension_goal_completed_reset"
+        let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let lastCompletedReset = defaults.double(forKey: completedResetKey)
+
+        // Reset completion flag on new day
+        if lastCompletedReset < startOfToday {
+            defaults.set(false, forKey: completedKey)
+            defaults.set(startOfToday, forKey: completedResetKey)
+            writeDebugLog("🌅 Goal completion flag reset for new day")
+        }
+
+        // Already completed today - don't process again
+        if defaults.bool(forKey: completedKey) {
+            return
+        }
+
+        // Read goal configuration from ShieldChallengeData
+        guard let shieldData = defaults.data(forKey: "shield_challenge_data"),
+              let goalConfig = try? JSONDecoder().decode(ShieldChallengeDataMinimal.self, from: shieldData) else {
+            writeDebugLog("⏳ Goal check: No shield challenge data found")
+            return
+        }
+
+        let targetMinutes = goalConfig.targetMinutes
+        guard targetMinutes > 0 else {
+            writeDebugLog("⏳ Goal check: No target set (targetMinutes=0)")
+            return
+        }
+
+        // Calculate total learning usage from tracked apps
+        let learningAppIDs = goalConfig.learningAppIDs
+        guard !learningAppIDs.isEmpty else {
+            writeDebugLog("⏳ Goal check: No learning app IDs configured")
+            return
+        }
+
+        var totalLearningSeconds = 0
+        for appID in learningAppIDs {
+            let todayKey = "usage_\(appID)_today"
+            let appSeconds = defaults.integer(forKey: todayKey)
+            totalLearningSeconds += appSeconds
+        }
+
+        let totalLearningMinutes = totalLearningSeconds / 60
+
+        writeDebugLog("📊 Goal check: \(totalLearningMinutes)/\(targetMinutes) min across \(learningAppIDs.count) apps")
+
+        // Check if goal is met
+        if totalLearningMinutes >= targetMinutes {
+            writeDebugLog("🎉 GOAL MET! Unlocking rewards...")
+
+            // Clear all shields to unlock reward apps
+            let store = ManagedSettingsStore()
+            store.shield.applications = nil
+
+            // Mark as completed for today
+            defaults.set(true, forKey: completedKey)
+            defaults.set(Date().timeIntervalSince1970, forKey: "extension_goal_completed_timestamp")
+            defaults.synchronize()
+
+            writeDebugLog("✅ Shields cleared! Rewards unlocked via extension.")
         }
     }
 
@@ -462,4 +542,28 @@ private struct PersistedAppMinimal: Codable {
     var todaySeconds: Int
     var todayPoints: Int
     var lastResetDate: Date
+}
+
+// MARK: - Solution 2: Minimal struct for reading goal config
+// Mirrors ShieldChallengeData from main app but only includes fields we need
+private struct ShieldChallengeDataMinimal: Codable {
+    let targetMinutes: Int
+    let learningAppIDs: [String]
+
+    // Make other fields optional for backward compatibility
+    let challengeTitle: String?
+    let targetAppNames: [String]?
+    let currentMinutes: Int?
+    let updatedAt: Date?
+
+    // Provide defaults for missing fields
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        targetMinutes = try container.decodeIfPresent(Int.self, forKey: .targetMinutes) ?? 0
+        learningAppIDs = try container.decodeIfPresent([String].self, forKey: .learningAppIDs) ?? []
+        challengeTitle = try container.decodeIfPresent(String.self, forKey: .challengeTitle)
+        targetAppNames = try container.decodeIfPresent([String].self, forKey: .targetAppNames)
+        currentMinutes = try container.decodeIfPresent(Int.self, forKey: .currentMinutes)
+        updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt)
+    }
 }

@@ -13,8 +13,12 @@ struct ShieldChallengeData: Codable {
     let challengeTitle: String
     let targetAppNames: [String]  // Names of learning apps
     let targetMinutes: Int        // Goal in minutes
-    let currentMinutes: Int       // Progress so far
+    let currentMinutes: Int       // Progress so far (main app's view)
     let updatedAt: Date
+
+    // SOLUTION 2: Learning app IDs for extension goal checking
+    // Extension sums usage for these apps to determine goal completion
+    let learningAppIDs: [String]  // Logical IDs of learning apps (e.g., "com.duolingo")
 
     var minutesRemaining: Int {
         max(0, targetMinutes - currentMinutes)
@@ -22,6 +26,16 @@ struct ShieldChallengeData: Codable {
 
     var isComplete: Bool {
         currentMinutes >= targetMinutes
+    }
+
+    // Backward compatibility initializer (without learningAppIDs)
+    init(challengeTitle: String, targetAppNames: [String], targetMinutes: Int, currentMinutes: Int, updatedAt: Date, learningAppIDs: [String] = []) {
+        self.challengeTitle = challengeTitle
+        self.targetAppNames = targetAppNames
+        self.targetMinutes = targetMinutes
+        self.currentMinutes = currentMinutes
+        self.updatedAt = updatedAt
+        self.learningAppIDs = learningAppIDs
     }
 
     /// Formatted string for target apps (e.g., "Duolingo and Khan Academy")
@@ -60,17 +74,23 @@ class ShieldDataService {
         challengeTitle: String,
         targetAppNames: [String],
         targetMinutes: Int,
-        currentMinutes: Int
+        currentMinutes: Int,
+        learningAppIDs: [String] = []  // SOLUTION 2: For extension goal checking
     ) {
         let data = ShieldChallengeData(
             challengeTitle: challengeTitle,
             targetAppNames: targetAppNames,
             targetMinutes: targetMinutes,
             currentMinutes: currentMinutes,
-            updatedAt: Date()
+            updatedAt: Date(),
+            learningAppIDs: learningAppIDs
         )
 
         saveShieldData(data)
+
+        #if DEBUG
+        print("[ShieldDataService] 📊 Updated shield data: \(currentMinutes)/\(targetMinutes) min, learningAppIDs: \(learningAppIDs.count)")
+        #endif
     }
 
     /// Saves shield challenge data to shared UserDefaults

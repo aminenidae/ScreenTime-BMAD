@@ -2686,17 +2686,20 @@ extension AppUsageViewModel {
         // Calculate current progress from learning snapshots
         var currentMinutes = 0
         var targetAppNames: [String] = []
+        var learningAppIDs: [String] = []  // SOLUTION 2: For extension goal checking
 
         if targetAppIDs.isEmpty {
             // All learning apps count
             for snapshot in learningSnapshots {
                 currentMinutes += Int(snapshot.totalSeconds / 60)
+                learningAppIDs.append(snapshot.logicalID)  // SOLUTION 2
                 if snapshot.totalSeconds > 0 && !targetAppNames.contains(snapshot.displayName) {
                     targetAppNames.append(snapshot.displayName)
                 }
             }
         } else {
             // Only specific apps count
+            learningAppIDs = targetAppIDs  // SOLUTION 2
             for snapshot in learningSnapshots {
                 if targetAppIDs.contains(snapshot.logicalID) {
                     currentMinutes += Int(snapshot.totalSeconds / 60)
@@ -2712,11 +2715,13 @@ extension AppUsageViewModel {
             }
         }
 
+        // SOLUTION 2: Pass learningAppIDs so extension can check goal independently
         ShieldDataService.shared.updateShieldData(
             challengeTitle: challenge.title ?? "Learning Challenge",
             targetAppNames: targetAppNames,
             targetMinutes: targetMinutes,
-            currentMinutes: currentMinutes
+            currentMinutes: currentMinutes,
+            learningAppIDs: learningAppIDs
         )
 
         // CHECK: If learning goal is met based on snapshots, trigger unlock
