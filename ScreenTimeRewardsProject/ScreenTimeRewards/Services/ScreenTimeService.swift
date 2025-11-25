@@ -57,7 +57,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // MARK: - Periodic Polling Timer
     // FIX: Darwin notifications are unreliable - supplement with periodic polling
     private var usagePollingTimer: Timer?
-    private let pollingIntervalSeconds: TimeInterval = 30.0
+    private let pollingIntervalSeconds: TimeInterval = 10.0
 
     // MARK: - App Name Extraction Helpers
 
