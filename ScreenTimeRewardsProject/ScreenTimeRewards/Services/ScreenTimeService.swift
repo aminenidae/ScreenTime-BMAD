@@ -1736,6 +1736,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         currentlyShielded.formUnion(tokens)
         managedSettingsStore.shield.applications = currentlyShielded
 
+        // SOLUTION 2b: Persist blocked tokens so extension can re-apply shields when reward expires
+        ShieldDataService.shared.persistBlockedTokens(currentlyShielded)
+
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
         print("[ScreenTimeService] ✅ Shield applied to \(tokens.count) apps in \(String(format: "%.2f", elapsed)) seconds")
@@ -1772,11 +1775,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Setting to nil clears all shields, setting to a set replaces entirely
         if currentRewardTokens.isEmpty {
             managedSettingsStore.shield.applications = nil
+            ShieldDataService.shared.clearBlockedTokens()  // SOLUTION 2b: Clear persisted tokens
             #if DEBUG
             print("[ScreenTimeService] 🔓 Cleared ALL shields (no reward apps)")
             #endif
         } else {
             managedSettingsStore.shield.applications = currentRewardTokens
+            // SOLUTION 2b: Persist blocked tokens so extension can re-apply shields when reward expires
+            ShieldDataService.shared.persistBlockedTokens(currentRewardTokens)
             #if DEBUG
             print("[ScreenTimeService] 🔒 Replaced shields with \(currentRewardTokens.count) reward apps")
             #endif

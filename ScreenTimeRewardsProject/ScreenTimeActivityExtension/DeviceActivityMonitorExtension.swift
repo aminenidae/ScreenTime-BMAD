@@ -2,6 +2,7 @@ import DeviceActivity
 import Foundation
 import Darwin // For mach_task_self_ and task_info
 import ManagedSettings // SOLUTION 2: For clearing shields when goal is met
+import FamilyControls // SOLUTION 2b: For ApplicationToken decoding when re-applying shields
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -48,6 +49,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if didRecord {
             // SOLUTION 2: Check if goal is met and unlock rewards
             checkGoalAndUnlockIfNeeded()
+
+            // SOLUTION 2b: Check if reward time has expired and re-apply shields
+            checkRewardExpiryAndReapplyShields()
 
             // Send notification to main app for re-arm and UI update
             notifyMainApp()
@@ -121,12 +125,93 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let store = ManagedSettingsStore()
             store.shield.applications = nil
 
-            // Mark as completed for today
+            // Mark as completed for today and record unlock timestamp
             defaults.set(true, forKey: completedKey)
-            defaults.set(Date().timeIntervalSince1970, forKey: "extension_goal_completed_timestamp")
+            let unlockTimestamp = Date().timeIntervalSince1970
+            defaults.set(unlockTimestamp, forKey: "extension_goal_completed_timestamp")
+            defaults.set(unlockTimestamp, forKey: "extension_reward_unlock_timestamp")  // SOLUTION 2b
             defaults.synchronize()
 
-            writeDebugLog("✅ Shields cleared! Rewards unlocked via extension.")
+            writeDebugLog("✅ Shields cleared! Rewards unlocked via extension at \(unlockTimestamp)")
+        }
+    }
+
+    // MARK: - Solution 2b: Reward Expiry and Shield Re-application
+
+    /// Check if reward time has expired and re-apply shields
+    /// This ensures blocked apps become blocked again after reward period ends
+    private nonisolated func checkRewardExpiryAndReapplyShields() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            writeDebugLog("❌ Reward expiry check: Cannot access app group")
+            return
+        }
+
+        // Check if rewards were unlocked today
+        let completedKey = "extension_goal_completed_today"
+        guard defaults.bool(forKey: completedKey) else {
+            // Goal not completed today, nothing to check
+            return
+        }
+
+        // Check if shields have already been re-applied
+        let shieldsReappliedKey = "extension_shields_reapplied_today"
+        let shieldsReappliedResetKey = "extension_shields_reapplied_reset"
+        let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let lastReappliedReset = defaults.double(forKey: shieldsReappliedResetKey)
+
+        // Reset re-applied flag on new day
+        if lastReappliedReset < startOfToday {
+            defaults.set(false, forKey: shieldsReappliedKey)
+            defaults.set(startOfToday, forKey: shieldsReappliedResetKey)
+        }
+
+        // Already re-applied shields today
+        if defaults.bool(forKey: shieldsReappliedKey) {
+            return
+        }
+
+        // Get unlock timestamp and reward duration
+        let unlockTimestamp = defaults.double(forKey: "extension_reward_unlock_timestamp")
+        guard unlockTimestamp > 0 else {
+            writeDebugLog("⏳ Reward expiry: No unlock timestamp found")
+            return
+        }
+
+        // Read reward duration from shield challenge data
+        guard let shieldData = defaults.data(forKey: "shield_challenge_data"),
+              let goalConfig = try? JSONDecoder().decode(ShieldChallengeDataMinimal.self, from: shieldData) else {
+            writeDebugLog("⏳ Reward expiry: No shield challenge data found")
+            return
+        }
+
+        let rewardDurationMinutes = goalConfig.rewardDurationMinutes ?? 30
+        let rewardDurationSeconds = Double(rewardDurationMinutes * 60)
+        let currentTimestamp = Date().timeIntervalSince1970
+        let elapsedSeconds = currentTimestamp - unlockTimestamp
+
+        writeDebugLog("📊 Reward expiry check: elapsed=\(Int(elapsedSeconds/60))min, duration=\(rewardDurationMinutes)min")
+
+        // Check if reward time has expired
+        if elapsedSeconds >= rewardDurationSeconds {
+            writeDebugLog("⏰ REWARD TIME EXPIRED! Re-applying shields...")
+
+            // Read persisted blocked tokens
+            guard let tokensData = defaults.data(forKey: "blocked_app_tokens"),
+                  let tokens = try? JSONDecoder().decode([ApplicationToken].self, from: tokensData),
+                  !tokens.isEmpty else {
+                writeDebugLog("❌ No blocked tokens found to re-apply")
+                return
+            }
+
+            // Re-apply shields
+            let store = ManagedSettingsStore()
+            store.shield.applications = Set(tokens)
+
+            // Mark shields as re-applied for today
+            defaults.set(true, forKey: shieldsReappliedKey)
+            defaults.synchronize()
+
+            writeDebugLog("✅ Shields re-applied! \(tokens.count) apps blocked again.")
         }
     }
 
@@ -549,6 +634,7 @@ private struct PersistedAppMinimal: Codable {
 private struct ShieldChallengeDataMinimal: Codable {
     let targetMinutes: Int
     let learningAppIDs: [String]
+    let rewardDurationMinutes: Int?  // SOLUTION 2b: How long rewards last
 
     // Make other fields optional for backward compatibility
     let challengeTitle: String?
@@ -561,6 +647,7 @@ private struct ShieldChallengeDataMinimal: Codable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         targetMinutes = try container.decodeIfPresent(Int.self, forKey: .targetMinutes) ?? 0
         learningAppIDs = try container.decodeIfPresent([String].self, forKey: .learningAppIDs) ?? []
+        rewardDurationMinutes = try container.decodeIfPresent(Int.self, forKey: .rewardDurationMinutes)
         challengeTitle = try container.decodeIfPresent(String.self, forKey: .challengeTitle)
         targetAppNames = try container.decodeIfPresent([String].self, forKey: .targetAppNames)
         currentMinutes = try container.decodeIfPresent(Int.self, forKey: .currentMinutes)

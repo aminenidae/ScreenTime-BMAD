@@ -2716,12 +2716,15 @@ extension AppUsageViewModel {
         }
 
         // SOLUTION 2: Pass learningAppIDs so extension can check goal independently
+        // SOLUTION 2b: Also pass rewardDurationMinutes so extension knows when to re-apply shields
+        let rewardDurationMinutes = challenge.rewardUnlockMinutes(defaultValue: 30)
         ShieldDataService.shared.updateShieldData(
             challengeTitle: challenge.title ?? "Learning Challenge",
             targetAppNames: targetAppNames,
             targetMinutes: targetMinutes,
             currentMinutes: currentMinutes,
-            learningAppIDs: learningAppIDs
+            learningAppIDs: learningAppIDs,
+            rewardDurationMinutes: rewardDurationMinutes
         )
 
         // CHECK: If learning goal is met based on snapshots, trigger unlock
