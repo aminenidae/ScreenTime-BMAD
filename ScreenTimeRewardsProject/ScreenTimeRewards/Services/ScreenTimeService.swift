@@ -411,13 +411,26 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] 🔄 Monitoring was previously active - restarting automatically...")
                 #endif
 
-                // Start monitoring automatically
+                // CRITICAL FIX: Always stop monitoring first to clear potentially stale iOS state
+                // This is especially important after a crash where iOS may have stale event registrations
+                let registeredActivities = deviceActivityCenter.activities
+                #if DEBUG
+                print("[ScreenTimeService] 📊 Currently registered activities with iOS: \(registeredActivities.map { $0.rawValue })")
+                #endif
+
+                // Force stop any existing monitoring to ensure clean state
+                deviceActivityCenter.stopMonitoring([activityName])
+                #if DEBUG
+                print("[ScreenTimeService] 🛑 Stopped existing monitoring (crash recovery)")
+                #endif
+
+                // Start monitoring with fresh event registrations
                 do {
                     try scheduleActivity()
                     isMonitoring = true
 
                     #if DEBUG
-                    print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch")
+                    print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch (crash recovery)")
                     #endif
                 } catch {
                     // CRITICAL: Reset state on failure to prevent blocking manual start later

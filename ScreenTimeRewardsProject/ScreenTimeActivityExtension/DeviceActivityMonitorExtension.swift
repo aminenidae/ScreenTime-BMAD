@@ -9,7 +9,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Constants
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
-    private let cooldownSeconds: TimeInterval = 55  // Phantom event protection
+    // NOTE: cooldownSeconds removed - SET semantics prevent double-counting naturally
 
     // MARK: - Lifecycle
     override nonisolated init() {
@@ -81,17 +81,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         writeDebugLog("Found mapping: appID=\(appID), thresholdMinutes=\(thresholdMinutes)")
 
-        // 3. Check cooldown (phantom event protection)
+        // 3. SET usage to threshold value (not INCREMENT)
+        // NOTE: Cooldown removed because SET semantics already prevent double-counting
+        // The setUsageToThreshold function only updates if threshold > current usage
+        // This allows rapid catch-up events to fire correctly (e.g., thresholds 4,5,6,7 after accumulated usage)
         let now = Date().timeIntervalSince1970
-        let lastRecordKey = "lastRecorded_\(appID)"
-        let lastRecord = defaults.double(forKey: lastRecordKey)
-
-        if lastRecord > 0 && (now - lastRecord) < cooldownSeconds {
-            writeDebugLog("SKIPPED: Cooldown active (\(Int(now - lastRecord))s < \(Int(cooldownSeconds))s)")
-            return false
-        }
-
-        // 4. SET usage to threshold value (not INCREMENT)
         // This prevents phantom usage from accumulating
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
 
@@ -100,10 +94,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // 5. Update last recorded timestamp
-        defaults.set(now, forKey: lastRecordKey)
-
-        // 6. Signal re-arm request for continuous tracking
+        // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
         defaults.set(now, forKey: "rearm_\(appID)_time")
 
@@ -215,13 +206,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// KEY FIX: Uses SET semantics based on threshold minute, not INCREMENT
     private nonisolated func recordUsageWithMapping(_ mapping: (appID: String, increment: Int, displayName: String, category: String, rewardPoints: Int), eventName: String, defaults: UserDefaults) -> Bool {
         let now = Date().timeIntervalSince1970
-        let lastRecordKey = "lastRecorded_\(mapping.appID)"
-        let lastRecord = defaults.double(forKey: lastRecordKey)
 
-        if lastRecord > 0 && (now - lastRecord) < cooldownSeconds {
-            writeDebugLog("SKIPPED (JSON path): Cooldown active")
-            return false
-        }
+        // NOTE: Cooldown removed - SET semantics prevent double-counting naturally
 
         // Extract threshold minutes from event name and SET (not increment)
         let thresholdMinutes = extractMinuteFromEventName(eventName)
@@ -238,8 +224,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Delta is 60 seconds (1 threshold = 1 minute)
         updateJSONPersistence(appID: mapping.appID, increment: 60, rewardPoints: mapping.rewardPoints, defaults: defaults)
 
-        // Update timestamp and request re-arm
-        defaults.set(now, forKey: lastRecordKey)
+        // Signal re-arm request
         defaults.set(true, forKey: "rearm_\(mapping.appID)_requested")
         defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
         defaults.synchronize()
