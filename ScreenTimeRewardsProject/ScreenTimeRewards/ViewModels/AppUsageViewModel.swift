@@ -2721,7 +2721,9 @@ extension AppUsageViewModel {
 
         // CHECK: If learning goal is met based on snapshots, trigger unlock
         // This catches cases where ChallengeProgress might be out of sync with actual usage
-        if currentMinutes >= targetMinutes {
+        // CRITICAL: Guard against targetMinutes=0 which would always trigger (CoreData default is 0)
+        // Also guard against already showing celebration to prevent repeated unlock calls
+        if targetMinutes > 0 && currentMinutes >= targetMinutes && !showCompletionCelebration {
             let progress = challengeProgress[challenge.challengeID ?? ""]
             let alreadyCompleted = progress?.isCompleted ?? false
 
@@ -2734,18 +2736,16 @@ extension AppUsageViewModel {
                 // Unlock all reward apps since goal is met
                 unlockRewardApps()
 
-                // Also trigger celebration if not already shown
-                if !showCompletionCelebration {
-                    completedChallengeID = challenge.challengeID
-                    showCompletionCelebration = true
-                    lastRewardUnlockMinutes = challenge.rewardUnlockMinutes(defaultValue: 30)
+                // Trigger celebration
+                completedChallengeID = challenge.challengeID
+                showCompletionCelebration = true
+                lastRewardUnlockMinutes = challenge.rewardUnlockMinutes(defaultValue: 30)
 
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                        guard let self else { return }
-                        Task { @MainActor in
-                            self.showCompletionCelebration = false
-                            self.completedChallengeID = nil
-                        }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
+                    guard let self else { return }
+                    Task { @MainActor in
+                        self.showCompletionCelebration = false
+                        self.completedChallengeID = nil
                     }
                 }
             }
