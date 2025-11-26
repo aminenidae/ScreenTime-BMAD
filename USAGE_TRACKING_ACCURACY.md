@@ -236,15 +236,76 @@ ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift
 
 ---
 
-## Testing Checklist (Updated)
+## Test Results (Nov 25, 2025)
 
-After applying all fixes, verify:
+### Test 1: Fresh App (New Learning App)
+| Metric | Result |
+|--------|--------|
+| First event delay | ~85s (25s iOS overhead + 60s threshold) |
+| Subsequent events | Every 60s ✅ |
+| Usage accuracy | Correct ✅ |
+| Multi-app tracking | Working ✅ |
 
-- [ ] Learning app usage is tracked every 60 seconds
-- [ ] Events appear in debug logs: `eventDidReachThreshold`
-- [ ] Darwin notifications are sent and received
-- [ ] Goal completion only triggers once when target is actually reached
-- [ ] No repeated "unlock" logs in console
-- [ ] Celebration animation shows once, not repeatedly
-- [ ] **NEW:** After app crash/relaunch, events fire correctly
-- [ ] **NEW:** Accumulated usage is fully recorded (no 55s gaps)
+### Test 2: Existing App (With Prior Usage)
+| Metric | Result |
+|--------|--------|
+| Events after relaunch | Firing correctly ✅ |
+| Catch-up events | All recorded (no cooldown blocking) ✅ |
+| Usage accumulation | Accurate ✅ |
+
+---
+
+## Issues Status
+
+### ✅ RESOLVED
+
+| Issue | Root Cause | Fix |
+|-------|------------|-----|
+| Events not firing | `syncShieldData()` calling `unlockRewardApps()` repeatedly when `targetMinutes=0` | Added `targetMinutes > 0` guard |
+| Events blocked after crash | No `stopMonitoring()` before restart | Force stop before restart |
+| Catch-up events lost | 55s cooldown blocked rapid threshold fires | Removed cooldown (SET semantics handle it) |
+| Memory crash | App killed by iOS due to memory pressure | Crash recovery now handles stale state |
+
+### ⚠️ KNOWN LIMITATIONS (Acceptable)
+
+| Issue | Details | Impact |
+|-------|---------|--------|
+| First event delay | ~25s extra delay on very first threshold | Minimal - only affects minute 1, total usage still accurate |
+| iOS initialization | DeviceActivity framework needs time to register | Normal iOS behavior |
+
+### 🔍 OUTSTANDING (Monitor)
+
+| Issue | Status | Notes |
+|-------|--------|-------|
+| Memory usage over time | Monitoring | App was killed once - need to watch for recurrence |
+| Long-duration tracking | Not fully tested | Need to test 30+ minute sessions |
+
+---
+
+## Summary
+
+**Before fixes:** Usage tracking completely broken - no events firing, usage lost after crash, catch-up events blocked.
+
+**After fixes:**
+- Events fire every 60s consistently
+- Usage accuracy confirmed
+- Multi-app tracking working
+- Crash recovery implemented
+
+**Commits:**
+- `aac9255` - syncShieldData guards
+- `7bf67e9` - Crash recovery + cooldown removal
+- `4bce758` - Documentation (branch: `fix/usage-tracking-accuracy`)
+
+---
+
+## Testing Checklist (Verified)
+
+- [x] Learning app usage is tracked every 60 seconds
+- [x] Events appear in debug logs: `eventDidReachThreshold`
+- [x] Darwin notifications are sent and received
+- [x] After app crash/relaunch, events fire correctly
+- [x] Accumulated usage is fully recorded (no 55s gaps)
+- [x] Multi-app tracking works simultaneously
+- [ ] Goal completion triggers correctly (not tested this session)
+- [ ] Celebration animation shows once (not tested this session)
