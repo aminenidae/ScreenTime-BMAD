@@ -1113,18 +1113,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
                 // Also sync to usagePersistence so UI snapshots show correct data
                 if var persistedApp = usagePersistence.app(for: logicalID) {
-                    // Sync if extension has newer/higher data
-                    if todaySeconds > persistedApp.todaySeconds {
+                    // FIX v10: Check if extension data is actually from today before syncing
+                    // This prevents stale yesterday's data from being marked as valid today data
+                    let resetKey = "usage_\(logicalID)_reset"
+                    let extensionResetTimestamp = defaults.double(forKey: resetKey)
+                    let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+
+                    // Only sync if extension data is from today AND is higher
+                    if extensionResetTimestamp >= startOfToday && todaySeconds > persistedApp.todaySeconds {
                         persistedApp.todaySeconds = todaySeconds
                         persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
                         persistedApp.lastUpdated = Date()
-                        // Update lastResetDate to today since we have valid today data
                         persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
                         usagePersistence.saveApp(persistedApp)
 
                         #if DEBUG
                         print("[ScreenTimeService] 💾 Synced to persistence: \(usage.appName) todaySeconds=\(todaySeconds)")
                         #endif
+                    } else if extensionResetTimestamp < startOfToday && todaySeconds > 0 {
+                        // Extension has stale data from yesterday - clear it instead of syncing
+                        #if DEBUG
+                        print("[ScreenTimeService] ⚠️ Stale extension data detected for \(logicalID): extensionReset=\(extensionResetTimestamp), startOfToday=\(startOfToday)")
+                        print("[ScreenTimeService] 🧹 Clearing stale extension keys for \(logicalID)")
+                        #endif
+                        defaults.set(0, forKey: todayKey)
+                        defaults.set(startOfToday, forKey: resetKey)
                     }
                 }
             }

@@ -34,10 +34,10 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     private func checkForDayChangeOnLaunch() {
         let defaults = UserDefaults.standard
         let lastLaunchDateKey = "lastAppLaunchDate"
-        // v9: Force reset AND clear extension's UserDefaults usage keys
-        // Previous versions reset UsagePersistence but extension's cached values
-        // were synced back via refreshFromExtension(), overwriting the reset
-        let staleFix2Key = "staleDailyDataFix_v9_forceReset"
+        // v10: Force reset AND clear extension's UserDefaults usage keys
+        // v9 had a bug: readExtensionUsageData() would sync stale data and mark it as today's
+        // v10 fix: readExtensionUsageData() now checks usage_<id>_reset timestamp before syncing
+        let staleFix2Key = "staleDailyDataFix_v10_forceReset"
         let today = Calendar.current.startOfDay(for: Date())
 
         var needsReset = false
