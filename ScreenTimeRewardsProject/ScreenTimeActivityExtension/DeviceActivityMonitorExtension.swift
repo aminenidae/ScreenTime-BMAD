@@ -128,14 +128,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return 1 // Default to 1 minute if can't parse
     }
 
-    /// SET usage to threshold value (only if higher than current)
+    /// ADD session usage to day total using DELTA-BASED calculation
+    /// iOS thresholds are SESSION-based (reset each monitoring restart)
+    /// We calculate delta = threshold - sessionPeak, then add delta to current day total
+    /// This avoids relying on persisted sessionStart which can get stale
     /// Returns true if update was applied, false if skipped
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults) -> Bool {
         // Read current today value
         let todayKey = "usage_\(appID)_today"
         let todayResetKey = "usage_\(appID)_reset"
         let totalKey = "usage_\(appID)_total"
+        let sessionLastThresholdKey = "usage_\(appID)_sessionLastThreshold"
+        let sessionPeakKey = "usage_\(appID)_sessionPeak"
         let now = Date()
+        let nowTimestamp = now.timeIntervalSince1970
         let startOfToday = Calendar.current.startOfDay(for: now).timeIntervalSince1970
         let lastReset = defaults.double(forKey: todayResetKey)
 
@@ -158,60 +164,82 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 notifyMainApp()
             }
 
-            // Set current app's usage to threshold
+            // Set current app's usage to threshold (first event of new day)
             defaults.set(thresholdSeconds, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(thresholdSeconds, forKey: totalKey) // Reset total for new day
-            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
-            writeDebugLog("Set \(appID) today to \(thresholdSeconds)s after global reset")
+            // Initialize session tracking
+            defaults.set(thresholdSeconds, forKey: sessionPeakKey) // Peak for this session
+            defaults.set(nowTimestamp, forKey: sessionLastThresholdKey)
+            defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+            writeDebugLog("🌅 New day: set \(appID) today=\(thresholdSeconds)s (first session)")
             return true
         }
 
-        // Same day - check current usage and last threshold
+        // Same day - use DELTA-BASED SESSION-AWARE logic
         let currentToday = defaults.integer(forKey: todayKey)
-        let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        let lastThresholdTime = defaults.double(forKey: sessionLastThresholdKey)
+        let timeSinceLastThreshold = nowTimestamp - lastThresholdTime
 
-        // iOS SESSION RESTART DETECTION:
-        // iOS thresholds are SESSION-based, not DAY-based. Each time iOS restarts
-        // monitoring, it fires thresholds 1, 2, 3... from scratch.
-        //
-        // Our persisted usage is REAL data we must preserve!
-        // When we detect iOS restarted its session, we ADD 60s (one minute) to our
-        // existing usage instead of replacing it.
-        //
-        // Detection: iOS restarted if:
-        // 1. New threshold <= last threshold we saw (iOS counting from 1 again), OR
-        // 2. Low threshold (<=180s) fired but we have high usage (>180s)
-        let isIOSSessionRestart = (lastThreshold > 0 && thresholdSeconds <= lastThreshold) ||
-                                   (thresholdSeconds <= 180 && currentToday > 180)
+        // SESSION DETECTION:
+        // iOS catch-up fires thresholds within milliseconds of each other
+        // Real usage has gaps (user actually using the app for minutes)
+        // If >30 seconds since last threshold, this is a NEW SESSION
+        let isNewSession = timeSinceLastThreshold > 30.0 || lastThresholdTime == 0
 
-        if isIOSSessionRestart && currentToday >= thresholdSeconds {
-            // iOS restarted its session - ADD 60s to preserve existing usage
-            let newToday = currentToday + 60
-            defaults.set(newToday, forKey: todayKey)
-            let currentTotal = defaults.integer(forKey: totalKey)
-            defaults.set(currentTotal + 60, forKey: totalKey)
-            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
-            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
-            writeDebugLog("🔄 iOS SESSION RESTART: threshold=\(thresholdSeconds)s, added 60s → \(newToday)s (preserved \(currentToday)s)")
-            return true
+        // Read sessionPeak, but reset it if this is a new session
+        var sessionPeak = defaults.integer(forKey: sessionPeakKey)
+
+        if isNewSession {
+            // NEW SESSION: Reset session peak only (no sessionStart needed!)
+            sessionPeak = 0
+            defaults.set(0, forKey: sessionPeakKey)
+            writeDebugLog("🆕 New session for \(appID) (gap=\(Int(timeSinceLastThreshold))s, currentToday=\(currentToday)s)")
         }
 
-        // Normal case: SET semantics when threshold > current (first session of day)
-        if thresholdSeconds > currentToday {
-            defaults.set(thresholdSeconds, forKey: todayKey)
-            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
-            // Also update total (add the delta)
-            let currentTotal = defaults.integer(forKey: totalKey)
-            let delta = thresholdSeconds - currentToday
-            defaults.set(currentTotal + delta, forKey: totalKey)
-            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
-            writeDebugLog("Updated counters: today=\(currentToday)→\(thresholdSeconds)s, delta=\(delta)s")
-            return true
+        // DELTA-BASED THRESHOLD LOGIC:
+        // delta = how much NEW session time (threshold - peak)
+        // newDayTotal = currentToday + delta
+        //
+        // Example: User had 1080s today, new session, threshold 60s fires
+        // - sessionPeak = 0 (reset for new session)
+        // - delta = 60 - 0 = 60s
+        // - newDayTotal = 1080 + 60 = 1140s ✓
+
+        // Check if this threshold is new for this SESSION (prevents duplicate events)
+        if thresholdSeconds <= sessionPeak {
+            // This threshold already fired in this session - SKIP
+            writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s <= sessionPeak=\(sessionPeak)s (already counted)")
+            // Still update the timestamp to track activity
+            defaults.set(nowTimestamp, forKey: sessionLastThresholdKey)
+            return false
         }
 
-        return false // Current usage already at or above threshold
+        // Calculate delta (new session time to add)
+        let delta = thresholdSeconds - sessionPeak
+
+        // Sanity check: delta should always be positive at this point
+        if delta <= 0 {
+            writeDebugLog("⚠️ SKIP: delta=\(delta)s is not positive")
+            defaults.set(nowTimestamp, forKey: sessionLastThresholdKey)
+            return false
+        }
+
+        // Calculate new day total by ADDING delta to current
+        let newDayTotal = currentToday + delta
+
+        // Update usage
+        defaults.set(newDayTotal, forKey: todayKey)
+        defaults.set(thresholdSeconds, forKey: sessionPeakKey) // Update session peak
+        defaults.set(nowTimestamp, forKey: sessionLastThresholdKey)
+
+        // Update total
+        let currentTotal = defaults.integer(forKey: totalKey)
+        defaults.set(currentTotal + delta, forKey: totalKey)
+        defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+
+        writeDebugLog("📊 RECORDED: +\(delta)s (threshold=\(thresholdSeconds)s - peak=\(sessionPeak)s) → today=\(newDayTotal)s")
+        return true
     }
 
     /// Fallback: Read mapping from JSON eventMappings (for compatibility)
@@ -401,6 +429,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let todayKey = "usage_\(appID)_today"
             let resetKey = "usage_\(appID)_reset"
             let totalKey = "usage_\(appID)_total"
+            let sessionPeakKey = "usage_\(appID)_sessionPeak"
+            let sessionLastThresholdKey = "usage_\(appID)_sessionLastThreshold"
             let modifiedKey = "usage_\(appID)_modified"
 
             // Only reset if this app hasn't been reset today
@@ -409,8 +439,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(0, forKey: todayKey)
                 defaults.set(startOfToday, forKey: resetKey)
                 defaults.set(0, forKey: totalKey) // Reset total for new day
+                // Reset session tracking for new day
+                defaults.set(0, forKey: sessionPeakKey)
+                defaults.set(0.0, forKey: sessionLastThresholdKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
-                writeDebugLog("Reset \(appID): today=0s, reset=\(startOfToday)")
+                writeDebugLog("Reset \(appID): today=0s, sessionPeak=0s")
             }
         }
 
