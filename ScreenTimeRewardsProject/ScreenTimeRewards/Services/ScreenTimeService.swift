@@ -54,6 +54,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Configuration
     private let sessionAggregationWindowSeconds: TimeInterval = 300  // 5 minutes
 
+    // Diagnostic polling timer
+    private var diagnosticPollingTimer: Timer?
+    private var diagnosticPollCount = 0
+    private var lastPolledUsageValues: [String: Int] = [:]  // logicalID -> todaySeconds
+
     // MARK: - App Name Extraction Helpers
 
     /// Common app bundle ID mappings for better display names
@@ -192,6 +197,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             print("[ScreenTimeService] 📊 AUTO-DIAGNOSTICS RUNNING...")
             self?.printUsageTrackingDiagnostics()
+
+            // Start diagnostic polling in DEBUG mode to help diagnose tracking issues
+            #if DEBUG
+            print("[ScreenTimeService] 🔍 Starting diagnostic polling (DEBUG mode)...")
+            self?.startDiagnosticPolling(interval: 10)  // Poll every 10 seconds
+            #endif
         }
     }
 
@@ -745,12 +756,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] Creating 240 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
-            // Create 240 events per app with STATIC minute thresholds 1-240
+            // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
+            // REDUCED: iOS has undocumented limits - 720 events causes silent failure
+            // Testing with 60 events per app (180 total) to see if events fire
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 240   // Track up to 240 minutes (4 hours)
+                let endMinute = 60    // Reduced from 240 to test iOS limits
 
                 #if DEBUG
                 print("[ScreenTimeService]   App: \(app.displayName)")
@@ -1316,6 +1329,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
+        // 0. Print MONITORED APPS with details
+        print("\n🎯 MONITORED APPS (FamilyActivitySelection):")
+        print("   Total apps: \(familySelection.applications.count)")
+        print("   Total categories: \(familySelection.categories.count)")
+        for (index, app) in familySelection.applications.enumerated() {
+            let displayName = app.localizedDisplayName ?? "Unknown"
+            let tokenHash = app.token.map { usagePersistence.tokenHash(for: $0).prefix(20) } ?? "no-token"
+            print("   [\(index)] \(displayName) (hash: \(tokenHash)...)")
+        }
+        if familySelection.applications.isEmpty {
+            print("   ⚠️ NO APPS IN SELECTION - this is likely the problem!")
+        }
+
         // 1. Extension heartbeat
         let heartbeat = defaults.double(forKey: "extension_heartbeat")
         if heartbeat > 0 {
@@ -1372,6 +1398,192 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("  appUsages count: \(appUsages.count)")
 
         print(String(repeating: "=", count: 60) + "\n")
+    }
+
+    // MARK: - Diagnostic Polling System
+
+    /// Start polling extension data every N seconds to diagnose tracking issues
+    /// - Parameter interval: Polling interval in seconds (default: 10)
+    func startDiagnosticPolling(interval: TimeInterval = 10) {
+        stopDiagnosticPolling()
+
+        print("\n" + String(repeating: "🔍", count: 30))
+        print("[DiagnosticPolling] 🚀 STARTING DIAGNOSTIC POLLING (every \(Int(interval))s)")
+        print(String(repeating: "🔍", count: 30) + "\n")
+
+        diagnosticPollCount = 0
+        lastPolledUsageValues.removeAll()
+
+        // Initial poll immediately
+        pollExtensionData()
+
+        // Schedule timer
+        diagnosticPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.pollExtensionData()
+            }
+        }
+    }
+
+    /// Stop diagnostic polling
+    func stopDiagnosticPolling() {
+        diagnosticPollingTimer?.invalidate()
+        diagnosticPollingTimer = nil
+        if diagnosticPollCount > 0 {
+            print("[DiagnosticPolling] ⏹️ Stopped after \(diagnosticPollCount) polls")
+        }
+    }
+
+    /// Poll extension data and log any changes
+    private func pollExtensionData() {
+        diagnosticPollCount += 1
+
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            print("[DiagnosticPolling] ❌ Cannot access App Group!")
+            return
+        }
+
+        // Force read from disk
+        defaults.synchronize()
+
+        let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
+        print("\n[DiagnosticPolling] ━━━ Poll #\(diagnosticPollCount) @ \(timestamp) ━━━")
+
+        // 1. Check extension heartbeat
+        let heartbeat = defaults.double(forKey: "extension_heartbeat")
+        if heartbeat > 0 {
+            let age = Int(Date().timeIntervalSince1970 - heartbeat)
+            print("  ❤️ Extension heartbeat: \(age)s ago")
+        } else {
+            print("  ⚠️ No extension heartbeat")
+        }
+
+        // 2. Check last event from extension
+        if let lastEvent = defaults.string(forKey: "lastEvent") {
+            let lastEventTime = defaults.double(forKey: "lastEventTimestamp")
+            let eventAge = lastEventTime > 0 ? Int(Date().timeIntervalSince1970 - lastEventTime) : -1
+            print("  📩 Last event: \(lastEvent) (\(eventAge)s ago)")
+        }
+
+        // 3. Check Darwin notification sequence
+        let sent = defaults.integer(forKey: "darwin_notification_seq_sent")
+        let received = defaults.integer(forKey: "darwin_notification_seq_received")
+        let missed = sent - received
+        print("  📡 Darwin: sent=\(sent) received=\(received) missed=\(missed)")
+
+        // 4. Read usage values for ALL known apps and detect changes
+        var hasChanges = false
+        print("  📱 Usage per app:")
+
+        for (logicalID, app) in appUsages {
+            let todayKey = "usage_\(logicalID)_today"
+            let totalKey = "usage_\(logicalID)_total"
+            let resetKey = "usage_\(logicalID)_reset"
+            let rearmKey = "usage_\(logicalID)_needsRearm"
+
+            let today = defaults.integer(forKey: todayKey)
+            let total = defaults.integer(forKey: totalKey)
+            let resetTimestamp = defaults.double(forKey: resetKey)
+            let needsRearm = defaults.bool(forKey: rearmKey)
+
+            // Check for change since last poll
+            let previousValue = lastPolledUsageValues[logicalID] ?? 0
+            let delta = today - previousValue
+            let changeIndicator = delta > 0 ? " 📈+\(delta)s" : ""
+
+            if delta > 0 {
+                hasChanges = true
+            }
+
+            // Also get persistence value for comparison
+            let persistedApp = usagePersistence.app(for: logicalID)
+            let persistedToday = persistedApp?.todaySeconds ?? 0
+
+            let resetAge = resetTimestamp > 0 ? Int(Date().timeIntervalSince1970 - resetTimestamp) : -1
+            let rearmFlag = needsRearm ? " 🔄REARM" : ""
+
+            print("     \(app.appName):")
+            print("       extension: today=\(today)s, total=\(total)s, reset=\(resetAge)s ago\(rearmFlag)\(changeIndicator)")
+            print("       persisted: today=\(persistedToday)s")
+
+            // Store for next comparison
+            lastPolledUsageValues[logicalID] = today
+        }
+
+        // 5. Summary
+        if !hasChanges && diagnosticPollCount > 1 {
+            print("  ⏸️ No usage changes detected this poll")
+        }
+
+        // 6. Check if any thresholds might be stuck
+        let activities = deviceActivityCenter.activities
+        print("  🎯 Active schedules: \(activities.count)")
+        for activity in activities {
+            print("     - \(activity.rawValue)")
+        }
+
+        // 7. Show total events configured (check for potential limit issues)
+        print("  📊 Configured events: \(monitoredEvents.count) (720 max recommended)")
+        if monitoredEvents.count > 500 {
+            print("  ⚠️ WARNING: High event count may cause iOS to silently drop events!")
+        }
+
+        // 8. Check extension debug log for recent entries
+        let extLog = defaults.string(forKey: "extension_debug_log") ?? ""
+        let logLines = extLog.components(separatedBy: "\n").filter { !$0.isEmpty }
+        if !logLines.isEmpty {
+            print("  📝 Extension log (last 3 entries):")
+            for line in logLines.suffix(3) {
+                print("     \(line)")
+            }
+        } else {
+            print("  📝 Extension log: (empty)")
+        }
+
+        // 9. Check event mappings for the apps
+        if let mappingData = defaults.data(forKey: "eventMappings"),
+           let mappings = try? JSONSerialization.jsonObject(with: mappingData) as? [String: Any] {
+            print("  🗺️ Event mappings stored: \(mappings.count)")
+
+            // Check for specific threshold events (e.g., minute 35, 36, 37 for debugging)
+            for (logicalID, app) in appUsages {
+                let currentMinutes = (defaults.integer(forKey: "usage_\(logicalID)_today")) / 60
+                let nextMinute = currentMinutes + 1
+
+                // Look for events that SHOULD fire next
+                var foundNextEvent = false
+                for key in mappings.keys {
+                    if key.contains(".min.\(nextMinute)") {
+                        if let eventInfo = mappings[key] as? [String: Any],
+                           let eventLogicalID = eventInfo["logicalID"] as? String,
+                           eventLogicalID == logicalID {
+                            foundNextEvent = true
+                            print("  ✅ Next event for \(app.appName): \(key) (min \(nextMinute))")
+                        }
+                    }
+                }
+                if !foundNextEvent && currentMinutes > 0 {
+                    print("  ❌ NO next event for \(app.appName) at minute \(nextMinute)!")
+                }
+            }
+        } else {
+            print("  ⚠️ No event mappings found in UserDefaults!")
+        }
+
+        // 10. Check primitive key mappings (map_<eventName>_id)
+        print("  🔑 Checking primitive event mappings:")
+        var primitiveMapCount = 0
+        for key in defaults.dictionaryRepresentation().keys where key.hasPrefix("map_") && key.hasSuffix("_id") {
+            primitiveMapCount += 1
+        }
+        print("     Found \(primitiveMapCount) primitive event mappings")
+
+        print("[DiagnosticPolling] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+    }
+
+    /// Check if diagnostic polling is active
+    var isDiagnosticPollingActive: Bool {
+        return diagnosticPollingTimer != nil
     }
 
     // MARK: - REMOVED: Dynamic threshold advancement (caused cascade fires)

@@ -167,10 +167,41 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Same day - only update if threshold is higher
+        // Same day - check current usage and last threshold
         let currentToday = defaults.integer(forKey: todayKey)
+        let lastThresholdKey = "usage_\(appID)_lastThreshold"
+        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
+
+        // iOS SESSION RESTART DETECTION:
+        // iOS thresholds are SESSION-based, not DAY-based. Each time iOS restarts
+        // monitoring, it fires thresholds 1, 2, 3... from scratch.
+        //
+        // Our persisted usage is REAL data we must preserve!
+        // When we detect iOS restarted its session, we ADD 60s (one minute) to our
+        // existing usage instead of replacing it.
+        //
+        // Detection: iOS restarted if:
+        // 1. New threshold <= last threshold we saw (iOS counting from 1 again), OR
+        // 2. Low threshold (<=180s) fired but we have high usage (>180s)
+        let isIOSSessionRestart = (lastThreshold > 0 && thresholdSeconds <= lastThreshold) ||
+                                   (thresholdSeconds <= 180 && currentToday > 180)
+
+        if isIOSSessionRestart && currentToday >= thresholdSeconds {
+            // iOS restarted its session - ADD 60s to preserve existing usage
+            let newToday = currentToday + 60
+            defaults.set(newToday, forKey: todayKey)
+            let currentTotal = defaults.integer(forKey: totalKey)
+            defaults.set(currentTotal + 60, forKey: totalKey)
+            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+            defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
+            writeDebugLog("🔄 iOS SESSION RESTART: threshold=\(thresholdSeconds)s, added 60s → \(newToday)s (preserved \(currentToday)s)")
+            return true
+        }
+
+        // Normal case: SET semantics when threshold > current (first session of day)
         if thresholdSeconds > currentToday {
             defaults.set(thresholdSeconds, forKey: todayKey)
+            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
             // Also update total (add the delta)
             let currentTotal = defaults.integer(forKey: totalKey)
             let delta = thresholdSeconds - currentToday
