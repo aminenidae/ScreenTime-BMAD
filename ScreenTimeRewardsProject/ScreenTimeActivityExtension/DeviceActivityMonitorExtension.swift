@@ -166,17 +166,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Same day - simple logic: add 60s if threshold > lastThreshold
+        // Same day - add 60s if threshold differs from last (handles new sessions)
         let currentToday = defaults.integer(forKey: todayKey)
         let lastThreshold = defaults.integer(forKey: lastThresholdKey)
 
-        // Only add 60s if this threshold is higher than last recorded
-        if thresholdSeconds <= lastThreshold {
-            writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s <= last=\(lastThreshold)s")
+        // Three cases:
+        // 1. threshold > lastThreshold: normal progression, add 60s
+        // 2. threshold < lastThreshold: NEW SESSION (iOS reset counter), add 60s
+        // 3. threshold == lastThreshold: exact duplicate, skip
+
+        if thresholdSeconds == lastThreshold {
+            writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s == last=\(lastThreshold)s (duplicate)")
             return false
         }
 
-        // Add exactly 60s
+        // Add exactly 60s (for both > and < cases)
         let newToday = currentToday + 60
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
@@ -186,7 +190,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(currentTotal + 60, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-        writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s > last=\(lastThreshold)s → today=\(newToday)s")
+        let symbol = thresholdSeconds > lastThreshold ? ">" : "<"
+        writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s \(symbol) last=\(lastThreshold)s → today=\(newToday)s")
         return true
     }
 
