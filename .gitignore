@@ -38,3 +38,6 @@ ScreenTime-BMAD/
 # Additional Xcode shared data that should be ignored
 xcshareddata/
 **/xcshareddata/
+
+# Internal documentation
+USAGE_TRACKING_ACCURACY.md
