@@ -759,11 +759,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
-            // REDUCED: iOS has undocumented limits - 720 events causes silent failure
-            // Testing with 60 events per app (180 total) to see if events fire
+            // NOTE: 240 thresholds per app causes iOS event "jamming" - events fire in bursts, not smoothly
+            // 60 minutes = 1 hour of reliable tracking per app
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 60    // Reduced from 240 to test iOS limits
+                let endMinute = 60    // 1 hour - iOS handles this reliably
 
                 #if DEBUG
                 print("[ScreenTimeService]   App: \(app.displayName)")
@@ -1134,15 +1134,33 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
                     // Only sync if extension data is from today AND is higher
                     if extensionResetTimestamp >= startOfToday && todaySeconds > persistedApp.todaySeconds {
+                        // Calculate the delta being added
+                        let deltaSeconds = todaySeconds - persistedApp.todaySeconds
+
+                        // Update daily totals
                         persistedApp.todaySeconds = todaySeconds
                         persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
                         persistedApp.lastUpdated = Date()
                         persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
-                        usagePersistence.saveApp(persistedApp)
 
-                        #if DEBUG
-                        print("[ScreenTimeService] 💾 Synced to persistence: \(usage.appName) todaySeconds=\(todaySeconds)")
-                        #endif
+                        // Also bucket usage into the current hour for hourly chart
+                        let currentHour = Calendar.current.component(.hour, from: Date())
+                        if persistedApp.todayHourlySeconds == nil {
+                            // First time initializing hourly data - add ALL existing usage to current hour
+                            persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
+                            persistedApp.todayHourlySeconds?[currentHour] = todaySeconds  // Use FULL amount
+                            #if DEBUG
+                            print("[ScreenTimeService] 🕐 Initialized hourly data: \(usage.appName) hour[\(currentHour)]=\(todaySeconds)s (migrated existing usage)")
+                            #endif
+                        } else {
+                            // Hourly array exists - just add the delta
+                            persistedApp.todayHourlySeconds?[currentHour] += deltaSeconds
+                            #if DEBUG
+                            print("[ScreenTimeService] 💾 Synced to persistence: \(usage.appName) todaySeconds=\(todaySeconds), hour[\(currentHour)]+=\(deltaSeconds)s")
+                            #endif
+                        }
+
+                        usagePersistence.saveApp(persistedApp)
                     } else if extensionResetTimestamp < startOfToday && todaySeconds > 0 {
                         // Extension has stale data from yesterday - clear it instead of syncing
                         #if DEBUG

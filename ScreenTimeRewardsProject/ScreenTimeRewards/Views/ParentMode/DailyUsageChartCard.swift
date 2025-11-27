@@ -7,6 +7,7 @@ struct DailyUsageChartCard: View {
     @State private var selectedPeriod: TimePeriod = .daily
 
     enum TimePeriod: String, CaseIterable, Identifiable {
+        case hourly = "Hourly Usage"
         case daily = "Daily Usage"
         case weekly = "Weekly Usage"
         case monthly = "Monthly Usage"
@@ -15,6 +16,7 @@ struct DailyUsageChartCard: View {
 
         var periodsToShow: Int {
             switch self {
+            case .hourly: return 24  // Today's hours
             case .daily: return 7    // Last 7 days
             case .weekly: return 4   // Last 4 weeks
             case .monthly: return 6  // Last 6 months
@@ -99,33 +101,59 @@ struct DailyUsageChartCard: View {
     private var chartView: some View {
         let learningData = getChartData(for: .learning)
         let rewardData = getChartData(for: .reward)
+        let isHourly = selectedPeriod == .hourly
         let xAxisUnit: Calendar.Component = {
             switch selectedPeriod {
+            case .hourly: return .hour
             case .daily: return .day
             case .weekly: return .weekOfYear
             case .monthly: return .month
             }
         }()
+        let xAxisName: String = {
+            switch selectedPeriod {
+            case .hourly: return "Hour"
+            case .daily: return "Day"
+            case .weekly: return "Week"
+            case .monthly: return "Month"
+            }
+        }()
 
         return Chart {
-            // Learning bars
+            // Learning bars - stacked for hourly, side-by-side otherwise
             ForEach(learningData, id: \.date) { item in
-                BarMark(
-                    x: .value(selectedPeriod == .daily ? "Day" : (selectedPeriod == .weekly ? "Week" : "Month"), item.date, unit: xAxisUnit),
-                    y: .value("Minutes", item.minutes)
-                )
-                .foregroundStyle(AppTheme.vibrantTeal.gradient)
-                .position(by: .value("Category", "Learning"))
+                if isHourly {
+                    BarMark(
+                        x: .value(xAxisName, item.date, unit: xAxisUnit),
+                        y: .value("Minutes", item.minutes)
+                    )
+                    .foregroundStyle(AppTheme.vibrantTeal.gradient)
+                } else {
+                    BarMark(
+                        x: .value(xAxisName, item.date, unit: xAxisUnit),
+                        y: .value("Minutes", item.minutes)
+                    )
+                    .foregroundStyle(AppTheme.vibrantTeal.gradient)
+                    .position(by: .value("Category", "Learning"))
+                }
             }
 
-            // Reward bars
+            // Reward bars - stacked for hourly, side-by-side otherwise
             ForEach(rewardData, id: \.date) { item in
-                BarMark(
-                    x: .value(selectedPeriod == .daily ? "Day" : (selectedPeriod == .weekly ? "Week" : "Month"), item.date, unit: xAxisUnit),
-                    y: .value("Minutes", item.minutes)
-                )
-                .foregroundStyle(AppTheme.playfulCoral.gradient)
-                .position(by: .value("Category", "Reward"))
+                if isHourly {
+                    BarMark(
+                        x: .value(xAxisName, item.date, unit: xAxisUnit),
+                        y: .value("Minutes", item.minutes)
+                    )
+                    .foregroundStyle(AppTheme.playfulCoral.gradient)
+                } else {
+                    BarMark(
+                        x: .value(xAxisName, item.date, unit: xAxisUnit),
+                        y: .value("Minutes", item.minutes)
+                    )
+                    .foregroundStyle(AppTheme.playfulCoral.gradient)
+                    .position(by: .value("Category", "Reward"))
+                }
             }
         }
         .chartXAxis {
@@ -168,6 +196,8 @@ struct DailyUsageChartCard: View {
 
     private func getChartData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
         switch selectedPeriod {
+        case .hourly:
+            return getHourlyData(for: category)
         case .daily:
             return viewModel.getChartDataForCategory(category, lastDays: 7)
         case .weekly:
@@ -277,6 +307,18 @@ struct DailyUsageChartCard: View {
         let formatter = DateFormatter()
 
         switch selectedPeriod {
+        case .hourly:
+            let hour = calendar.component(.hour, from: date)
+            if hour == 0 {
+                return "12AM"
+            } else if hour < 12 {
+                return "\(hour)AM"
+            } else if hour == 12 {
+                return "12PM"
+            } else {
+                return "\(hour - 12)PM"
+            }
+
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {
