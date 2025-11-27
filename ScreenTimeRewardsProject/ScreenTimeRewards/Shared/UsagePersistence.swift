@@ -129,6 +129,9 @@ final class UsagePersistence {
         cachedApps = UsagePersistence.decodeApps(from: userDefaults, key: persistedAppsKey)
         cachedTokenMappings = UsagePersistence.decodeMappings(from: userDefaults, key: tokenMappingsKey)
 
+        // Migrate hourly data for existing apps on first load
+        migrateHourlyDataIfNeeded()
+
         #if DEBUG
         if userDefaults == nil {
             print("[UsagePersistence] ⚠️ Failed to access App Group: \(appGroupIdentifier)")
@@ -229,7 +232,33 @@ final class UsagePersistence {
     /// Reload cached apps from shared defaults, returning the latest snapshot.
     func reloadAppsFromDisk() -> [LogicalAppID: PersistedApp] {
         cachedApps = UsagePersistence.decodeApps(from: userDefaults, key: persistedAppsKey)
+        migrateHourlyDataIfNeeded()
         return cachedApps
+    }
+
+    /// Migrate existing daily usage to hourly breakdown for apps tracked before the feature was added.
+    /// Places all existing usage into the current hour (best effort since we don't know when it occurred).
+    private func migrateHourlyDataIfNeeded() {
+        let currentHour = Calendar.current.component(.hour, from: Date())
+        var needsPersist = false
+
+        for (logicalID, var app) in cachedApps {
+            if app.todayHourlySeconds == nil && app.todaySeconds > 0 {
+                // Migrate existing todaySeconds to current hour (best effort)
+                app.todayHourlySeconds = Array(repeating: 0, count: 24)
+                app.todayHourlySeconds?[currentHour] = app.todaySeconds
+                cachedApps[logicalID] = app
+                needsPersist = true
+
+                #if DEBUG
+                print("[UsagePersistence] 🔄 Migrated hourly data for \(app.displayName): \(app.todaySeconds)s → hour[\(currentHour)]")
+                #endif
+            }
+        }
+
+        if needsPersist {
+            persistApps()
+        }
     }
 
     func app(for logicalID: LogicalAppID) -> PersistedApp? {

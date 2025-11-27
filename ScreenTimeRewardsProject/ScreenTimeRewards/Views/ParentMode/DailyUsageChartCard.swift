@@ -213,7 +213,6 @@ struct DailyUsageChartCard: View {
         let now = Date()
         let currentHour = calendar.component(.hour, from: now)
 
-        // Only track hours with actual usage (don't initialize all hours)
         var hourlyData: [Date: Int] = [:]
         let today = calendar.startOfDay(for: now)
 
@@ -228,39 +227,35 @@ struct DailyUsageChartCard: View {
 
         // Get hourly data from each app
         for logicalID in logicalIDs {
-            if let persistedApp = service.usagePersistence.app(for: logicalID),
-               let hourlySeconds = persistedApp.todayHourlySeconds {
+            if var persistedApp = service.usagePersistence.app(for: logicalID) {
+                // MIGRATION: If todaySeconds > 0 but todayHourlySeconds is nil, migrate NOW
+                // This handles apps tracked before the hourly feature was added
+                if persistedApp.todayHourlySeconds == nil && persistedApp.todaySeconds > 0 {
+                    persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
+                    persistedApp.todayHourlySeconds?[currentHour] = persistedApp.todaySeconds
+                    service.usagePersistence.saveApp(persistedApp)
 
-                #if DEBUG
-                print("[DailyUsageChartCard] 📊 App \(logicalID) hourly data: \(hourlySeconds)")
-                #endif
+                    #if DEBUG
+                    print("[DailyUsageChartCard] 🔄 Migrated \(persistedApp.displayName): \(persistedApp.todaySeconds)s → hour[\(currentHour)]")
+                    #endif
+                }
 
-                // Map hour indices [0-23] to actual hour dates for today
-                for (hourIndex, seconds) in hourlySeconds.enumerated() {
-                    // Only include hours with usage up to current hour
-                    if hourIndex <= currentHour && seconds > 0 {
-                        if let hourDate = calendar.date(byAdding: .hour, value: hourIndex, to: today) {
-                            hourlyData[hourDate, default: 0] += seconds / 60  // Convert to minutes
-
-                            #if DEBUG
-                            print("[DailyUsageChartCard] 📊 Hour \(hourIndex): +\(seconds)s (\(seconds/60)m)")
-                            #endif
+                if let hourlySeconds = persistedApp.todayHourlySeconds {
+                    // Map hour indices [0-23] to actual hour dates for today
+                    for (hourIndex, seconds) in hourlySeconds.enumerated() {
+                        if hourIndex <= currentHour && seconds > 0 {
+                            if let hourDate = calendar.date(byAdding: .hour, value: hourIndex, to: today) {
+                                hourlyData[hourDate, default: 0] += seconds / 60  // Convert to minutes
+                            }
                         }
                     }
                 }
             }
         }
 
-        // Return only non-zero hours, sorted by time
-        let result = hourlyData
+        return hourlyData
             .sorted { $0.key < $1.key }
             .map { (date: $0.key, minutes: $0.value) }
-
-        #if DEBUG
-        print("[DailyUsageChartCard] 📊 Non-zero hours displayed: \(result.count)")
-        #endif
-
-        return result
     }
 
     private func getWeeklyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
