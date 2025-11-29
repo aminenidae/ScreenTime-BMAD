@@ -2,13 +2,25 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 
+// Combined struct to prevent race condition in sheet presentation
+private struct LearningConfigSheetData: Identifiable {
+    let snapshot: LearningAppSnapshot
+    var config: AppScheduleConfiguration
+    var id: String { snapshot.id }
+}
+
 struct LearningTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @EnvironmentObject var sessionManager: SessionManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
+    // App schedule configuration
+    @StateObject private var scheduleService = AppScheduleService.shared
+
+    // Sheet state
     @State private var selectedLearningSnapshot: LearningAppSnapshot?
+    @State private var configSheetData: LearningConfigSheetData?  // Combined snapshot + config
 
     private var hasLearningApps: Bool {
         !viewModel.learningSnapshots.isEmpty
@@ -58,10 +70,59 @@ struct LearningTabView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        // Detail view sheet (for configured apps)
         .sheet(item: $selectedLearningSnapshot) { snapshot in
             LearningAppDetailView(snapshot: snapshot)
         }
+        // Configuration sheet
+        .sheet(item: $configSheetData) { data in
+            AppConfigurationSheet(
+                token: data.snapshot.token,
+                appName: data.snapshot.displayName,
+                appType: .learning,
+                configuration: Binding(
+                    get: { data.config },
+                    set: { newConfig in
+                        configSheetData = LearningConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                    }
+                ),
+                onSave: { savedConfig in
+                    try? scheduleService.saveSchedule(savedConfig)
+                    configSheetData = nil
+                },
+                onCancel: {
+                    configSheetData = nil
+                }
+            )
+        }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
+    }
+
+    // MARK: - Helpers
+
+    private func isConfigured(_ snapshot: LearningAppSnapshot) -> Bool {
+        scheduleService.schedules[snapshot.logicalID] != nil
+    }
+
+    private func configSummary(for snapshot: LearningAppSnapshot) -> String? {
+        scheduleService.schedules[snapshot.logicalID]?.displaySummary
+    }
+
+    private func openConfigSheet(for snapshot: LearningAppSnapshot) {
+        let existingConfig = scheduleService.schedules[snapshot.logicalID]
+            ?? AppScheduleConfiguration.defaultLearning(logicalID: snapshot.logicalID)
+        // Set combined data atomically to prevent race condition
+        configSheetData = LearningConfigSheetData(snapshot: snapshot, config: existingConfig)
+    }
+
+    private func handleAppTap(_ snapshot: LearningAppSnapshot) {
+        if isConfigured(snapshot) {
+            // Direct to detail view (configuration accessible from there)
+            selectedLearningSnapshot = snapshot
+        } else {
+            // Open config sheet directly
+            openConfigSheet(for: snapshot)
+        }
     }
 
     // MARK: - Summary Card
@@ -153,9 +214,10 @@ struct LearningTabView: View {
         let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
+        let configured = isConfigured(snapshot)
 
         Button {
-            selectedLearningSnapshot = snapshot
+            handleAppTap(snapshot)
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: 16) {
@@ -180,39 +242,70 @@ struct LearningTabView: View {
                         if #available(iOS 15.2, *) {
                             Label(snapshot.token)
                                 .labelStyle(.titleOnly)
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                         } else {
                             Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                                .font(.system(size: 8, weight: .medium))
+                                .font(.system(size: 14, weight: .medium))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
 
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(AppTheme.learningPeach)
+                        // Show different content based on configuration status
+                        if configured {
+                            // Configured: show usage time and config summary
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(AppTheme.learningPeach)
 
-                            Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.learningPeach)
-                                .lineLimit(1)
-                                .truncationMode(.tail)
+                                Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(AppTheme.learningPeach)
+
+                                if let summary = configSummary(for: snapshot) {
+                                    Text("•")
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    Text(summary)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                        .lineLimit(1)
+                                }
+                            }
+                        } else {
+                            // Unconfigured: show warning
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.orange)
+
+                                Text("Tap to configure")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                     Spacer()
+
+                    // Chevron indicator
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(configured ? AppTheme.textSecondary(for: colorScheme) : .orange)
                 }
                 .padding(12)
             }
             .background(
-                AppTheme.card(for: colorScheme)
+                RoundedRectangle(cornerRadius: 8)
+                    .fill(AppTheme.card(for: colorScheme))
                     .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
             )
-            .cornerRadius(8)
+            .overlay(
+                RoundedRectangle(cornerRadius: 8)
+                    .stroke(configured ? Color.clear : Color.orange.opacity(0.5), lineWidth: configured ? 0 : 2)
+            )
         }
         .buttonStyle(.plain)
     }

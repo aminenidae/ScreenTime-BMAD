@@ -2,12 +2,25 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 
+// Combined struct to prevent race condition in sheet presentation
+private struct RewardConfigSheetData: Identifiable {
+    let snapshot: RewardAppSnapshot
+    var config: AppScheduleConfiguration
+    var id: String { snapshot.id }
+}
+
 struct RewardsTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
     @EnvironmentObject var sessionManager: SessionManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
+    // App schedule configuration
+    @StateObject private var scheduleService = AppScheduleService.shared
+
+    // Sheet state
     @State private var selectedRewardSnapshot: RewardAppSnapshot?
+    @State private var configSheetData: RewardConfigSheetData?  // Combined snapshot + config
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -107,10 +120,61 @@ struct RewardsTabView: View {
         .refreshable {
             await viewModel.refresh()
         }
+        // Detail view sheet (for configured apps)
         .sheet(item: $selectedRewardSnapshot) { snapshot in
             RewardAppDetailView(snapshot: snapshot)
         }
+        // Configuration sheet
+        .sheet(item: $configSheetData) { data in
+            AppConfigurationSheet(
+                token: data.snapshot.token,
+                appName: data.snapshot.displayName,
+                appType: .reward,
+                learningSnapshots: viewModel.learningSnapshots,
+                configuration: Binding(
+                    get: { data.config },
+                    set: { newConfig in
+                        configSheetData = RewardConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                    }
+                ),
+                onSave: { savedConfig in
+                    try? scheduleService.saveSchedule(savedConfig)
+                    configSheetData = nil
+                },
+                onCancel: {
+                    configSheetData = nil
+                }
+            )
+        }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
+    }
+
+    // MARK: - Helpers
+
+    private func isConfigured(_ snapshot: RewardAppSnapshot) -> Bool {
+        scheduleService.schedules[snapshot.logicalID] != nil
+    }
+
+    private func configSummary(for snapshot: RewardAppSnapshot) -> String? {
+        scheduleService.schedules[snapshot.logicalID]?.displaySummary
+    }
+
+    private func openConfigSheet(for snapshot: RewardAppSnapshot) {
+        // Reward apps get stricter default limits
+        let existingConfig = scheduleService.schedules[snapshot.logicalID]
+            ?? AppScheduleConfiguration.defaultReward(logicalID: snapshot.logicalID)
+        // Set combined data atomically to prevent race condition
+        configSheetData = RewardConfigSheetData(snapshot: snapshot, config: existingConfig)
+    }
+
+    private func handleAppTap(_ snapshot: RewardAppSnapshot) {
+        if isConfigured(snapshot) {
+            // Direct to detail view (configuration accessible from there)
+            selectedRewardSnapshot = snapshot
+        } else {
+            // Open config sheet directly
+            openConfigSheet(for: snapshot)
+        }
     }
 }
 
@@ -191,9 +255,10 @@ private extension RewardsTabView {
         let iconSize: CGFloat = horizontalSizeClass == .regular ? 25 : 34
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
+        let configured = isConfigured(snapshot)
 
         Button {
-            selectedRewardSnapshot = snapshot
+            handleAppTap(snapshot)
         } label: {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(alignment: .center, spacing: 12) {
@@ -228,28 +293,58 @@ private extension RewardsTabView {
                                 .truncationMode(.tail)
                         }
 
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.system(size: 12))
-                                .foregroundColor(AppTheme.playfulCoral)
+                        // Show different content based on configuration status
+                        if configured {
+                            // Configured: show usage time and config summary
+                            HStack(spacing: 4) {
+                                Image(systemName: "clock.fill")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(AppTheme.playfulCoral)
 
-                            Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
-                                .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.playfulCoral)
-                                .lineLimit(1)
+                                Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .foregroundColor(AppTheme.playfulCoral)
+
+                                if let summary = configSummary(for: snapshot) {
+                                    Text("•")
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    Text(summary)
+                                        .font(.system(size: 12))
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                        .lineLimit(1)
+                                }
+                            }
+                        } else {
+                            // Unconfigured: show warning
+                            HStack(spacing: 4) {
+                                Image(systemName: "exclamationmark.triangle.fill")
+                                    .font(.system(size: 10))
+                                    .foregroundColor(.orange)
+
+                                Text("Tap to configure")
+                                    .font(.system(size: 12, weight: .medium))
+                                    .foregroundColor(.orange)
+                            }
                         }
                     }
 
                     Spacer()
 
                     Image(systemName: "chevron.right")
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(configured ? AppTheme.textSecondary(for: colorScheme) : .orange)
                 }
                 .padding(16)
             }
-            .background(AppTheme.card(for: colorScheme))
-            .cornerRadius(12)
-            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(configured ? Color.clear : Color.orange.opacity(0.5), lineWidth: configured ? 0 : 2)
+            )
         }
         .buttonStyle(.plain)
     }

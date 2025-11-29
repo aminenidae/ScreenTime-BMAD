@@ -1,23 +1,40 @@
 import SwiftUI
 import FamilyControls
 
+// Combined struct to prevent race condition in sheet presentation
+private struct LearningDetailConfigData: Identifiable {
+    let snapshot: LearningAppSnapshot
+    var config: AppScheduleConfiguration
+    var id: String { snapshot.id }
+}
+
 struct LearningAppDetailView: View {
     let snapshot: LearningAppSnapshot
     @State private var persistedUsage: UsagePersistence.PersistedApp?
     @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     private let service = ScreenTimeService.shared
+
+    // Configuration sheet state (combined to prevent race condition)
+    @StateObject private var scheduleService = AppScheduleService.shared
+    @State private var configSheetData: LearningDetailConfigData?
 
     var body: some View {
         NavigationStack {
-            AppUsageDetailContent(
-                title: snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName,
-                subtitle: "Learning app overview",
-                accentColor: AppTheme.vibrantTeal,
-                persistedUsage: persistedUsage,
-                pointsPerMinute: snapshot.pointsPerMinute,
-                dailyHistory: history
-            )
+            ZStack(alignment: .bottom) {
+                AppUsageDetailContent(
+                    title: snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName,
+                    subtitle: "Learning app overview",
+                    accentColor: AppTheme.vibrantTeal,
+                    persistedUsage: persistedUsage,
+                    pointsPerMinute: snapshot.pointsPerMinute,
+                    dailyHistory: history
+                )
+
+                // Floating Configure Button
+                configureButton(accentColor: AppTheme.learningPeach)
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // App icon in center (principal position)
@@ -65,26 +82,102 @@ struct LearningAppDetailView: View {
                 print("[LearningAppDetailView] 🔍 No logicalID found for tokenHash")
             }
         }
+        .sheet(item: $configSheetData) { data in
+            AppConfigurationSheet(
+                token: data.snapshot.token,
+                appName: data.snapshot.displayName,
+                appType: .learning,
+                configuration: Binding(
+                    get: { data.config },
+                    set: { newConfig in
+                        configSheetData = LearningDetailConfigData(snapshot: data.snapshot, config: newConfig)
+                    }
+                ),
+                onSave: { savedConfig in
+                    try? scheduleService.saveSchedule(savedConfig)
+                    configSheetData = nil
+                },
+                onCancel: {
+                    configSheetData = nil
+                }
+            )
+        }
     }
+
+    private func configureButton(accentColor: Color) -> some View {
+        VStack(spacing: 0) {
+            // Gradient fade effect
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 40)
+
+            Button(action: {
+                let existingConfig = scheduleService.schedules[snapshot.logicalID]
+                    ?? AppScheduleConfiguration.defaultLearning(logicalID: snapshot.logicalID)
+                // Set combined data atomically to prevent race condition
+                configSheetData = LearningDetailConfigData(snapshot: snapshot, config: existingConfig)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 16))
+                    Text("Configure")
+                        .font(.system(size: 16, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(accentColor)
+                .cornerRadius(8)
+                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .background(AppTheme.background(for: colorScheme))
+        }
+    }
+}
+
+// Combined struct to prevent race condition in sheet presentation
+private struct RewardDetailConfigData: Identifiable {
+    let snapshot: RewardAppSnapshot
+    var config: AppScheduleConfiguration
+    var id: String { snapshot.id }
 }
 
 struct RewardAppDetailView: View {
     let snapshot: RewardAppSnapshot
+    @EnvironmentObject var viewModel: AppUsageViewModel  // For learningSnapshots in config sheet
     @State private var persistedUsage: UsagePersistence.PersistedApp?
     @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.colorScheme) private var colorScheme
     private let service = ScreenTimeService.shared
+
+    // Configuration sheet state (combined to prevent race condition)
+    @StateObject private var scheduleService = AppScheduleService.shared
+    @State private var configSheetData: RewardDetailConfigData?
 
     var body: some View {
         NavigationStack {
-            AppUsageDetailContent(
-                title: snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName,
-                subtitle: "Reward app overview",
-                accentColor: AppTheme.playfulCoral,
-                persistedUsage: persistedUsage,
-                pointsPerMinute: snapshot.pointsPerMinute,
-                dailyHistory: history
-            )
+            ZStack(alignment: .bottom) {
+                AppUsageDetailContent(
+                    title: snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName,
+                    subtitle: "Reward app overview",
+                    accentColor: AppTheme.playfulCoral,
+                    persistedUsage: persistedUsage,
+                    pointsPerMinute: snapshot.pointsPerMinute,
+                    dailyHistory: history
+                )
+
+                // Floating Configure Button
+                configureButton(accentColor: AppTheme.playfulCoral)
+            }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 // App icon in center (principal position)
@@ -115,6 +208,65 @@ struct RewardAppDetailView: View {
                 persistedUsage = service.usagePersistence.app(for: logicalID)
                 history = persistedUsage?.dailyHistory ?? []
             }
+        }
+        .sheet(item: $configSheetData) { data in
+            AppConfigurationSheet(
+                token: data.snapshot.token,
+                appName: data.snapshot.displayName,
+                appType: .reward,
+                learningSnapshots: viewModel.learningSnapshots,
+                configuration: Binding(
+                    get: { data.config },
+                    set: { newConfig in
+                        configSheetData = RewardDetailConfigData(snapshot: data.snapshot, config: newConfig)
+                    }
+                ),
+                onSave: { savedConfig in
+                    try? scheduleService.saveSchedule(savedConfig)
+                    configSheetData = nil
+                },
+                onCancel: {
+                    configSheetData = nil
+                }
+            )
+        }
+    }
+
+    private func configureButton(accentColor: Color) -> some View {
+        VStack(spacing: 0) {
+            // Gradient fade effect
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 40)
+
+            Button(action: {
+                let existingConfig = scheduleService.schedules[snapshot.logicalID]
+                    ?? AppScheduleConfiguration.defaultReward(logicalID: snapshot.logicalID)
+                // Set combined data atomically to prevent race condition
+                configSheetData = RewardDetailConfigData(snapshot: snapshot, config: existingConfig)
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 16))
+                    Text("Configure")
+                        .font(.system(size: 16, weight: .bold))
+                }
+                .foregroundColor(.white)
+                .frame(maxWidth: .infinity)
+                .frame(height: 48)
+                .background(accentColor)
+                .cornerRadius(8)
+                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 }
