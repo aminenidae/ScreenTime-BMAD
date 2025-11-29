@@ -462,8 +462,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] ℹ️ No persisted selection found - starting fresh")
             #endif
         }
+
+        // Print full debug summary at launch
+        #if DEBUG
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            print("\n🚀🚀🚀 APP LAUNCH - USAGE TRACKING DEBUG SUMMARY 🚀🚀🚀")
+            self?.printUsageTrackingDebugSummary()
+        }
+        #endif
     }
-    
+
     // MARK: - Sample Data
     
     func bootstrapSampleDataIfNeeded() {
@@ -1100,6 +1108,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         // Notify UI of usage updates
         notifyUsageChange()
+
+        // Print full debug summary when extension reports usage
+        #if DEBUG
+        print("\n📨📨📨 EXTENSION USAGE RECEIVED - DEBUG SUMMARY 📨📨📨")
+        printUsageTrackingDebugSummary()
+        #endif
     }
 
     /// Read usage data from extension's primitive keys
@@ -1597,6 +1611,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("     Found \(primitiveMapCount) primitive event mappings")
 
         print("[DiagnosticPolling] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
+
+        // Print full usage tracking debug summary with ext_ vs app comparison
+        print("\n⏱️⏱️⏱️ POLLING CYCLE #\(diagnosticPollCount) - USAGE TRACKING DEBUG ⏱️⏱️⏱️")
+        printUsageTrackingDebugSummary()
     }
 
     /// Check if diagnostic polling is active
@@ -3340,6 +3358,172 @@ extension ScreenTimeService {
         } catch {
             print("[ScreenTimeService] ❌ Failed to mark records: \(error)")
         }
+    }
+
+    // MARK: - Protected Extension Data (ext_ keys - Source of Truth)
+
+    /// Structure representing protected extension usage data
+    struct ExtensionUsageData {
+        let todaySeconds: Int
+        let totalSeconds: Int
+        let date: String?
+        let hour: Int
+        let timestamp: Double
+        let isStale: Bool  // True if data is older than 5 minutes
+    }
+
+    /// Read protected extension usage data for an app (NEVER write to these keys from main app)
+    /// - Parameter appID: The logical ID of the app
+    /// - Returns: Extension usage data or nil if not available
+    func readExtensionUsageData(for appID: String) -> ExtensionUsageData? {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            print("[ScreenTimeService] ⚠️ Failed to access App Group for reading ext_ keys")
+            return nil
+        }
+
+        let todaySeconds = sharedDefaults.integer(forKey: "ext_usage_\(appID)_today")
+        let totalSeconds = sharedDefaults.integer(forKey: "ext_usage_\(appID)_total")
+        let date = sharedDefaults.string(forKey: "ext_usage_\(appID)_date")
+        let hour = sharedDefaults.integer(forKey: "ext_usage_\(appID)_hour")
+        let timestamp = sharedDefaults.double(forKey: "ext_usage_\(appID)_timestamp")
+
+        // Check if we have any data
+        if totalSeconds == 0 && todaySeconds == 0 && timestamp == 0 {
+            return nil
+        }
+
+        // Check staleness (data older than 5 minutes)
+        let isStale = timestamp > 0 && (Date().timeIntervalSince1970 - timestamp) > 300
+
+        return ExtensionUsageData(
+            todaySeconds: todaySeconds,
+            totalSeconds: totalSeconds,
+            date: date,
+            hour: hour,
+            timestamp: timestamp,
+            isStale: isStale
+        )
+    }
+
+    /// Validate usage data by comparing extension data (source of truth) vs app data
+    /// - Parameter appID: The logical ID of the app
+    /// - Returns: Tuple with extension seconds, app seconds, and difference (positive = inflation)
+    func validateUsageData(for appID: String) -> (ext: Int, app: Int, diff: Int, isInflated: Bool)? {
+        guard let extData = readExtensionUsageData(for: appID) else {
+            return nil
+        }
+
+        let appSeconds = appUsages[appID].map { Int($0.totalTime) } ?? 0
+        let diff = appSeconds - extData.totalSeconds
+        let isInflated = diff > 0
+
+        return (ext: extData.totalSeconds, app: appSeconds, diff: diff, isInflated: isInflated)
+    }
+
+    /// Validate all tracked apps and return a summary
+    func validateAllUsageData() -> [(appID: String, displayName: String, ext: Int, app: Int, diff: Int, isInflated: Bool)] {
+        var results: [(appID: String, displayName: String, ext: Int, app: Int, diff: Int, isInflated: Bool)] = []
+
+        for (appID, appUsage) in appUsages {
+            if let validation = validateUsageData(for: appID) {
+                results.append((
+                    appID: appID,
+                    displayName: appUsage.appName,
+                    ext: validation.ext,
+                    app: validation.app,
+                    diff: validation.diff,
+                    isInflated: validation.isInflated
+                ))
+            }
+        }
+
+        return results
+    }
+
+    /// Print a comprehensive debug summary of all usage tracking data
+    func printUsageTrackingDebugSummary() {
+        let timestamp = ISO8601DateFormatter().string(from: Date())
+
+        print("")
+        print("╔════════════════════════════════════════════════════════════════════════════╗")
+        print("║                    📊 USAGE TRACKING DEBUG SUMMARY                         ║")
+        print("║                    \(timestamp)                          ║")
+        print("╠════════════════════════════════════════════════════════════════════════════╣")
+
+        // 1. Monitoring Status
+        print("║ 🔍 MONITORING STATUS")
+        print("║   isMonitoring: \(isMonitoring)")
+        print("║   Family Selection Apps: \(familySelection.applications.count)")
+
+        // 2. App Group Access
+        print("╟────────────────────────────────────────────────────────────────────────────╢")
+        print("║ 💾 APP GROUP STATUS")
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            print("║   ✅ App Group accessible")
+
+            // Check for event mappings
+            if let mappingData = sharedDefaults.data(forKey: "eventMappings") {
+                print("║   ✅ Event mappings present: \(mappingData.count) bytes")
+            } else {
+                print("║   ❌ Event mappings MISSING - extension won't work!")
+            }
+        } else {
+            print("║   ❌❌❌ CRITICAL: Cannot access App Group!")
+        }
+
+        // 3. App Usage Data with ext_ comparison
+        print("╟────────────────────────────────────────────────────────────────────────────╢")
+        print("║ 📱 APP USAGE DATA (\(appUsages.count) apps)")
+
+        if appUsages.isEmpty {
+            print("║   ⚠️ No app usage data recorded yet")
+        } else {
+            for (appID, usage) in appUsages.sorted(by: { $0.value.totalTime > $1.value.totalTime }) {
+                let mins = Int(usage.totalTime) / 60
+                let secs = Int(usage.totalTime) % 60
+                print("║   • \(usage.appName.prefix(20)) | \(mins)m \(secs)s | \(usage.earnedRewardPoints)pts")
+
+                // Compare with ext_ data
+                if let extData = readExtensionUsageData(for: appID) {
+                    let extMins = extData.totalSeconds / 60
+                    let extSecs = extData.totalSeconds % 60
+                    let diff = Int(usage.totalTime) - extData.totalSeconds
+                    let status = diff > 0 ? "⚠️ INFLATED +\(diff)s" : (diff < 0 ? "❓ UNDER \(diff)s" : "✅ OK")
+                    print("║     └─ ext_: \(extMins)m \(extSecs)s | \(status)")
+                } else {
+                    print("║     └─ ext_: NO DATA")
+                }
+            }
+        }
+
+        // 4. Validation Summary
+        print("╟────────────────────────────────────────────────────────────────────────────╢")
+        print("║ 🔍 VALIDATION SUMMARY")
+
+        let validationResults = validateAllUsageData()
+        if validationResults.isEmpty {
+            print("║   ⚠️ No apps with ext_ data to validate")
+        } else {
+            let inflatedCount = validationResults.filter { $0.isInflated }.count
+            let okCount = validationResults.count - inflatedCount
+            print("║   Total: \(validationResults.count) | ✅ OK: \(okCount) | ❌ Inflated: \(inflatedCount)")
+            if inflatedCount > 0 {
+                print("║   ⚠️ DATA INFLATION DETECTED!")
+                for r in validationResults where r.isInflated {
+                    print("║      • \(r.displayName): app=\(r.app)s, ext=\(r.ext)s, diff=+\(r.diff)s")
+                }
+            }
+        }
+
+        print("╚════════════════════════════════════════════════════════════════════════════╝")
+        print("")
+    }
+
+    /// Quick status line for frequent monitoring
+    func printQuickStatus() {
+        let totalMins = Int(appUsages.values.reduce(0) { $0 + $1.totalTime }) / 60
+        let totalPts = appUsages.values.reduce(0) { $0 + $1.earnedRewardPoints }
+        print("[ScreenTimeService] 📊 Status: \(appUsages.count) apps, \(totalMins)m total, \(totalPts)pts | monitoring: \(isMonitoring)")
     }
 }
 #endif

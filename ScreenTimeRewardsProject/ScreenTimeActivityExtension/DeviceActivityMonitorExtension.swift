@@ -131,6 +131,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Simple +60s per event when threshold exceeds lastThreshold
     /// No session tracking needed - just track highest threshold seen today
     /// Returns true if 60s was added, false if skipped (catch-up or duplicate)
+    /// Also writes to protected ext_ keys (source of truth for debugging)
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults) -> Bool {
         let todayKey = "usage_\(appID)_today"
         let todayResetKey = "usage_\(appID)_reset"
@@ -138,8 +139,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
-        let startOfToday = Calendar.current.startOfDay(for: now).timeIntervalSince1970
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
         let lastReset = defaults.double(forKey: todayResetKey)
+
+        // Date string for ext_ keys
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateString = dateFormatter.string(from: now)
+        let hour = calendar.component(.hour, from: now)
 
         // Day rollover check
         if lastReset < startOfToday {
@@ -162,7 +170,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(60, forKey: totalKey)
             defaults.set(thresholdSeconds, forKey: lastThresholdKey)
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+
+            // === PROTECTED ext_ KEYS (Source of Truth) ===
+            // These keys are ONLY written by extension, NEVER by main app
+            defaults.set(60, forKey: "ext_usage_\(appID)_today")
+            defaults.set(60, forKey: "ext_usage_\(appID)_total")
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
+            defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
+            defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
+
             writeDebugLog("🌅 New day: \(appID) today=60s (first event, threshold=\(thresholdSeconds)s)")
+            writeDebugLog("🔒 ext_ keys: today=60s, total=60s, date=\(dateString)")
             return true
         }
 
@@ -187,11 +205,36 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Update total
         let currentTotal = defaults.integer(forKey: totalKey)
-        defaults.set(currentTotal + 60, forKey: totalKey)
+        let newTotal = currentTotal + 60
+        defaults.set(newTotal, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+
+        // === PROTECTED ext_ KEYS (Source of Truth) ===
+        // Read current ext_ values
+        let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
+        let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
+        let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
+
+        // Check if ext_ date needs reset (new day)
+        let newExtToday: Int
+        if currentExtDate == dateString {
+            newExtToday = currentExtToday + 60
+        } else {
+            newExtToday = 60 // New day, reset
+            writeDebugLog("🔒 ext_ day rollover detected")
+        }
+        let newExtTotal = currentExtTotal + 60
+
+        // Write protected ext_ keys
+        defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
+        defaults.set(newExtTotal, forKey: "ext_usage_\(appID)_total")
+        defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
+        defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
+        defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
         let symbol = thresholdSeconds > lastThreshold ? ">" : "<"
         writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s \(symbol) last=\(lastThreshold)s → today=\(newToday)s")
+        writeDebugLog("🔒 ext_ keys: today=\(newExtToday)s, total=\(newExtTotal)s")
         return true
     }
 
