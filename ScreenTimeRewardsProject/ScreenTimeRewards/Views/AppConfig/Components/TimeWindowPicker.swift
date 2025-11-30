@@ -40,49 +40,20 @@ struct TimeWindowPicker: View {
 
             // Time pickers (only shown when not full day)
             if !isFullDay {
-                // Mode switch (Simple vs Per-day) - switching doesn't modify data
-                HStack(spacing: 0) {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            useAdvancedConfig = false
-                        }
-                    } label: {
-                        Text("Same every day")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(!useAdvancedConfig ? .white : ChallengeBuilderTheme.mutedText)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(!useAdvancedConfig ? AppTheme.vibrantTeal : Color.clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                // Mode toggle (Simple vs Per-day) - switching doesn't modify data
+                HStack(spacing: 8) {
+                    Text("Same every day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(!useAdvancedConfig ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
 
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            useAdvancedConfig = true
-                        }
-                    } label: {
-                        Text("Per-day")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(useAdvancedConfig ? .white : ChallengeBuilderTheme.mutedText)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 8)
-                            .frame(maxWidth: .infinity)
-                            .background(
-                                RoundedRectangle(cornerRadius: 8)
-                                    .fill(useAdvancedConfig ? AppTheme.playfulCoral : Color.clear)
-                            )
-                    }
-                    .buttonStyle(.plain)
+                    Toggle("", isOn: $useAdvancedConfig.animation(.easeInOut(duration: 0.2)))
+                        .labelsHidden()
+                        .tint(useAdvancedConfig ? AppTheme.playfulCoral : AppTheme.vibrantTeal)
+
+                    Text("Per-day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(useAdvancedConfig ? AppTheme.playfulCoral : ChallengeBuilderTheme.mutedText)
                 }
-                .padding(4)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(ChallengeBuilderTheme.inputBackground)
-                )
 
                 if useAdvancedConfig {
                     advancedPicker
