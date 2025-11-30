@@ -7,26 +7,6 @@ struct TimeWindowPicker: View {
     @Binding var useAdvancedConfig: Bool                // false = simple, true = per-day
     @Binding var isFullDay: Bool                        // Toggle for "Available all day"
 
-    @State private var startTime: Date
-    @State private var endTime: Date
-
-    init(
-        timeWindow: Binding<AllowedTimeWindow>,
-        dailyTimeWindows: Binding<DailyTimeWindows>,
-        useAdvancedConfig: Binding<Bool>,
-        isFullDay: Binding<Bool>
-    ) {
-        self._timeWindow = timeWindow
-        self._dailyTimeWindows = dailyTimeWindows
-        self._useAdvancedConfig = useAdvancedConfig
-        self._isFullDay = isFullDay
-
-        // Initialize state from simple mode binding
-        let window = timeWindow.wrappedValue
-        _startTime = State(initialValue: Self.dateFrom(hour: window.startHour, minute: window.startMinute))
-        _endTime = State(initialValue: Self.dateFrom(hour: window.endHour, minute: window.endMinute))
-    }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             // Header with toggle
@@ -60,27 +40,19 @@ struct TimeWindowPicker: View {
 
             // Time pickers (only shown when not full day)
             if !isFullDay {
-                // Mode toggle (Simple vs Per-day)
-                HStack {
-                    Text(useAdvancedConfig ? "Per-day hours" : "Same every day")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ChallengeBuilderTheme.text)
+                // Mode toggle (Simple vs Per-day) - switching doesn't modify data
+                HStack(spacing: 8) {
+                    Text("Same every day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(!useAdvancedConfig ? ChallengeBuilderTheme.text : ChallengeBuilderTheme.mutedText)
 
-                    Spacer()
+                    Toggle("", isOn: $useAdvancedConfig.animation(.easeInOut(duration: 0.2)))
+                        .labelsHidden()
+                        .tint(AppTheme.vibrantTeal)
 
-                    Button(action: {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            useAdvancedConfig.toggle()
-                            if useAdvancedConfig {
-                                // Copy simple mode to all days when switching to advanced
-                                dailyTimeWindows = DailyTimeWindows(weekday: timeWindow, weekend: timeWindow)
-                            }
-                        }
-                    }) {
-                        Text(useAdvancedConfig ? "Simplify" : "Advanced")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
+                    Text("Per-day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(useAdvancedConfig ? ChallengeBuilderTheme.text : ChallengeBuilderTheme.mutedText)
                 }
 
                 if useAdvancedConfig {
@@ -95,9 +67,9 @@ struct TimeWindowPicker: View {
                 timeWindow = .fullDay
                 dailyTimeWindows = .allFullDay
                 useAdvancedConfig = false
-            } else {
-                updateTimeWindow()
             }
+            // When toggling OFF full day, the current timeWindow value is preserved
+            // and the inline Bindings in simplePicker will display it correctly
         }
     }
 
@@ -105,7 +77,7 @@ struct TimeWindowPicker: View {
 
     private var simplePicker: some View {
         VStack(spacing: 12) {
-            // Start time
+            // Start time - use inline Binding to read/write directly from timeWindow
             HStack {
                 Text("From")
                     .font(.system(size: 14, weight: .medium))
@@ -114,17 +86,27 @@ struct TimeWindowPicker: View {
 
                 DatePicker(
                     "",
-                    selection: $startTime,
+                    selection: Binding(
+                        get: {
+                            Self.dateFrom(hour: timeWindow.startHour, minute: timeWindow.startMinute)
+                        },
+                        set: { newDate in
+                            let cal = Calendar.current
+                            timeWindow = AllowedTimeWindow(
+                                startHour: cal.component(.hour, from: newDate),
+                                startMinute: cal.component(.minute, from: newDate),
+                                endHour: timeWindow.endHour,
+                                endMinute: timeWindow.endMinute
+                            )
+                        }
+                    ),
                     displayedComponents: .hourAndMinute
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
-                .onChange(of: startTime) { _ in
-                    updateTimeWindow()
-                }
             }
 
-            // End time
+            // End time - use inline Binding to read/write directly from timeWindow
             HStack {
                 Text("Until")
                     .font(.system(size: 14, weight: .medium))
@@ -133,14 +115,24 @@ struct TimeWindowPicker: View {
 
                 DatePicker(
                     "",
-                    selection: $endTime,
+                    selection: Binding(
+                        get: {
+                            Self.dateFrom(hour: timeWindow.endHour, minute: timeWindow.endMinute)
+                        },
+                        set: { newDate in
+                            let cal = Calendar.current
+                            timeWindow = AllowedTimeWindow(
+                                startHour: timeWindow.startHour,
+                                startMinute: timeWindow.startMinute,
+                                endHour: cal.component(.hour, from: newDate),
+                                endMinute: cal.component(.minute, from: newDate)
+                            )
+                        }
+                    ),
                     displayedComponents: .hourAndMinute
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
-                .onChange(of: endTime) { _ in
-                    updateTimeWindow()
-                }
             }
 
             // Warning if end is before start
@@ -166,9 +158,7 @@ struct TimeWindowPicker: View {
     }
 
     private func dayRow(for weekday: Int) -> some View {
-        let window = dailyTimeWindows.window(for: weekday)
-
-        return VStack(spacing: 8) {
+        VStack(spacing: 8) {
             HStack(spacing: 12) {
                 Text(dayName(for: weekday))
                     .font(.system(size: 14, weight: .medium))
@@ -177,14 +167,17 @@ struct TimeWindowPicker: View {
 
                 Spacer()
 
-                // Start time picker
+                // Start time picker - read fresh from dailyTimeWindows to avoid stale captures
                 DatePicker(
                     "",
                     selection: Binding(
-                        get: { Self.dateFrom(hour: window.startHour, minute: window.startMinute) },
+                        get: {
+                            let w = dailyTimeWindows.window(for: weekday)
+                            return Self.dateFrom(hour: w.startHour, minute: w.startMinute)
+                        },
                         set: { newDate in
                             let cal = Calendar.current
-                            var updatedWindow = window
+                            var updatedWindow = dailyTimeWindows.window(for: weekday)
                             updatedWindow.startHour = cal.component(.hour, from: newDate)
                             updatedWindow.startMinute = cal.component(.minute, from: newDate)
                             dailyTimeWindows.setWindow(updatedWindow, for: weekday)
@@ -199,14 +192,17 @@ struct TimeWindowPicker: View {
                 Text("-")
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
 
-                // End time picker
+                // End time picker - read fresh from dailyTimeWindows to avoid stale captures
                 DatePicker(
                     "",
                     selection: Binding(
-                        get: { Self.dateFrom(hour: window.endHour, minute: window.endMinute) },
+                        get: {
+                            let w = dailyTimeWindows.window(for: weekday)
+                            return Self.dateFrom(hour: w.endHour, minute: w.endMinute)
+                        },
                         set: { newDate in
                             let cal = Calendar.current
-                            var updatedWindow = window
+                            var updatedWindow = dailyTimeWindows.window(for: weekday)
                             updatedWindow.endHour = cal.component(.hour, from: newDate)
                             updatedWindow.endMinute = cal.component(.minute, from: newDate)
                             dailyTimeWindows.setWindow(updatedWindow, for: weekday)
@@ -220,7 +216,7 @@ struct TimeWindowPicker: View {
             }
 
             // Warning if invalid
-            if !isValidTimeRange(window) {
+            if !isValidTimeRange(dailyTimeWindows.window(for: weekday)) {
                 HStack {
                     Spacer()
                     timeWarningSmall
@@ -261,21 +257,6 @@ struct TimeWindowPicker: View {
         let startMinutes = window.startHour * 60 + window.startMinute
         let endMinutes = window.endHour * 60 + window.endMinute
         return endMinutes > startMinutes
-    }
-
-    private func updateTimeWindow() {
-        let calendar = Calendar.current
-        let startHour = calendar.component(.hour, from: startTime)
-        let startMin = calendar.component(.minute, from: startTime)
-        let endHour = calendar.component(.hour, from: endTime)
-        let endMin = calendar.component(.minute, from: endTime)
-
-        timeWindow = AllowedTimeWindow(
-            startHour: startHour,
-            startMinute: startMin,
-            endHour: endHour,
-            endMinute: endMin
-        )
     }
 
     private static func dateFrom(hour: Int, minute: Int) -> Date {

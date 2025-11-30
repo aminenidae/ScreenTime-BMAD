@@ -71,13 +71,13 @@ struct AppConfigurationSheet: View {
                         .background(ChallengeBuilderTheme.border)
 
                     // Daily Limits Section
-                    // For learning apps: pass time window duration to cap limits
+                    // Pass time window duration to cap limits for both Learning and Reward apps
                     DailyLimitsPicker(
                         dailyLimits: $localConfig.dailyLimits,
                         useAdvancedConfig: $localConfig.useAdvancedDayConfig,
-                        maxAllowedMinutes: appType == .learning ? localConfig.allowedTimeWindow.durationInMinutes : nil,
-                        dailyTimeWindows: appType == .learning ? localConfig.dailyTimeWindows : nil,
-                        useAdvancedTimeWindows: appType == .learning && localConfig.useAdvancedTimeWindowConfig
+                        maxAllowedMinutes: localConfig.allowedTimeWindow.durationInMinutes,
+                        dailyTimeWindows: localConfig.dailyTimeWindows,
+                        useAdvancedTimeWindows: localConfig.useAdvancedTimeWindowConfig
                     )
 
                     // Inline summary message
@@ -166,15 +166,9 @@ struct AppConfigurationSheet: View {
         let useAdvancedTime = localConfig.useAdvancedTimeWindowConfig
         let useAdvancedLimits = localConfig.useAdvancedDayConfig
 
-        // If either time windows or limits are per-day, show 7 lines
+        // If either time windows or limits are per-day, use smart grouping
         if useAdvancedTime || useAdvancedLimits {
-            return (1...7).map { weekday in
-                let dayName = dayName(for: weekday)
-                let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
-                let limitMinutes = limits.limit(for: weekday)
-                let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
-                return "\(dayName): \(formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange))"
-            }
+            return buildSmartSummary(limits: limits, useAdvancedTime: useAdvancedTime)
         }
 
         // Simple mode
@@ -191,6 +185,72 @@ struct AppConfigurationSheet: View {
                 "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
             ]
         }
+    }
+
+    /// Build smart summary that groups days with identical settings
+    private func buildSmartSummary(limits: DailyLimits, useAdvancedTime: Bool) -> [String] {
+        // Helper to get config key for a day (combines time window + limit)
+        func configKey(for weekday: Int) -> String {
+            let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
+            let limit = limits.limit(for: weekday)
+            return "\(window.startHour):\(window.startMinute)-\(window.endHour):\(window.endMinute)|\(limit)"
+        }
+
+        // Helper to format a day's summary
+        func summaryFor(weekday: Int) -> String {
+            let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
+            let limitMinutes = limits.limit(for: weekday)
+            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
+        }
+
+        // Check if all weekdays (Mon-Fri: 2-6) are the same
+        let weekdayKeys = (2...6).map { configKey(for: $0) }
+        let allWeekdaysSame = Set(weekdayKeys).count == 1
+
+        // Check if both weekend days (Sat: 7, Sun: 1) are the same
+        let satKey = configKey(for: 7)
+        let sunKey = configKey(for: 1)
+        let weekendSame = satKey == sunKey
+
+        // Check if everything is the same
+        let allKeys = (1...7).map { configKey(for: $0) }
+        if Set(allKeys).count == 1 {
+            // All 7 days identical - show 1 line
+            let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: 2) : localConfig.allowedTimeWindow
+            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return [formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)]
+        }
+
+        // Check if weekdays same AND weekends same (classic pattern)
+        if allWeekdaysSame && weekendSame {
+            return [
+                "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))",
+                "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
+            ]
+        }
+
+        var lines: [String] = []
+
+        // Weekdays: show grouped or individual
+        if allWeekdaysSame {
+            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+        } else {
+            // Show individual weekdays
+            for weekday in 2...6 {
+                lines.append("\(dayName(for: weekday)): \(summaryFor(weekday: weekday))")
+            }
+        }
+
+        // Weekend: show grouped or individual
+        if weekendSame {
+            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
+        } else {
+            lines.append("Saturday: \(summaryFor(weekday: 7))")
+            lines.append("Sunday: \(summaryFor(weekday: 1))")
+        }
+
+        return lines
     }
 
     private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {

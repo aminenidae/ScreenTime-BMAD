@@ -59,25 +59,19 @@ struct DailyLimitsPicker: View {
 
             // Show detailed pickers only when Custom Limits is ON
             if useCustomLimits {
-                // Mode toggle (Weekday/Weekend vs Per-day)
-                HStack {
-                    Text(useAdvancedConfig ? "Per-day limits" : "Weekday/Weekend")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ChallengeBuilderTheme.text)
+                // Mode toggle (Weekday/Weekend vs Per-day) - switching doesn't modify data
+                HStack(spacing: 8) {
+                    Text("Weekday/Weekend")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(!useAdvancedConfig ? ChallengeBuilderTheme.text : ChallengeBuilderTheme.mutedText)
 
-                    Spacer()
+                    Toggle("", isOn: $useAdvancedConfig.animation(.easeInOut(duration: 0.2)))
+                        .labelsHidden()
+                        .tint(AppTheme.vibrantTeal)
 
-                    Button(action: {
-                        useAdvancedConfig.toggle()
-                        if useAdvancedConfig {
-                            // When switching to Advanced, cap each day to its max
-                            capLimitsToMax()
-                        }
-                    }) {
-                        Text(useAdvancedConfig ? "Simplify" : "Advanced")
-                            .font(.system(size: 13, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
+                    Text("Per-day")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(useAdvancedConfig ? ChallengeBuilderTheme.text : ChallengeBuilderTheme.mutedText)
                 }
 
                 if useAdvancedConfig {
@@ -88,11 +82,12 @@ struct DailyLimitsPicker: View {
             }
         }
         // Auto-cap daily limits when allowed hours duration decreases below current limits
-        .onChange(of: maxAllowedMinutes) { newMax in
-            capLimitsToMax()
-        }
-        .onChange(of: dailyTimeWindows) { _ in
-            capLimitsToMax()
+        // Note: We only cap when maxAllowedMinutes changes in simple mode
+        // For advanced mode (per-day), capping is done when user toggles to Advanced in Daily Limits
+        .onChange(of: maxAllowedMinutes) { _ in
+            if !useAdvancedTimeWindows {
+                capLimitsToMax()
+            }
         }
     }
 
