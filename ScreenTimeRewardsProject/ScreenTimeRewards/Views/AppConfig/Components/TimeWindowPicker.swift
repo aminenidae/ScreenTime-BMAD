@@ -1,5 +1,29 @@
 import SwiftUI
 
+/// Custom toggle style with teal (OFF) and coral (ON) colors
+struct TealCoralToggleStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack {
+            configuration.label
+
+            RoundedRectangle(cornerRadius: 16)
+                .fill(configuration.isOn ? AppTheme.playfulCoral : AppTheme.vibrantTeal)
+                .frame(width: 50, height: 30)
+                .overlay(
+                    Circle()
+                        .fill(Color.white)
+                        .padding(2)
+                        .offset(x: configuration.isOn ? 10 : -10)
+                )
+                .onTapGesture {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        configuration.isOn.toggle()
+                    }
+                }
+        }
+    }
+}
+
 /// A picker for selecting allowed time windows (simple or per-day)
 struct TimeWindowPicker: View {
     @Binding var timeWindow: AllowedTimeWindow          // Simple mode: same for all days
@@ -46,9 +70,9 @@ struct TimeWindowPicker: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(!useAdvancedConfig ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
 
-                    Toggle("", isOn: $useAdvancedConfig.animation(.easeInOut(duration: 0.2)))
+                    Toggle("", isOn: $useAdvancedConfig)
                         .labelsHidden()
-                        .tint(useAdvancedConfig ? AppTheme.playfulCoral : AppTheme.vibrantTeal)
+                        .toggleStyle(TealCoralToggleStyle())
 
                     Text("Per-day")
                         .font(.system(size: 13, weight: .medium))

@@ -65,9 +65,9 @@ struct DailyLimitsPicker: View {
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(!useAdvancedConfig ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
 
-                    Toggle("", isOn: $useAdvancedConfig.animation(.easeInOut(duration: 0.2)))
+                    Toggle("", isOn: $useAdvancedConfig)
                         .labelsHidden()
-                        .tint(useAdvancedConfig ? AppTheme.playfulCoral : AppTheme.vibrantTeal)
+                        .toggleStyle(TealCoralToggleStyle())
 
                     Text("Per-day")
                         .font(.system(size: 13, weight: .medium))
