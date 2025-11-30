@@ -186,14 +186,16 @@ struct ChallengeBuilderFlowView: View {
                 selectedAppIDs: $coordinator.data.selectedLearningAppIDs,
                 progressTrackingMode: $coordinator.data.progressTrackingMode,
                 goalValue: .constant(coordinator.data.dailyMinutesGoal),
-                goalType: $coordinator.data.goalType
+                goalType: $coordinator.data.goalType,
+                appConfigs: $coordinator.data.learningAppConfigs
             )
         case .rewardApps:
-            RewardAppsStepView(selectedAppIDs: $coordinator.data.selectedRewardAppIDs)
+            RewardAppsStepView(
+                selectedAppIDs: $coordinator.data.selectedRewardAppIDs,
+                appConfigs: $coordinator.data.rewardAppConfigs
+            )
         case .rewardConfig:
             RewardConfigStepView(data: $coordinator.data)
-        case .schedule:
-            ScheduleStepView(data: $coordinator.data)
         case .summary:
             SummaryStepView(data: $coordinator.data) { step in
                 coordinator.setStep(step)

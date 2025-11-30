@@ -7,18 +7,6 @@ struct SummaryStepView: View {
     @Binding var data: ChallengeBuilderData
     var onEdit: (ChallengeBuilderStep) -> Void
 
-    private let dayFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.dateStyle = .medium
-        return formatter
-    }()
-
-    private let timeFormatter: DateFormatter = {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        return formatter
-    }()
-
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
             summarySection(title: "Challenge Overview", step: .details, icon: "star.circle.fill", color: AppTheme.sunnyYellow) {
@@ -57,27 +45,6 @@ struct SummaryStepView: View {
                 } else {
                     summaryRow(title: "Streak Bonus", value: "Not enabled")
                 }
-            }
-
-            summarySection(title: "Schedule", step: .schedule, icon: "calendar.circle.fill", color: AppTheme.vibrantTeal) {
-                summaryRow(title: "Starts", value: dayFormatter.string(from: data.schedule.startDate))
-                if data.schedule.hasEndDate, let endDate = data.schedule.endDate {
-                    summaryRow(title: "Ends", value: dayFormatter.string(from: endDate))
-                } else {
-                    summaryRow(title: "Ends", value: "No end date")
-                }
-
-                summaryRow(title: "Days", value: formattedDays)
-
-                if data.schedule.isFullDay {
-                    summaryRow(title: "Time", value: "All day")
-                } else {
-                    let start = timeFormatter.string(from: data.schedule.startTime)
-                    let end = timeFormatter.string(from: data.schedule.endTime)
-                    summaryRow(title: "Time", value: "\(start) – \(end)")
-                }
-
-                summaryRow(title: "Repeats", value: data.schedule.repeatWeekly ? "Weekly" : "One-time")
             }
         }
         .padding(24)
@@ -150,33 +117,6 @@ struct SummaryStepView: View {
     private var rewardAppTokens: [ManagedSettings.ApplicationToken] {
         let map = Dictionary(uniqueKeysWithValues: appUsageViewModel.rewardSnapshots.map { ($0.logicalID, $0.token) })
         return data.selectedRewardAppIDs.compactMap { map[$0] }
-    }
-
-    private var formattedDays: String {
-        guard !data.schedule.activeDays.isEmpty else {
-            return "No days selected"
-        }
-
-        if data.schedule.activeDays.count == 7 {
-            return "Every day"
-        }
-
-        let orderedDays = [1, 2, 3, 4, 5, 6, 7]
-        let dayNames: [Int: String] = [
-            1: "Mon",
-            2: "Tue",
-            3: "Wed",
-            4: "Thu",
-            5: "Fri",
-            6: "Sat",
-            7: "Sun"
-        ]
-
-        return orderedDays.compactMap { day -> String? in
-            guard data.schedule.activeDays.contains(day) else { return nil }
-            return dayNames[day]
-        }
-        .joined(separator: ", ")
     }
 
     private func iconGrid(for tokens: [ManagedSettings.ApplicationToken]) -> some View {

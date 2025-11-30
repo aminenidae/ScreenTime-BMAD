@@ -1,12 +1,12 @@
 import Foundation
 
 /// Ordered steps that make up the V2 challenge onboarding flow.
+/// Note: Schedule step removed - per-app scheduling is now handled inline during app selection
 enum ChallengeBuilderStep: Int, CaseIterable, Identifiable {
     case details
     case learningApps
     case rewardApps
     case rewardConfig
-    case schedule
     case summary
 
     var id: Int { rawValue }
@@ -17,7 +17,6 @@ enum ChallengeBuilderStep: Int, CaseIterable, Identifiable {
         case .learningApps: return "Learning Apps"
         case .rewardApps: return "Reward Apps"
         case .rewardConfig: return "Rewards"
-        case .schedule: return "Schedule"
         case .summary: return "Review"
         }
     }
@@ -165,6 +164,10 @@ struct ChallengeBuilderData: Equatable {
     var schedule = Schedule()
     var progressTrackingMode: ProgressTrackingMode = .combined
 
+    // Per-app schedule configurations
+    var learningAppConfigs: [String: AppScheduleConfiguration] = [:]
+    var rewardAppConfigs: [String: AppScheduleConfiguration] = [:]
+
     // MARK: - Derived helpers
     var trimmedTitle: String {
         title.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -202,8 +205,35 @@ struct ChallengeBuilderData: Equatable {
         return true
     }
 
+    /// Check if all selected learning apps have been configured
+    var areLearningAppsConfigured: Bool {
+        // Empty selection is valid (counts all learning apps)
+        if selectedLearningAppIDs.isEmpty { return true }
+        // All selected apps must have configs
+        return selectedLearningAppIDs.allSatisfy { learningAppConfigs[$0] != nil }
+    }
+
+    /// Check if all selected reward apps have been configured
+    var areRewardAppsConfigured: Bool {
+        // Empty selection is valid
+        if selectedRewardAppIDs.isEmpty { return true }
+        // All selected apps must have configs
+        return selectedRewardAppIDs.allSatisfy { rewardAppConfigs[$0] != nil }
+    }
+
+    /// Count of unconfigured learning apps
+    var unconfiguredLearningAppCount: Int {
+        selectedLearningAppIDs.filter { learningAppConfigs[$0] == nil }.count
+    }
+
+    /// Count of unconfigured reward apps
+    var unconfiguredRewardAppCount: Int {
+        selectedRewardAppIDs.filter { rewardAppConfigs[$0] == nil }.count
+    }
+
     var canSubmit: Bool {
-        isDetailsStepValid && isRewardConfigValid && isScheduleStepValid && isProgressTrackingModeValid
+        isDetailsStepValid && isRewardConfigValid && isProgressTrackingModeValid &&
+        areLearningAppsConfigured && areRewardAppsConfigured
     }
 
     mutating func setDailyMinutesGoal(_ value: Int) {

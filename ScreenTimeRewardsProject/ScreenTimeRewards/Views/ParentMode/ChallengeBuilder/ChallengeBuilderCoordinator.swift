@@ -82,10 +82,6 @@ final class ChallengeBuilderCoordinator: ObservableObject {
             return
         }
 
-        if steps[currentIndex] == .schedule {
-            data.schedule.enforceDateConsistency()
-        }
-
         errorMessage = nil
         currentStep = steps[currentIndex + 1]
     }
@@ -176,13 +172,13 @@ final class ChallengeBuilderCoordinator: ObservableObject {
         case .details:
             return data.isDetailsStepValid
         case .learningApps:
-            return true // optional step
+            // Step is valid if no apps selected OR all selected apps are configured
+            return data.selectedLearningAppIDs.isEmpty || data.areLearningAppsConfigured
         case .rewardApps:
-            return true // optional step
+            // Step is valid if no apps selected OR all selected apps are configured
+            return data.selectedRewardAppIDs.isEmpty || data.areRewardAppsConfigured
         case .rewardConfig:
             return data.isRewardConfigValid
-        case .schedule:
-            return data.isScheduleStepValid
         case .summary:
             return data.canSubmit
         }
@@ -192,23 +188,22 @@ final class ChallengeBuilderCoordinator: ObservableObject {
         switch step {
         case .details:
             return "Add a challenge name and goal before continuing."
+        case .learningApps:
+            if !data.areLearningAppsConfigured {
+                let count = data.unconfiguredLearningAppCount
+                return "Configure \(count) learning app\(count == 1 ? "" : "s") before continuing."
+            }
+            return nil
+        case .rewardApps:
+            if !data.areRewardAppsConfigured {
+                let count = data.unconfiguredRewardAppCount
+                return "Configure \(count) reward app\(count == 1 ? "" : "s") before continuing."
+            }
+            return nil
         case .rewardConfig:
             return "Set a valid learning-to-reward ratio before continuing."
-        case .schedule:
-            if data.schedule.activeDays.isEmpty {
-                return "Choose at least one active day."
-            }
-            if !data.schedule.isValid {
-                return "Choose a valid time range."
-            }
-            if data.streakBonus.enabled && !data.schedule.meetsStreakRequirement(targetDays: data.streakBonus.targetDays) {
-                return "Schedule must have at least \(data.streakBonus.targetDays) consecutive active days to meet the streak requirement."
-            }
-            return nil
         case .summary:
             return "Complete the required steps before creating the challenge."
-        case .learningApps, .rewardApps:
-            return nil
         }
     }
 

@@ -51,11 +51,19 @@ struct AppConfigurationSheet: View {
                     // Time Window Section
                     TimeWindowPicker(
                         timeWindow: $localConfig.allowedTimeWindow,
+                        dailyTimeWindows: $localConfig.dailyTimeWindows,
+                        useAdvancedConfig: $localConfig.useAdvancedTimeWindowConfig,
                         isFullDay: $isFullDayAccess
                     )
                     .onChange(of: isFullDayAccess) { newValue in
                         if newValue {
                             localConfig.allowedTimeWindow = .fullDay
+                            localConfig.dailyTimeWindows = .allFullDay
+                            localConfig.useAdvancedTimeWindowConfig = false
+                            // Smart default for learning apps: set to unlimited when full day
+                            if appType == .learning {
+                                localConfig.dailyLimits = .unlimited
+                            }
                         }
                     }
 
@@ -63,10 +71,17 @@ struct AppConfigurationSheet: View {
                         .background(ChallengeBuilderTheme.border)
 
                     // Daily Limits Section
+                    // For learning apps: pass time window duration to cap limits
                     DailyLimitsPicker(
                         dailyLimits: $localConfig.dailyLimits,
-                        useAdvancedConfig: $localConfig.useAdvancedDayConfig
+                        useAdvancedConfig: $localConfig.useAdvancedDayConfig,
+                        maxAllowedMinutes: appType == .learning ? localConfig.allowedTimeWindow.durationInMinutes : nil,
+                        dailyTimeWindows: appType == .learning ? localConfig.dailyTimeWindows : nil,
+                        useAdvancedTimeWindows: appType == .learning && localConfig.useAdvancedTimeWindowConfig
                     )
+
+                    // Inline summary message
+                    configSummarySection
 
                     // Unlock Requirements Section (reward apps only)
                     if appType == .reward {
@@ -79,12 +94,6 @@ struct AppConfigurationSheet: View {
                             learningSnapshots: learningSnapshots
                         )
                     }
-
-                    Divider()
-                        .background(ChallengeBuilderTheme.border)
-
-                    // Enable/Disable toggle
-                    enableToggle
 
                     Spacer(minLength: 40)
                 }
@@ -110,6 +119,135 @@ struct AppConfigurationSheet: View {
                 }
             }
         }
+    }
+
+    // MARK: - Config Summary Section
+
+    private var configSummarySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 6) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("Summary")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                ForEach(summaryLines, id: \.self) { line in
+                    HStack(alignment: .top, spacing: 8) {
+                        Text("•")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppTheme.vibrantTeal)
+
+                        Text(line)
+                            .font(.system(size: 13))
+                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    }
+                }
+            }
+        }
+        .padding(12)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(AppTheme.vibrantTeal.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 10)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    private var summaryLines: [String] {
+        let limits = localConfig.dailyLimits
+        let useAdvancedTime = localConfig.useAdvancedTimeWindowConfig
+        let useAdvancedLimits = localConfig.useAdvancedDayConfig
+
+        // If either time windows or limits are per-day, show 7 lines
+        if useAdvancedTime || useAdvancedLimits {
+            return (1...7).map { weekday in
+                let dayName = dayName(for: weekday)
+                let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
+                let limitMinutes = limits.limit(for: weekday)
+                let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+                return "\(dayName): \(formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange))"
+            }
+        }
+
+        // Simple mode
+        let timeWindow = localConfig.allowedTimeWindow
+        let timeRange = timeWindow.isFullDay ? "anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+
+        if limits.weekdayLimit == limits.weekendLimit {
+            // 1 line - same for all days
+            return [formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)]
+        } else {
+            // 2 lines - weekday vs weekend
+            return [
+                "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
+                "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+            ]
+        }
+    }
+
+    private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            if timeWindow.isFullDay {
+                return "Your child can use this app anytime"
+            } else {
+                return "Your child can use this app \(timeRange)"
+            }
+        } else {
+            return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func formatUsageLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            return timeRange
+        } else {
+            return "\(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func dayName(for weekday: Int) -> String {
+        switch weekday {
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
+        default: return ""
+        }
+    }
+
+    private func formatDuration(_ minutes: Int) -> String {
+        if minutes >= 1440 {
+            return "unlimited"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        if hours > 0 && mins > 0 {
+            return "\(hours)h \(mins)m"
+        } else if hours > 0 {
+            return "\(hours)h"
+        } else {
+            return "\(mins)m"
+        }
+    }
+
+    private func formatTime(hour: Int, minute: Int) -> String {
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+        if minute == 0 {
+            return "\(displayHour):00 \(period)"
+        }
+        return String(format: "%d:%02d %@", displayHour, minute, period)
     }
 
     // MARK: - App Header
@@ -173,36 +311,6 @@ struct AppConfigurationSheet: View {
         }
     }
 
-    // MARK: - Enable Toggle
-
-    private var enableToggle: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("Enable Limits")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
-
-                Text(localConfig.isEnabled ? "Limits are active" : "Limits are disabled")
-                    .font(.system(size: 13))
-                    .foregroundColor(ChallengeBuilderTheme.mutedText)
-            }
-
-            Spacer()
-
-            Toggle("", isOn: $localConfig.isEnabled)
-                .labelsHidden()
-                .tint(AppTheme.vibrantTeal)
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(localConfig.isEnabled ? AppTheme.vibrantTeal.opacity(0.1) : ChallengeBuilderTheme.surface)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .stroke(localConfig.isEnabled ? AppTheme.vibrantTeal.opacity(0.3) : ChallengeBuilderTheme.border, lineWidth: 1)
-                )
-        )
-    }
 }
 
 // MARK: - Preview

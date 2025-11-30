@@ -59,6 +59,125 @@ struct AllowedTimeWindow: Codable, Equatable, Hashable {
         let endMinutes = endHour * 60 + endMinute
         return totalMinutes >= startMinutes && totalMinutes <= endMinutes
     }
+
+    /// Duration of the time window in minutes
+    var durationInMinutes: Int {
+        if isFullDay { return 1440 }  // 24 hours
+        let startMinutes = startHour * 60 + startMinute
+        let endMinutes = endHour * 60 + endMinute
+        return max(0, endMinutes - startMinutes)
+    }
+}
+
+// MARK: - Daily Time Windows
+
+/// Per-day time windows (mirrors DailyLimits pattern)
+struct DailyTimeWindows: Codable, Equatable, Hashable {
+    var monday: AllowedTimeWindow
+    var tuesday: AllowedTimeWindow
+    var wednesday: AllowedTimeWindow
+    var thursday: AllowedTimeWindow
+    var friday: AllowedTimeWindow
+    var saturday: AllowedTimeWindow
+    var sunday: AllowedTimeWindow
+
+    /// Create windows with simple weekday/weekend pattern
+    init(weekday: AllowedTimeWindow, weekend: AllowedTimeWindow) {
+        monday = weekday
+        tuesday = weekday
+        wednesday = weekday
+        thursday = weekday
+        friday = weekday
+        saturday = weekend
+        sunday = weekend
+    }
+
+    /// Create windows with individual day values
+    init(mon: AllowedTimeWindow, tue: AllowedTimeWindow, wed: AllowedTimeWindow,
+         thu: AllowedTimeWindow, fri: AllowedTimeWindow, sat: AllowedTimeWindow, sun: AllowedTimeWindow) {
+        monday = mon
+        tuesday = tue
+        wednesday = wed
+        thursday = thu
+        friday = fri
+        saturday = sat
+        sunday = sun
+    }
+
+    /// All days full day access
+    static let allFullDay = DailyTimeWindows(weekday: .fullDay, weekend: .fullDay)
+
+    /// Get window for a specific weekday (1=Sunday, 7=Saturday, matching Calendar)
+    func window(for weekday: Int) -> AllowedTimeWindow {
+        switch weekday {
+        case 1: return sunday
+        case 2: return monday
+        case 3: return tuesday
+        case 4: return wednesday
+        case 5: return thursday
+        case 6: return friday
+        case 7: return saturday
+        default: return monday
+        }
+    }
+
+    /// Set window for a specific weekday
+    mutating func setWindow(_ window: AllowedTimeWindow, for weekday: Int) {
+        switch weekday {
+        case 1: sunday = window
+        case 2: monday = window
+        case 3: tuesday = window
+        case 4: wednesday = window
+        case 5: thursday = window
+        case 6: friday = window
+        case 7: saturday = window
+        default: break
+        }
+    }
+
+    /// Get window for today
+    var todayWindow: AllowedTimeWindow {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        return window(for: weekday)
+    }
+
+    /// Check if all weekdays have the same window
+    var weekdayWindow: AllowedTimeWindow {
+        monday
+    }
+
+    /// Check if both weekend days have the same window
+    var weekendWindow: AllowedTimeWindow {
+        saturday
+    }
+
+    /// True if this follows a simple weekday/weekend pattern
+    var isWeekdayWeekendPattern: Bool {
+        let allWeekdaysSame = monday == tuesday && tuesday == wednesday &&
+                             wednesday == thursday && thursday == friday
+        let bothWeekendSame = saturday == sunday
+        return allWeekdaysSame && bothWeekendSame
+    }
+
+    /// True if all days have full day access
+    var isAllFullDay: Bool {
+        monday.isFullDay && tuesday.isFullDay && wednesday.isFullDay &&
+        thursday.isFullDay && friday.isFullDay && saturday.isFullDay && sunday.isFullDay
+    }
+
+    /// Formatted summary for display
+    var displaySummary: String {
+        if isAllFullDay {
+            return "All day"
+        }
+        if isWeekdayWeekendPattern {
+            if weekdayWindow == weekendWindow {
+                return weekdayWindow.displayString
+            }
+            return "Weekdays: \(weekdayWindow.displayString), Weekends: \(weekendWindow.displayString)"
+        }
+        return "Custom schedule"
+    }
 }
 
 // MARK: - Daily Limits
@@ -254,10 +373,12 @@ enum UnlockMode: String, Codable, CaseIterable {
 /// Complete schedule configuration for a single app
 struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     let id: String  // logicalID of the app
-    var allowedTimeWindow: AllowedTimeWindow
+    var allowedTimeWindow: AllowedTimeWindow       // Simple mode: same window all days
+    var dailyTimeWindows: DailyTimeWindows         // Advanced mode: per-day windows
+    var useAdvancedTimeWindowConfig: Bool          // false = simple, true = per-day
     var dailyLimits: DailyLimits
     var isEnabled: Bool
-    var useAdvancedDayConfig: Bool  // false = weekday/weekend mode
+    var useAdvancedDayConfig: Bool  // false = weekday/weekend mode for limits
 
     // Linked learning apps (for reward apps only)
     var linkedLearningApps: [LinkedLearningApp]  // Each with its own time requirement
@@ -267,6 +388,8 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     init(
         logicalID: String,
         allowedTimeWindow: AllowedTimeWindow = .fullDay,
+        dailyTimeWindows: DailyTimeWindows = .allFullDay,
+        useAdvancedTimeWindowConfig: Bool = false,
         dailyLimits: DailyLimits = .unlimited,
         isEnabled: Bool = true,
         useAdvancedDayConfig: Bool = false,
@@ -275,11 +398,27 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     ) {
         self.id = logicalID
         self.allowedTimeWindow = allowedTimeWindow
+        self.dailyTimeWindows = dailyTimeWindows
+        self.useAdvancedTimeWindowConfig = useAdvancedTimeWindowConfig
         self.dailyLimits = dailyLimits
         self.isEnabled = isEnabled
         self.useAdvancedDayConfig = useAdvancedDayConfig
         self.linkedLearningApps = linkedLearningApps
         self.unlockMode = unlockMode
+    }
+
+    /// Get the effective time window for a specific weekday
+    func effectiveTimeWindow(for weekday: Int) -> AllowedTimeWindow {
+        if useAdvancedTimeWindowConfig {
+            return dailyTimeWindows.window(for: weekday)
+        }
+        return allowedTimeWindow
+    }
+
+    /// Get today's effective time window
+    var todayTimeWindow: AllowedTimeWindow {
+        let weekday = Calendar.current.component(.weekday, from: Date())
+        return effectiveTimeWindow(for: weekday)
     }
 
     /// Default configuration for learning apps (requires setup)
@@ -308,7 +447,12 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     var displaySummary: String {
         var parts: [String] = []
 
-        if !allowedTimeWindow.isFullDay {
+        // Time window summary
+        if useAdvancedTimeWindowConfig {
+            if !dailyTimeWindows.isAllFullDay {
+                parts.append(dailyTimeWindows.displaySummary)
+            }
+        } else if !allowedTimeWindow.isFullDay {
             parts.append(allowedTimeWindow.displayString)
         }
 
@@ -325,7 +469,7 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
 
     /// Check if app is currently allowed based on time window
     var isCurrentlyInAllowedWindow: Bool {
-        allowedTimeWindow.contains(date: Date())
+        todayTimeWindow.contains(date: Date())
     }
 
     /// Whether this reward app is blocked (no linked learning apps)

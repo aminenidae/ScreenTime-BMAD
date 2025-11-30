@@ -1,8 +1,14 @@
 import SwiftUI
+import ManagedSettings
 
 struct RewardAppsStepView: View {
     @EnvironmentObject private var appUsageViewModel: AppUsageViewModel
     @Binding var selectedAppIDs: Set<String>
+    @Binding var appConfigs: [String: AppScheduleConfiguration]
+
+    // Sheet state
+    @State private var configSheetSnapshot: RewardAppSnapshot?
+    @State private var editingConfig: AppScheduleConfiguration?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -12,6 +18,11 @@ struct RewardAppsStepView: View {
                 emptyState(message: "Assign apps to the Reward category first.")
             } else {
                 selectionList
+
+                // Show warning if apps need configuration
+                if unconfiguredCount > 0 {
+                    configWarning
+                }
             }
 
             helperText
@@ -21,6 +32,28 @@ struct RewardAppsStepView: View {
             RoundedRectangle(cornerRadius: 24)
                 .fill(ChallengeBuilderTheme.cardBackground)
         )
+        .sheet(item: $configSheetSnapshot) { snapshot in
+            if let config = editingConfig {
+                AppConfigurationSheet(
+                    token: snapshot.token,
+                    appName: displayName(for: snapshot),
+                    appType: .reward,
+                    configuration: Binding(
+                        get: { config },
+                        set: { editingConfig = $0 }
+                    ),
+                    onSave: { savedConfig in
+                        appConfigs[snapshot.logicalID] = savedConfig
+                        configSheetSnapshot = nil
+                        editingConfig = nil
+                    },
+                    onCancel: {
+                        configSheetSnapshot = nil
+                        editingConfig = nil
+                    }
+                )
+            }
+        }
     }
 
     private var header: some View {
@@ -54,6 +87,13 @@ struct RewardAppsStepView: View {
                     Text("selected")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(ChallengeBuilderTheme.text)
+
+                    // Show configured count
+                    if configuredCount > 0 {
+                        Text("(\(configuredCount) configured)")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -62,6 +102,14 @@ struct RewardAppsStepView: View {
 
     private var rewardSnapshots: [RewardAppSnapshot] {
         appUsageViewModel.rewardSnapshots
+    }
+
+    private var configuredCount: Int {
+        selectedAppIDs.filter { appConfigs[$0] != nil }.count
+    }
+
+    private var unconfiguredCount: Int {
+        selectedAppIDs.filter { appConfigs[$0] == nil }.count
     }
 
     private var selectionList: some View {
@@ -76,13 +124,18 @@ struct RewardAppsStepView: View {
     private func row(for snapshot: RewardAppSnapshot) -> some View {
         let resolvedName = displayName(for: snapshot)
         let subtitle = snapshot.displayName == resolvedName ? nil : snapshot.displayName
+        let isSelected = selectedAppIDs.contains(snapshot.logicalID)
 
         ChallengeBuilderAppSelectionRow(
             token: snapshot.token,
             title: resolvedName,
             subtitle: subtitle,
-            isSelected: selectedAppIDs.contains(snapshot.logicalID),
-            onToggle: { toggleSelection(for: snapshot.logicalID) }
+            isSelected: isSelected,
+            onToggle: { toggleSelection(for: snapshot.logicalID) },
+            configuration: appConfigs[snapshot.logicalID],
+            onConfigure: isSelected ? {
+                openConfigSheet(for: snapshot)
+            } : nil
         )
     }
 
@@ -93,9 +146,19 @@ struct RewardAppsStepView: View {
     private func toggleSelection(for logicalID: String) {
         if selectedAppIDs.contains(logicalID) {
             selectedAppIDs.remove(logicalID)
+            // Also remove config when deselecting
+            appConfigs.removeValue(forKey: logicalID)
         } else {
             selectedAppIDs.insert(logicalID)
         }
+    }
+
+    private func openConfigSheet(for snapshot: RewardAppSnapshot) {
+        // Get existing config or create default (reward apps have stricter defaults)
+        let existingConfig = appConfigs[snapshot.logicalID]
+            ?? AppScheduleConfiguration.defaultReward(logicalID: snapshot.logicalID)
+        editingConfig = existingConfig
+        configSheetSnapshot = snapshot
     }
 
     private func emptyState(message: String) -> some View {
@@ -113,6 +176,35 @@ struct RewardAppsStepView: View {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6]))
                 .foregroundColor(ChallengeBuilderTheme.border)
+        )
+    }
+
+    private var configWarning: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(unconfiguredCount) app\(unconfiguredCount == 1 ? "" : "s") need configuration")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+
+                Text("Tap each app to set time limits and allowed hours")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.orange.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                )
         )
     }
 

@@ -1,4 +1,5 @@
 import SwiftUI
+import ManagedSettings
 
 struct LearningAppsStepView: View {
     @EnvironmentObject private var appUsageViewModel: AppUsageViewModel
@@ -6,6 +7,11 @@ struct LearningAppsStepView: View {
     @Binding var progressTrackingMode: ProgressTrackingMode
     @Binding var goalValue: Int
     @Binding var goalType: ChallengeGoalType
+    @Binding var appConfigs: [String: AppScheduleConfiguration]
+
+    // Sheet state
+    @State private var configSheetSnapshot: LearningAppSnapshot?
+    @State private var editingConfig: AppScheduleConfiguration?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
@@ -22,6 +28,11 @@ struct LearningAppsStepView: View {
                 if selectedAppIDs.count >= 2 {
                     trackingModeSelector
                 }
+
+                // Show warning if apps need configuration
+                if unconfiguredCount > 0 {
+                    configWarning
+                }
             }
 
             helperText
@@ -31,6 +42,28 @@ struct LearningAppsStepView: View {
             RoundedRectangle(cornerRadius: 24)
                 .fill(ChallengeBuilderTheme.cardBackground)
         )
+        .sheet(item: $configSheetSnapshot) { snapshot in
+            if let config = editingConfig {
+                AppConfigurationSheet(
+                    token: snapshot.token,
+                    appName: displayName(for: snapshot),
+                    appType: .learning,
+                    configuration: Binding(
+                        get: { config },
+                        set: { editingConfig = $0 }
+                    ),
+                    onSave: { savedConfig in
+                        appConfigs[snapshot.logicalID] = savedConfig
+                        configSheetSnapshot = nil
+                        editingConfig = nil
+                    },
+                    onCancel: {
+                        configSheetSnapshot = nil
+                        editingConfig = nil
+                    }
+                )
+            }
+        }
     }
 
     private var header: some View {
@@ -64,6 +97,13 @@ struct LearningAppsStepView: View {
                     Text("selected")
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(ChallengeBuilderTheme.text)
+
+                    // Show configured count
+                    if configuredCount > 0 {
+                        Text("(\(configuredCount) configured)")
+                            .font(.system(size: 12))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
                 }
                 .padding(.top, 4)
             }
@@ -72,6 +112,14 @@ struct LearningAppsStepView: View {
 
     private var learningSnapshots: [LearningAppSnapshot] {
         appUsageViewModel.learningSnapshots
+    }
+
+    private var configuredCount: Int {
+        selectedAppIDs.filter { appConfigs[$0] != nil }.count
+    }
+
+    private var unconfiguredCount: Int {
+        selectedAppIDs.filter { appConfigs[$0] == nil }.count
     }
 
     private var selectionList: some View {
@@ -86,13 +134,18 @@ struct LearningAppsStepView: View {
     private func row(for snapshot: LearningAppSnapshot) -> some View {
         let resolvedName = displayName(for: snapshot)
         let subtitle = snapshot.displayName == resolvedName ? nil : snapshot.displayName
+        let isSelected = selectedAppIDs.contains(snapshot.logicalID)
 
         ChallengeBuilderAppSelectionRow(
             token: snapshot.token,
             title: resolvedName,
             subtitle: subtitle,
-            isSelected: selectedAppIDs.contains(snapshot.logicalID),
-            onToggle: { toggleSelection(for: snapshot.logicalID) }
+            isSelected: isSelected,
+            onToggle: { toggleSelection(for: snapshot.logicalID) },
+            configuration: appConfigs[snapshot.logicalID],
+            onConfigure: isSelected ? {
+                openConfigSheet(for: snapshot)
+            } : nil
         )
     }
 
@@ -103,9 +156,19 @@ struct LearningAppsStepView: View {
     private func toggleSelection(for logicalID: String) {
         if selectedAppIDs.contains(logicalID) {
             selectedAppIDs.remove(logicalID)
+            // Also remove config when deselecting
+            appConfigs.removeValue(forKey: logicalID)
         } else {
             selectedAppIDs.insert(logicalID)
         }
+    }
+
+    private func openConfigSheet(for snapshot: LearningAppSnapshot) {
+        // Get existing config or create default
+        let existingConfig = appConfigs[snapshot.logicalID]
+            ?? AppScheduleConfiguration.defaultLearning(logicalID: snapshot.logicalID)
+        editingConfig = existingConfig
+        configSheetSnapshot = snapshot
     }
 
     private func emptyState(message: String) -> some View {
@@ -123,6 +186,35 @@ struct LearningAppsStepView: View {
             RoundedRectangle(cornerRadius: 18)
                 .strokeBorder(style: StrokeStyle(lineWidth: 1, dash: [6]))
                 .foregroundColor(ChallengeBuilderTheme.border)
+        )
+    }
+
+    private var configWarning: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(.orange)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("\(unconfiguredCount) app\(unconfiguredCount == 1 ? "" : "s") need configuration")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
+
+                Text("Tap each app to set time limits and allowed hours")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+            }
+
+            Spacer()
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 12)
+                .fill(Color.orange.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                )
         )
     }
 
