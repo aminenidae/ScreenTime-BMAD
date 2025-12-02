@@ -745,12 +745,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 240 MINUTE THRESHOLDS PER APP:
-        // Create 240 consecutive 1-minute threshold events per app (4 hours of tracking)
+        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
+        // Create 60 consecutive 1-minute threshold events per app (1 hour of tracking)
         // Each threshold fires once when that minute is reached - NO re-arm/restart needed
         // Extension uses memory-efficient primitive key storage (not JSON parsing)
         // This avoids the bug where restarting monitoring resets iOS usage counters
-        var eventIndex = 0
+        // FIX: Use stable logicalID.hashValue instead of sequential eventIndex to prevent
+        // usage doubling when apps are reordered (e.g., when adding a new app)
         monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
             let (category, applications) = entry
             guard !applications.isEmpty else {
@@ -772,14 +773,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
                 let endMinute = 60    // 1 hour - iOS handles this reliably
+                // Use stable app identifier instead of sequential index to prevent
+                // usage doubling when app list order changes
+                let stableAppID = abs(app.logicalID.hashValue)
 
                 #if DEBUG
-                print("[ScreenTimeService]   App: \(app.displayName)")
+                print("[ScreenTimeService]   App: \(app.displayName) (stableID: \(stableAppID))")
                 print("[ScreenTimeService]     Thresholds: \(startMinute) to \(endMinute) min (static)")
                 #endif
 
                 for minuteNumber in startMinute...endMinute {
-                    let eventName = DeviceActivityEvent.Name("usage.app.\(eventIndex).min.\(minuteNumber)")
+                    let eventName = DeviceActivityEvent.Name("usage.app.\(stableAppID).min.\(minuteNumber)")
                     let threshold = DateComponents(minute: minuteNumber)
 
                     result[eventName] = MonitoredEvent(
@@ -789,8 +793,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         applications: [app]
                     )
                 }
-
-                eventIndex += 1
             }
         }
 
