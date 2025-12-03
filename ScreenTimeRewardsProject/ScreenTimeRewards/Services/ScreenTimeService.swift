@@ -174,6 +174,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Grace period after monitoring starts to ignore all events (prevents phantom historical events)
     private let phantomEventGracePeriod: TimeInterval = 30.0
 
+    // MARK: - Stable Hash Function
+    /// DJB2 hash - deterministic across app launches (unlike Swift's .hashValue)
+    /// Swift's .hashValue changes on every app launch for security reasons.
+    /// This caused usage inflation as iOS saw "new" event names on each launch.
+    private func stableHash(_ string: String) -> UInt64 {
+        var hash: UInt64 = 5381
+        for char in string.utf8 {
+            hash = ((hash << 5) &+ hash) &+ UInt64(char)
+        }
+        return hash
+    }
+
     // Store category assignments and selection for sharing across ViewModels
     private(set) var categoryAssignments: [ApplicationToken: AppUsage.AppCategory] = [:]
     private(set) var rewardPointsAssignments: [ApplicationToken: Int] = [:]
@@ -775,7 +787,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 let endMinute = 60    // 1 hour - iOS handles this reliably
                 // Use stable app identifier instead of sequential index to prevent
                 // usage doubling when app list order changes
-                let stableAppID = abs(app.logicalID.hashValue)
+                // NOTE: Using DJB2 hash instead of Swift's .hashValue because
+                // .hashValue is NOT stable across app launches (changes every time!)
+                let stableAppID = stableHash(app.logicalID)
 
                 #if DEBUG
                 print("[ScreenTimeService]   App: \(app.displayName) (stableID: \(stableAppID))")
@@ -1918,6 +1932,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
         
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
+
+        // Set global restart timestamp for extension catch-up detection
+        // Extension uses this to skip catch-up events within 10 seconds of restart
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
+            sharedDefaults.synchronize()
+            #if DEBUG
+            print("[ScreenTimeService] 🕐 Set monitoring_restart_timestamp for catch-up detection")
+            #endif
+        }
 
         // Set monitoring start time for phantom event protection
         monitoringStartTime = Date()

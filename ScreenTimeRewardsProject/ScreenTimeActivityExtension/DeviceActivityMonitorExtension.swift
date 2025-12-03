@@ -188,17 +188,37 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentToday = defaults.integer(forKey: todayKey)
         let lastThreshold = defaults.integer(forKey: lastThresholdKey)
 
+        // Global restart-based catch-up detection
+        // Main app sets monitoring_restart_timestamp when monitoring restarts
+        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
+        let timeSinceRestart = nowTimestamp - restartTimestamp
+
         // Three cases:
         // 1. threshold > lastThreshold: normal progression, add 60s
-        // 2. threshold < lastThreshold: NEW SESSION (iOS reset counter), add 60s
-        // 3. threshold == lastThreshold: exact duplicate, skip
+        // 2. threshold == lastThreshold: exact duplicate, skip
+        // 3. threshold < lastThreshold: could be catch-up OR iOS reset
+        //    - Within 10s of restart = catch-up after monitoring restart, skip
+        //    - More than 10s since restart = iOS independent reset, add 60s
 
         if thresholdSeconds == lastThreshold {
             writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s == last=\(lastThreshold)s (duplicate)")
             return false
         }
 
-        // Add exactly 60s (for both > and < cases)
+        if thresholdSeconds < lastThreshold {
+            // Could be catch-up after monitoring restart OR iOS reset
+            if timeSinceRestart < 10.0 {
+                // Within 10 seconds of monitoring restart = catch-up event, skip
+                writeDebugLog("⏭️ SKIP catch-up: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart")
+                return false
+            } else {
+                // More than 10 seconds since restart = iOS independent reset, add 60s
+                writeDebugLog("📱 iOS reset: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart")
+                // Continue to add 60s below
+            }
+        }
+
+        // Add exactly 60s (for normal progression OR iOS reset after delay)
         let newToday = currentToday + 60
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
