@@ -157,7 +157,7 @@ struct DailyUsageChartCard: View {
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: xAxisUnit)) { value in
+            AxisMarks(values: .stride(by: xAxisUnit, count: isHourly ? 3 : 1)) { value in
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
                         Text(xAxisLabel(for: date))
@@ -208,14 +208,21 @@ struct DailyUsageChartCard: View {
     }
 
     private func getHourlyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
-        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
-            return []
-        }
-
         let calendar = Calendar.current
         let now = Date()
         let today = calendar.startOfDay(for: now)
-        let currentHour = calendar.component(.hour, from: now)
+
+        // Initialize all 24 hours with 0 minutes
+        var hourlyData: [Date: Int] = [:]
+        for hour in 0..<24 {
+            if let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) {
+                hourlyData[hourDate] = 0
+            }
+        }
+
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return hourlyData.sorted { $0.key < $1.key }.map { (date: $0.key, minutes: $0.value) }
+        }
 
         // Get today's date string for comparison
         let dateFormatter = DateFormatter()
@@ -231,8 +238,6 @@ struct DailyUsageChartCard: View {
             }
         }()
 
-        var hourlyData: [Date: Int] = [:]
-
         // Read hourly data directly from extension's protected keys
         for logicalID in logicalIDs {
             // Check if hourly data is from today
@@ -245,8 +250,8 @@ struct DailyUsageChartCard: View {
                 continue
             }
 
-            // Read each hour's usage from extension's buckets
-            for hour in 0...currentHour {
+            // Read each hour's usage from extension's buckets (all 24 hours)
+            for hour in 0..<24 {
                 let seconds = defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
                 if seconds > 0 {
                     if let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) {
@@ -256,7 +261,7 @@ struct DailyUsageChartCard: View {
             }
 
             #if DEBUG
-            let totalForApp = (0...currentHour).reduce(0) { $0 + defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\($1)") }
+            let totalForApp = (0..<24).reduce(0) { $0 + defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\($1)") }
             if totalForApp > 0 {
                 print("[DailyUsageChartCard] 📊 \(logicalID): \(totalForApp / 60)m total from hourly buckets")
             }
@@ -314,15 +319,7 @@ struct DailyUsageChartCard: View {
         switch selectedPeriod {
         case .hourly:
             let hour = calendar.component(.hour, from: date)
-            if hour == 0 {
-                return "12AM"
-            } else if hour < 12 {
-                return "\(hour)AM"
-            } else if hour == 12 {
-                return "12PM"
-            } else {
-                return "\(hour - 12)PM"
-            }
+            return String(format: "%02d", hour)
 
         case .daily:
             let today = calendar.startOfDay(for: Date())

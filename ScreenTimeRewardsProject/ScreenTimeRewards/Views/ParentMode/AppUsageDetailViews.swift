@@ -30,7 +30,8 @@ struct LearningAppDetailView: View {
                     accentColor: AppTheme.vibrantTeal,
                     persistedUsage: persistedUsage,
                     pointsPerMinute: snapshot.pointsPerMinute,
-                    dailyHistory: history
+                    dailyHistory: history,
+                    logicalID: snapshot.logicalID
                 )
 
                 // Floating Configure Button
@@ -173,7 +174,8 @@ struct RewardAppDetailView: View {
                     accentColor: AppTheme.playfulCoral,
                     persistedUsage: persistedUsage,
                     pointsPerMinute: snapshot.pointsPerMinute,
-                    dailyHistory: history
+                    dailyHistory: history,
+                    logicalID: snapshot.logicalID
                 )
 
                 // Floating Configure Button
@@ -281,40 +283,21 @@ private struct AppUsageDetailContent: View {
     let persistedUsage: UsagePersistence.PersistedApp?
     let pointsPerMinute: Int
     let dailyHistory: [UsagePersistence.DailyUsageSummary]
+    let logicalID: String?  // For hourly chart data
     @Environment(\.colorScheme) private var colorScheme
-
-    /// FIX: Returns today's seconds only if lastResetDate is today, otherwise 0
-    /// This prevents stale data from yesterday showing as today's usage
-    private var currentDaySeconds: Int {
-        guard let usage = persistedUsage else { return 0 }
-        let startOfToday = Calendar.current.startOfDay(for: Date())
-        // If lastResetDate is before today, the data is stale
-        if usage.lastResetDate < startOfToday {
-            return 0
-        }
-        return usage.todaySeconds
-    }
-
-    /// FIX: Returns today's points only if lastResetDate is today, otherwise 0
-    private var currentDayPoints: Int {
-        guard let usage = persistedUsage else { return 0 }
-        let startOfToday = Calendar.current.startOfDay(for: Date())
-        if usage.lastResetDate < startOfToday {
-            return 0
-        }
-        return usage.todayPoints
-    }
 
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
-                // Usage chart (primary visual)
+                // Hourly usage chart (today's breakdown)
+                if #available(iOS 16.0, *), let logicalID = logicalID {
+                    HourlyUsageChartCard(logicalID: logicalID, accentColor: accentColor)
+                }
+
+                // Historical usage chart
                 if #available(iOS 16.0, *) {
                     usageChartCard
                 }
-
-                usageBreakdownCard
-                insightsCard
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)
@@ -332,190 +315,146 @@ private struct AppUsageDetailContent: View {
             accentColor: accentColor
         )
     }
-
-    private var usageBreakdownCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Usage Breakdown")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-            HStack(spacing: 12) {
-                // FIX: Use currentDaySeconds which checks for stale data
-                let dailySeconds = TimeInterval(currentDaySeconds)
-                let weeklyUsage = calculateWeeklyUsage(from: dailyHistory) + dailySeconds  // Include today
-                let monthlyUsage = calculateMonthlyUsage(from: dailyHistory) + dailySeconds  // Include today
-
-                UsagePill(
-                    title: "Daily",
-                    minutes: minutesText(for: dailySeconds),
-                    annotation: "\(currentDayPoints) pts",  // FIX: Use currentDayPoints to handle stale data
-                    accent: accentColor
-                )
-                UsagePill(
-                    title: "Weekly",
-                    minutes: minutesText(for: weeklyUsage),
-                    annotation: "\(pointsEarned(for: weeklyUsage)) pts",
-                    accent: accentColor.opacity(0.9)
-                )
-                UsagePill(
-                    title: "Monthly",
-                    minutes: minutesText(for: monthlyUsage),
-                    annotation: "\(pointsEarned(for: monthlyUsage)) pts",
-                    accent: accentColor.opacity(0.7)
-                )
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
-        )
-    }
-
-    private var insightsCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("Insights")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-            VStack(spacing: 12) {
-                insightRow(
-                    icon: "bolt.fill",
-                    title: "Points Earned Today",
-                    value: "\(currentDayPoints) pts"
-                )
-
-                insightRow(
-                    icon: "clock.fill",
-                    title: "Total Time Ever",
-                    value: TimeFormatting.formatSecondsCompact(TimeInterval(persistedUsage?.totalSeconds ?? 0))
-                )
-
-                insightRow(
-                    icon: "star.circle.fill",
-                    title: "Total Points Ever",
-                    value: "\(persistedUsage?.earnedPoints ?? 0) pts"
-                )
-
-                insightRow(
-                    icon: "calendar.badge.clock",
-                    title: "First Used",
-                    value: persistedUsage?.createdAt.formatted(date: .abbreviated, time: .omitted) ?? "No data"
-                )
-            }
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
-        )
-    }
-
-    // MARK: - Helper Functions
-
-    /// Calculate weekly usage from daily history
-    private func calculateWeeklyUsage(from history: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
-        let calendar = Calendar.current
-        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
-
-        return TimeInterval(history
-            .filter { $0.date >= sevenDaysAgo }
-            .reduce(0) { $0 + $1.seconds })
-    }
-
-    /// Calculate monthly usage from daily history
-    private func calculateMonthlyUsage(from history: [UsagePersistence.DailyUsageSummary]) -> TimeInterval {
-        let calendar = Calendar.current
-        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: Date())!
-
-        return TimeInterval(history
-            .filter { $0.date >= thirtyDaysAgo }
-            .reduce(0) { $0 + $1.seconds })
-    }
-
-    private func usageDuration(for interval: TimeInterval) -> Int {
-        Int(interval / 60)
-    }
-
-    private func minutesText(for interval: TimeInterval) -> String {
-        let minutes = usageDuration(for: interval)
-        return minutes >= 60
-            ? String(format: "%.1fh", Double(minutes) / 60.0)
-            : "\(minutes)m"
-    }
-
-    private func pointsEarned(for interval: TimeInterval) -> Int {
-        let minutes = usageDuration(for: interval)
-        return minutes * max(pointsPerMinute, 0)
-    }
-
-    private func formattedDuration(_ interval: TimeInterval) -> String {
-        guard interval > 0 else { return "—" }
-        let minutes = Int(interval / 60)
-        let hours = minutes / 60
-        let remaining = minutes % 60
-
-        if hours > 0 {
-            return "\(hours)h \(remaining)m"
-        }
-        return "\(max(1, minutes))m"
-    }
-
-    private func insightRow(icon: String, title: String, value: String) -> some View {
-        HStack {
-            Image(systemName: icon)
-                .frame(width: 28, height: 28)
-                .background(accentColor.opacity(0.15))
-                .foregroundColor(accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
-
-            VStack(alignment: .leading, spacing: 2) {
-                Text(title)
-                    .font(.subheadline)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                Text(value)
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-            }
-
-            Spacer()
-        }
-        .padding(.vertical, 4)
-    }
 }
 
-private struct UsagePill: View {
-    let title: String
-    let minutes: String
-    let annotation: String
-    let accent: Color
+// MARK: - Hourly Usage Chart
+
+@available(iOS 16.0, *)
+private struct HourlyUsageChartCard: View {
+    let logicalID: String
+    let accentColor: Color
     @Environment(\.colorScheme) private var colorScheme
 
+    private var hourlyData: [(date: Date, minutes: Int)] {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return []
+        }
+
+        let calendar = Calendar.current
+        let now = Date()
+        let today = calendar.startOfDay(for: now)
+
+        // Get today's date string for comparison
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dateFormatter.string(from: now)
+
+        // Check if hourly data is from today
+        let storedDate = defaults.string(forKey: "ext_usage_\(logicalID)_hourly_date")
+        guard storedDate == todayString else {
+            // Return empty array for all 24 hours
+            return (0..<24).compactMap { hour in
+                guard let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) else { return nil }
+                return (date: hourDate, minutes: 0)
+            }
+        }
+
+        // Read each hour's usage from extension's buckets (all 24 hours)
+        return (0..<24).compactMap { hour in
+            guard let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) else { return nil }
+            let seconds = defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
+            return (date: hourDate, minutes: seconds / 60)
+        }
+    }
+
+    private var totalMinutes: Int {
+        hourlyData.reduce(0) { $0 + $1.minutes }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title.uppercased())
-                .font(.caption2)
-                .fontWeight(.semibold)
-                .foregroundColor(accent.opacity(0.8))
+        VStack(alignment: .leading, spacing: 16) {
+            // Header
+            HStack {
+                Image(systemName: "clock.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(accentColor)
 
-            Text(minutes)
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("Today's Hourly Usage")
+                    .font(.headline)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-            Text(annotation)
-                .font(.caption)
+                Spacer()
+
+                Text("\(totalMinutes)m total")
+                    .font(.subheadline)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+
+            // Chart
+            if totalMinutes == 0 {
+                emptyStateView
+            } else {
+                Chart {
+                    ForEach(hourlyData, id: \.date) { item in
+                        BarMark(
+                            x: .value("Hour", item.date, unit: .hour),
+                            y: .value("Minutes", item.minutes)
+                        )
+                        .foregroundStyle(accentColor.gradient)
+                        .cornerRadius(3)
+                    }
+                }
+                .frame(height: 160)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: .hour, count: 3)) { value in
+                        if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                Text(hourLabel(for: date))
+                                    .font(.caption2)
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
+                        }
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks { value in
+                        AxisValueLabel {
+                            if let minutes = value.as(Int.self) {
+                                Text("\(minutes)m")
+                                    .font(.caption2)
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
+                        }
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    }
+                }
+                .chartPlotStyle { plotArea in
+                    plotArea
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.black.opacity(0.15) : Color.white.opacity(0.5))
+                        )
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
+        )
+    }
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "clock")
+                .font(.system(size: 32))
+                .foregroundColor(accentColor.opacity(0.5))
+
+            Text("No usage recorded today")
+                .font(.subheadline)
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
         }
-        .padding()
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(accent.opacity(colorScheme == .dark ? 0.18 : 0.12))
-        )
+        .frame(height: 160)
+        .frame(maxWidth: .infinity)
+    }
+
+    private func hourLabel(for date: Date) -> String {
+        let hour = Calendar.current.component(.hour, from: date)
+        return String(format: "%02d", hour)
     }
 }
 
