@@ -1,5 +1,6 @@
 import SwiftUI
 import FamilyControls
+import Charts
 
 // Combined struct to prevent race condition in sheet presentation
 private struct LearningDetailConfigData: Identifiable {
@@ -307,15 +308,29 @@ private struct AppUsageDetailContent: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 20) {
+                // Usage chart (primary visual)
+                if #available(iOS 16.0, *) {
+                    usageChartCard
+                }
+
                 usageBreakdownCard
                 insightsCard
-                extraIdeasCard
             }
             .padding(.horizontal, 20)
             .padding(.top, 24)
-            .padding(.bottom, 32)
+            .padding(.bottom, 100) // Extra padding for Configure button
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
+    }
+
+    // MARK: - Usage Chart Card
+
+    @available(iOS 16.0, *)
+    private var usageChartCard: some View {
+        AppUsageChart(
+            dailyHistory: dailyHistory,
+            accentColor: accentColor
+        )
     }
 
     private var usageBreakdownCard: some View {
@@ -369,40 +384,26 @@ private struct AppUsageDetailContent: View {
                 insightRow(
                     icon: "bolt.fill",
                     title: "Points Earned Today",
-                    value: "\(currentDayPoints) pts"  // FIX: Use currentDayPoints to handle stale data
+                    value: "\(currentDayPoints) pts"
                 )
 
                 insightRow(
                     icon: "clock.fill",
                     title: "Total Time Ever",
-                    value: TimeFormatting.formatSecondsCompact(TimeInterval(persistedUsage?.totalSeconds ?? 0))  // ✅ From persistence
+                    value: TimeFormatting.formatSecondsCompact(TimeInterval(persistedUsage?.totalSeconds ?? 0))
                 )
 
                 insightRow(
                     icon: "star.circle.fill",
                     title: "Total Points Ever",
-                    value: "\(persistedUsage?.earnedPoints ?? 0) pts"  // ✅ From persistence
+                    value: "\(persistedUsage?.earnedPoints ?? 0) pts"
                 )
 
                 insightRow(
                     icon: "calendar.badge.clock",
                     title: "First Used",
-                    value: persistedUsage?.createdAt.formatted(date: .abbreviated, time: .omitted) ?? "No data"  // ✅ From persistence
+                    value: persistedUsage?.createdAt.formatted(date: .abbreviated, time: .omitted) ?? "No data"
                 )
-
-                insightRow(
-                    icon: "calendar",
-                    title: "Last Updated",
-                    value: persistedUsage?.lastUpdated.formatted(date: .abbreviated, time: .shortened) ?? "No data"  // ✅ From persistence
-                )
-
-                if let lastReset = persistedUsage?.lastResetDate {
-                    insightRow(
-                        icon: "arrow.counterclockwise",
-                        title: "Last Reset",
-                        value: lastReset.formatted(date: .abbreviated, time: .omitted)  // ✅ From persistence
-                    )
-                }
             }
         }
         .padding(20)
@@ -411,24 +412,6 @@ private struct AppUsageDetailContent: View {
             RoundedRectangle(cornerRadius: 20)
                 .fill(AppTheme.card(for: colorScheme))
                 .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
-        )
-    }
-
-    private var extraIdeasCard: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Ideas to Explore")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-            Text("• Add a “focus score” that rewards consistent daily usage.\n• Track the best day of the week for this app.\n• Show how much challenge progress this app contributes.\n• Surface recommendations when usage trends downward.")
-                .font(.footnote)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-        }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 16)
-                .fill(AppTheme.background(for: colorScheme).opacity(0.6))
         )
     }
 
@@ -533,5 +516,213 @@ private struct UsagePill: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(accent.opacity(colorScheme == .dark ? 0.18 : 0.12))
         )
+    }
+}
+
+// MARK: - Usage History Chart
+
+@available(iOS 16.0, *)
+private struct AppUsageChart: View {
+    let dailyHistory: [UsagePersistence.DailyUsageSummary]
+    let accentColor: Color
+    @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedPeriod: ChartPeriod = .daily
+
+    enum ChartPeriod: String, CaseIterable {
+        case daily = "7 Days"
+        case weekly = "4 Weeks"
+        case monthly = "6 Months"
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            // Header with period picker
+            HStack {
+                Text("Usage History")
+                    .font(.headline)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                Spacer()
+
+                Picker("Period", selection: $selectedPeriod) {
+                    ForEach(ChartPeriod.allCases, id: \.self) { period in
+                        Text(period.rawValue).tag(period)
+                    }
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 200)
+            }
+
+            // Chart
+            if chartData.isEmpty {
+                emptyStateView
+            } else {
+                Chart {
+                    ForEach(chartData, id: \.date) { item in
+                        BarMark(
+                            x: .value("Date", item.date, unit: xAxisUnit),
+                            y: .value("Minutes", item.minutes)
+                        )
+                        .foregroundStyle(accentColor.gradient)
+                        .cornerRadius(4)
+                    }
+                }
+                .frame(height: 180)
+                .chartXAxis {
+                    AxisMarks(values: .stride(by: xAxisUnit)) { value in
+                        if let date = value.as(Date.self) {
+                            AxisValueLabel {
+                                Text(xAxisLabel(for: date))
+                                    .font(.caption2)
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
+                        }
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    }
+                }
+                .chartYAxis {
+                    AxisMarks { value in
+                        AxisValueLabel {
+                            if let minutes = value.as(Int.self) {
+                                Text("\(minutes)m")
+                                    .font(.caption2)
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
+                        }
+                        AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    }
+                }
+                .chartPlotStyle { plotArea in
+                    plotArea
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(colorScheme == .dark ? Color.black.opacity(0.15) : Color.white.opacity(0.5))
+                        )
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
+        )
+    }
+
+    // MARK: - Empty State
+
+    private var emptyStateView: some View {
+        VStack(spacing: 12) {
+            Image(systemName: "chart.bar.xaxis")
+                .font(.system(size: 32))
+                .foregroundColor(accentColor.opacity(0.5))
+
+            Text("No usage data yet")
+                .font(.subheadline)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+            Text("Start using this app to see your history")
+                .font(.caption)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.7))
+        }
+        .frame(height: 180)
+        .frame(maxWidth: .infinity)
+    }
+
+    // MARK: - Chart Data
+
+    private var chartData: [(date: Date, minutes: Int)] {
+        switch selectedPeriod {
+        case .daily:
+            return getDailyData()
+        case .weekly:
+            return getWeeklyData()
+        case .monthly:
+            return getMonthlyData()
+        }
+    }
+
+    private var xAxisUnit: Calendar.Component {
+        switch selectedPeriod {
+        case .daily: return .day
+        case .weekly: return .weekOfYear
+        case .monthly: return .month
+        }
+    }
+
+    private func getDailyData() -> [(date: Date, minutes: Int)] {
+        let calendar = Calendar.current
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
+
+        return dailyHistory
+            .filter { $0.date >= sevenDaysAgo }
+            .sorted { $0.date < $1.date }
+            .map { (date: $0.date, minutes: $0.seconds / 60) }
+    }
+
+    private func getWeeklyData() -> [(date: Date, minutes: Int)] {
+        let calendar = Calendar.current
+        let fourWeeksAgo = calendar.date(byAdding: .day, value: -28, to: Date())!
+
+        var weeklyData: [Date: Int] = [:]
+
+        for item in dailyHistory where item.date >= fourWeeksAgo {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: item.date)?.start {
+                weeklyData[weekStart, default: 0] += item.seconds / 60
+            }
+        }
+
+        return weeklyData
+            .sorted { $0.key < $1.key }
+            .map { (date: $0.key, minutes: $0.value) }
+    }
+
+    private func getMonthlyData() -> [(date: Date, minutes: Int)] {
+        let calendar = Calendar.current
+        let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: Date())!
+
+        var monthlyData: [Date: Int] = [:]
+
+        for item in dailyHistory where item.date >= sixMonthsAgo {
+            if let monthStart = calendar.dateInterval(of: .month, for: item.date)?.start {
+                monthlyData[monthStart, default: 0] += item.seconds / 60
+            }
+        }
+
+        return monthlyData
+            .sorted { $0.key < $1.key }
+            .suffix(6)
+            .map { (date: $0.key, minutes: $0.value) }
+    }
+
+    // MARK: - X-Axis Labels
+
+    private func xAxisLabel(for date: Date) -> String {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+
+        switch selectedPeriod {
+        case .daily:
+            let today = calendar.startOfDay(for: Date())
+            if calendar.isDate(date, inSameDayAs: today) {
+                return "Today"
+            } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+                      calendar.isDate(date, inSameDayAs: yesterday) {
+                return "Yest."
+            } else {
+                formatter.dateFormat = "EEE"
+                return formatter.string(from: date)
+            }
+
+        case .weekly:
+            formatter.dateFormat = "MMM d"
+            return formatter.string(from: date)
+
+        case .monthly:
+            formatter.dateFormat = "MMM"
+            return formatter.string(from: date)
+        }
     }
 }

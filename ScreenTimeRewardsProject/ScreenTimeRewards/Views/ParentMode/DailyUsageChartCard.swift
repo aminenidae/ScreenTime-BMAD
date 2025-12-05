@@ -208,13 +208,19 @@ struct DailyUsageChartCard: View {
     }
 
     private func getHourlyData(for category: AppUsage.AppCategory) -> [(date: Date, minutes: Int)] {
-        let service = ScreenTimeService.shared
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return []
+        }
+
         let calendar = Calendar.current
         let now = Date()
+        let today = calendar.startOfDay(for: now)
         let currentHour = calendar.component(.hour, from: now)
 
-        var hourlyData: [Date: Int] = [:]
-        let today = calendar.startOfDay(for: now)
+        // Get today's date string for comparison
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let todayString = dateFormatter.string(from: now)
 
         // Get all app logicalIDs for this category
         let logicalIDs: [String] = {
@@ -225,32 +231,36 @@ struct DailyUsageChartCard: View {
             }
         }()
 
-        // Get hourly data from each app
+        var hourlyData: [Date: Int] = [:]
+
+        // Read hourly data directly from extension's protected keys
         for logicalID in logicalIDs {
-            if var persistedApp = service.usagePersistence.app(for: logicalID) {
-                // MIGRATION: If todaySeconds > 0 but todayHourlySeconds is nil, migrate NOW
-                // This handles apps tracked before the hourly feature was added
-                if persistedApp.todayHourlySeconds == nil && persistedApp.todaySeconds > 0 {
-                    persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
-                    persistedApp.todayHourlySeconds?[currentHour] = persistedApp.todaySeconds
-                    service.usagePersistence.saveApp(persistedApp)
+            // Check if hourly data is from today
+            let storedDate = defaults.string(forKey: "ext_usage_\(logicalID)_hourly_date")
 
-                    #if DEBUG
-                    print("[DailyUsageChartCard] 🔄 Migrated \(persistedApp.displayName): \(persistedApp.todaySeconds)s → hour[\(currentHour)]")
-                    #endif
-                }
+            guard storedDate == todayString else {
+                #if DEBUG
+                print("[DailyUsageChartCard] ⏭️ Skipping \(logicalID): hourly date '\(storedDate ?? "nil")' != today '\(todayString)'")
+                #endif
+                continue
+            }
 
-                if let hourlySeconds = persistedApp.todayHourlySeconds {
-                    // Map hour indices [0-23] to actual hour dates for today
-                    for (hourIndex, seconds) in hourlySeconds.enumerated() {
-                        if hourIndex <= currentHour && seconds > 0 {
-                            if let hourDate = calendar.date(byAdding: .hour, value: hourIndex, to: today) {
-                                hourlyData[hourDate, default: 0] += seconds / 60  // Convert to minutes
-                            }
-                        }
+            // Read each hour's usage from extension's buckets
+            for hour in 0...currentHour {
+                let seconds = defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
+                if seconds > 0 {
+                    if let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) {
+                        hourlyData[hourDate, default: 0] += seconds / 60  // Convert to minutes
                     }
                 }
             }
+
+            #if DEBUG
+            let totalForApp = (0...currentHour).reduce(0) { $0 + defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\($1)") }
+            if totalForApp > 0 {
+                print("[DailyUsageChartCard] 📊 \(logicalID): \(totalForApp / 60)m total from hourly buckets")
+            }
+            #endif
         }
 
         return hourlyData

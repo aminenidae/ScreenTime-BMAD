@@ -179,46 +179,64 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
             defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
+            // === HOURLY BUCKET TRACKING ===
+            // Reset all hourly buckets for new day, then set current hour
+            for h in 0..<24 {
+                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+            }
+            defaults.set(60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
+
             writeDebugLog("🌅 New day: \(appID) today=60s (first event, threshold=\(thresholdSeconds)s)")
-            writeDebugLog("🔒 ext_ keys: today=60s, total=60s, date=\(dateString)")
+            writeDebugLog("🔒 ext_ keys: today=60s, total=60s, date=\(dateString), hour[\(hour)]=60s")
             return true
         }
 
-        // Same day - add 60s if threshold differs from last (handles new sessions)
+        // Same day - check for catch-up vs new session using DUAL protection:
+        // 1. Global restart timestamp (catches catch-up after adding/removing apps)
+        // 2. Per-app event timing (catches rapid-fire catch-up events)
         let currentToday = defaults.integer(forKey: todayKey)
-        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        let lastEventTime = defaults.double(forKey: "usage_\(appID)_lastEventTime")
+        let timeSinceLastEvent = nowTimestamp - lastEventTime
 
-        // Global restart-based catch-up detection
-        // Main app sets monitoring_restart_timestamp when monitoring restarts
+        // Global restart check - main app sets this when monitoring starts/restarts
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let timeSinceRestart = nowTimestamp - restartTimestamp
 
-        // Three cases:
-        // 1. threshold > lastThreshold: normal progression, add 60s
-        // 2. threshold == lastThreshold: exact duplicate, skip
-        // 3. threshold < lastThreshold: could be catch-up OR iOS reset
-        //    - Within 10s of restart = catch-up after monitoring restart, skip
-        //    - More than 10s since restart = iOS independent reset, add 60s
-
+        // Case 1: Duplicate threshold
         if thresholdSeconds == lastThreshold {
             writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s == last=\(lastThreshold)s (duplicate)")
             return false
         }
 
+        // Case 2: Threshold decreased (could be catch-up OR new session)
         if thresholdSeconds < lastThreshold {
-            // Could be catch-up after monitoring restart OR iOS reset
-            if timeSinceRestart < 10.0 {
-                // Within 10 seconds of monitoring restart = catch-up event, skip
-                writeDebugLog("⏭️ SKIP catch-up: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart")
+            // Check 1: Within 120s of monitoring restart → ALWAYS skip (catch-up from app list change)
+            if timeSinceRestart < 120.0 && restartTimestamp > 0 {
+                writeDebugLog("⏭️ SKIP catch-up (restart): threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, only \(String(format: "%.1f", timeSinceRestart))s since monitoring restart")
+                defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
                 return false
-            } else {
-                // More than 10 seconds since restart = iOS independent reset, add 60s
-                writeDebugLog("📱 iOS reset: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart")
-                // Continue to add 60s below
             }
+
+            // Check 2: Rapid fire (< 30s since last event for this app) → catch-up, skip
+            if timeSinceLastEvent < 30.0 && lastEventTime > 0 {
+                writeDebugLog("⏭️ SKIP catch-up (rapid): threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, only \(String(format: "%.1f", timeSinceLastEvent))s since last event")
+                defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
+                return false
+            }
+
+            // Both checks passed: >= 120s since restart AND >= 30s since last event
+            // This is likely a genuine new session → reset lastThreshold to allow recording
+            writeDebugLog("📱 New session: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart, \(String(format: "%.1f", timeSinceLastEvent))s since last event → resetting")
+            defaults.set(0, forKey: lastThresholdKey)
+            lastThreshold = 0  // Update local var for the check below
+            // Fall through to record usage
         }
 
-        // Add exactly 60s (for normal progression OR iOS reset after delay)
+        // Case 3: Normal progression (threshold > lastThreshold, or after reset)
+        // Update lastEventTime
+        defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
         let newToday = currentToday + 60
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
@@ -252,8 +270,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
         defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
-        let symbol = thresholdSeconds > lastThreshold ? ">" : "<"
-        writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s \(symbol) last=\(lastThreshold)s → today=\(newToday)s")
+        // === HOURLY BUCKET TRACKING ===
+        // Check if hourly data is from today, reset if not
+        let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
+        if storedHourlyDate != dateString {
+            // New day - reset all hourly buckets
+            for h in 0..<24 {
+                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+            }
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
+        }
+        // Add 60s to current hour's bucket
+        let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
+        defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
+
+        writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s > last=\(lastThreshold)s → today=\(newToday)s, hour[\(hour)]=\(currentHourlySeconds + 60)s")
         writeDebugLog("🔒 ext_ keys: today=\(newExtToday)s, total=\(newExtTotal)s")
         return true
     }
@@ -456,7 +487,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(0, forKey: totalKey)
                 defaults.set(0, forKey: lastThresholdKey) // Reset lastThreshold for new day
                 defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
-                writeDebugLog("Reset \(appID): today=0s, lastThreshold=0s")
+
+                // Reset hourly buckets
+                for h in 0..<24 {
+                    defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+                }
+                // Clear hourly date so it gets set fresh on next event
+                defaults.removeObject(forKey: "ext_usage_\(appID)_hourly_date")
+
+                writeDebugLog("Reset \(appID): today=0s, lastThreshold=0s, hourly buckets cleared")
             }
         }
 
