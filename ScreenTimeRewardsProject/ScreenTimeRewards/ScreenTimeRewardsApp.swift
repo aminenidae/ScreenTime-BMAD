@@ -29,12 +29,25 @@ struct ScreenTimeRewardsApp: App {
                 .environmentObject(subscriptionManager)
         }
         .onChange(of: scenePhase) { newPhase in
-            if newPhase == .active {
+            switch newPhase {
+            case .active:
                 // Refresh usage data from extension when app becomes active
                 print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
                 }
+
+                // Start periodic refresh for blocking states (downtime, daily limits, etc.)
+                BlockingCoordinator.shared.startPeriodicRefresh()
+                print("[ScreenTimeRewardsApp] ⏱️ Started BlockingCoordinator periodic refresh")
+
+            case .background, .inactive:
+                // Stop periodic refresh when app goes to background
+                BlockingCoordinator.shared.stopPeriodicRefresh()
+                print("[ScreenTimeRewardsApp] ⏸️ Stopped BlockingCoordinator periodic refresh")
+
+            @unknown default:
+                break
             }
         }
     }

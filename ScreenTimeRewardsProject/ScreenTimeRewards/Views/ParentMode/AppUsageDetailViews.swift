@@ -97,6 +97,8 @@ struct LearningAppDetailView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
+                    // Re-sync blocking reasons after schedule change
+                    BlockingCoordinator.shared.refreshAllBlockingStates()
                     configSheetData = nil
                 },
                 onCancel: {
@@ -226,6 +228,8 @@ struct RewardAppDetailView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
+                    // Re-sync blocking reasons after schedule change
+                    viewModel.blockRewardApps()
                     configSheetData = nil
                 },
                 onCancel: {

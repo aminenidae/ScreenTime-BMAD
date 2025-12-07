@@ -8,115 +8,253 @@
 import ManagedSettings
 import ManagedSettingsUI
 import UIKit
+import FamilyControls
+import CryptoKit
 
-// MARK: - Shared Data Model (duplicated from main app for extension access)
+// MARK: - Blocking Reason Data Models (duplicated from main app - extensions can't share files)
 
-/// Challenge data shared from main app via App Groups
-private struct ShieldChallengeData: Codable {
-    let challengeTitle: String
-    let targetAppNames: [String]
-    let targetMinutes: Int
-    let currentMinutes: Int
+/// Types of blocking reasons for shield messages
+private enum BlockingReasonType: String, Codable {
+    case learningGoal       // Reward app blocked until learning goal met
+    case dailyLimitReached  // Used up daily allowed minutes
+    case downtime           // Outside allowed time window
+}
+
+/// Per-app blocking data stored in App Group by token hash
+private struct AppBlockingInfo: Codable {
+    let tokenHash: String
+    let reasonType: BlockingReasonType
     let updatedAt: Date
 
-    var minutesRemaining: Int {
-        max(0, targetMinutes - currentMinutes)
-    }
+    // Learning goal context
+    var learningTargetMinutes: Int?
+    var learningCurrentMinutes: Int?
 
-    var isComplete: Bool {
-        currentMinutes >= targetMinutes
-    }
+    // Daily limit context
+    var dailyLimitMinutes: Int?
+    var usedMinutes: Int?
 
-    /// Formatted string for target apps (e.g., "Duolingo and Khan Academy")
-    var targetAppsFormatted: String {
-        guard !targetAppNames.isEmpty else { return "learning apps" }
+    // Downtime context - full allowed time window
+    var downtimeWindowStartHour: Int?
+    var downtimeWindowStartMinute: Int?
+    var downtimeWindowEndHour: Int?
+    var downtimeWindowEndMinute: Int?
+    var downtimeDayName: String?
 
-        if targetAppNames.count == 1 {
-            return targetAppNames[0]
-        } else if targetAppNames.count == 2 {
-            return "\(targetAppNames[0]) and \(targetAppNames[1])"
-        } else {
-            let allButLast = targetAppNames.dropLast().joined(separator: ", ")
-            return "\(allButLast), and \(targetAppNames.last!)"
-        }
-    }
+    // Legacy fields (backwards compatibility)
+    var downtimeEndHour: Int?
+    var downtimeEndMinute: Int?
+}
+
+// MARK: - Shield Theme Configuration
+
+/// Visual theme for each blocking reason type
+private struct ShieldTheme {
+    let backgroundColor: UIColor
+    let iconName: String
+    let title: String
+    let primaryButtonLabel: String
+    let primaryButtonColor: UIColor
 }
 
 /// Custom shield configuration that matches the app's theme
-/// Provides a kid-friendly, encouraging shield screen with dynamic progress info
+/// Provides per-app blocking messages with different visuals for each blocking reason
 class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
-    // MARK: - Theme Colors (matching AppTheme)
+    // MARK: - Theme Colors
 
-    /// Vibrant Teal - Primary accent (#00A6A6)
+    /// Vibrant Teal - For learning goal blocking (#00A6A6)
     private let vibrantTeal = UIColor(red: 0, green: 0.651, blue: 0.651, alpha: 1)
 
-    /// Learning Peach - Soft peachy-coral (#FFB4A3)
+    /// Learning Peach - Button color for learning (#FFB4A3)
     private let learningPeach = UIColor(red: 1.0, green: 0.706, blue: 0.639, alpha: 1)
+
+    /// Coral Red - For daily limit reached (#E66650)
+    private let coralRed = UIColor(red: 0.9, green: 0.4, blue: 0.314, alpha: 1)
+
+    /// Night Purple - For downtime (#4D4D80)
+    private let nightPurple = UIColor(red: 0.302, green: 0.302, blue: 0.502, alpha: 1)
+
+    // MARK: - Theme Definitions
+
+    private var learningGoalTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
+            iconName: "book.fill",
+            title: "Learning Time First!",
+            primaryButtonLabel: "Go Learn",
+            primaryButtonColor: learningPeach
+        )
+    }
+
+    private var dailyLimitTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: coralRed.withAlphaComponent(0.95),
+            iconName: "clock.badge.xmark.fill",
+            title: "Daily Limit Reached",
+            primaryButtonLabel: "OK",
+            primaryButtonColor: .systemOrange
+        )
+    }
+
+    private var downtimeTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: nightPurple.withAlphaComponent(0.95),
+            iconName: "moon.zzz.fill",
+            title: "Downtime Active",
+            primaryButtonLabel: "OK",
+            primaryButtonColor: .systemIndigo
+        )
+    }
 
     // MARK: - App Group Data Access
 
     private let appGroupID = "group.com.screentimerewards.shared"
-    private let shieldDataKey = "shield_challenge_data"
+    private let blockingKeyPrefix = "appBlocking_"
 
-    /// Retrieves challenge data from shared App Group UserDefaults
-    private func getChallengeData() -> ShieldChallengeData? {
+    // MARK: - Token Hashing (MUST match BlockingReasonService exactly)
+
+    /// Generate a stable hash for an ApplicationToken
+    private func tokenHash(for token: ApplicationToken) -> String {
+        let tokenData = try? JSONEncoder().encode(token)
+        guard let data = tokenData else { return "unknown" }
+        let hash = SHA256.hash(data: data)
+        return "token.sha256." + hash.compactMap { String(format: "%02x", $0) }.joined()
+    }
+
+    // MARK: - Per-App Blocking Info Lookup
+
+    /// Get blocking info for a specific application
+    private func getBlockingInfo(for application: Application) -> AppBlockingInfo? {
+        guard let token = application.token else { return nil }
+        let hash = tokenHash(for: token)
+        return getBlockingInfo(forHash: hash)
+    }
+
+    /// Get blocking info by token hash
+    private func getBlockingInfo(forHash hash: String) -> AppBlockingInfo? {
+        let key = blockingKeyPrefix + hash
         guard let defaults = UserDefaults(suiteName: appGroupID),
-              let data = defaults.data(forKey: shieldDataKey) else {
+              let data = defaults.data(forKey: key) else {
             return nil
         }
-
-        return try? JSONDecoder().decode(ShieldChallengeData.self, from: data)
+        return try? JSONDecoder().decode(AppBlockingInfo.self, from: data)
     }
 
-    // MARK: - Dynamic Message Generation
+    // MARK: - Theme Selection
 
-    /// Generates a dynamic subtitle message based on current challenge progress
-    private func generateDynamicSubtitle(for context: String = "app") -> String {
-        guard let challengeData = getChallengeData() else {
-            // Fallback to generic message if no data available
-            return "Complete your learning goal to unlock this \(context). You've got this!"
+    /// Get the appropriate theme for a blocking reason
+    private func getTheme(for reasonType: BlockingReasonType?) -> ShieldTheme {
+        switch reasonType {
+        case .downtime:
+            return downtimeTheme
+        case .dailyLimitReached:
+            return dailyLimitTheme
+        case .learningGoal, .none:
+            return learningGoalTheme
+        }
+    }
+
+    // MARK: - Message Generation
+
+    /// Generate the appropriate subtitle message based on blocking info
+    private func generateMessage(for blockingInfo: AppBlockingInfo?, context: String = "app") -> String {
+        guard let info = blockingInfo else {
+            // Fallback to generic learning goal message
+            return "Complete your learning goal to unlock this \(context)."
         }
 
-        let remaining = challengeData.minutesRemaining
-        let target = challengeData.targetMinutes
-        let apps = challengeData.targetAppsFormatted
+        switch info.reasonType {
+        case .learningGoal:
+            return generateLearningGoalMessage(info: info, context: context)
+        case .dailyLimitReached:
+            return generateDailyLimitMessage(info: info)
+        case .downtime:
+            return generateDowntimeMessage(info: info)
+        }
+    }
 
-        if challengeData.isComplete {
-            return "Great job! You've completed your learning goal! 🎉"
+    /// Generate message for learning goal blocking
+    private func generateLearningGoalMessage(info: AppBlockingInfo, context: String) -> String {
+        guard let target = info.learningTargetMinutes,
+              let current = info.learningCurrentMinutes else {
+            return "Complete your learning goal to unlock this \(context)."
         }
 
-        if remaining == target {
+        let remaining = max(0, target - current)
+
+        if remaining == 0 {
+            return "Great job! You've completed your learning goal!"
+        } else if remaining == target {
             // No progress yet
-            return "Complete \(target) minutes of \(apps) to unlock this \(context). Let's get started!"
+            return "Complete \(target) minutes of learning to unlock this \(context). Let's get started!"
         } else if remaining <= 5 {
-            // Almost there!
-            return "Almost there! Just \(remaining) more minutes of \(apps) to go! 💪"
+            // Almost there
+            return "Almost there! Just \(remaining) more minutes to go!"
         } else {
             // In progress
-            return "You need \(remaining) more minutes of \(apps). You've done \(challengeData.currentMinutes) so far!"
+            return "You need \(remaining) more minutes. You've done \(current) so far!"
         }
     }
 
-    /// Generates a short progress indicator
-    private func generateProgressIndicator() -> String {
-        guard let data = getChallengeData(), data.targetMinutes > 0 else {
-            return ""
+    /// Generate message for daily limit reached
+    private func generateDailyLimitMessage(info: AppBlockingInfo) -> String {
+        guard let limit = info.dailyLimitMinutes else {
+            return "You've reached your daily limit. Try again tomorrow!"
         }
-        return "\(data.currentMinutes)/\(data.targetMinutes) min"
+
+        return "You used your \(limit) minutes for today. Come back tomorrow!"
     }
 
-    // MARK: - Shield Configurations
+    /// Generate message for downtime blocking
+    /// Shows full time window: "This app will be available Monday between 8:00 AM and 5:00 PM"
+    private func generateDowntimeMessage(info: AppBlockingInfo) -> String {
+        // Try new full time window format first
+        if let startHour = info.downtimeWindowStartHour,
+           let startMinute = info.downtimeWindowStartMinute,
+           let endHour = info.downtimeWindowEndHour,
+           let endMinute = info.downtimeWindowEndMinute,
+           let dayName = info.downtimeDayName {
+            let startTime = formatTime(hour: startHour, minute: startMinute)
+            let endTime = formatTime(hour: endHour, minute: endMinute)
+            return "This app will be available \(dayName) between \(startTime) and \(endTime)"
+        }
 
-    override func configuration(shielding application: Application) -> ShieldConfiguration {
-        let subtitle = generateDynamicSubtitle(for: "app")
+        // Fallback to legacy format
+        if let endHour = info.downtimeEndHour,
+           let endMinute = info.downtimeEndMinute {
+            let timeString = formatTime(hour: endHour, minute: endMinute)
+            return "Available after \(timeString)"
+        }
 
+        return "This app is in downtime. Check back later."
+    }
+
+    /// Format time as "7:00 AM" or "10:30 PM"
+    private func formatTime(hour: Int, minute: Int) -> String {
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+        if minute == 0 {
+            return "\(displayHour) \(period)"
+        } else {
+            return String(format: "%d:%02d %@", displayHour, minute, period)
+        }
+    }
+
+    // MARK: - Shield Configuration Builder
+
+    /// Build a shield configuration with the given theme and message
+    private func buildConfiguration(
+        theme: ShieldTheme,
+        subtitle: String,
+        iconOverride: String? = nil
+    ) -> ShieldConfiguration {
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterial,
-            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
-            icon: UIImage(systemName: "book.fill"),
+            backgroundColor: theme.backgroundColor,
+            icon: UIImage(systemName: iconOverride ?? theme.iconName),
             title: ShieldConfiguration.Label(
-                text: "Learning Time First!",
+                text: theme.title,
                 color: .white
             ),
             subtitle: ShieldConfiguration.Label(
@@ -124,95 +262,50 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                 color: UIColor.white.withAlphaComponent(0.9)
             ),
             primaryButtonLabel: ShieldConfiguration.Label(
-                text: "Go Learn",
+                text: theme.primaryButtonLabel,
                 color: .white
             ),
-            primaryButtonBackgroundColor: learningPeach,
+            primaryButtonBackgroundColor: theme.primaryButtonColor,
             secondaryButtonLabel: ShieldConfiguration.Label(
                 text: "Not Now",
                 color: UIColor.white.withAlphaComponent(0.8)
             )
         )
+    }
+
+    // MARK: - Shield Configurations (Per-App Lookup)
+
+    override func configuration(shielding application: Application) -> ShieldConfiguration {
+        // Look up THIS SPECIFIC app's blocking info
+        let blockingInfo = getBlockingInfo(for: application)
+        let theme = getTheme(for: blockingInfo?.reasonType)
+        let subtitle = generateMessage(for: blockingInfo, context: "app")
+
+        return buildConfiguration(theme: theme, subtitle: subtitle)
     }
 
     override func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
-        let subtitle = generateDynamicSubtitle(for: "category")
+        // Look up THIS SPECIFIC app's blocking info
+        let blockingInfo = getBlockingInfo(for: application)
+        let theme = getTheme(for: blockingInfo?.reasonType)
+        let subtitle = generateMessage(for: blockingInfo, context: "category")
 
-        return ShieldConfiguration(
-            backgroundBlurStyle: .systemUltraThinMaterial,
-            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
-            icon: UIImage(systemName: "book.fill"),
-            title: ShieldConfiguration.Label(
-                text: "Learning Time First!",
-                color: .white
-            ),
-            subtitle: ShieldConfiguration.Label(
-                text: subtitle,
-                color: UIColor.white.withAlphaComponent(0.9)
-            ),
-            primaryButtonLabel: ShieldConfiguration.Label(
-                text: "Go Learn",
-                color: .white
-            ),
-            primaryButtonBackgroundColor: learningPeach,
-            secondaryButtonLabel: ShieldConfiguration.Label(
-                text: "Not Now",
-                color: UIColor.white.withAlphaComponent(0.8)
-            )
-        )
+        return buildConfiguration(theme: theme, subtitle: subtitle)
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
-        let subtitle = generateDynamicSubtitle(for: "site")
+        // Web domains don't have tokens, use default learning goal theme
+        let theme = learningGoalTheme
+        let subtitle = "Complete your learning goal to unlock this site."
 
-        return ShieldConfiguration(
-            backgroundBlurStyle: .systemUltraThinMaterial,
-            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
-            icon: UIImage(systemName: "globe"),
-            title: ShieldConfiguration.Label(
-                text: "Learning Time First!",
-                color: .white
-            ),
-            subtitle: ShieldConfiguration.Label(
-                text: subtitle,
-                color: UIColor.white.withAlphaComponent(0.9)
-            ),
-            primaryButtonLabel: ShieldConfiguration.Label(
-                text: "Go Learn",
-                color: .white
-            ),
-            primaryButtonBackgroundColor: learningPeach,
-            secondaryButtonLabel: ShieldConfiguration.Label(
-                text: "Not Now",
-                color: UIColor.white.withAlphaComponent(0.8)
-            )
-        )
+        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe")
     }
 
     override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
-        let subtitle = generateDynamicSubtitle(for: "category")
+        // Web domains don't have tokens, use default learning goal theme
+        let theme = learningGoalTheme
+        let subtitle = "Complete your learning goal to unlock this category."
 
-        return ShieldConfiguration(
-            backgroundBlurStyle: .systemUltraThinMaterial,
-            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
-            icon: UIImage(systemName: "globe"),
-            title: ShieldConfiguration.Label(
-                text: "Learning Time First!",
-                color: .white
-            ),
-            subtitle: ShieldConfiguration.Label(
-                text: subtitle,
-                color: UIColor.white.withAlphaComponent(0.9)
-            ),
-            primaryButtonLabel: ShieldConfiguration.Label(
-                text: "Go Learn",
-                color: .white
-            ),
-            primaryButtonBackgroundColor: learningPeach,
-            secondaryButtonLabel: ShieldConfiguration.Label(
-                text: "Not Now",
-                color: UIColor.white.withAlphaComponent(0.8)
-            )
-        )
+        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe")
     }
 }

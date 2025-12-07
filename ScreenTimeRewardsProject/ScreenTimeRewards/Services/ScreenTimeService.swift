@@ -198,6 +198,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         registerForExtensionNotifications()
         loadPersistedAssignments()
 
+        // Set up BlockingCoordinator with reference to this service
+        BlockingCoordinator.shared.setScreenTimeService(self)
+
         // ALWAYS print this - not wrapped in DEBUG - to diagnose tracking issues
         print("=" + String(repeating: "=", count: 50))
         print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
@@ -2138,6 +2141,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
 
         return status
+    }
+
+    /// Get currently shielded tokens (for BlockingCoordinator refresh)
+    func getCurrentlyShieldedTokens() -> Set<ApplicationToken> {
+        return currentlyShielded
     }
 
     /// Clear all shields

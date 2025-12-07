@@ -139,6 +139,8 @@ struct RewardsTabView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
+                    // Re-sync blocking reasons now that schedule is updated
+                    viewModel.blockRewardApps()
                     configSheetData = nil
                 },
                 onCancel: {

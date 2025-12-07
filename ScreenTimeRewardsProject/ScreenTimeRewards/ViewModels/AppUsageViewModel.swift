@@ -1647,22 +1647,32 @@ func configureWithTestApplications() {
 
     // MARK: - Shield Management
 
-    /// Sync shields with current reward app selection
-    /// This properly handles both adding AND removing shields when apps are added/removed
-    func blockRewardApps() {
-        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
-
-        #if DEBUG
-        print("[AppUsageViewModel] 🔄 Syncing shields with \(rewardTokens.count) reward apps")
-        #endif
-
-        // Use sync instead of just block - this handles both additions AND removals
-        service.syncRewardAppShields(currentRewardTokens: Set(rewardTokens))
+    /// Get current reward tokens as a set (for BlockingCoordinator)
+    private var currentRewardTokens: Set<ApplicationToken> {
+        Set(categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key })
     }
 
-    /// Unblock (unlock) all reward apps
+    /// Sync shields with current reward app selection
+    /// Uses BlockingCoordinator to determine blocking reasons and apply shields appropriately
+    func blockRewardApps() {
+        let rewardTokens = currentRewardTokens
+
+        #if DEBUG
+        print("[AppUsageViewModel] 🔄 Syncing shields with \(rewardTokens.count) reward apps via BlockingCoordinator")
+        #endif
+
+        // Use BlockingCoordinator instead of direct ScreenTimeService call
+        // This ensures proper blocking reasons are set based on downtime, limits, and learning goals
+        BlockingCoordinator.shared.syncAllRewardApps(tokens: rewardTokens)
+
+        // Update coordinator's tracked tokens for periodic refresh
+        BlockingCoordinator.shared.updateTrackedTokens(rewardTokens)
+    }
+
+    /// Unblock (unlock) reward apps - routes through BlockingCoordinator
+    /// Note: Apps will only actually unblock if ALL conditions are met (learning goal, not in downtime, under limit)
     func unlockRewardApps() {
-        let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
+        let rewardTokens = currentRewardTokens
 
         guard !rewardTokens.isEmpty else {
             #if DEBUG
@@ -1672,10 +1682,12 @@ func configureWithTestApplications() {
         }
 
         #if DEBUG
-        print("[AppUsageViewModel] 🔓 Unlocking \(rewardTokens.count) reward apps")
+        print("[AppUsageViewModel] 🔓 Requesting unlock for \(rewardTokens.count) reward apps via BlockingCoordinator")
         #endif
 
-        service.unblockRewardApps(tokens: Set(rewardTokens))
+        // Route through BlockingCoordinator - it will check all conditions
+        // and only unblock apps where ALL blocking conditions are cleared
+        BlockingCoordinator.shared.syncAllRewardApps(tokens: rewardTokens)
     }
 
     /// Clear all shields (unlock all apps)
@@ -1689,11 +1701,43 @@ func configureWithTestApplications() {
 
     // MARK: - Point Transfer System Methods
 
-    /// Check if a reward app can be unlocked (minimum 15 minutes worth of points required)
+    /// Check if a reward app can be unlocked (checks downtime, limits, learning goal, and points)
     func canUnlockRewardApp(token: ApplicationToken) -> (canUnlock: Bool, reason: String?) {
         // Check if already unlocked
         if unlockedRewardApps[token] != nil {
             return (false, "App is already unlocked")
+        }
+
+        // Check blocking conditions via BlockingCoordinator (downtime, daily limit, learning goal)
+        let decision = BlockingCoordinator.shared.evaluateBlockingState(for: token)
+        if decision.shouldBlock {
+            // Return user-friendly message for the blocking reason
+            switch decision.primaryReason {
+            case .downtime:
+                if let startHour = decision.downtimeWindowStartHour,
+                   let startMinute = decision.downtimeWindowStartMinute,
+                   let endHour = decision.downtimeWindowEndHour,
+                   let endMinute = decision.downtimeWindowEndMinute,
+                   let dayName = decision.downtimeDayName {
+                    let startTime = formatTime(hour: startHour, minute: startMinute)
+                    let endTime = formatTime(hour: endHour, minute: endMinute)
+                    return (false, "App is in downtime. Available \(dayName) \(startTime)-\(endTime).")
+                }
+                return (false, "App is in downtime.")
+            case .dailyLimitReached:
+                if let limit = decision.dailyLimitMinutes {
+                    return (false, "Daily limit of \(limit) minutes reached.")
+                }
+                return (false, "Daily limit reached.")
+            case .learningGoal:
+                if let target = decision.learningTargetMinutes, let current = decision.learningCurrentMinutes {
+                    let remaining = target - current
+                    return (false, "Complete \(remaining) more minutes of learning first.")
+                }
+                return (false, "Complete your learning goal first.")
+            case .none:
+                break
+            }
         }
 
         // Get points per minute for this app
@@ -1712,13 +1756,59 @@ func configureWithTestApplications() {
         return (true, nil)
     }
 
+    /// Helper to format time for display
+    private func formatTime(hour: Int, minute: Int) -> String {
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+        if minute == 0 {
+            return "\(displayHour) \(period)"
+        }
+        return String(format: "%d:%02d %@", displayHour, minute, period)
+    }
+
     /// Unlock a reward app by reserving learning points
+    /// Note: Also checks downtime/daily limit conditions via BlockingCoordinator
     func unlockRewardApp(
         token: ApplicationToken,
         minutes: Int,
         bypassPointValidation: Bool = false,
         isChallengeReward: Bool = false
     ) {
+        // Check blocking conditions via BlockingCoordinator (downtime, daily limit)
+        // Note: For challenge rewards, we still check but may want to allow unlock
+        // and show appropriate message when they try to use the app
+        if !isChallengeReward {
+            let decision = BlockingCoordinator.shared.evaluateBlockingState(for: token)
+            // Check only downtime and daily limit (not learning goal since they're redeeming points)
+            let hasDowntimeOrLimit = decision.allActiveReasons.contains(.downtime) ||
+                                     decision.allActiveReasons.contains(.dailyLimitReached)
+            if hasDowntimeOrLimit {
+                let appName = resolvedDisplayName(for: token) ?? "Unknown App"
+                switch decision.primaryReason {
+                case .downtime:
+                    if let startHour = decision.downtimeWindowStartHour,
+                       let startMinute = decision.downtimeWindowStartMinute,
+                       let endHour = decision.downtimeWindowEndHour,
+                       let endMinute = decision.downtimeWindowEndMinute,
+                       let dayName = decision.downtimeDayName {
+                        let startTime = formatTime(hour: startHour, minute: startMinute)
+                        let endTime = formatTime(hour: endHour, minute: endMinute)
+                        errorMessage = "\(appName) is in downtime. Available \(dayName) \(startTime)-\(endTime)."
+                    } else {
+                        errorMessage = "\(appName) is in downtime."
+                    }
+                case .dailyLimitReached:
+                    errorMessage = "\(appName) has reached its daily limit."
+                default:
+                    break
+                }
+                #if DEBUG
+                print("[AppUsageViewModel] ❌ Cannot unlock - \(decision.primaryReason?.displayMessage ?? "blocked")")
+                #endif
+                return
+            }
+        }
+
         guard let pointsPerMinute = rewardPoints[token], pointsPerMinute > 0 else {
             #if DEBUG
             print("[AppUsageViewModel] ❌ Cannot unlock - no points configured for app")
@@ -2719,10 +2809,11 @@ extension AppUsageViewModel {
             currentMinutes: currentMinutes
         )
 
-        // CHECK: If learning goal is met based on snapshots, trigger unlock
+        // CHECK: If learning goal is met based on snapshots, trigger unlock attempt
         // This catches cases where ChallengeProgress might be out of sync with actual usage
         // CRITICAL: Guard against targetMinutes=0 which would always trigger (CoreData default is 0)
         // Also guard against already showing celebration to prevent repeated unlock calls
+        // NOTE: BlockingCoordinator will check downtime/daily limits - apps only unlock if ALL conditions are met
         if targetMinutes > 0 && currentMinutes >= targetMinutes && !showCompletionCelebration {
             let progress = challengeProgress[challenge.challengeID ?? ""]
             let alreadyCompleted = progress?.isCompleted ?? false
@@ -2730,10 +2821,10 @@ extension AppUsageViewModel {
             if !alreadyCompleted {
                 #if DEBUG
                 print("[AppUsageViewModel] 🎯 Goal achieved based on snapshots! \(currentMinutes)/\(targetMinutes) min")
-                print("[AppUsageViewModel] 🔓 Triggering reward unlock (snapshot-based completion)")
+                print("[AppUsageViewModel] 🔓 Requesting unlock via BlockingCoordinator (will check downtime/limits)")
                 #endif
 
-                // Unlock all reward apps since goal is met
+                // Request unlock - BlockingCoordinator will check ALL conditions before actually unblocking
                 unlockRewardApps()
 
                 // Trigger celebration

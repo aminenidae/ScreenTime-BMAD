@@ -20,7 +20,7 @@ class AppScheduleService: ObservableObject {
 
     private init() {
         // Use app group for sharing with extensions
-        sharedDefaults = UserDefaults(suiteName: "group.com.screentime.rewards")
+        sharedDefaults = UserDefaults(suiteName: "group.com.screentimerewards.shared")
         loadSchedules()
     }
 

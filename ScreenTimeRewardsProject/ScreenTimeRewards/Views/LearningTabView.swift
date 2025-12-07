@@ -88,6 +88,8 @@ struct LearningTabView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
+                    // Re-sync blocking reasons (linked learning apps may affect reward apps)
+                    viewModel.blockRewardApps()
                     configSheetData = nil
                 },
                 onCancel: {
