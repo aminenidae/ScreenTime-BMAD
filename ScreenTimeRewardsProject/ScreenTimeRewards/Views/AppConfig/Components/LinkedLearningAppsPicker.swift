@@ -8,10 +8,9 @@ struct LinkedLearningAppsPicker: View {
     @Binding var unlockMode: UnlockMode
     let learningSnapshots: [LearningAppSnapshot]
 
-    @State private var showAdvanced = false
-
     // Minutes presets
     private let minutePresets = [5, 10, 15, 20, 30, 45, 60]
+    private let rewardMinutePresets = [5, 10, 15, 20, 30, 45, 60, 90, 120]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -44,9 +43,9 @@ struct LinkedLearningAppsPicker: View {
                 blockedWarning
             }
 
-            // Advanced section (AND/OR mode)
-            if !linkedApps.isEmpty {
-                advancedSection
+            // Unlock mode section (only show when multiple apps linked)
+            if linkedApps.count > 1 {
+                unlockModeSection
             }
         }
     }
@@ -132,111 +131,145 @@ struct LinkedLearningAppsPicker: View {
     // MARK: - Per-App Configuration
 
     private func perAppConfig(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
-        HStack(spacing: 12) {
-            // Minutes picker
-            Menu {
-                ForEach(minutePresets, id: \.self) { minutes in
-                    Button(action: {
-                        updateMinutes(for: snapshot.logicalID, minutes: minutes)
-                    }) {
-                        HStack {
-                            Text(formatMinutes(minutes))
-                            if app.minutesRequired == minutes {
-                                Image(systemName: "checkmark")
+        VStack(alignment: .leading, spacing: 8) {
+            // First row: Learn time + Period
+            HStack(spacing: 8) {
+                Text("Learn:")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+                // Minutes picker
+                Menu {
+                    ForEach(minutePresets, id: \.self) { minutes in
+                        Button(action: {
+                            updateMinutes(for: snapshot.logicalID, minutes: minutes)
+                        }) {
+                            HStack {
+                                Text(formatMinutes(minutes))
+                                if app.minutesRequired == minutes {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(formatMinutes(app.minutesRequired))
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(AppTheme.vibrantTeal.opacity(0.15))
+                    )
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(formatMinutes(app.minutesRequired))
-                        .font(.system(size: 13, weight: .medium))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10))
-                }
-                .foregroundColor(AppTheme.vibrantTeal)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(AppTheme.vibrantTeal.opacity(0.15))
-                )
-            }
 
-            // Period picker (daily/weekly)
-            Menu {
-                ForEach(GoalPeriod.allCases, id: \.self) { period in
-                    Button(action: {
-                        updatePeriod(for: snapshot.logicalID, period: period)
-                    }) {
-                        HStack {
-                            Text(period.displayName)
-                            if app.goalPeriod == period {
-                                Image(systemName: "checkmark")
+                // Period picker (daily/weekly)
+                Menu {
+                    ForEach(GoalPeriod.allCases, id: \.self) { period in
+                        Button(action: {
+                            updatePeriod(for: snapshot.logicalID, period: period)
+                        }) {
+                            HStack {
+                                Text(period.displayName)
+                                if app.goalPeriod == period {
+                                    Image(systemName: "checkmark")
+                                }
                             }
                         }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(app.goalPeriod.displayName)
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(AppTheme.sunnyYellow)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(AppTheme.sunnyYellow.opacity(0.15))
+                    )
                 }
-            } label: {
-                HStack(spacing: 4) {
-                    Text(app.goalPeriod.displayName)
-                        .font(.system(size: 13, weight: .medium))
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 10))
-                }
-                .foregroundColor(AppTheme.sunnyYellow)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    RoundedRectangle(cornerRadius: 6)
-                        .fill(AppTheme.sunnyYellow.opacity(0.15))
-                )
+
+                Spacer()
             }
 
-            Spacer()
+            // Second row: Reward earned
+            HStack(spacing: 8) {
+                Text("Earn:")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+                // Reward minutes picker
+                Menu {
+                    ForEach(rewardMinutePresets, id: \.self) { minutes in
+                        Button(action: {
+                            updateRewardMinutes(for: snapshot.logicalID, minutes: minutes)
+                        }) {
+                            HStack {
+                                Text(formatMinutes(minutes))
+                                if app.rewardMinutesEarned == minutes {
+                                    Image(systemName: "checkmark")
+                                }
+                            }
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(formatMinutes(app.rewardMinutesEarned))
+                            .font(.system(size: 13, weight: .medium))
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 10))
+                    }
+                    .foregroundColor(AppTheme.playfulCoral)
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 6)
+                            .fill(AppTheme.playfulCoral.opacity(0.15))
+                    )
+                }
+
+                Text("reward")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+                Spacer()
+            }
         }
         .padding(.leading, 44) // Align with app name
     }
 
-    // MARK: - Advanced Section
+    // MARK: - Unlock Mode Section
 
-    private var advancedSection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Button(action: { withAnimation { showAdvanced.toggle() } }) {
-                HStack(spacing: 6) {
-                    Image(systemName: showAdvanced ? "chevron.down" : "chevron.right")
-                        .font(.system(size: 11, weight: .semibold))
+    private var unlockModeSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Unlock mode")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(ChallengeBuilderTheme.text)
 
-                    Text("Advanced")
-                        .font(.system(size: 13, weight: .medium))
-                }
+            // Mode selection
+            HStack(spacing: 8) {
+                modeButton(mode: .all)
+                modeButton(mode: .any)
+            }
+
+            Text(unlockMode.description)
+                .font(.system(size: 12))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)
-            }
-            .buttonStyle(.plain)
-
-            if showAdvanced {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("Unlock mode")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(ChallengeBuilderTheme.text)
-
-                    // Mode selection
-                    HStack(spacing: 8) {
-                        modeButton(mode: .all)
-                        modeButton(mode: .any)
-                    }
-
-                    Text(unlockMode.description)
-                        .font(.system(size: 12))
-                        .foregroundColor(ChallengeBuilderTheme.mutedText)
-                }
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(ChallengeBuilderTheme.inputBackground)
-                )
-            }
         }
+        .padding(12)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(ChallengeBuilderTheme.inputBackground)
+        )
     }
 
     private func modeButton(mode: UnlockMode) -> some View {
@@ -332,6 +365,12 @@ struct LinkedLearningAppsPicker: View {
     private func updatePeriod(for logicalID: String, period: GoalPeriod) {
         if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
             linkedApps[index].goalPeriod = period
+        }
+    }
+
+    private func updateRewardMinutes(for logicalID: String, minutes: Int) {
+        if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
+            linkedApps[index].rewardMinutesEarned = minutes
         }
     }
 

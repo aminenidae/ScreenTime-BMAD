@@ -1,0 +1,94 @@
+# Experimental Category Expansion Test Logs
+
+## Test Session 1 - Basic Functionality
+Date: 2025-10-25
+Device: iPhone 12 Pro, iOS 16.0
+
+### Test 1: Individual App Selection
+Picker dismissed with:
+  Categories: 0
+  Apps: 3
+No categories to expand, returning 3 existing app tokens
+Expansion complete:
+  Original app tokens: 3
+  Categories processed: 0
+  Final expanded tokens: 3
+
+### Test 2: "All Apps" Selection
+Picker dismissed with:
+  Categories: 1
+  Apps: 0
+Expanding category tokens:
+  Categories count: 1
+  Applications count: 0
+Expanding using master selection data (5 apps)
+Processing category: All Apps
+  Added 5 apps from master selection
+Expansion complete:
+  Original app tokens: 0
+  Categories processed: 1
+  Final expanded tokens: 5
+
+### Test 3: Single Category Selection
+Picker dismissed with:
+  Categories: 1
+  Apps: 0
+Expanding category tokens:
+  Categories count: 1
+  Applications count: 0
+Expanding using master selection data (5 apps)
+Processing category: Games
+  Added 5 apps from master selection
+Expansion complete:
+  Original app tokens: 0
+  Categories processed: 1
+  Final expanded tokens: 5
+
+## Test Session 2 - Mixed Selection
+Date: 2025-10-25
+Device: iPad Pro, iPadOS 16.1
+
+### Test 1: Apps + Categories
+Picker dismissed with:
+  Categories: 2
+  Apps: 2
+Expanding category tokens:
+  Categories count: 2
+  Applications count: 2
+Expanding using master selection data (7 apps)
+Processing category: Games
+  Added 7 apps from master selection
+Processing category: Entertainment
+  Added 7 apps from master selection
+Expansion complete:
+  Original app tokens: 2
+  Categories processed: 2
+  Final expanded tokens: 9
+
+## Test Session 3 - Edge Cases
+Date: 2025-10-25
+Device: iPhone SE, iOS 15.6
+
+### Test 1: Cancel Flow
+User cancelled category expansion
+Picker dismissed with:
+  Categories: 1
+  Apps: 0
+[After cancellation]
+  Categories: 0
+  Apps: 0
+  Expanded Apps: 0
+
+### Test 2: Repeated Selections
+Picker dismissed with:
+  Categories: 0
+  Apps: 1
+No categories to expand, returning 1 existing app tokens
+Expansion complete:
+  Original app tokens: 1
+  Categories processed: 0
+  Final expanded tokens: 1
+[Reset and repeat]
+  Categories: 0
+  Apps: 0
+  Expanded Apps: 0

@@ -146,6 +146,26 @@ class BlockingCoordinator: ObservableObject {
         return !decision.shouldBlock
     }
 
+    /// Get the reward minutes earned for a specific reward app based on its linked learning goals
+    /// Returns 0 if goals are not met, otherwise returns the configured rewardMinutesEarned
+    func getEarnedRewardMinutes(for token: ApplicationToken) -> Int {
+        guard let service = screenTimeService,
+              let logicalID = service.getLogicalID(for: token) else {
+            return 0
+        }
+        let learningCheck = checkLearningGoal(logicalID: logicalID)
+        return learningCheck.rewardMinutesEarned
+    }
+
+    /// Get total earned reward minutes across all reward apps
+    func getTotalEarnedRewardMinutes(for tokens: Set<ApplicationToken>) -> Int {
+        var total = 0
+        for token in tokens {
+            total += getEarnedRewardMinutes(for: token)
+        }
+        return total
+    }
+
     // MARK: - Condition Checks
 
     private struct DowntimeCheckResult {
@@ -248,39 +268,54 @@ class BlockingCoordinator: ObservableObject {
         let isGoalMet: Bool
         let targetMinutes: Int
         let currentMinutes: Int
+        let rewardMinutesEarned: Int  // Reward minutes earned when goal is met
     }
 
     private func checkLearningGoal(logicalID: String) -> LearningGoalCheckResult {
         guard let config = scheduleService.getSchedule(for: logicalID) else {
             // No schedule = default learning requirement
-            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0)
+            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let linkedApps = config.linkedLearningApps
 
-        // No linked learning apps = goal is met (no requirement)
+        // No linked learning apps = goal is met (no requirement, no reward)
         if linkedApps.isEmpty {
-            return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0)
+            return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
-        // Calculate total required and current progress
+        // Calculate total required, current progress, and reward earned
         var totalTarget = 0
         var totalCurrent = 0
+        var totalRewardEarned = 0
 
         switch config.unlockMode {
         case .all:
-            // Must complete ALL linked apps
+            // Must complete ALL linked apps - sum all rewards when ALL goals met
+            var allGoalsMet = true
             for linkedApp in linkedApps {
                 totalTarget += linkedApp.minutesRequired
                 let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
                 // Cap progress at requirement (no overcounting)
-                totalCurrent += min(currentMinutes, linkedApp.minutesRequired)
+                let cappedCurrent = min(currentMinutes, linkedApp.minutesRequired)
+                totalCurrent += cappedCurrent
+
+                // Check if this individual goal is met
+                if currentMinutes >= linkedApp.minutesRequired {
+                    totalRewardEarned += linkedApp.rewardMinutesEarned
+                } else {
+                    allGoalsMet = false
+                }
+            }
+
+            // Only award rewards if ALL goals are met
+            if !allGoalsMet {
+                totalRewardEarned = 0
             }
 
         case .any:
-            // Can complete ANY ONE linked app
-            // Find the one with the best progress ratio
-            var bestProgress: (target: Int, current: Int)? = nil
+            // Can complete ANY ONE linked app - award that app's reward
+            var bestProgress: (target: Int, current: Int, reward: Int)? = nil
 
             for linkedApp in linkedApps {
                 let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
@@ -288,29 +323,40 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this app's goal is met
                 if currentMinutes >= target {
-                    return LearningGoalCheckResult(isGoalMet: true, targetMinutes: target, currentMinutes: currentMinutes)
+                    return LearningGoalCheckResult(
+                        isGoalMet: true,
+                        targetMinutes: target,
+                        currentMinutes: currentMinutes,
+                        rewardMinutesEarned: linkedApp.rewardMinutesEarned
+                    )
                 }
 
                 // Track best progress
                 if bestProgress == nil || currentMinutes > bestProgress!.current {
-                    bestProgress = (target: target, current: currentMinutes)
+                    bestProgress = (target: target, current: currentMinutes, reward: linkedApp.rewardMinutesEarned)
                 }
             }
 
-            // None completed - return best progress
+            // None completed - return best progress (no reward yet)
             if let best = bestProgress {
-                return LearningGoalCheckResult(isGoalMet: false, targetMinutes: best.target, currentMinutes: best.current)
+                return LearningGoalCheckResult(
+                    isGoalMet: false,
+                    targetMinutes: best.target,
+                    currentMinutes: best.current,
+                    rewardMinutesEarned: 0
+                )
             }
 
             // Fallback
-            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0)
+            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let isGoalMet = totalCurrent >= totalTarget
         return LearningGoalCheckResult(
             isGoalMet: isGoalMet,
             targetMinutes: totalTarget,
-            currentMinutes: totalCurrent
+            currentMinutes: totalCurrent,
+            rewardMinutesEarned: isGoalMet ? totalRewardEarned : 0
         )
     }
 

@@ -99,24 +99,33 @@ class AppUsageViewModel: ObservableObject {
     @Published var totalConsumedPoints: Int = 0
 
     /// Available learning points (total earned - reserved for unlocked apps - consumed points)
-    /// Formula: Available Points = Total Earned - Reserved Points - Consumed Points
+    /// This uses the NEW linked learning app reward system where points are earned
+    /// when learning goals are met, not minute-by-minute accrual.
     var availableLearningPoints: Int {
-        let totalEarned = learningRewardPoints
+        // Calculate total earned from linked learning goals (new system)
+        let totalEarnedFromLinkedGoals = BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: currentRewardTokens)
+
+        // Reserved points are still tracked the same way
         let totalReserved = unlockedRewardApps.values
             .filter { !$0.isChallengeReward }
             .reduce(0) { $0 + $1.reservedPoints }
         let totalConsumed = totalConsumedPoints
-        let available = max(0, totalEarned - totalReserved - totalConsumed)
+        let available = max(0, totalEarnedFromLinkedGoals - totalReserved - totalConsumed)
 
         #if DEBUG
-        print("[AppUsageViewModel] 💰 AVAILABLE POINTS CALCULATION:")
-        print("[AppUsageViewModel]   Total Earned: \(totalEarned)")
+        print("[AppUsageViewModel] 💰 AVAILABLE POINTS CALCULATION (Linked Goal System):")
+        print("[AppUsageViewModel]   Total Earned from Goals: \(totalEarnedFromLinkedGoals)")
         print("[AppUsageViewModel]   Total Reserved: \(totalReserved)")
         print("[AppUsageViewModel]   Total Consumed (spent): \(totalConsumed)")
-        print("[AppUsageViewModel]   Available: \(available) = \(totalEarned) - \(totalReserved) - \(totalConsumed)")
+        print("[AppUsageViewModel]   Available: \(available)")
         #endif
 
         return available
+    }
+
+    /// Get earned reward minutes for a specific reward app based on its linked learning goals
+    func getEarnedRewardMinutes(for token: ApplicationToken) -> Int {
+        return BlockingCoordinator.shared.getEarnedRewardMinutes(for: token)
     }
 
     /// Total points reserved for unlocked reward apps

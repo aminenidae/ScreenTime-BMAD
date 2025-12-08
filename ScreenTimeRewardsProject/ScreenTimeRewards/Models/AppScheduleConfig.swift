@@ -321,18 +321,52 @@ enum GoalPeriod: String, Codable, CaseIterable {
 
 // MARK: - Linked Learning App
 
-/// Represents a linked learning app with its time requirement
+/// Represents a linked learning app with its time requirement and reward earned
 struct LinkedLearningApp: Codable, Equatable, Hashable {
-    let logicalID: String      // ID of the learning app
-    var minutesRequired: Int   // minutes needed (e.g., 15, 30, 45)
-    var goalPeriod: GoalPeriod // daily or weekly
+    let logicalID: String           // ID of the learning app
+    var minutesRequired: Int        // minutes needed (e.g., 15, 30, 45)
+    var goalPeriod: GoalPeriod      // daily or weekly
+    var rewardMinutesEarned: Int    // reward time granted when goal is met
 
     static func defaultRequirement(logicalID: String) -> LinkedLearningApp {
-        LinkedLearningApp(logicalID: logicalID, minutesRequired: 15, goalPeriod: .daily)
+        LinkedLearningApp(
+            logicalID: logicalID,
+            minutesRequired: 15,
+            goalPeriod: .daily,
+            rewardMinutesEarned: 15  // Default 1:1 ratio
+        )
     }
 
-    /// Display string for the requirement (e.g., "15 min/day")
+    // Custom Codable to handle backward compatibility (existing configs without rewardMinutesEarned)
+    enum CodingKeys: String, CodingKey {
+        case logicalID, minutesRequired, goalPeriod, rewardMinutesEarned
+    }
+
+    init(logicalID: String, minutesRequired: Int, goalPeriod: GoalPeriod, rewardMinutesEarned: Int) {
+        self.logicalID = logicalID
+        self.minutesRequired = minutesRequired
+        self.goalPeriod = goalPeriod
+        self.rewardMinutesEarned = rewardMinutesEarned
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        logicalID = try container.decode(String.self, forKey: .logicalID)
+        minutesRequired = try container.decode(Int.self, forKey: .minutesRequired)
+        goalPeriod = try container.decode(GoalPeriod.self, forKey: .goalPeriod)
+        // Backward compatibility: default to minutesRequired (1:1) if not present
+        rewardMinutesEarned = try container.decodeIfPresent(Int.self, forKey: .rewardMinutesEarned) ?? minutesRequired
+    }
+
+    /// Display string for the requirement (e.g., "15m daily → 30m reward")
     var displayString: String {
+        let learnStr = formatMinutes(minutesRequired)
+        let rewardStr = formatMinutes(rewardMinutesEarned)
+        return "\(learnStr) \(goalPeriod.displayName) → \(rewardStr) reward"
+    }
+
+    /// Short display for learning requirement only (e.g., "15m daily")
+    var learningDisplayString: String {
         let mins = minutesRequired
         if mins >= 60 {
             let hours = mins / 60
@@ -343,6 +377,18 @@ struct LinkedLearningApp: Codable, Equatable, Hashable {
             return "\(hours)h \(goalPeriod.displayName)"
         }
         return "\(mins)m \(goalPeriod.displayName)"
+    }
+
+    private func formatMinutes(_ mins: Int) -> String {
+        if mins >= 60 {
+            let hours = mins / 60
+            let remainingMins = mins % 60
+            if remainingMins > 0 {
+                return "\(hours)h \(remainingMins)m"
+            }
+            return "\(hours)h"
+        }
+        return "\(mins)m"
     }
 }
 
