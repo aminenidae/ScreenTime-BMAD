@@ -38,6 +38,7 @@ struct AppBlockingInfo: Codable {
     var downtimeWindowEndHour: Int?
     var downtimeWindowEndMinute: Int?
     var downtimeDayName: String?
+    var downtimeSummaryMessage: String?  // Pre-computed summary from config
 
     // Legacy fields (kept for backwards compatibility)
     var downtimeEndHour: Int?
@@ -82,7 +83,8 @@ struct AppBlockingInfo: Codable {
         windowStartMinute: Int,
         windowEndHour: Int,
         windowEndMinute: Int,
-        dayName: String
+        dayName: String,
+        summaryMessage: String? = nil
     ) -> AppBlockingInfo {
         AppBlockingInfo(
             tokenHash: tokenHash,
@@ -93,6 +95,7 @@ struct AppBlockingInfo: Codable {
             downtimeWindowEndHour: windowEndHour,
             downtimeWindowEndMinute: windowEndMinute,
             downtimeDayName: dayName,
+            downtimeSummaryMessage: summaryMessage,
             // Also set legacy fields for backwards compatibility
             downtimeEndHour: windowStartHour,
             downtimeEndMinute: windowStartMinute

@@ -66,7 +66,8 @@ class BlockingReasonService {
         windowStartMinute: Int,
         windowEndHour: Int,
         windowEndMinute: Int,
-        dayName: String
+        dayName: String,
+        summaryMessage: String? = nil
     ) {
         let hash = tokenHash(for: token)
         let info = AppBlockingInfo.downtime(
@@ -75,7 +76,8 @@ class BlockingReasonService {
             windowStartMinute: windowStartMinute,
             windowEndHour: windowEndHour,
             windowEndMinute: windowEndMinute,
-            dayName: dayName
+            dayName: dayName,
+            summaryMessage: summaryMessage
         )
         saveBlockingInfo(info, forHash: hash)
     }
@@ -92,7 +94,8 @@ class BlockingReasonService {
         downtimeWindowStartMinute: Int? = nil,
         downtimeWindowEndHour: Int? = nil,
         downtimeWindowEndMinute: Int? = nil,
-        downtimeDayName: String? = nil
+        downtimeDayName: String? = nil,
+        downtimeSummaryMessage: String? = nil
     ) {
         let hash = tokenHash(for: token)
 
@@ -118,7 +121,8 @@ class BlockingReasonService {
                     windowStartMinute: startMinute,
                     windowEndHour: endHour,
                     windowEndMinute: endMinute,
-                    dayName: dayName
+                    dayName: dayName,
+                    summaryMessage: downtimeSummaryMessage
                 )
             }
         case .dailyLimitReached:

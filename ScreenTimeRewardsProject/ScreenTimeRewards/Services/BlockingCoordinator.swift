@@ -15,6 +15,7 @@ struct BlockingDecision {
     var downtimeWindowEndHour: Int?
     var downtimeWindowEndMinute: Int?
     var downtimeDayName: String?
+    var downtimeSummaryMessage: String?
 
     // Daily limit
     var dailyLimitMinutes: Int?
@@ -93,6 +94,7 @@ class BlockingCoordinator: ObservableObject {
             decision.downtimeWindowEndHour = downtimeCheck.windowEndHour
             decision.downtimeWindowEndMinute = downtimeCheck.windowEndMinute
             decision.downtimeDayName = downtimeCheck.dayName
+            decision.downtimeSummaryMessage = downtimeCheck.summaryMessage
         }
 
         // 2. Check Daily Limit (Priority 2)
@@ -133,6 +135,7 @@ class BlockingCoordinator: ObservableObject {
             downtimeWindowEndHour: decision.downtimeWindowEndHour,
             downtimeWindowEndMinute: decision.downtimeWindowEndMinute,
             downtimeDayName: decision.downtimeDayName,
+            downtimeSummaryMessage: decision.downtimeSummaryMessage,
             dailyLimitMinutes: decision.dailyLimitMinutes,
             usedMinutes: decision.usedMinutes,
             learningTargetMinutes: decision.learningTargetMinutes,
@@ -176,6 +179,7 @@ class BlockingCoordinator: ObservableObject {
         let windowEndHour: Int?
         let windowEndMinute: Int?
         let dayName: String?
+        let summaryMessage: String?
 
         static func notInDowntime() -> DowntimeCheckResult {
             DowntimeCheckResult(
@@ -184,7 +188,8 @@ class BlockingCoordinator: ObservableObject {
                 windowStartMinute: nil,
                 windowEndHour: nil,
                 windowEndMinute: nil,
-                dayName: nil
+                dayName: nil,
+                summaryMessage: nil
             )
         }
     }
@@ -220,6 +225,9 @@ class BlockingCoordinator: ObservableObject {
         }
 
         // Outside allowed window = in downtime
+        // Generate summary message using the same logic as AppConfigurationSheet
+        let summaryMessage = generateConfigSummary(config: config)
+
         // Return the full allowed time window for display
         return DowntimeCheckResult(
             isInDowntime: true,
@@ -227,8 +235,160 @@ class BlockingCoordinator: ObservableObject {
             windowStartMinute: todayWindow.startMinute,
             windowEndHour: todayWindow.endHour,
             windowEndMinute: todayWindow.endMinute,
-            dayName: getCurrentDayName()
+            dayName: getCurrentDayName(),
+            summaryMessage: summaryMessage
         )
+    }
+
+    // MARK: - Summary Message Generation (mirrors AppConfigurationSheet)
+
+    /// Generate a summary message for the app's schedule configuration
+    /// This matches the Summary card format in AppConfigurationSheet
+    private func generateConfigSummary(config: AppScheduleConfiguration) -> String {
+        let limits = config.dailyLimits
+        let useAdvancedTime = config.useAdvancedTimeWindowConfig
+        let useAdvancedLimits = config.useAdvancedDayConfig
+
+        // If either time windows or limits are per-day, use smart grouping
+        if useAdvancedTime || useAdvancedLimits {
+            return buildSmartSummary(config: config, limits: limits, useAdvancedTime: useAdvancedTime)
+        }
+
+        // Simple mode
+        let timeWindow = config.allowedTimeWindow
+        let timeRange = timeWindow.isFullDay ? "anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+
+        if limits.weekdayLimit == limits.weekendLimit {
+            // 1 line - same for all days
+            return formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)
+        } else {
+            // 2 lines - weekday vs weekend
+            let weekdayLine = "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))"
+            let weekendLine = "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+            return "\(weekdayLine)\n\(weekendLine)"
+        }
+    }
+
+    /// Build smart summary that groups days with identical settings
+    private func buildSmartSummary(config: AppScheduleConfiguration, limits: DailyLimits, useAdvancedTime: Bool) -> String {
+        // Helper to get config key for a day (combines time window + limit)
+        func configKey(for weekday: Int) -> String {
+            let window = useAdvancedTime ? config.dailyTimeWindows.window(for: weekday) : config.allowedTimeWindow
+            let limit = limits.limit(for: weekday)
+            return "\(window.startHour):\(window.startMinute)-\(window.endHour):\(window.endMinute)|\(limit)"
+        }
+
+        // Helper to format a day's summary
+        func summaryFor(weekday: Int) -> String {
+            let window = useAdvancedTime ? config.dailyTimeWindows.window(for: weekday) : config.allowedTimeWindow
+            let limitMinutes = limits.limit(for: weekday)
+            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
+        }
+
+        // Check if all weekdays (Mon-Fri: 2-6) are the same
+        let weekdayKeys = (2...6).map { configKey(for: $0) }
+        let allWeekdaysSame = Set(weekdayKeys).count == 1
+
+        // Check if both weekend days (Sat: 7, Sun: 1) are the same
+        let satKey = configKey(for: 7)
+        let sunKey = configKey(for: 1)
+        let weekendSame = satKey == sunKey
+
+        // Check if everything is the same
+        let allKeys = (1...7).map { configKey(for: $0) }
+        if Set(allKeys).count == 1 {
+            // All 7 days identical - show 1 line
+            let window = useAdvancedTime ? config.dailyTimeWindows.window(for: 2) : config.allowedTimeWindow
+            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)
+        }
+
+        // Check if weekdays same AND weekends same (classic pattern)
+        if allWeekdaysSame && weekendSame {
+            let weekdayLine = "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))"
+            let weekendLine = "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
+            return "\(weekdayLine)\n\(weekendLine)"
+        }
+
+        var lines: [String] = []
+
+        // Weekdays: show grouped or individual
+        if allWeekdaysSame {
+            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+        } else {
+            // Show individual weekdays
+            for weekday in 2...6 {
+                lines.append("\(dayName(for: weekday)): \(summaryFor(weekday: weekday))")
+            }
+        }
+
+        // Weekend: show grouped or individual
+        if weekendSame {
+            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
+        } else {
+            lines.append("Saturday: \(summaryFor(weekday: 7))")
+            lines.append("Sunday: \(summaryFor(weekday: 1))")
+        }
+
+        return lines.joined(separator: "\n")
+    }
+
+    private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            if timeWindow.isFullDay {
+                return "Available anytime"
+            } else {
+                return "Available \(timeRange)"
+            }
+        } else {
+            return "Available for \(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func formatUsageLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            return timeRange
+        } else {
+            return "\(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func dayName(for weekday: Int) -> String {
+        switch weekday {
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
+        default: return ""
+        }
+    }
+
+    private func formatDuration(_ minutes: Int) -> String {
+        if minutes >= 1440 {
+            return "unlimited"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        if hours > 0 && mins > 0 {
+            return "\(hours)h \(mins)m"
+        } else if hours > 0 {
+            return "\(hours)h"
+        } else {
+            return "\(mins)m"
+        }
+    }
+
+    private func formatTime(hour: Int, minute: Int) -> String {
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+        if minute == 0 {
+            return "\(displayHour) \(period)"
+        }
+        return String(format: "%d:%02d %@", displayHour, minute, period)
     }
 
     private struct DailyLimitCheckResult {
@@ -429,7 +589,8 @@ class BlockingCoordinator: ObservableObject {
                     windowStartMinute: startMinute,
                     windowEndHour: endHour,
                     windowEndMinute: endMinute,
-                    dayName: dayName
+                    dayName: dayName,
+                    summaryMessage: decision.downtimeSummaryMessage
                 )
             }
 

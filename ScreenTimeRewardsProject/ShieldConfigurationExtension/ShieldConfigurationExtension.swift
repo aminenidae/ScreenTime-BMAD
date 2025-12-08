@@ -40,6 +40,7 @@ private struct AppBlockingInfo: Codable {
     var downtimeWindowEndHour: Int?
     var downtimeWindowEndMinute: Int?
     var downtimeDayName: String?
+    var downtimeSummaryMessage: String?  // Pre-computed summary from config
 
     // Legacy fields (backwards compatibility)
     var downtimeEndHour: Int?
@@ -207,9 +208,14 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     }
 
     /// Generate message for downtime blocking
-    /// Shows full time window: "This app will be available Monday between 8:00 AM and 5:00 PM"
+    /// Format: "This app is only available:\n(summary message)"
     private func generateDowntimeMessage(info: AppBlockingInfo) -> String {
-        // Try new full time window format first
+        // Use pre-computed summary from config if available
+        if let summary = info.downtimeSummaryMessage {
+            return "This app is only available:\n\(summary)"
+        }
+
+        // Fallback to full time window format
         if let startHour = info.downtimeWindowStartHour,
            let startMinute = info.downtimeWindowStartMinute,
            let endHour = info.downtimeWindowEndHour,
@@ -217,14 +223,14 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
            let dayName = info.downtimeDayName {
             let startTime = formatTime(hour: startHour, minute: startMinute)
             let endTime = formatTime(hour: endHour, minute: endMinute)
-            return "This app will be available \(dayName) between \(startTime) and \(endTime)"
+            return "This app is only available:\n\(dayName) between \(startTime) and \(endTime)"
         }
 
         // Fallback to legacy format
         if let endHour = info.downtimeEndHour,
            let endMinute = info.downtimeEndMinute {
             let timeString = formatTime(hour: endHour, minute: endMinute)
-            return "Available after \(timeString)"
+            return "This app is only available:\nAfter \(timeString)"
         }
 
         return "This app is in downtime. Check back later."
