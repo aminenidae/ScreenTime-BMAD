@@ -45,6 +45,9 @@ struct AppConfigurationSheet: View {
                     // App header
                     appHeader
 
+                    // Summary card (moved to top for visibility)
+                    configSummarySection
+
                     Divider()
                         .background(ChallengeBuilderTheme.border)
 
@@ -79,9 +82,6 @@ struct AppConfigurationSheet: View {
                         dailyTimeWindows: localConfig.dailyTimeWindows,
                         useAdvancedTimeWindows: localConfig.useAdvancedTimeWindowConfig
                     )
-
-                    // Inline summary message
-                    configSummarySection
 
                     // Unlock Requirements Section (reward apps only)
                     if appType == .reward {

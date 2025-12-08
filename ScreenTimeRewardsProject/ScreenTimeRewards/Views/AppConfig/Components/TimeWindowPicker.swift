@@ -33,52 +33,47 @@ struct TimeWindowPicker: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header with toggle
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Allowed Hours")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(ChallengeBuilderTheme.text)
+            // Header (no toggle)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("Allowed Hours")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(ChallengeBuilderTheme.text)
 
-                    Text("When can this app be used?")
-                        .font(.system(size: 13))
-                        .foregroundColor(ChallengeBuilderTheme.mutedText)
+                Text("When can this app be used?")
+                    .font(.system(size: 13))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+            }
+
+            // Mode selector: All day / Same every day / Per-day
+            HStack(spacing: 0) {
+                modeButton(title: "All day", isSelected: isFullDay) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isFullDay = true
+                        useAdvancedConfig = false
+                    }
                 }
 
-                Spacer()
+                modeButton(title: "Same every day", isSelected: !isFullDay && !useAdvancedConfig) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isFullDay = false
+                        useAdvancedConfig = false
+                    }
+                }
 
-                Toggle("", isOn: $isFullDay)
-                    .labelsHidden()
-                    .tint(AppTheme.vibrantTeal)
+                modeButton(title: "Per-day", isSelected: !isFullDay && useAdvancedConfig) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        isFullDay = false
+                        useAdvancedConfig = true
+                    }
+                }
             }
-
-            // Full Day label
-            HStack {
-                Image(systemName: isFullDay ? "clock.fill" : "clock")
-                    .foregroundColor(isFullDay ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
-
-                Text(isFullDay ? "Available all day" : "This App Will Be Available...")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(isFullDay ? AppTheme.vibrantTeal : ChallengeBuilderTheme.text)
-            }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(ChallengeBuilderTheme.inputBackground)
+            )
 
             // Time pickers (only shown when not full day)
             if !isFullDay {
-                // Mode toggle (Simple vs Per-day) - switching doesn't modify data
-                HStack(spacing: 8) {
-                    Text("Same every day")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(!useAdvancedConfig ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
-
-                    Toggle("", isOn: $useAdvancedConfig)
-                        .labelsHidden()
-                        .toggleStyle(TealCoralToggleStyle())
-
-                    Text("Per-day")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(useAdvancedConfig ? AppTheme.playfulCoral : ChallengeBuilderTheme.mutedText)
-                }
-
                 if useAdvancedConfig {
                     advancedPicker
                 } else {
@@ -90,11 +85,28 @@ struct TimeWindowPicker: View {
             if newValue {
                 timeWindow = .fullDay
                 dailyTimeWindows = .allFullDay
-                useAdvancedConfig = false
             }
             // When toggling OFF full day, the current timeWindow value is preserved
             // and the inline Bindings in simplePicker will display it correctly
         }
+    }
+
+    // MARK: - Mode Button
+
+    private func modeButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(isSelected ? .white : ChallengeBuilderTheme.mutedText)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isSelected ? AppTheme.vibrantTeal : Color.clear)
+                        .padding(2)
+                )
+        }
+        .buttonStyle(.plain)
     }
 
     // MARK: - Simple Picker (same for all days)

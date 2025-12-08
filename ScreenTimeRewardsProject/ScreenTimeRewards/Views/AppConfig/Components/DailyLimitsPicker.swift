@@ -8,9 +8,6 @@ struct DailyLimitsPicker: View {
     let dailyTimeWindows: DailyTimeWindows?   // Advanced mode: per-day max from time windows
     let useAdvancedTimeWindows: Bool          // Whether time windows are in advanced mode
 
-    // Local state for custom limits toggle
-    @State private var useCustomLimits: Bool
-
     /// The effective maximum for simple mode (same for all days)
     private var effectiveMax: Int {
         maxAllowedMinutes ?? 1440
@@ -22,6 +19,22 @@ struct DailyLimitsPicker: View {
             return windows.window(for: weekday).durationInMinutes
         }
         return effectiveMax
+    }
+
+    /// Check if limits are effectively "no limit" (all at max)
+    private var isNoLimit: Bool {
+        if useAdvancedTimeWindows, let windows = dailyTimeWindows {
+            // Check if all days are at their max
+            for weekday in 1...7 {
+                let max = windows.window(for: weekday).durationInMinutes
+                if dailyLimits.limit(for: weekday) < max {
+                    return false
+                }
+            }
+            return true
+        } else {
+            return dailyLimits.weekdayLimit >= effectiveMax && dailyLimits.weekendLimit >= effectiveMax
+        }
     }
 
     init(
@@ -36,9 +49,6 @@ struct DailyLimitsPicker: View {
         self.maxAllowedMinutes = maxAllowedMinutes
         self.dailyTimeWindows = dailyTimeWindows
         self.useAdvancedTimeWindows = useAdvancedTimeWindows
-
-        // Default: Custom Limits toggle is OFF (disabled)
-        _useCustomLimits = State(initialValue: false)
     }
 
     var body: some View {
@@ -54,26 +64,42 @@ struct DailyLimitsPicker: View {
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
-            // Custom Limits toggle
-            customLimitsToggle
-
-            // Show detailed pickers only when Custom Limits is ON
-            if useCustomLimits {
-                // Mode toggle (Weekday/Weekend vs Per-day) - switching doesn't modify data
-                HStack(spacing: 8) {
-                    Text("Weekday/Weekend")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(!useAdvancedConfig ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
-
-                    Toggle("", isOn: $useAdvancedConfig)
-                        .labelsHidden()
-                        .toggleStyle(TealCoralToggleStyle())
-
-                    Text("Per-day")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundColor(useAdvancedConfig ? AppTheme.playfulCoral : ChallengeBuilderTheme.mutedText)
+            // Mode selector: No limit / Weekday/Weekend / Per-day
+            HStack(spacing: 0) {
+                modeButton(title: "No limit", isSelected: isNoLimit && !useAdvancedConfig) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        setNoLimit()
+                        useAdvancedConfig = false
+                    }
                 }
 
+                modeButton(title: "Weekday/Weekend", isSelected: !isNoLimit && !useAdvancedConfig) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        // If coming from no limit, set reasonable defaults
+                        if isNoLimit {
+                            setDefaultLimits()
+                        }
+                        useAdvancedConfig = false
+                    }
+                }
+
+                modeButton(title: "Per-day", isSelected: useAdvancedConfig) {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        // If coming from no limit, set reasonable defaults
+                        if isNoLimit && !useAdvancedConfig {
+                            setDefaultLimits()
+                        }
+                        useAdvancedConfig = true
+                    }
+                }
+            }
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(ChallengeBuilderTheme.inputBackground)
+            )
+
+            // Show pickers when not "No limit"
+            if !isNoLimit || useAdvancedConfig {
                 if useAdvancedConfig {
                     advancedPicker
                 } else {
@@ -89,6 +115,49 @@ struct DailyLimitsPicker: View {
                 capLimitsToMax()
             }
         }
+    }
+
+    // MARK: - Mode Button
+
+    private func modeButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            Text(title)
+                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
+                .foregroundColor(isSelected ? .white : ChallengeBuilderTheme.mutedText)
+                .padding(.vertical, 10)
+                .frame(maxWidth: .infinity)
+                .background(
+                    RoundedRectangle(cornerRadius: 8)
+                        .fill(isSelected ? AppTheme.vibrantTeal : Color.clear)
+                        .padding(2)
+                )
+        }
+        .buttonStyle(.plain)
+    }
+
+    // MARK: - Limit Helpers
+
+    private func setNoLimit() {
+        if useAdvancedTimeWindows, let windows = dailyTimeWindows {
+            dailyLimits = DailyLimits(
+                mon: windows.monday.durationInMinutes,
+                tue: windows.tuesday.durationInMinutes,
+                wed: windows.wednesday.durationInMinutes,
+                thu: windows.thursday.durationInMinutes,
+                fri: windows.friday.durationInMinutes,
+                sat: windows.saturday.durationInMinutes,
+                sun: windows.sunday.durationInMinutes
+            )
+        } else {
+            dailyLimits = DailyLimits(weekdayMinutes: effectiveMax, weekendMinutes: effectiveMax)
+        }
+    }
+
+    private func setDefaultLimits() {
+        // Set reasonable default: 1 hour weekdays, 2 hours weekends (or max if lower)
+        let weekdayDefault = min(60, effectiveMax(for: 2))
+        let weekendDefault = min(120, effectiveMax(for: 7))
+        dailyLimits = DailyLimits(weekdayMinutes: weekdayDefault, weekendMinutes: weekendDefault)
     }
 
     /// Cap all limits to their respective max durations
@@ -114,73 +183,6 @@ struct DailyLimitsPicker: View {
                     weekdayMinutes: min(dailyLimits.weekdayLimit, max),
                     weekendMinutes: min(dailyLimits.weekendLimit, max)
                 )
-            }
-        }
-    }
-
-    // MARK: - Custom Limits Toggle
-
-    private var customLimitsToggle: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Custom Limits")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(ChallengeBuilderTheme.text)
-
-                    Text(useCustomLimits ? "Set specific time limits" : "No daily limit")
-                        .font(.system(size: 12))
-                        .foregroundColor(ChallengeBuilderTheme.mutedText)
-                }
-
-                Spacer()
-
-                Toggle("", isOn: $useCustomLimits)
-                    .labelsHidden()
-                    .tint(AppTheme.vibrantTeal)
-                    .onChange(of: useCustomLimits) { newValue in
-                        // Set limits to max (allowed hours) when toggling
-                        if useAdvancedTimeWindows, let windows = dailyTimeWindows {
-                            // Per-day max
-                            dailyLimits = DailyLimits(
-                                mon: windows.monday.durationInMinutes,
-                                tue: windows.tuesday.durationInMinutes,
-                                wed: windows.wednesday.durationInMinutes,
-                                thu: windows.thursday.durationInMinutes,
-                                fri: windows.friday.durationInMinutes,
-                                sat: windows.saturday.durationInMinutes,
-                                sun: windows.sunday.durationInMinutes
-                            )
-                        } else {
-                            dailyLimits = DailyLimits(weekdayMinutes: effectiveMax, weekendMinutes: effectiveMax)
-                        }
-                        if !newValue {
-                            useAdvancedConfig = false
-                        }
-                    }
-            }
-            .padding(12)
-            .background(
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(useCustomLimits ? AppTheme.vibrantTeal.opacity(0.1) : ChallengeBuilderTheme.inputBackground)
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(useCustomLimits ? AppTheme.vibrantTeal.opacity(0.3) : Color.clear, lineWidth: 1)
-                    )
-            )
-
-            // Explanation message when Custom Limits is OFF
-            if !useCustomLimits {
-                HStack(spacing: 8) {
-                    Image(systemName: "info.circle.fill")
-                        .font(.system(size: 14))
-                        .foregroundColor(AppTheme.vibrantTeal)
-
-                    Text("Your child can use this app anytime during the allowed hours without restrictions.")
-                        .font(.system(size: 13))
-                        .foregroundColor(ChallengeBuilderTheme.mutedText)
-                }
-                .padding(.horizontal, 4)
             }
         }
     }
