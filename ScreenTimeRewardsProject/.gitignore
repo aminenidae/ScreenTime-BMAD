@@ -1,0 +1,29 @@
+# Documentation and plans
+/docs/
+
+# Xcode
+*.xcuserdata/
+*.xcworkspace/xcuserdata/
+DerivedData/
+*.hmap
+*.ipa
+*.dSYM.zip
+*.dSYM
+
+# Swift Package Manager
+.build/
+Packages/
+.swiftpm/
+
+# CocoaPods
+Pods/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# IDE
+*.swp
+*.swo
+*~
