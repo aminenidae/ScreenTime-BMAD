@@ -7,7 +7,10 @@ import ManagedSettings
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @EnvironmentObject var sessionManager: SessionManager
+    @StateObject private var avatarService = AvatarService.shared
     @Environment(\.colorScheme) var colorScheme
+
+    @State private var showAvatarCustomization = false
 
     // MARK: - Computed Properties
 
@@ -22,8 +25,9 @@ struct ChildDashboardView: View {
     }
 
     /// Total earned reward minutes (from linked learning goals)
+    /// This is the total earned from learning - does NOT include reward app usage
     private var totalEarnedMinutes: Int {
-        viewModel.availableLearningPoints + Int(totalRewardUsedSeconds / 60)
+        viewModel.totalEarnedMinutes
     }
 
     /// Total reward minutes used
@@ -46,6 +50,14 @@ struct ChildDashboardView: View {
                 VStack(spacing: AppTheme.Spacing.xLarge) {
                     // Header with exit button
                     headerSection
+
+                    // Avatar Hero Section
+                    AvatarHeroSection(
+                        avatarService: avatarService,
+                        onAvatarTap: {
+                            showAvatarCustomization = true
+                        }
+                    )
 
                     // Hero Time Bank Card
                     TimeBankCard(
@@ -82,29 +94,29 @@ struct ChildDashboardView: View {
                 await viewModel.refresh()
             }
         }
+        .task {
+            // Load avatar state when view appears
+            let deviceID = DeviceModeManager.shared.deviceID
+            await avatarService.loadAvatarState(for: deviceID)
+        }
+        .sheet(isPresented: $showAvatarCustomization) {
+            AvatarCustomizationView(avatarService: avatarService)
+        }
     }
 
     // MARK: - Subviews
 
     private var headerSection: some View {
         HStack {
-            // Greeting with avatar
+            // Greeting with small avatar
             HStack(spacing: 12) {
-                // Avatar circle
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [AppTheme.vibrantTeal.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
-                    .frame(width: 44, height: 44)
-                    .overlay(
-                        Image(systemName: "person.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    )
+                // Small avatar
+                AvatarView(
+                    avatarState: avatarService.currentAvatarState,
+                    size: .small,
+                    showMood: false,
+                    isInteractive: false
+                )
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(greetingText)

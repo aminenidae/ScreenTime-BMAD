@@ -5,14 +5,16 @@ enum BlockingReasonType: String, Codable {
     case learningGoal       // Reward app blocked until learning goal met
     case dailyLimitReached  // Used up daily allowed minutes
     case downtime           // Outside allowed time window
+    case rewardTimeExpired  // Reward time has run out
 
     /// Priority for display (lower = higher priority, shows first when multiple reasons apply)
-    /// Downtime (1) > Daily Limit (2) > Learning Goal (3)
+    /// Downtime (1) > Daily Limit (2) > Learning Goal (3) > Reward Expired (4)
     var priority: Int {
         switch self {
         case .downtime: return 1
         case .dailyLimitReached: return 2
         case .learningGoal: return 3
+        case .rewardTimeExpired: return 4
         }
     }
 }
@@ -43,6 +45,9 @@ struct AppBlockingInfo: Codable {
     // Legacy fields (kept for backwards compatibility)
     var downtimeEndHour: Int?
     var downtimeEndMinute: Int?
+
+    // Reward time expired context (when reasonType == .rewardTimeExpired)
+    var rewardUsedMinutes: Int?
 
     // MARK: - Convenience Initializers
 
@@ -99,6 +104,19 @@ struct AppBlockingInfo: Codable {
             // Also set legacy fields for backwards compatibility
             downtimeEndHour: windowStartHour,
             downtimeEndMinute: windowStartMinute
+        )
+    }
+
+    /// Create blocking info for reward time expired
+    static func rewardTimeExpired(
+        tokenHash: String,
+        usedMinutes: Int
+    ) -> AppBlockingInfo {
+        AppBlockingInfo(
+            tokenHash: tokenHash,
+            reasonType: .rewardTimeExpired,
+            updatedAt: Date(),
+            rewardUsedMinutes: usedMinutes
         )
     }
 }

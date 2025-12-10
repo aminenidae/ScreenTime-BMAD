@@ -82,6 +82,19 @@ class BlockingReasonService {
         saveBlockingInfo(info, forHash: hash)
     }
 
+    /// Set reward time expired blocking for a specific app
+    func setRewardTimeExpiredBlocking(
+        token: ApplicationToken,
+        usedMinutes: Int
+    ) {
+        let hash = tokenHash(for: token)
+        let info = AppBlockingInfo.rewardTimeExpired(
+            tokenHash: hash,
+            usedMinutes: usedMinutes
+        )
+        saveBlockingInfo(info, forHash: hash)
+    }
+
     /// Set blocking with priority check - only sets if new reason has higher priority
     func setBlockingWithPriority(
         token: ApplicationToken,
@@ -133,6 +146,10 @@ class BlockingReasonService {
             if let target = learningTarget, let current = learningCurrent {
                 setLearningGoalBlocking(token: token, targetMinutes: target, currentMinutes: current)
             }
+        case .rewardTimeExpired:
+            // Reward time expired is set directly via setRewardTimeExpiredBlocking()
+            // This case is included for exhaustive switch but not typically used via setBlockingWithPriority
+            break
         }
     }
 

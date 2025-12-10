@@ -432,16 +432,51 @@ class BlockingCoordinator: ObservableObject {
     }
 
     private func checkLearningGoal(logicalID: String) -> LearningGoalCheckResult {
+        // DIAGNOSTIC: Log the reward app being checked
+        print("[BlockingCoordinator] 🔍 DIAGNOSTIC: Checking learning goal for reward app: \(logicalID)")
+
         guard let config = scheduleService.getSchedule(for: logicalID) else {
+            print("[BlockingCoordinator] 🔍   No schedule found - returning default learning requirement")
             // No schedule = default learning requirement
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let linkedApps = config.linkedLearningApps
+        print("[BlockingCoordinator] 🔍   Linked apps count: \(linkedApps.count)")
+        print("[BlockingCoordinator] 🔍   Unlock mode: \(config.unlockMode.rawValue)")
 
         // No linked learning apps = goal is met (no requirement, no reward)
         if linkedApps.isEmpty {
+            print("[BlockingCoordinator] 🔍   No linked apps - goal is automatically met")
             return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0, rewardMinutesEarned: 0)
+        }
+
+        // DIAGNOSTIC: Log each linked app and compare data sources
+        for (index, linkedApp) in linkedApps.enumerated() {
+            print("[BlockingCoordinator] 🔍   LinkedApp[\(index)]: logicalID=\(linkedApp.logicalID), minutesRequired=\(linkedApp.minutesRequired)")
+
+            // Check UserDefaults directly
+            let userDefaultsMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
+            print("[BlockingCoordinator] 🔍     UserDefaults key: usage_\(linkedApp.logicalID)_today")
+            print("[BlockingCoordinator] 🔍     UserDefaults value: \(userDefaultsMinutes * 60) seconds (\(userDefaultsMinutes) minutes)")
+
+            // Also check UsagePersistence for comparison
+            if let persistedApp = screenTimeService?.usagePersistence.app(for: linkedApp.logicalID) {
+                let startOfToday = Calendar.current.startOfDay(for: Date())
+                let isToday = persistedApp.lastResetDate >= startOfToday
+                print("[BlockingCoordinator] 🔍     UsagePersistence: app exists=true, todaySeconds=\(persistedApp.todaySeconds), lastResetDate=\(persistedApp.lastResetDate), isToday=\(isToday)")
+                if isToday {
+                    let persistedMinutes = persistedApp.todaySeconds / 60
+                    print("[BlockingCoordinator] 🔍     UsagePersistence minutes: \(persistedMinutes)")
+                    if persistedMinutes != userDefaultsMinutes {
+                        print("[BlockingCoordinator] ⚠️     DATA MISMATCH: UserDefaults=\(userDefaultsMinutes)min vs UsagePersistence=\(persistedMinutes)min")
+                    }
+                } else {
+                    print("[BlockingCoordinator] 🔍     UsagePersistence data is stale (from previous day)")
+                }
+            } else {
+                print("[BlockingCoordinator] 🔍     UsagePersistence: app exists=false for logicalID '\(linkedApp.logicalID)'")
+            }
         }
 
         // Calculate total required, current progress, and reward earned
@@ -483,12 +518,14 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this app's goal is met
                 if currentMinutes >= target {
-                    return LearningGoalCheckResult(
+                    let result = LearningGoalCheckResult(
                         isGoalMet: true,
                         targetMinutes: target,
                         currentMinutes: currentMinutes,
                         rewardMinutesEarned: linkedApp.rewardMinutesEarned
                     )
+                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied)")
+                    return result
                 }
 
                 // Track best progress
@@ -499,6 +536,7 @@ class BlockingCoordinator: ObservableObject {
 
             // None completed - return best progress (no reward yet)
             if let best = bestProgress {
+                print("[BlockingCoordinator] 🔍   Result: isGoalMet=false, best progress=\(best.current)/\(best.target) minutes")
                 return LearningGoalCheckResult(
                     isGoalMet: false,
                     targetMinutes: best.target,
@@ -508,10 +546,12 @@ class BlockingCoordinator: ObservableObject {
             }
 
             // Fallback
+            print("[BlockingCoordinator] 🔍   Result: isGoalMet=false (fallback)")
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let isGoalMet = totalCurrent >= totalTarget
+        print("[BlockingCoordinator] 🔍   Result: isGoalMet=\(isGoalMet), totalCurrent=\(totalCurrent)/\(totalTarget) minutes")
         return LearningGoalCheckResult(
             isGoalMet: isGoalMet,
             targetMinutes: totalTarget,
@@ -522,9 +562,12 @@ class BlockingCoordinator: ObservableObject {
 
     private func getTodayUsageMinutes(for logicalID: String) -> Int {
         guard let defaults = UserDefaults(suiteName: appGroupID) else {
+            print("[BlockingCoordinator] ⚠️ getTodayUsageMinutes: Failed to access App Group UserDefaults")
             return 0
         }
-        let usageSeconds = defaults.integer(forKey: "usage_\(logicalID)_today")
+        let key = "usage_\(logicalID)_today"
+        let usageSeconds = defaults.integer(forKey: key)
+        // Note: Detailed logging is done in checkLearningGoal() to avoid duplication
         return usageSeconds / 60
     }
 
@@ -610,6 +653,11 @@ class BlockingCoordinator: ObservableObject {
                 targetMinutes: decision.learningTargetMinutes ?? 15,
                 currentMinutes: decision.learningCurrentMinutes ?? 0
             )
+
+        case .rewardTimeExpired:
+            // This case is handled directly in AppUsageViewModel.consumeReservedPoints()
+            // when reward time expires, not through BlockingCoordinator evaluation
+            break
         }
 
         #if DEBUG
@@ -680,6 +728,8 @@ extension BlockingReasonType {
             return "daily limit reached"
         case .learningGoal:
             return "learning goal not met"
+        case .rewardTimeExpired:
+            return "reward time expired"
         }
     }
 }

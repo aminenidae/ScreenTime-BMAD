@@ -128,6 +128,12 @@ class AppUsageViewModel: ObservableObject {
         return BlockingCoordinator.shared.getEarnedRewardMinutes(for: token)
     }
 
+    /// Total earned reward minutes from all linked learning goals
+    /// This is the total earned from learning - NOT affected by reward app usage
+    var totalEarnedMinutes: Int {
+        BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: currentRewardTokens)
+    }
+
     /// Total points reserved for unlocked reward apps
     /// Formula: Reserved Points = Sum of (Redeemed - Consumed) for all unlocked apps
     var reservedLearningPoints: Int {
@@ -1080,6 +1086,10 @@ class AppUsageViewModel: ObservableObject {
     @MainActor
     func refresh() async {
         refreshData()
+
+        // Also refresh blocking states to ensure shields are synced
+        // This catches any missed updates from the periodic timer
+        BlockingCoordinator.shared.refreshAllBlockingStates()
     }
 
     /// Refresh snapshots to reflect updated point values
@@ -1744,6 +1754,8 @@ func configureWithTestApplications() {
                     return (false, "Complete \(remaining) more minutes of learning first.")
                 }
                 return (false, "Complete your learning goal first.")
+            case .rewardTimeExpired:
+                return (false, "Your reward time has expired. Complete more learning to earn more!")
             case .none:
                 break
             }
@@ -1972,8 +1984,22 @@ func configureWithTestApplications() {
         // If expired, auto-lock the app
         if unlockedApp.isExpired {
             #if DEBUG
+            let appName = resolvedDisplayName(for: token) ?? "Unknown App"
             print("[AppUsageViewModel] ⏰ \(appName) time expired - auto-locking")
             #endif
+
+            // Calculate how many minutes were used (original reserved / pointsPerMinute)
+            let usedMinutes = unlockedApp.pointsPerMinute > 0
+                ? (previousReserved + pointsToConsume) / unlockedApp.pointsPerMinute
+                : 0
+
+            // Persist the blocking reason BEFORE applying shield
+            // This ensures ShieldConfigurationExtension shows "Reward Time Finished"
+            BlockingReasonService.shared.setRewardTimeExpiredBlocking(
+                token: token,
+                usedMinutes: usedMinutes
+            )
+
             unlockedRewardApps.removeValue(forKey: token)
             service.blockRewardApps(tokens: [token])
         } else {

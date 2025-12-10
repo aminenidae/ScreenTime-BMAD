@@ -18,6 +18,7 @@ private enum BlockingReasonType: String, Codable {
     case learningGoal       // Reward app blocked until learning goal met
     case dailyLimitReached  // Used up daily allowed minutes
     case downtime           // Outside allowed time window
+    case rewardTimeExpired  // Reward time has run out
 }
 
 /// Per-app blocking data stored in App Group by token hash
@@ -45,6 +46,9 @@ private struct AppBlockingInfo: Codable {
     // Legacy fields (backwards compatibility)
     var downtimeEndHour: Int?
     var downtimeEndMinute: Int?
+
+    // Reward time expired context
+    var rewardUsedMinutes: Int?
 }
 
 // MARK: - Shield Theme Configuration
@@ -76,6 +80,9 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     /// Night Purple - For downtime (#4D4D80)
     private let nightPurple = UIColor(red: 0.302, green: 0.302, blue: 0.502, alpha: 1)
 
+    /// Warm Orange - For reward time expired (#F5A623)
+    private let warmOrange = UIColor(red: 0.96, green: 0.65, blue: 0.14, alpha: 1)
+
     // MARK: - Theme Definitions
 
     private var learningGoalTheme: ShieldTheme {
@@ -105,6 +112,16 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             title: "Downtime Active",
             primaryButtonLabel: "OK",
             primaryButtonColor: .systemIndigo
+        )
+    }
+
+    private var rewardExpiredTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: warmOrange.withAlphaComponent(0.95),
+            iconName: "timer",
+            title: "Reward Time Finished",
+            primaryButtonLabel: "OK",
+            primaryButtonColor: .systemOrange
         )
     }
 
@@ -151,6 +168,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             return downtimeTheme
         case .dailyLimitReached:
             return dailyLimitTheme
+        case .rewardTimeExpired:
+            return rewardExpiredTheme
         case .learningGoal, .none:
             return learningGoalTheme
         }
@@ -172,6 +191,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             return generateDailyLimitMessage(info: info)
         case .downtime:
             return generateDowntimeMessage(info: info)
+        case .rewardTimeExpired:
+            return generateRewardExpiredMessage(info: info)
         }
     }
 
@@ -234,6 +255,14 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         }
 
         return "This app is in downtime. Check back later."
+    }
+
+    /// Generate message for reward time expired
+    private func generateRewardExpiredMessage(info: AppBlockingInfo) -> String {
+        if let usedMinutes = info.rewardUsedMinutes, usedMinutes > 0 {
+            return "You used \(usedMinutes) minutes of reward time. Complete more learning to earn more!"
+        }
+        return "Your reward time has expired. Complete more learning to unlock again!"
     }
 
     /// Format time as "7:00 AM" or "10:30 PM"
