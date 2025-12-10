@@ -1128,6 +1128,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Notify UI of usage updates
         notifyUsageChange()
 
+        // CRITICAL: Immediately refresh blocking states when usage is recorded
+        // This ensures reward apps are unblocked as soon as learning goals are met,
+        // rather than waiting for the 60-second periodic timer
+        Task { @MainActor in
+            BlockingCoordinator.shared.refreshAllBlockingStates()
+            #if DEBUG
+            print("[ScreenTimeService] 🔄 Triggered BlockingCoordinator refresh after usage update")
+            #endif
+        }
+
         // Print full debug summary when extension reports usage
         #if DEBUG
         print("\n📨📨📨 EXTENSION USAGE RECEIVED - DEBUG SUMMARY 📨📨📨")
@@ -3119,14 +3129,85 @@ func configureWithTestApplications() {
     /// Get logical ID for a given token (for debugging purposes)
     func getLogicalID(for token: ApplicationToken) -> String? {
         let tokenHash = usagePersistence.tokenHash(for: token)
-        return usagePersistence.logicalID(for: tokenHash)
+        let logicalID = usagePersistence.logicalID(for: tokenHash)
+        #if DEBUG
+        print("[ScreenTimeService] 🔍 getLogicalID: tokenHash=\(tokenHash.prefix(30))... -> logicalID=\(logicalID ?? "nil")")
+        #endif
+        return logicalID
     }
     
     /// Get the app group identifier for UserDefaults access
     func getAppGroupIdentifier() -> String {
         return "group.com.screentimerewards.shared"
     }
-    
+
+    // MARK: - Extension Shield Config Sync
+
+    /// Get all reward app tokens from category assignments
+    /// Used by BlockingCoordinator to ensure reward tokens are available for goal evaluation
+    func getRewardTokens() -> Set<ApplicationToken> {
+        Set(categoryAssignments.filter { $0.value == .reward }.map { $0.key })
+    }
+
+    /// Persist goal configurations to App Group for extension access
+    /// This allows the extension to check learning goals and update shields directly
+    func syncGoalConfigsToExtension() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Cannot access App Group for shield config sync")
+            #endif
+            return
+        }
+
+        var configs: [ExtensionGoalConfig] = []
+
+        for (token, category) in categoryAssignments where category == .reward {
+            guard let logicalID = getLogicalID(for: token),
+                  let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
+                  !schedule.linkedLearningApps.isEmpty else {
+                continue
+            }
+
+            // Serialize token using PropertyListEncoder (ApplicationToken is not directly Codable)
+            guard let tokenData = try? PropertyListEncoder().encode(token) else {
+                #if DEBUG
+                print("[ScreenTimeService] ⚠️ Failed to encode token for \(logicalID)")
+                #endif
+                continue
+            }
+
+            let linkedGoals = schedule.linkedLearningApps.map { linked in
+                ExtensionGoalConfig.LinkedGoal(
+                    learningAppLogicalID: linked.logicalID,
+                    minutesRequired: linked.minutesRequired
+                )
+            }
+
+            configs.append(ExtensionGoalConfig(
+                rewardAppLogicalID: logicalID,
+                rewardAppTokenData: tokenData,
+                linkedLearningApps: linkedGoals,
+                unlockMode: schedule.unlockMode.rawValue
+            ))
+        }
+
+        let container = ExtensionShieldConfigs(goalConfigs: configs, lastUpdated: Date())
+        if let data = try? JSONEncoder().encode(container) {
+            defaults.set(data, forKey: ExtensionShieldConfigs.userDefaultsKey)
+            defaults.synchronize()
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Synced \(configs.count) goal configs to extension")
+            for config in configs {
+                print("[ScreenTimeService]   • \(config.rewardAppLogicalID): \(config.linkedLearningApps.count) linked apps, mode=\(config.unlockMode)")
+            }
+            #endif
+        } else {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to encode shield configs")
+            #endif
+        }
+    }
+
     // MARK: - Master Selection Seeding Methods
     
     /// Save the master selection for category expansion
@@ -3170,11 +3251,17 @@ extension ScreenTimeService {
     func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
         // Update the internal category assignments
         categoryAssignments[token] = category
-        
+
         #if DEBUG
         let appName = getDisplayName(for: token) ?? "Unknown App"
         print("[ScreenTimeService] Assigned category \(category.rawValue) to \(appName)")
         #endif
+
+        // Sync goal configs to extension when reward apps are assigned
+        // This ensures the extension can check learning goals when usage is recorded
+        if category == .reward {
+            syncGoalConfigsToExtension()
+        }
     }
     
     /// Assign reward points to an application token

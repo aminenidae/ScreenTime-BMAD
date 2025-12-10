@@ -51,6 +51,14 @@ class AppScheduleService: ObservableObject {
 
         // Also save individual keys for extension access
         saveScheduleForExtension(config)
+
+        // Sync goal configs to extension if this config has linked learning apps
+        // This allows the extension to control shields directly
+        if !config.linkedLearningApps.isEmpty {
+            Task { @MainActor in
+                ScreenTimeService.shared.syncGoalConfigsToExtension()
+            }
+        }
     }
 
     /// Delete a schedule configuration
@@ -60,6 +68,11 @@ class AppScheduleService: ObservableObject {
 
         // Remove extension keys
         removeScheduleForExtension(logicalID)
+
+        // Re-sync goal configs to extension (in case deleted config was a reward app)
+        Task { @MainActor in
+            ScreenTimeService.shared.syncGoalConfigsToExtension()
+        }
     }
 
     /// Get schedule for a specific app
@@ -108,6 +121,14 @@ class AppScheduleService: ObservableObject {
             saveScheduleForExtension(config)
         }
         try persistSchedules()
+
+        // Sync goal configs to extension if any config has linked learning apps
+        let hasLinkedApps = configs.contains { !$0.linkedLearningApps.isEmpty }
+        if hasLinkedApps {
+            Task { @MainActor in
+                ScreenTimeService.shared.syncGoalConfigsToExtension()
+            }
+        }
     }
 
     /// Create default configurations for a set of app IDs

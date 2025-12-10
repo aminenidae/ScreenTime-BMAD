@@ -1,6 +1,7 @@
 import DeviceActivity
 import Foundation
 import Darwin // For mach_task_self_ and task_info
+import ManagedSettings
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -10,6 +11,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Constants
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     // NOTE: cooldownSeconds removed - SET semantics prevent double-counting naturally
+
+    // MARK: - Shield Control
+    /// ManagedSettingsStore for direct shield manipulation
+    /// The extension can use this to unblock reward apps when learning goals are met
+    private let managedSettingsStore = ManagedSettingsStore()
 
     // MARK: - Lifecycle
     override nonisolated init() {
@@ -108,6 +114,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if memoryMB > 5.0 {
             writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
         }
+
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met
+        // This allows immediate unblocking without waiting for the main app
+        checkAndUpdateShields(defaults: defaults)
 
         return true
     }
@@ -344,6 +354,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
         }
 
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met
+        checkAndUpdateShields(defaults: defaults)
+
         return true
     }
 
@@ -547,6 +560,123 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(log, forKey: "extension_debug_log")
         // Don't synchronize here to reduce I/O - let it batch
     }
+
+    // MARK: - Extension Shield Control
+    // These methods allow the extension to directly control shields when learning goals are met,
+    // without requiring the main app to be running
+
+    /// Check all reward app goals and update shields accordingly
+    /// Called after each usage recording to immediately unblock reward apps when goals are met
+    private nonisolated func checkAndUpdateShields(defaults: UserDefaults) {
+        // Read goal configs from App Group
+        guard let data = defaults.data(forKey: "extensionShieldConfigs") else {
+            writeDebugLog("🔒 No shield configs found - skipping goal check")
+            return
+        }
+
+        guard let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+            writeDebugLog("🔒 Failed to decode shield configs")
+            return
+        }
+
+        writeDebugLog("🔒 Checking \(configs.goalConfigs.count) reward app goals")
+
+        for goalConfig in configs.goalConfigs {
+            let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+
+            writeDebugLog("🔒   \(goalConfig.rewardAppLogicalID): goal=\(isGoalMet ? "MET ✅" : "NOT MET")")
+
+            if isGoalMet {
+                // Deserialize token using PropertyListDecoder
+                guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
+                    writeDebugLog("🔒   ⚠️ Failed to decode token for \(goalConfig.rewardAppLogicalID)")
+                    continue
+                }
+
+                // Get current shields and remove this token (unblock)
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if currentShields.contains(token) {
+                    currentShields.remove(token)
+                    managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
+                    writeDebugLog("🔓 UNBLOCKED reward app: \(goalConfig.rewardAppLogicalID)")
+
+                    // Record the unlock state for main app to read
+                    recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                } else {
+                    writeDebugLog("🔒   Already unblocked: \(goalConfig.rewardAppLogicalID)")
+                }
+            }
+        }
+    }
+
+    /// Check if a reward app's learning goal is met
+    private nonisolated func checkGoalMet(goalConfig: ExtensionGoalConfigMinimal, defaults: UserDefaults) -> Bool {
+        switch goalConfig.unlockMode {
+        case "any":
+            // Any one linked app meeting its goal is sufficient
+            for linked in goalConfig.linkedLearningApps {
+                let usageKey = "usage_\(linked.learningAppLogicalID)_today"
+                let usageSeconds = defaults.integer(forKey: usageKey)
+                let usageMinutes = usageSeconds / 60
+                writeDebugLog("🔒     Check (any): \(linked.learningAppLogicalID) = \(usageMinutes)/\(linked.minutesRequired) min")
+                if usageMinutes >= linked.minutesRequired {
+                    return true
+                }
+            }
+            return false
+
+        case "all":
+            // All linked apps must meet their goals
+            for linked in goalConfig.linkedLearningApps {
+                let usageKey = "usage_\(linked.learningAppLogicalID)_today"
+                let usageSeconds = defaults.integer(forKey: usageKey)
+                let usageMinutes = usageSeconds / 60
+                writeDebugLog("🔒     Check (all): \(linked.learningAppLogicalID) = \(usageMinutes)/\(linked.minutesRequired) min")
+                if usageMinutes < linked.minutesRequired {
+                    return false
+                }
+            }
+            return !goalConfig.linkedLearningApps.isEmpty  // True if all met (and there are linked apps)
+
+        default:
+            return false
+        }
+    }
+
+    /// Record unlock state for main app to read
+    private nonisolated func recordUnlockState(rewardAppLogicalID: String, defaults: UserDefaults) {
+        let now = Date()
+        let stateKey = "ext_unlock_\(rewardAppLogicalID)"
+        let timestampKey = "ext_unlock_\(rewardAppLogicalID)_timestamp"
+
+        defaults.set(true, forKey: stateKey)
+        defaults.set(now.timeIntervalSince1970, forKey: timestampKey)
+
+        // Also update a global "last unlock" timestamp so main app knows something changed
+        defaults.set(now.timeIntervalSince1970, forKey: "ext_last_unlock_timestamp")
+
+        defaults.synchronize()
+    }
+}
+
+// MARK: - Minimal Structs for Shield Config (avoid importing main app's models)
+// These mirror the structures in ExtensionShieldConfig.swift but are self-contained
+
+private struct ExtensionGoalConfigMinimal: Codable {
+    let rewardAppLogicalID: String
+    let rewardAppTokenData: Data
+    let linkedLearningApps: [LinkedGoalMinimal]
+    let unlockMode: String
+
+    struct LinkedGoalMinimal: Codable {
+        let learningAppLogicalID: String
+        let minutesRequired: Int
+    }
+}
+
+private struct ExtensionShieldConfigsMinimal: Codable {
+    var goalConfigs: [ExtensionGoalConfigMinimal]
+    var lastUpdated: Date
 }
 
 // MARK: - Minimal Codable Struct for JSON Compatibility
