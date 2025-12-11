@@ -657,9 +657,6 @@ class AppUsageViewModel: ObservableObject {
         print("[AppUsageViewModel] 📋 Reward snapshot logical IDs: \(rewardLogicalIDs)")
         print("[AppUsageViewModel] 📋 Reward snapshot token hashes: \(rewardTokenHashes)")
         #endif
-
-        // Sync shield data for dynamic shield messages
-        syncShieldData()
     }
 
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
