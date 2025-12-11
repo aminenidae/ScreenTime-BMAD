@@ -1631,15 +1631,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     rewardPointsPerMinute: persistedApp.rewardPoints
                 )
 
-                Task {
-                    await ChallengeService.shared.updateProgressForUsage(
-                        appID: logicalID,
-                        duration: TimeInterval(additionalSeconds),
-                        earnedPoints: max(0, (additionalSeconds / 60) * persistedApp.rewardPoints),
-                        deviceID: DeviceModeManager.shared.deviceID
-                    )
-                }
-
                 // Track this snapshot as processed
                 lastProcessedSnapshot[logicalID] = (timestamp: timestamp, seconds: reportedSeconds)
 
@@ -2364,19 +2355,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     nil,
                     true
                 )
-            }
-
-            // Notify challenge service of learning app usage
-            if application.category == .learning {
-                let earnedPointsForChallenge = max(0, Int(duration / 60) * application.rewardPoints)
-                Task {
-                    await ChallengeService.shared.updateProgressForUsage(
-                        appID: logicalID,
-                        duration: duration,
-                        earnedPoints: earnedPointsForChallenge,
-                        deviceID: DeviceModeManager.shared.deviceID
-                    )
-                }
             }
 
             recordedCount += 1

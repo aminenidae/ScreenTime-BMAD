@@ -68,26 +68,6 @@ struct PersistenceController {
                 fatalError("Unresolved error \(error), \(error.userInfo)")
             }
 
-            #if DEBUG
-            print("[Persistence] ===== CloudKit Configuration =====")
-            print("[Persistence] CloudKit container: iCloud.com.screentimerewards")
-            print("[Persistence] Store URL: \(storeDescription.url?.absoluteString ?? "unknown")")
-            print("[Persistence] CloudKit options: \(String(describing: storeDescription.cloudKitContainerOptions))")
-
-            if let options = storeDescription.cloudKitContainerOptions {
-                print("[Persistence] Container identifier: \(options.containerIdentifier)")
-                print("[Persistence] Database scope: \(options.databaseScope.rawValue)")
-            }
-
-            // Log schema export notification
-            NotificationCenter.default.addObserver(
-                forName: NSNotification.Name("NSPersistentCloudKitContainerEventChangedNotification"),
-                object: nil,
-                queue: nil
-            ) { notification in
-                print("[Persistence] CloudKit event: \(notification)")
-            }
-            #endif
         })
         container.viewContext.automaticallyMergesChangesFromParent = true
         container.viewContext.mergePolicy = NSMergeByPropertyObjectTrumpMergePolicy

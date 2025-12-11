@@ -39,11 +39,6 @@ struct ParentDashboardView: View {
                         // Points Overview - HIDDEN (keeping code for future use)
                         // pointsOverviewCard
 
-                        // Active Challenges
-                        if !viewModel.activeChallenges.isEmpty {
-                            activeChallengesCard
-                        }
-
                         // Streak Status
                         if viewModel.currentStreak > 0 {
                             streakCard
@@ -58,11 +53,6 @@ struct ParentDashboardView: View {
                     .padding(.horizontal, AppTheme.Spacing.regular)
                     .padding(.top, AppTheme.Spacing.tiny)
                 }
-            }
-        }
-        .onAppear {
-            Task {
-                await viewModel.loadChallengeData()
             }
         }
     }
@@ -231,98 +221,6 @@ struct ParentDashboardView: View {
         .background(
             RoundedRectangle(cornerRadius: 12)
                 .fill(color.opacity(colorScheme == .dark ? 0.15 : 0.08))
-        )
-    }
-
-    // MARK: - Active Challenges Card
-
-    private var activeChallengesCard: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
-            HStack {
-                Image(systemName: "trophy.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppTheme.sunnyYellow)
-
-                Text("Active Challenges")
-                    .font(AppTheme.Typography.title3)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                Spacer()
-
-                Text("\(viewModel.activeChallenges.count)")
-                    .font(AppTheme.Typography.headline)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-            }
-
-            VStack(spacing: AppTheme.Spacing.small) {
-                ForEach(viewModel.activeChallenges.prefix(3), id: \.challengeID) { challenge in
-                    challengeRow(challenge)
-                }
-            }
-
-            if viewModel.activeChallenges.count > 3 {
-                Text("+\(viewModel.activeChallenges.count - 3) more")
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .frame(maxWidth: .infinity, alignment: .trailing)
-            }
-        }
-        .padding(AppTheme.Spacing.regular)
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(20)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-    }
-
-    private func challengeRow(_ challenge: Challenge) -> some View {
-        let progress = viewModel.challengeProgress[challenge.challengeID ?? ""]
-        let rawPercentage = Int(progress?.progressPercentage ?? 0)
-        let percentage = min(rawPercentage, 100) // Cap at 100%
-
-        return HStack(spacing: AppTheme.Spacing.medium) {
-            // Challenge icon
-            ZStack {
-                Circle()
-                    .fill(AppTheme.learningPeach.opacity(0.2))
-                    .frame(width: 40, height: 40)
-
-                Image(systemName: challenge.goalTypeEnum?.iconName ?? "checkmark.circle")
-                    .font(.system(size: 18))
-                    .foregroundColor(AppTheme.learningPeach)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(challenge.title ?? "Challenge")
-                    .font(AppTheme.Typography.callout)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .lineLimit(1)
-
-                // Progress bar
-                GeometryReader { geometry in
-                    ZStack(alignment: .leading) {
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(AppTheme.progressTrack(for: colorScheme))
-                            .frame(height: 6)
-
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(AppTheme.learningPeach)
-                            .frame(
-                                width: geometry.size.width * CGFloat(percentage) / 100,
-                                height: 6
-                            )
-                    }
-                }
-                .frame(height: 6)
-            }
-
-            Text("\(percentage)%")
-                .font(AppTheme.Typography.caption)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .frame(width: 40, alignment: .trailing)
-        }
-        .padding(AppTheme.Spacing.small)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.background(for: colorScheme).opacity(0.5))
         )
     }
 

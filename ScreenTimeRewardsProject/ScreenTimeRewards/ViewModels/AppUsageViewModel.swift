@@ -107,7 +107,7 @@ class AppUsageViewModel: ObservableObject {
 
         // Reserved points are still tracked the same way
         let totalReserved = unlockedRewardApps.values
-            .filter { !$0.isChallengeReward }
+            .filter { _ in true }
             .reduce(0) { $0 + $1.reservedPoints }
         let totalConsumed = totalConsumedPoints
         let available = max(0, totalEarnedFromLinkedGoals - totalReserved - totalConsumed)
@@ -138,7 +138,7 @@ class AppUsageViewModel: ObservableObject {
     /// Formula: Reserved Points = Sum of (Redeemed - Consumed) for all unlocked apps
     var reservedLearningPoints: Int {
         let reserved = unlockedRewardApps.values
-            .filter { !$0.isChallengeReward }
+            .filter { _ in true }
             .reduce(0) { $0 + $1.reservedPoints }
 
         #if DEBUG
@@ -153,39 +153,21 @@ class AppUsageViewModel: ObservableObject {
         return reserved
     }
 
-    /// Total learning points with challenge bonuses applied
+    /// Total learning points (no bonus calculation)
     var totalLearningPointsWithBonuses: Int {
-        let basePoints = learningRewardPoints
-        let bonusPoints = challengeService.calculateBonusPoints(
-            basePoints: basePoints,
-            for: DeviceModeManager.shared.deviceID
-        )
-
-        #if DEBUG
-        print("[AppUsageViewModel] 💰 Learning points: \(basePoints) + bonus: \(bonusPoints)")
-        #endif
-
-        return basePoints + bonusPoints
+        return learningRewardPoints
     }
 
-    /// Bonus points from challenges and streaks
+    /// Bonus points (always 0 - challenges removed)
     var bonusLearningPoints: Int {
-        let basePoints = learningRewardPoints
-        return challengeService.calculateBonusPoints(
-            basePoints: basePoints,
-            for: DeviceModeManager.shared.deviceID
-        )
+        return 0
     }
 
-    // MARK: - Challenge Integration
-    @Published var activeChallenges: [Challenge] = []
-    @Published var challengeProgress: [String: ChallengeProgress] = [:]
+    // MARK: - Streak and Badges (Challenge system removed)
     @Published var currentStreak: Int = 0
     @Published var badges: [Badge] = []
     @Published var showCompletionCelebration = false
-    @Published var completedChallengeID: String?
     @Published var lastRewardUnlockMinutes: Int = 0
-    private let challengeService = ChallengeService.shared
 
     // Flag to track when we're resetting picker state
     private var isResettingPickerState = false
@@ -377,60 +359,10 @@ class AppUsageViewModel: ObservableObject {
         loadUnlockedApps()
 
         loadData()
-        
+
         // BF-1 FIX: Add observer for reward app usage notifications
         setupRewardAppUsageObserver()
-        
-        // NEW: Observe challenge notifications
-        NotificationCenter.default.addObserver(
-            forName: ChallengeService.challengeProgressUpdated,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                self?.loadChallengeData()
-            }
-        }
 
-        NotificationCenter.default.addObserver(
-            forName: ChallengeService.challengeCompleted,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                let challengeID = notification.userInfo?["challengeID"] as? String ?? ""
-                let rewardApps = notification.userInfo?["rewardApps"] as? [String] ?? []
-                let unlockMinutes = notification.userInfo?["rewardUnlockMinutes"] as? Int ?? 0
-                self?.handleChallengeCompletion(
-                    challengeID: challengeID,
-                    rewardAppIDs: rewardApps,
-                    unlockMinutes: unlockMinutes
-                )
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: ChallengeService.badgeUnlocked,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.loadChallengeData()
-            }
-        }
-        NotificationCenter.default.addObserver(
-            forName: ChallengeService.streakUpdated,
-            object: nil,
-            queue: .main
-        ) { [weak self] notification in
-            Task { @MainActor in
-                if let value = notification.userInfo?["currentStreak"] as? Int {
-                    self?.currentStreak = value
-                } else if let value16 = notification.userInfo?["currentStreak"] as? Int16 {
-                    self?.currentStreak = Int(value16)
-                }
-            }
-        }
-        
         NotificationCenter.default
             .publisher(for: ScreenTimeService.usageDidChangeNotification)
             .receive(on: RunLoop.main)
@@ -1057,23 +989,12 @@ class AppUsageViewModel: ObservableObject {
     
     /// Refresh data from the service
     func refreshData() {
-        #if DEBUG
-        print("[AppUsageViewModel] Refreshing data")
-        #endif
         appUsages = service.getAppUsages().sorted { $0.totalTime > $1.totalTime }
         appHistoryMapping = service.getDailyHistories()
-        #if DEBUG
-        print("[AppUsageViewModel] Retrieved \(appUsages.count) app usages")
-        for usage in appUsages {
-            print("[AppUsageViewModel] App: \(usage.appName), Time: \(usage.totalTime) seconds, Points: \(usage.earnedRewardPoints)")
-        }
-        #endif
         updateCategoryTotals()
         updateTotalRewardPoints()
         updateCategoryRewardPoints()
-        // Refresh sorted applications and snapshots after pulling new data
         updateSortedApplications()
-        loadChallengeData()
     }
     
     /// Called when usage data changes
@@ -1948,17 +1869,12 @@ func configureWithTestApplications() {
     /// Consumed points are permanently spent and tracked separately
     func consumeReservedPoints(token: ApplicationToken, usageSeconds: TimeInterval) {
         guard var unlockedApp = unlockedRewardApps[token] else {
-            #if DEBUG
-            let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-            print("[AppUsageViewModel] ⚠️ No unlocked app found for \(appName), skipping point consumption")
-            #endif
             return
         }
 
         let usageMinutes = Int(usageSeconds / 60)
         let pointsToConsume = usageMinutes * unlockedApp.pointsPerMinute
         let previousReserved = unlockedApp.reservedPoints
-        let previousConsumed = totalConsumedPoints
 
         // Reduce reserved points
         unlockedApp.reservedPoints = max(0, unlockedApp.reservedPoints - pointsToConsume)
@@ -1968,33 +1884,12 @@ func configureWithTestApplications() {
             totalConsumedPoints += pointsToConsume
         }
 
-        #if DEBUG
-        let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-        print("[AppUsageViewModel] 💳 CONSUMING POINTS FOR \(appName):")
-        print("[AppUsageViewModel]   Usage: \(usageSeconds)s (\(usageMinutes) min)")
-        print("[AppUsageViewModel]   Points per minute: \(unlockedApp.pointsPerMinute)")
-        print("[AppUsageViewModel]   Points to consume: \(pointsToConsume)")
-        print("[AppUsageViewModel]   Reserved before: \(previousReserved)")
-        print("[AppUsageViewModel]   Reserved after: \(unlockedApp.reservedPoints)")
-        print("[AppUsageViewModel]   Total consumed before: \(previousConsumed)")
-        print("[AppUsageViewModel]   Total consumed after: \(totalConsumedPoints)")
-        print("[AppUsageViewModel]   Remaining time: \(unlockedApp.remainingMinutes) min")
-        #endif
-
         // If expired, auto-lock the app
         if unlockedApp.isExpired {
-            #if DEBUG
-            let appName = resolvedDisplayName(for: token) ?? "Unknown App"
-            print("[AppUsageViewModel] ⏰ \(appName) time expired - auto-locking")
-            #endif
-
-            // Calculate how many minutes were used (original reserved / pointsPerMinute)
             let usedMinutes = unlockedApp.pointsPerMinute > 0
                 ? (previousReserved + pointsToConsume) / unlockedApp.pointsPerMinute
                 : 0
 
-            // Persist the blocking reason BEFORE applying shield
-            // This ensures ShieldConfigurationExtension shows "Reward Time Finished"
             BlockingReasonService.shared.setRewardTimeExpiredBlocking(
                 token: token,
                 usedMinutes: usedMinutes
@@ -2029,6 +1924,52 @@ func configureWithTestApplications() {
             print("[AppUsageViewModel] 💾 Persisted \(totalConsumedPoints) consumed points")
             #endif
         }
+
+        // EXTENSION-SAFE PERSISTENCE: Persist data that extension can read without ApplicationToken
+        // This enables the extension to block reward apps when time expires (even when main app is not running)
+        persistUnlockedAppsForExtension(defaults: defaults)
+    }
+
+    /// Persist unlocked apps in extension-safe format (without ApplicationToken which requires special decoding)
+    /// The extension uses this to track and block reward apps when time expires
+    private func persistUnlockedAppsForExtension(defaults: UserDefaults) {
+        // Create minimal structs that extension can decode
+        var extUnlockedApps: [[String: Any]] = []
+        var tokenDataMap: [String: Data] = [:]
+
+        for (token, app) in unlockedRewardApps {
+            let tokenHash = service.usagePersistence.tokenHash(for: token)
+
+            // Minimal app data for extension
+            let appData: [String: Any] = [
+                "tokenHash": tokenHash,
+                "logicalID": app.id,
+                "reservedPoints": app.reservedPoints,
+                "pointsPerMinute": app.pointsPerMinute,
+                "unlockedAt": app.unlockedAt.timeIntervalSince1970,
+                "isChallengeReward": app.isChallengeReward
+            ]
+            extUnlockedApps.append(appData)
+
+            // Serialize token for extension to use when blocking
+            if let tokenData = try? PropertyListEncoder().encode(token) {
+                tokenDataMap[tokenHash] = tokenData
+            }
+        }
+
+        // Persist extension-safe unlocked apps
+        if let extData = try? JSONSerialization.data(withJSONObject: extUnlockedApps) {
+            defaults.set(extData, forKey: "ext_unlockedRewardApps")
+        }
+
+        // Persist token data map (tokenHash -> serialized token)
+        if let tokenMapData = try? JSONEncoder().encode(tokenDataMap) {
+            defaults.set(tokenMapData, forKey: "ext_rewardTokenData")
+        }
+
+        #if DEBUG
+        print("[AppUsageViewModel] 💾 Persisted \(extUnlockedApps.count) unlocked apps for extension")
+        #endif
     }
 
     /// Load unlocked apps and consumed points from UserDefaults
@@ -2700,184 +2641,6 @@ extension AppUsageViewModel {
         }
     }
     
-    // MARK: - Challenge Integration Helpers
-    
-    func loadChallengeData() {
-        Task {
-            do {
-                let deviceID = DeviceModeManager.shared.deviceID
-                activeChallenges = try await challengeService.fetchActiveChallenges(for: deviceID)
-                challengeProgress = challengeService.challengeProgress
-                _ = await challengeService.checkBadgeUnlocks(for: deviceID)
-                badges = try await challengeService.fetchBadges(for: deviceID)
-                if let streakRecord = try await challengeService.fetchStreak(for: deviceID) {
-                    currentStreak = Int(streakRecord.currentStreak)
-                } else {
-                    currentStreak = 0
-                }
-
-                // Sync shield data with updated challenge info
-                syncShieldData()
-            } catch {
-                #if DEBUG
-                print("[AppUsageViewModel] ❌ Failed to load challenges: \(error)")
-                #endif
-            }
-        }
-    }
-
-    private func unlockRewardAppsFromChallenge(logicalIDs: [String], minutes: Int) {
-        let unlockMinutes = max(minutes, 1)
-        let uniqueIDs = Set(logicalIDs)
-
-        for logicalID in uniqueIDs {
-            guard let token = rewardToken(for: logicalID) else {
-                #if DEBUG
-                print("[AppUsageViewModel] ⚠️ No reward token found for logicalID: \(logicalID)")
-                #endif
-                continue
-            }
-
-            unlockRewardApp(
-                token: token,
-                minutes: unlockMinutes,
-                bypassPointValidation: true,
-                isChallengeReward: true
-            )
-        }
-    }
-
-    private func rewardToken(for logicalID: String) -> ApplicationToken? {
-        for (token, category) in categoryAssignments where category == .reward {
-            if service.getLogicalID(for: token) == logicalID {
-                return token
-            }
-        }
-        return nil
-    }
-
-    private func handleChallengeCompletion(challengeID: String, rewardAppIDs: [String], unlockMinutes: Int) {
-        #if DEBUG
-        print("[AppUsageViewModel] 🎉 Challenge completed! ID: \(challengeID)")
-        print("[AppUsageViewModel] Reward app IDs from challenge: \(rewardAppIDs)")
-        #endif
-        completedChallengeID = challengeID.isEmpty ? nil : challengeID
-        showCompletionCelebration = true
-        lastRewardUnlockMinutes = max(1, unlockMinutes)
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-            guard let self else { return }
-            Task { @MainActor in
-                self.showCompletionCelebration = false
-                self.completedChallengeID = nil
-            }
-        }
-
-        loadChallengeData()
-
-        // Unlock reward apps
-        if !rewardAppIDs.isEmpty {
-            // Challenge has specific reward apps - unlock only those
-            #if DEBUG
-            print("[AppUsageViewModel] Unlocking specific reward apps from challenge: \(rewardAppIDs.count)")
-            #endif
-            unlockRewardAppsFromChallenge(logicalIDs: rewardAppIDs, minutes: unlockMinutes)
-        } else {
-            // Challenge has no specific reward apps - unlock ALL configured reward apps
-            #if DEBUG
-            print("[AppUsageViewModel] No specific reward apps in challenge - unlocking ALL reward apps")
-            #endif
-            unlockRewardApps()
-        }
-    }
-
-    // MARK: - Shield Data Sync
-
-    /// Updates the shared shield data for the ShieldConfigurationExtension to display
-    /// Also checks if challenge should be completed and unlocks rewards if goal is met
-    /// Call this whenever learning progress changes
-    func syncShieldData() {
-        // Get the first active challenge (primary challenge for shield display)
-        guard let challenge = activeChallenges.first,
-              challenge.isActive else {
-            // No active challenge - clear shield data
-            ShieldDataService.shared.clearShieldData()
-            return
-        }
-
-        let targetAppIDs = challenge.targetAppIDs
-        let targetMinutes = Int(challenge.targetValue)
-
-        // Calculate current progress from learning snapshots
-        var currentMinutes = 0
-        var targetAppNames: [String] = []
-
-        if targetAppIDs.isEmpty {
-            // All learning apps count
-            for snapshot in learningSnapshots {
-                currentMinutes += Int(snapshot.totalSeconds / 60)
-                if snapshot.totalSeconds > 0 && !targetAppNames.contains(snapshot.displayName) {
-                    targetAppNames.append(snapshot.displayName)
-                }
-            }
-        } else {
-            // Only specific apps count
-            for snapshot in learningSnapshots {
-                if targetAppIDs.contains(snapshot.logicalID) {
-                    currentMinutes += Int(snapshot.totalSeconds / 60)
-                    if !targetAppNames.contains(snapshot.displayName) {
-                        targetAppNames.append(snapshot.displayName)
-                    }
-                }
-            }
-
-            // If no snapshots yet for target apps, use app IDs as names
-            if targetAppNames.isEmpty {
-                targetAppNames = targetAppIDs
-            }
-        }
-
-        ShieldDataService.shared.updateShieldData(
-            challengeTitle: challenge.title ?? "Learning Challenge",
-            targetAppNames: targetAppNames,
-            targetMinutes: targetMinutes,
-            currentMinutes: currentMinutes
-        )
-
-        // CHECK: If learning goal is met based on snapshots, trigger unlock attempt
-        // This catches cases where ChallengeProgress might be out of sync with actual usage
-        // CRITICAL: Guard against targetMinutes=0 which would always trigger (CoreData default is 0)
-        // Also guard against already showing celebration to prevent repeated unlock calls
-        // NOTE: BlockingCoordinator will check downtime/daily limits - apps only unlock if ALL conditions are met
-        if targetMinutes > 0 && currentMinutes >= targetMinutes && !showCompletionCelebration {
-            let progress = challengeProgress[challenge.challengeID ?? ""]
-            let alreadyCompleted = progress?.isCompleted ?? false
-
-            if !alreadyCompleted {
-                #if DEBUG
-                print("[AppUsageViewModel] 🎯 Goal achieved based on snapshots! \(currentMinutes)/\(targetMinutes) min")
-                print("[AppUsageViewModel] 🔓 Requesting unlock via BlockingCoordinator (will check downtime/limits)")
-                #endif
-
-                // Request unlock - BlockingCoordinator will check ALL conditions before actually unblocking
-                unlockRewardApps()
-
-                // Trigger celebration
-                completedChallengeID = challenge.challengeID
-                showCompletionCelebration = true
-                lastRewardUnlockMinutes = challenge.rewardUnlockMinutes(defaultValue: 30)
-
-                DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in
-                    guard let self else { return }
-                    Task { @MainActor in
-                        self.showCompletionCelebration = false
-                        self.completedChallengeID = nil
-                    }
-                }
-            }
-        }
-    }
-
     // MARK: - Chart Data Helpers
 
     /// Returns aggregated daily usage for a category over the last N days

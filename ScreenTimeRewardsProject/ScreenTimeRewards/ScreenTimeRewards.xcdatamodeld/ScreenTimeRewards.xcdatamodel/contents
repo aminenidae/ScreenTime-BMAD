@@ -270,4 +270,40 @@
             <fetchIndexElement property="sessionStart" type="Binary" order="ascending"/>
         </fetchIndex>
     </entity>
+    <entity name="AvatarState" representedClassName="AvatarState" syncable="YES">
+        <attribute name="avatarID" optional="YES" attributeType="String"/>
+        <attribute name="childDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="createdAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="currentMood" optional="YES" attributeType="String" defaultValueString="happy"/>
+        <attribute name="currentStageLevel" attributeType="Integer 16" defaultValueString="1" usesScalarValueType="YES"/>
+        <attribute name="equippedAccessoriesJSON" optional="YES" attributeType="String"/>
+        <attribute name="lastInteractionDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="stateID" optional="YES" attributeType="String"/>
+        <attribute name="totalNurturingMinutes" attributeType="Integer 32" defaultValueString="0" usesScalarValueType="YES"/>
+        <attribute name="unlockedAccessoriesJSON" optional="YES" attributeType="String"/>
+        <fetchIndex name="byStateID">
+            <fetchIndexElement property="stateID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byChildDeviceID">
+            <fetchIndexElement property="childDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
+    <entity name="CollectedCard" representedClassName="CollectedCard" syncable="YES">
+        <attribute name="cardID" optional="YES" attributeType="String"/>
+        <attribute name="childDeviceID" optional="YES" attributeType="String"/>
+        <attribute name="collectedAt" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="collectionID" optional="YES" attributeType="String"/>
+        <attribute name="isFavorite" attributeType="Boolean" defaultValueString="NO" usesScalarValueType="YES"/>
+        <attribute name="seriesID" optional="YES" attributeType="String"/>
+        <attribute name="viewCount" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
+        <fetchIndex name="byCollectionID">
+            <fetchIndexElement property="collectionID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byChildDeviceID">
+            <fetchIndexElement property="childDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="bySeriesID">
+            <fetchIndexElement property="seriesID" type="Binary" order="ascending"/>
+        </fetchIndex>
+    </entity>
 </model>

@@ -26,14 +26,9 @@ struct LearningTabView: View {
         !viewModel.learningSnapshots.isEmpty
     }
 
-    // Calculate daily goal from active challenges
+    // Daily goal (challenges removed - return 0)
     private var dailyGoalMinutes: Int {
-        viewModel.activeChallenges.reduce(0) { sum, challenge in
-            if let progress = viewModel.challengeProgress[challenge.challengeID ?? ""] {
-                return sum + Int(progress.targetValue)
-            }
-            return sum
-        }
+        return 0
     }
 
     var body: some View {

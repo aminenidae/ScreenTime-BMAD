@@ -15,6 +15,7 @@ struct ExtensionGoalConfig: Codable, Equatable {
     struct LinkedGoal: Codable, Equatable {
         let learningAppLogicalID: String
         let minutesRequired: Int
+        let rewardMinutesEarned: Int  // Minutes of reward time earned when this goal is met
     }
 }
 

@@ -37,21 +37,9 @@ class PairingCodeService: ObservableObject {
 
         let publicDatabase = container.publicCloudDatabase
 
-        #if DEBUG
-        print("[PairingCodeService] ===== Generating Pairing Code =====")
-        print("[PairingCodeService] Code: \(code)")
-        print("[PairingCodeService] Parent Device ID: \(DeviceModeManager.shared.deviceID)")
-        print("[PairingCodeService] Saving to PUBLIC CloudKit database...")
-        #endif
-
         _ = try await publicDatabase.save(record)
 
         currentPairingCode = code
-
-        #if DEBUG
-        print("[PairingCodeService] ✅ Pairing code saved to CloudKit")
-        print("[PairingCodeService] Expires at: \(Date().addingTimeInterval(TimeInterval(codeExpirationMinutes * 60)))")
-        #endif
 
         return code
     }
@@ -72,10 +60,6 @@ class PairingCodeService: ObservableObject {
 
         try context.save()
         currentPairingCode = nil
-
-        #if DEBUG
-        print("[PairingCodeService] Invalidated pairing code: \(code)")
-        #endif
     }
 
     // MARK: - Child Functions
@@ -84,11 +68,6 @@ class PairingCodeService: ObservableObject {
     func validateAndUsePairingCode(_ code: String) async throws -> String {
         let context = PersistenceController.shared.container.viewContext
 
-        #if DEBUG
-        print("[PairingCodeService] ===== Validating Pairing Code =====")
-        print("[PairingCodeService] Code entered: \(code)")
-        #endif
-
         // Fetch the pairing code
         let fetchRequest: NSFetchRequest<NSManagedObject> = NSFetchRequest(entityName: "PairingCode")
         fetchRequest.predicate = NSPredicate(format: "code == %@", code)
@@ -96,34 +75,22 @@ class PairingCodeService: ObservableObject {
         let results = try context.fetch(fetchRequest)
 
         guard let pairingCodeObject = results.first else {
-            #if DEBUG
-            print("[PairingCodeService] ❌ Code not found")
-            #endif
             throw PairingCodeError.invalidCode
         }
 
         // Check if already used
         if let isUsed = pairingCodeObject.value(forKey: "isUsed") as? Bool, isUsed {
-            #if DEBUG
-            print("[PairingCodeService] ❌ Code already used")
-            #endif
             throw PairingCodeError.codeAlreadyUsed
         }
 
         // Check if expired
         if let expiresAt = pairingCodeObject.value(forKey: "expiresAt") as? Date,
            expiresAt < Date() {
-            #if DEBUG
-            print("[PairingCodeService] ❌ Code expired at \(expiresAt)")
-            #endif
             throw PairingCodeError.codeExpired
         }
 
         // Get parent device ID
         guard let parentDeviceID = pairingCodeObject.value(forKey: "parentDeviceID") as? String else {
-            #if DEBUG
-            print("[PairingCodeService] ❌ No parent device ID found")
-            #endif
             throw PairingCodeError.invalidCode
         }
 
@@ -133,11 +100,6 @@ class PairingCodeService: ObservableObject {
         pairingCodeObject.setValue(DeviceModeManager.shared.deviceID, forKey: "childDeviceID")
 
         try context.save()
-
-        #if DEBUG
-        print("[PairingCodeService] ✅ Code validated successfully")
-        print("[PairingCodeService] Parent Device ID: \(parentDeviceID)")
-        #endif
 
         return parentDeviceID
     }
@@ -152,10 +114,6 @@ class PairingCodeService: ObservableObject {
         let deleteRequest = NSBatchDeleteRequest(fetchRequest: fetchRequest)
         try context.execute(deleteRequest)
         try context.save()
-
-        #if DEBUG
-        print("[PairingCodeService] Cleaned up expired pairing codes")
-        #endif
     }
 }
 

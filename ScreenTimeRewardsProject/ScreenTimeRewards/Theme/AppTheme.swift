@@ -84,6 +84,52 @@ struct AppTheme {
     /// Learning and educational content
     static let learning = vibrantTeal
 
+    // MARK: - Gamification Colors
+
+    /// Evolution stage colors
+    struct Evolution {
+        static let stage1 = sunnyYellow      // Starter
+        static let stage2 = vibrantTeal      // Growing
+        static let stage3 = playfulCoral     // Advanced
+        static let stage4 = Color.orange     // Max level
+
+        static func color(for level: Int) -> Color {
+            switch level {
+            case 1: return stage1
+            case 2: return stage2
+            case 3: return stage3
+            case 4: return stage4
+            default: return stage1
+            }
+        }
+    }
+
+    /// Rarity tier colors
+    struct Rarity {
+        static let common = Color.gray
+        static let uncommon = Color.green
+        static let rare = Color.blue
+        static let epic = Color.purple
+        static let legendary = Color.orange
+
+        /// Badge rarity colors (slightly different palette)
+        static let bronze = Color(hex: "CD7F32")
+        static let silver = Color(hex: "C0C0C0")
+        static let gold = Color(hex: "FFD700")
+        static let platinum = Color(hex: "E5E4E2")
+        static let diamond = Color(hex: "B9F2FF")
+    }
+
+    /// Avatar mood colors
+    struct Mood {
+        static let happy = sunnyYellow
+        static let excited = playfulCoral
+        static let sleepy = Color.purple.opacity(0.7)
+        static let neutral = Color.gray
+        static let sad = Color.blue
+        static let celebrating = Color.orange
+    }
+
     // MARK: - Typography
 
     struct Typography {

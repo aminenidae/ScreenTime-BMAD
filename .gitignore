@@ -44,3 +44,7 @@ USAGE_TRACKING_ACCURACY.md
 ScreenTimeRewardsProject/docs/USAGE_TRACKING_BUG_SAGA.md
 USAGE_DOUBLING_FIX_PLAN.md
 HASHVALUE_INSTABILITY_FIX.md
+
+# Implementation plans (internal)
+ScreenTimeRewardsProject/docs/plans/
+ScreenTimeRewardsProject/docs/plans/**

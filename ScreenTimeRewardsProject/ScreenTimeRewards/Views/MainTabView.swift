@@ -38,11 +38,8 @@ struct MainTabView: View {
                         RewardsTabView()
                             .tag(2)
 
-                        ParentChallengesTabView()
-                            .tag(3)
-
                         SettingsTabView()
-                            .tag(4)
+                            .tag(3)
                     }
                     .tabViewStyle(.page(indexDisplayMode: .never))
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -117,7 +114,6 @@ struct ParentTabIndicator: View {
         ("Dashboard", "DashboardIcon"),
         ("Learning", "LearningIcon"),
         ("Rewards", "RewardsIcon"),
-        ("Challenges", "ChallengesIcon"),
         ("Settings", "SettingsIcon")
     ]
 

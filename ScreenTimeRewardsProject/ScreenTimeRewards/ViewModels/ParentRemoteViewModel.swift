@@ -41,16 +41,8 @@ class ParentRemoteViewModel: ObservableObject {
                     return
                 }
 
-                #if DEBUG
-                print("[ParentRemoteViewModel] CloudKit event: \(event)")
-                #endif
-
                 // Auto-refresh when import completes successfully
                 if event.type == .import && event.succeeded {
-                    #if DEBUG
-                    print("[ParentRemoteViewModel] CloudKit import succeeded, refreshing child devices...")
-                    #endif
-
                     Task { @MainActor in
                         await self.loadLinkedChildDevices()
                     }
