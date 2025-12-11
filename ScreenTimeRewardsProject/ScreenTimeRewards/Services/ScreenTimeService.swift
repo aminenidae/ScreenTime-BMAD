@@ -134,15 +134,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let applications: [MonitoredApplication]
 
         func deviceActivityEvent() -> DeviceActivityEvent {
-            // Create DeviceActivityEvent using application tokens
             let tokens = applications.map { $0.token }
-            #if DEBUG
-            print("[ScreenTimeService] Creating DeviceActivityEvent with \(tokens.count) tokens")
-            for (index, app) in applications.enumerated() {
-                print("[ScreenTimeService]   App \(index): \(app.displayName) (Bundle ID: \(app.bundleIdentifier ?? "nil"))")
-            }
-            #endif
-
             return DeviceActivityEvent(
                 applications: Set(tokens),
                 threshold: threshold
@@ -208,17 +200,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
         print("=" + String(repeating: "=", count: 50))
 
-        // Auto-run diagnostics after 2 seconds
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
-            print("[ScreenTimeService] 📊 AUTO-DIAGNOSTICS RUNNING...")
-            self?.printUsageTrackingDiagnostics()
-
-            // Start diagnostic polling in DEBUG mode to help diagnose tracking issues
-            #if DEBUG
-            print("[ScreenTimeService] 🔍 Starting diagnostic polling (DEBUG mode)...")
-            self?.startDiagnosticPolling(interval: 10)  // Poll every 10 seconds
-            #endif
-        }
+        // Diagnostic polling disabled to reduce log noise and improve performance
+        // Can be re-enabled manually if needed for debugging
     }
 
     // MARK: - Helper Methods
@@ -478,13 +461,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             #endif
         }
 
-        // Print full debug summary at launch
-        #if DEBUG
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
-            print("\n🚀🚀🚀 APP LAUNCH - USAGE TRACKING DEBUG SUMMARY 🚀🚀🚀")
-            self?.printUsageTrackingDebugSummary()
-        }
-        #endif
+        // Debug summary at launch disabled to reduce log noise
     }
 
     // MARK: - Sample Data
@@ -760,8 +737,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
-        // Create 60 consecutive 1-minute threshold events per app (1 hour of tracking)
+        // PRE-SET 180 MINUTE THRESHOLDS PER APP:
+        // Create 180 consecutive 1-minute threshold events per app (3 hours of tracking)
         // Each threshold fires once when that minute is reached - NO re-arm/restart needed
         // Extension uses memory-efficient primitive key storage (not JSON parsing)
         // This avoids the bug where restarting monitoring resets iOS usage counters
@@ -777,17 +754,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             #if DEBUG
-            print("[ScreenTimeService] Creating 240 threshold events for \(applications.count) \(category.rawValue) app(s)")
+            print("[ScreenTimeService] Creating 180 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
             // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
-            // NOTE: 240 thresholds per app causes iOS event "jamming" - events fire in bursts, not smoothly
-            // 60 minutes = 1 hour of reliable tracking per app
+            // 180 minutes = 3 hours of reliable tracking per app
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 60    // 1 hour - iOS handles this reliably
+                let endMinute = 180   // 3 hours - iOS handles this reliably
                 // Use stable app identifier instead of sequential index to prevent
                 // usage doubling when app list order changes
                 // NOTE: Using DJB2 hash instead of Swift's .hashValue because
@@ -815,7 +791,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         let totalEvents = monitoredEvents.count
-        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
+        print("[ScreenTimeService] Created \(totalEvents) total threshold events (180 per app)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -949,6 +925,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.set(app.logicalID, forKey: "map_\(eventName.rawValue)_id")
             sharedDefaults.set(incrementSeconds, forKey: "map_\(eventName.rawValue)_inc")
             sharedDefaults.set(Int(thresholdSeconds), forKey: "map_\(eventName.rawValue)_sec")
+            // Add category for extension to detect reward apps and handle time expiration
+            sharedDefaults.set(app.category.rawValue, forKey: "map_\(eventName.rawValue)_category")
         }
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
@@ -991,9 +969,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private func handleDarwinNotification(name: CFNotificationName, userInfo: CFDictionary?) {
         // Darwin notifications can't carry userInfo, read from shared UserDefaults instead
         guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            #if DEBUG
-            print("[ScreenTimeService] ⚠️ Failed to access App Group: \(appGroupIdentifier)")
-            #endif
             return
         }
 
@@ -1009,81 +984,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return Date(timeIntervalSince1970: ts)
         } ?? Date()
 
-        #if DEBUG
-        print("[ScreenTimeService] Received Darwin notification: \(name.rawValue)")
-        print("[ScreenTimeService] Event from App Group: \(eventRaw ?? "nil")")
-        print("[ScreenTimeService] Activity from App Group: \(activityRaw ?? "nil")")
-        print("[ScreenTimeService] Timestamp: \(timestamp)")
-        #endif
-
         switch name {
         case Self.eventDidReachNotification:
             if let eventRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling eventDidReachThreshold for event: \(eventRaw)")
-                #endif
                 handleEventThresholdReached(DeviceActivityEvent.Name(eventRaw), timestamp: timestamp)
-            } else {
-                #if DEBUG
-                print("[ScreenTimeService] ⚠️ eventDidReachThreshold received but no event data in App Group")
-                #endif
             }
         case Self.eventWillReachNotification:
             if let eventRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling eventWillReachThreshold for event: \(eventRaw)")
-                #endif
                 handleEventWillReachThresholdWarning(DeviceActivityEvent.Name(eventRaw))
             }
         case Self.intervalDidStartNotification:
             if let activityRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling intervalDidStart for activity: \(activityRaw)")
-                #endif
                 handleIntervalDidStart(for: DeviceActivityName(activityRaw))
             }
         case Self.intervalDidEndNotification:
             if let activityRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling intervalDidEnd for activity: \(activityRaw)")
-                #endif
                 handleIntervalDidEnd(for: DeviceActivityName(activityRaw))
             }
         case Self.intervalWillStartNotification:
             if let activityRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling intervalWillStart for activity: \(activityRaw)")
-                #endif
                 handleIntervalWillStartWarning(for: DeviceActivityName(activityRaw))
             }
         case Self.intervalWillEndNotification:
             if let activityRaw {
-                #if DEBUG
-                print("[ScreenTimeService] Handling intervalWillEnd for activity: \(activityRaw)")
-                #endif
                 handleIntervalWillEndWarning(for: DeviceActivityName(activityRaw))
             }
         case Self.extensionUsageRecordedNotification:
             // Track received sequence for diagnostic comparison
-            let sentSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_sent")
             let receivedSeq = sharedDefaults.integer(forKey: "darwin_notification_seq_received")
             let newReceivedSeq = receivedSeq + 1
             sharedDefaults.set(newReceivedSeq, forKey: "darwin_notification_seq_received")
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_received")
             sharedDefaults.synchronize()
-
-            #if DEBUG
-            print("[ScreenTimeService] 📥 RECEIVED Darwin notification #\(newReceivedSeq)")
-            print("[ScreenTimeService] 📊 Notification stats: sent=\(sentSeq), received=\(newReceivedSeq)")
-            if sentSeq > newReceivedSeq {
-                print("[ScreenTimeService] ⚠️ MISSED \(sentSeq - newReceivedSeq) notifications!")
-            }
-            #endif
             handleExtensionUsageRecorded(defaults: sharedDefaults)
         default:
-            #if DEBUG
-            print("[ScreenTimeService] Unknown notification received: \(name.rawValue)")
-            #endif
             break
         }
     }
@@ -1094,55 +1028,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// With 240 static thresholds (1min, 2min, ... 240min), NO restart is needed!
     /// Each threshold fires once when cumulative usage reaches that minute.
     private func handleExtensionUsageRecorded(defaults: UserDefaults) {
-        #if DEBUG
-        print("[ScreenTimeService] 📥 Processing extension usage update...")
-        #endif
-
         // Read updated usage data from extension's primitive keys
         readExtensionUsageData(defaults: defaults)
 
         // Clear any re-arm flags (legacy from old single-threshold approach)
-        var updateCount = 0
         for (logicalID, _) in appUsages {
             let rearmKey = "rearm_\(logicalID)_requested"
             if defaults.bool(forKey: rearmKey) {
-                // Clear the flag
                 defaults.set(false, forKey: rearmKey)
-
-                #if DEBUG
-                print("[ScreenTimeService] 📊 Usage update for: \(logicalID)")
-                #endif
-
-                // Just log - NO restart with 240 static thresholds
                 clearRearmFlag(for: logicalID, defaults: defaults)
-                updateCount += 1
             }
         }
 
         defaults.synchronize()
 
-        #if DEBUG
-        print("[ScreenTimeService] ✅ Processed \(updateCount) usage updates (NO restart - 240 static thresholds)")
-        #endif
-
         // Notify UI of usage updates
         notifyUsageChange()
 
-        // CRITICAL: Immediately refresh blocking states when usage is recorded
-        // This ensures reward apps are unblocked as soon as learning goals are met,
-        // rather than waiting for the 60-second periodic timer
+        // Immediately refresh blocking states when usage is recorded
         Task { @MainActor in
             BlockingCoordinator.shared.refreshAllBlockingStates()
-            #if DEBUG
-            print("[ScreenTimeService] 🔄 Triggered BlockingCoordinator refresh after usage update")
-            #endif
         }
-
-        // Print full debug summary when extension reports usage
-        #if DEBUG
-        print("\n📨📨📨 EXTENSION USAGE RECEIVED - DEBUG SUMMARY 📨📨📨")
-        printUsageTrackingDebugSummary()
-        #endif
     }
 
     /// Read usage data from extension's primitive keys
@@ -1163,53 +1069,33 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 usage.totalTime = TimeInterval(totalSeconds)
                 appUsages[logicalID] = usage
 
-                #if DEBUG
-                print("[ScreenTimeService] 📊 Updated \(usage.appName): total=\(totalSeconds)s, today=\(todaySeconds)s")
-                #endif
-
                 // Also sync to usagePersistence so UI snapshots show correct data
                 if var persistedApp = usagePersistence.app(for: logicalID) {
-                    // FIX v10: Check if extension data is actually from today before syncing
-                    // This prevents stale yesterday's data from being marked as valid today data
                     let resetKey = "usage_\(logicalID)_reset"
                     let extensionResetTimestamp = defaults.double(forKey: resetKey)
                     let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
 
                     // Only sync if extension data is from today AND is higher
                     if extensionResetTimestamp >= startOfToday && todaySeconds > persistedApp.todaySeconds {
-                        // Calculate the delta being added
                         let deltaSeconds = todaySeconds - persistedApp.todaySeconds
 
-                        // Update daily totals
                         persistedApp.todaySeconds = todaySeconds
                         persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
                         persistedApp.lastUpdated = Date()
                         persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
 
-                        // Also bucket usage into the current hour for hourly chart
+                        // Bucket usage into the current hour for hourly chart
                         let currentHour = Calendar.current.component(.hour, from: Date())
                         if persistedApp.todayHourlySeconds == nil {
-                            // First time initializing hourly data - add ALL existing usage to current hour
                             persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
-                            persistedApp.todayHourlySeconds?[currentHour] = todaySeconds  // Use FULL amount
-                            #if DEBUG
-                            print("[ScreenTimeService] 🕐 Initialized hourly data: \(usage.appName) hour[\(currentHour)]=\(todaySeconds)s (migrated existing usage)")
-                            #endif
+                            persistedApp.todayHourlySeconds?[currentHour] = todaySeconds
                         } else {
-                            // Hourly array exists - just add the delta
                             persistedApp.todayHourlySeconds?[currentHour] += deltaSeconds
-                            #if DEBUG
-                            print("[ScreenTimeService] 💾 Synced to persistence: \(usage.appName) todaySeconds=\(todaySeconds), hour[\(currentHour)]+=\(deltaSeconds)s")
-                            #endif
                         }
 
                         usagePersistence.saveApp(persistedApp)
                     } else if extensionResetTimestamp < startOfToday && todaySeconds > 0 {
-                        // Extension has stale data from yesterday - clear it instead of syncing
-                        #if DEBUG
-                        print("[ScreenTimeService] ⚠️ Stale extension data detected for \(logicalID): extensionReset=\(extensionResetTimestamp), startOfToday=\(startOfToday)")
-                        print("[ScreenTimeService] 🧹 Clearing stale extension keys for \(logicalID)")
-                        #endif
+                        // Extension has stale data from yesterday - clear it
                         defaults.set(0, forKey: todayKey)
                         defaults.set(startOfToday, forKey: resetKey)
                     }
@@ -1219,25 +1105,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     /// Handle re-arm request - with 240 static thresholds, NO restart needed
-    /// The thresholds (1min, 2min, 3min... 240min) are already pre-set
-    /// We just clear the re-arm flag and log the update
     private func clearRearmFlag(for logicalID: String, defaults: UserDefaults) {
-        guard let usage = appUsages[logicalID] else {
-            #if DEBUG
-            print("[ScreenTimeService] ⚠️ Cannot clear re-arm: app not found for \(logicalID)")
-            #endif
-            return
-        }
-
-        let todayKey = "usage_\(logicalID)_today"
-        let currentTodaySeconds = defaults.integer(forKey: todayKey)
-        let currentMinutes = currentTodaySeconds / 60
-
-        #if DEBUG
-        print("[ScreenTimeService] ✅ Usage update for \(usage.appName): \(currentMinutes) minutes recorded")
-        print("[ScreenTimeService]    (240 static thresholds already set - NO restart needed)")
-        #endif
-
         // NO restart! 240 static thresholds are already in place
         // Next threshold will fire automatically when usage reaches next minute
     }
@@ -1288,6 +1156,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     try self.scheduleActivity()
                     self.isMonitoring = true
                     print("[ScreenTimeService] ✅ Activity scheduled successfully!")
+
+                    // Refresh event mappings to ensure category keys are written
+                    // (Required for extension to detect reward apps for time expiration blocking)
+                    self.saveEventMappings()
 
                     // Persist monitoring state for auto-restart on app launch
                     if let sharedDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
@@ -1461,38 +1333,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print(String(repeating: "=", count: 60) + "\n")
     }
 
-    // MARK: - Diagnostic Polling System
+    // MARK: - Diagnostic Polling System (Disabled for performance)
 
-    /// Start polling extension data every N seconds to diagnose tracking issues
-    /// - Parameter interval: Polling interval in seconds (default: 10)
+    /// Start polling extension data - DISABLED for performance
     func startDiagnosticPolling(interval: TimeInterval = 10) {
-        stopDiagnosticPolling()
-
-        print("\n" + String(repeating: "🔍", count: 30))
-        print("[DiagnosticPolling] 🚀 STARTING DIAGNOSTIC POLLING (every \(Int(interval))s)")
-        print(String(repeating: "🔍", count: 30) + "\n")
-
-        diagnosticPollCount = 0
-        lastPolledUsageValues.removeAll()
-
-        // Initial poll immediately
-        pollExtensionData()
-
-        // Schedule timer
-        diagnosticPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pollExtensionData()
-            }
-        }
+        // Disabled - was causing excessive logging and lag
     }
 
     /// Stop diagnostic polling
     func stopDiagnosticPolling() {
         diagnosticPollingTimer?.invalidate()
         diagnosticPollingTimer = nil
-        if diagnosticPollCount > 0 {
-            print("[DiagnosticPolling] ⏹️ Stopped after \(diagnosticPollCount) polls")
-        }
     }
 
     /// Poll extension data and log any changes
@@ -1593,8 +1444,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let extLog = defaults.string(forKey: "extension_debug_log") ?? ""
         let logLines = extLog.components(separatedBy: "\n").filter { !$0.isEmpty }
         if !logLines.isEmpty {
-            print("  📝 Extension log (last 3 entries):")
-            for line in logLines.suffix(3) {
+            print("  📝 Extension log (last 20 entries):")
+            for line in logLines.suffix(20) {
                 print("     \(line)")
             }
         } else {
@@ -1925,24 +1776,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
             result[entry.key] = entry.value.deviceActivityEvent()
         }
-        
-        #if DEBUG
-        print("[ScreenTimeService] Scheduling activity:")
-        print("[ScreenTimeService]   Activity name: \(activityName.rawValue)")
-        print("[ScreenTimeService]   Schedule: 00:00 - 23:59 (repeating)")
-        print("[ScreenTimeService]   Events count: \(events.count)")
-        
-        for (name, event) in events {
-            print("[ScreenTimeService]   Event: \(name.rawValue)")
-            print("[ScreenTimeService]     Applications count: \(event.applications.count)")
-            print("[ScreenTimeService]     Threshold: \(event.threshold)")
-            
-            // Log application details
-            for (index, token) in event.applications.enumerated() {
-                print("[ScreenTimeService]       App \(index): Token \(token)")
-            }
-        }
-        #endif
         
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
 
@@ -3179,7 +3012,8 @@ func configureWithTestApplications() {
             let linkedGoals = schedule.linkedLearningApps.map { linked in
                 ExtensionGoalConfig.LinkedGoal(
                     learningAppLogicalID: linked.logicalID,
-                    minutesRequired: linked.minutesRequired
+                    minutesRequired: linked.minutesRequired,
+                    rewardMinutesEarned: linked.rewardMinutesEarned
                 )
             }
 
