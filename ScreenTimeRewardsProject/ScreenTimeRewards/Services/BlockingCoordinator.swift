@@ -495,9 +495,11 @@ class BlockingCoordinator: ObservableObject {
                 let cappedCurrent = min(currentMinutes, linkedApp.minutesRequired)
                 totalCurrent += cappedCurrent
 
-                // Check if this individual goal is met
+                // Check if this individual goal is met (at least 1 round completed)
                 if currentMinutes >= linkedApp.minutesRequired {
-                    totalRewardEarned += linkedApp.rewardMinutesEarned
+                    // Calculate completed rounds and earn reward for each round
+                    let completedRounds = currentMinutes / linkedApp.minutesRequired
+                    totalRewardEarned += completedRounds * linkedApp.rewardMinutesEarned
                 } else {
                     allGoalsMet = false
                 }
@@ -516,15 +518,17 @@ class BlockingCoordinator: ObservableObject {
                 let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
                 let target = linkedApp.minutesRequired
 
-                // Check if this app's goal is met
+                // Check if this app's goal is met (at least 1 round completed)
                 if currentMinutes >= target {
+                    // Calculate completed rounds and earn reward for each round
+                    let completedRounds = currentMinutes / target
                     let result = LearningGoalCheckResult(
                         isGoalMet: true,
                         targetMinutes: target,
                         currentMinutes: currentMinutes,
-                        rewardMinutesEarned: linkedApp.rewardMinutesEarned
+                        rewardMinutesEarned: completedRounds * linkedApp.rewardMinutesEarned
                     )
-                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied)")
+                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied, \(completedRounds) rounds)")
                     return result
                 }
 

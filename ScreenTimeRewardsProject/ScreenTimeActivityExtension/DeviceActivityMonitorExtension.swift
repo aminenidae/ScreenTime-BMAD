@@ -20,31 +20,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
-        writeDebugLog("Extension init() called")
-
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(true, forKey: "extension_initialized_flag")
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_initialized")
             defaults.synchronize()
-            writeDebugLog("Extension initialized successfully")
-        } else {
-            writeDebugLog("ERROR: Failed to access app group in init")
         }
     }
 
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
-        writeDebugLog("intervalDidStart: \(activity.rawValue)")
         updateHeartbeat()
     }
 
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
-        writeDebugLog("intervalDidEnd: \(activity.rawValue)")
+        // No-op
     }
 
     // MARK: - Threshold Event Handler
     override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
-        writeDebugLog("eventDidReachThreshold: \(event.rawValue)")
         updateHeartbeat()
 
         // Record usage and signal re-arm
@@ -62,17 +55,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// KEY FIX: Uses SET semantics based on threshold minute, not INCREMENT
     /// This prevents phantom usage from accumulating
     private nonisolated func recordUsageEfficiently(for eventName: String) -> Bool {
-        writeDebugLog("recordUsageEfficiently: \(eventName)")
-
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            writeDebugLog("ERROR: Cannot access app group")
             return false
         }
 
         // 1. Read event mapping (primitives only)
         let mapIdKey = "map_\(eventName)_id"
         guard let appID = defaults.string(forKey: mapIdKey) else {
-            writeDebugLog("ERROR: No mapping found for '\(mapIdKey)'")
             // Try to read from JSON eventMappings as fallback
             if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
                 return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
@@ -81,43 +70,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // 2. Extract the minute number from event name (e.g., "usage.app.0.min.15" → 15)
-        // This is the CUMULATIVE minutes reached, not an increment
         let thresholdMinutes = extractMinuteFromEventName(eventName)
         let thresholdSeconds = thresholdMinutes * 60
 
-        writeDebugLog("Found mapping: appID=\(appID), thresholdMinutes=\(thresholdMinutes)")
-
         // 3. SET usage to threshold value (not INCREMENT)
-        // NOTE: Cooldown removed because SET semantics already prevent double-counting
-        // The setUsageToThreshold function only updates if threshold > current usage
-        // This allows rapid catch-up events to fire correctly (e.g., thresholds 4,5,6,7 after accumulated usage)
         let now = Date().timeIntervalSince1970
-        // This prevents phantom usage from accumulating
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
 
         if !didUpdate {
-            writeDebugLog("SKIPPED: Current usage already >= threshold (\(thresholdSeconds)s)")
             return false
         }
 
         // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
         defaults.set(now, forKey: "rearm_\(appID)_time")
-
         defaults.synchronize()
 
-        // Log memory usage after recording
-        let memoryMB = getMemoryUsageMB()
-        writeDebugLog("SUCCESS: Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(appID) - Memory: \(String(format: "%.1f", memoryMB))MB")
-
-        // Check for high memory usage
-        if memoryMB > 5.0 {
-            writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
-        }
-
-        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met
-        // This allows immediate unblocking without waiting for the main app
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
         checkAndUpdateShields(defaults: defaults)
+
+        // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
+        // Called after EVERY usage event (learning or reward) because:
+        // - Reward app usage might exceed earned time -> block
+        // - Learning app usage might increase earned time (but we still check for exhaustion)
+        checkAndBlockIfRewardTimeExhausted(defaults: defaults)
 
         return true
     }
@@ -161,8 +137,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Day rollover check
         if lastReset < startOfToday {
-            writeDebugLog("🌅 New day detected - performing global reset")
-
             // Check if we've already done a global reset today
             let globalResetKey = "global_daily_reset_timestamp"
             let lastGlobalReset = defaults.double(forKey: globalResetKey)
@@ -170,7 +144,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if lastGlobalReset < startOfToday {
                 resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
                 defaults.set(startOfToday, forKey: globalResetKey)
-                writeDebugLog("✅ Global reset completed")
                 notifyMainApp()
             }
 
@@ -182,7 +155,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
             // === PROTECTED ext_ KEYS (Source of Truth) ===
-            // These keys are ONLY written by extension, NEVER by main app
             defaults.set(60, forKey: "ext_usage_\(appID)_today")
             defaults.set(60, forKey: "ext_usage_\(appID)_total")
             defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
@@ -190,21 +162,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
             // === HOURLY BUCKET TRACKING ===
-            // Reset all hourly buckets for new day, then set current hour
             for h in 0..<24 {
                 defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
             }
             defaults.set(60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
             defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
 
-            writeDebugLog("🌅 New day: \(appID) today=60s (first event, threshold=\(thresholdSeconds)s)")
-            writeDebugLog("🔒 ext_ keys: today=60s, total=60s, date=\(dateString), hour[\(hour)]=60s")
             return true
         }
 
-        // Same day - check for catch-up vs new session using DUAL protection:
-        // 1. Global restart timestamp (catches catch-up after adding/removing apps)
-        // 2. Per-app event timing (catches rapid-fire catch-up events)
+        // Same day - check for catch-up vs new session
         let currentToday = defaults.integer(forKey: todayKey)
         var lastThreshold = defaults.integer(forKey: lastThresholdKey)
         let lastEventTime = defaults.double(forKey: "usage_\(appID)_lastEventTime")
@@ -216,7 +183,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Case 1: Duplicate threshold
         if thresholdSeconds == lastThreshold {
-            writeDebugLog("⏭️ SKIP: threshold=\(thresholdSeconds)s == last=\(lastThreshold)s (duplicate)")
             return false
         }
 
@@ -224,28 +190,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if thresholdSeconds < lastThreshold {
             // Check 1: Within 120s of monitoring restart → ALWAYS skip (catch-up from app list change)
             if timeSinceRestart < 120.0 && restartTimestamp > 0 {
-                writeDebugLog("⏭️ SKIP catch-up (restart): threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, only \(String(format: "%.1f", timeSinceRestart))s since monitoring restart")
                 defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
                 return false
             }
 
             // Check 2: Rapid fire (< 30s since last event for this app) → catch-up, skip
             if timeSinceLastEvent < 30.0 && lastEventTime > 0 {
-                writeDebugLog("⏭️ SKIP catch-up (rapid): threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, only \(String(format: "%.1f", timeSinceLastEvent))s since last event")
                 defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
                 return false
             }
 
-            // Both checks passed: >= 120s since restart AND >= 30s since last event
-            // This is likely a genuine new session → reset lastThreshold to allow recording
-            writeDebugLog("📱 New session: threshold=\(thresholdSeconds)s < last=\(lastThreshold)s, \(String(format: "%.1f", timeSinceRestart))s since restart, \(String(format: "%.1f", timeSinceLastEvent))s since last event → resetting")
+            // Both checks passed: likely a genuine new session → reset lastThreshold
             defaults.set(0, forKey: lastThresholdKey)
-            lastThreshold = 0  // Update local var for the check below
-            // Fall through to record usage
+            lastThreshold = 0
         }
 
         // Case 3: Normal progression (threshold > lastThreshold, or after reset)
-        // Update lastEventTime
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
         let newToday = currentToday + 60
         defaults.set(newToday, forKey: todayKey)
@@ -258,22 +218,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
         // === PROTECTED ext_ KEYS (Source of Truth) ===
-        // Read current ext_ values
         let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
         let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
         let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
 
-        // Check if ext_ date needs reset (new day)
         let newExtToday: Int
         if currentExtDate == dateString {
             newExtToday = currentExtToday + 60
         } else {
             newExtToday = 60 // New day, reset
-            writeDebugLog("🔒 ext_ day rollover detected")
         }
         let newExtTotal = currentExtTotal + 60
 
-        // Write protected ext_ keys
         defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
         defaults.set(newExtTotal, forKey: "ext_usage_\(appID)_total")
         defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
@@ -281,21 +237,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
         // === HOURLY BUCKET TRACKING ===
-        // Check if hourly data is from today, reset if not
         let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
         if storedHourlyDate != dateString {
-            // New day - reset all hourly buckets
             for h in 0..<24 {
                 defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
             }
             defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
         }
-        // Add 60s to current hour's bucket
         let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
         defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
 
-        writeDebugLog("📊 +60s: threshold=\(thresholdSeconds)s > last=\(lastThreshold)s → today=\(newToday)s, hour[\(hour)]=\(currentHourlySeconds + 60)s")
-        writeDebugLog("🔒 ext_ keys: today=\(newExtToday)s, total=\(newExtTotal)s")
         return true
     }
 
@@ -314,7 +265,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let thresholdSeconds = eventInfo["thresholdSeconds"] as? Int ?? 60
         let incrementSeconds = eventInfo["incrementSeconds"] as? Int ?? thresholdSeconds
 
-        writeDebugLog("Fallback JSON mapping: \(displayName) (\(logicalID))")
         return (logicalID, incrementSeconds, displayName, category, rewardPoints)
     }
 
@@ -323,8 +273,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func recordUsageWithMapping(_ mapping: (appID: String, increment: Int, displayName: String, category: String, rewardPoints: Int), eventName: String, defaults: UserDefaults) -> Bool {
         let now = Date().timeIntervalSince1970
 
-        // NOTE: Cooldown removed - SET semantics prevent double-counting naturally
-
         // Extract threshold minutes from event name and SET (not increment)
         let thresholdMinutes = extractMinuteFromEventName(eventName)
         let thresholdSeconds = thresholdMinutes * 60
@@ -332,12 +280,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let didUpdate = setUsageToThreshold(appID: mapping.appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
 
         if !didUpdate {
-            writeDebugLog("SKIPPED (JSON path): Current usage already >= threshold")
             return false
         }
 
         // Update JSON persistence for compatibility
-        // Delta is 60 seconds (1 threshold = 1 minute)
         updateJSONPersistence(appID: mapping.appID, increment: 60, rewardPoints: mapping.rewardPoints, defaults: defaults)
 
         // Signal re-arm request
@@ -345,17 +291,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
         defaults.synchronize()
 
-        // Log memory usage after recording
-        let memoryMB = getMemoryUsageMB()
-        writeDebugLog("SUCCESS (JSON path): Set usage to \(thresholdSeconds)s (\(thresholdMinutes)min) for \(mapping.displayName) - Memory: \(String(format: "%.1f", memoryMB))MB")
-
-        // Check for high memory usage
-        if memoryMB > 5.0 {
-            writeDebugLog("⚠️ HIGH MEMORY: \(String(format: "%.1f", memoryMB))MB / 6MB limit")
-        }
-
-        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
         checkAndUpdateShields(defaults: defaults)
+
+        // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
+        checkAndBlockIfRewardTimeExhausted(defaults: defaults)
 
         return true
     }
@@ -412,7 +352,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // New day - reset today counter
             defaults.set(seconds, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
-            writeDebugLog("New day detected - reset today counter")
         } else {
             let currentToday = defaults.integer(forKey: todayKey)
             defaults.set(currentToday + seconds, forKey: todayKey)
@@ -420,8 +359,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Update last modified timestamp
         defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
-
-        writeDebugLog("Updated counters: total=\(currentTotal + seconds)s")
     }
 
     // MARK: - Utilities
@@ -441,7 +378,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         guard kr == KERN_SUCCESS else {
-            writeDebugLog("Failed to get memory usage")
             return 0.0
         }
 
@@ -453,15 +389,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func updateHeartbeat() {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_heartbeat")
-
-            // Add memory tracking
             let memoryMB = getMemoryUsageMB()
             defaults.set(memoryMB, forKey: "extension_memory_mb")
-
             defaults.synchronize()
-
-            // Log memory for debugging
-            writeDebugLog("Heartbeat updated - Memory: \(String(format: "%.1f", memoryMB))MB")
         }
     }
 
@@ -498,27 +428,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(0, forKey: todayKey)
                 defaults.set(startOfToday, forKey: resetKey)
                 defaults.set(0, forKey: totalKey)
-                defaults.set(0, forKey: lastThresholdKey) // Reset lastThreshold for new day
+                defaults.set(0, forKey: lastThresholdKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
 
                 // Reset hourly buckets
                 for h in 0..<24 {
                     defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
                 }
-                // Clear hourly date so it gets set fresh on next event
                 defaults.removeObject(forKey: "ext_usage_\(appID)_hourly_date")
-
-                writeDebugLog("Reset \(appID): today=0s, lastThreshold=0s, hourly buckets cleared")
             }
         }
-
-        writeDebugLog("Global reset completed for \(appIDs.count) apps")
     }
 
     /// Send Darwin notification to main app with sequence tracking for diagnostics
     private nonisolated func notifyMainApp() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            writeDebugLog("ERROR: Cannot access app group for notification")
             return
         }
 
@@ -537,28 +461,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             nil,
             true
         )
-
-        writeDebugLog("📤 SENT Darwin notification #\(nextSeq)")
-    }
-
-    /// Write debug log (memory-efficient circular buffer)
-    private nonisolated func writeDebugLog(_ message: String) {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-
-        let timestamp = Date().timeIntervalSince1970
-        let entry = "[\(String(format: "%.0f", timestamp))] \(message)\n"
-
-        var log = defaults.string(forKey: "extension_debug_log") ?? ""
-        log += entry
-
-        // Keep only last 50 lines
-        let lines = log.components(separatedBy: "\n")
-        if lines.count > 50 {
-            log = lines.suffix(50).joined(separator: "\n")
-        }
-
-        defaults.set(log, forKey: "extension_debug_log")
-        // Don't synchronize here to reduce I/O - let it batch
     }
 
     // MARK: - Extension Shield Control
@@ -568,42 +470,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Check all reward app goals and update shields accordingly
     /// Called after each usage recording to immediately unblock reward apps when goals are met
     private nonisolated func checkAndUpdateShields(defaults: UserDefaults) {
-        // Read goal configs from App Group
-        guard let data = defaults.data(forKey: "extensionShieldConfigs") else {
-            writeDebugLog("🔒 No shield configs found - skipping goal check")
+        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
+              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
             return
         }
-
-        guard let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
-            writeDebugLog("🔒 Failed to decode shield configs")
-            return
-        }
-
-        writeDebugLog("🔒 Checking \(configs.goalConfigs.count) reward app goals")
 
         for goalConfig in configs.goalConfigs {
             let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
 
-            writeDebugLog("🔒   \(goalConfig.rewardAppLogicalID): goal=\(isGoalMet ? "MET ✅" : "NOT MET")")
-
             if isGoalMet {
-                // Deserialize token using PropertyListDecoder
                 guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
-                    writeDebugLog("🔒   ⚠️ Failed to decode token for \(goalConfig.rewardAppLogicalID)")
                     continue
                 }
 
-                // Get current shields and remove this token (unblock)
                 var currentShields = managedSettingsStore.shield.applications ?? Set()
                 if currentShields.contains(token) {
                     currentShields.remove(token)
                     managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
-                    writeDebugLog("🔓 UNBLOCKED reward app: \(goalConfig.rewardAppLogicalID)")
-
-                    // Record the unlock state for main app to read
                     recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
-                } else {
-                    writeDebugLog("🔒   Already unblocked: \(goalConfig.rewardAppLogicalID)")
                 }
             }
         }
@@ -613,12 +497,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func checkGoalMet(goalConfig: ExtensionGoalConfigMinimal, defaults: UserDefaults) -> Bool {
         switch goalConfig.unlockMode {
         case "any":
-            // Any one linked app meeting its goal is sufficient
             for linked in goalConfig.linkedLearningApps {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
-                writeDebugLog("🔒     Check (any): \(linked.learningAppLogicalID) = \(usageMinutes)/\(linked.minutesRequired) min")
                 if usageMinutes >= linked.minutesRequired {
                     return true
                 }
@@ -626,17 +508,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
 
         case "all":
-            // All linked apps must meet their goals
             for linked in goalConfig.linkedLearningApps {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
-                writeDebugLog("🔒     Check (all): \(linked.learningAppLogicalID) = \(usageMinutes)/\(linked.minutesRequired) min")
                 if usageMinutes < linked.minutesRequired {
                     return false
                 }
             }
-            return !goalConfig.linkedLearningApps.isEmpty  // True if all met (and there are linked apps)
+            return !goalConfig.linkedLearningApps.isEmpty
 
         default:
             return false
@@ -657,6 +537,129 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         defaults.synchronize()
     }
+
+    // MARK: - Unified Shield Blocking (when reward time expires)
+    // Uses the same extensionShieldConfigs data as unlocking for consistency
+
+    /// Check if any reward app has exhausted its earned time and block it
+    /// Formula: rewardAppUsageMinutes >= earnedRewardMinutes → Re-apply shield
+    /// This uses the same data source (extensionShieldConfigs) as the unlock logic
+    private nonisolated func checkAndBlockIfRewardTimeExhausted(defaults: UserDefaults) {
+        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
+              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+            return
+        }
+
+        for goalConfig in configs.goalConfigs {
+            // 1. Calculate total earned minutes from met learning goals
+            let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
+
+            // 2. Get reward app usage (today)
+            let usageKey = "usage_\(goalConfig.rewardAppLogicalID)_today"
+            let usageSeconds = defaults.integer(forKey: usageKey)
+            let usageMinutes = usageSeconds / 60
+
+            // 3. If usage >= earned AND earned > 0, re-apply shield
+            // (earned > 0 means goals were met at some point today)
+            if earnedMinutes > 0 && usageMinutes >= earnedMinutes {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    // Record block state for main app to sync
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    // Persist blocking reason for ShieldConfigurationExtension
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,  // Use logicalID as key
+                        reasonType: "rewardTimeExpired",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+                }
+            }
+        }
+    }
+
+    /// Calculate total earned reward minutes for a reward app based on met learning goals
+    /// Uses the same logic as checkGoalMet() but returns the reward minutes instead of bool
+    private nonisolated func calculateEarnedMinutes(
+        goalConfig: ExtensionGoalConfigMinimal,
+        defaults: UserDefaults
+    ) -> Int {
+        switch goalConfig.unlockMode {
+        case "any":
+            // First met goal earns reward minutes (for each completed round)
+            for linked in goalConfig.linkedLearningApps {
+                let usageKey = "usage_\(linked.learningAppLogicalID)_today"
+                let usageSeconds = defaults.integer(forKey: usageKey)
+                let usageMinutes = usageSeconds / 60
+                if usageMinutes >= linked.minutesRequired {
+                    // Calculate completed rounds and earn reward for each round
+                    let completedRounds = usageMinutes / linked.minutesRequired
+                    return completedRounds * linked.rewardMinutesEarned
+                }
+            }
+            return 0
+
+        case "all":
+            // All goals must be met (at least 1 round each), then sum all earned rewards
+            var totalEarned = 0
+            for linked in goalConfig.linkedLearningApps {
+                let usageKey = "usage_\(linked.learningAppLogicalID)_today"
+                let usageSeconds = defaults.integer(forKey: usageKey)
+                let usageMinutes = usageSeconds / 60
+                if usageMinutes < linked.minutesRequired {
+                    return 0  // Not all goals met (at least 1 round required)
+                }
+                // Calculate completed rounds and earn reward for each round
+                let completedRounds = usageMinutes / linked.minutesRequired
+                totalEarned += completedRounds * linked.rewardMinutesEarned
+            }
+            return totalEarned
+
+        default:
+            return 0
+        }
+    }
+
+    /// Persist blocking reason for ShieldConfigurationExtension to display correct message
+    private nonisolated func persistBlockingReason(
+        tokenHash: String,
+        reasonType: String,
+        usedMinutes: Int,
+        defaults: UserDefaults
+    ) {
+        let key = "appBlocking_\(tokenHash)"
+        let blockingInfo: [String: Any] = [
+            "tokenHash": tokenHash,
+            "reasonType": reasonType,
+            "updatedAt": Date().timeIntervalSince1970,
+            "rewardUsedMinutes": usedMinutes
+        ]
+        defaults.set(blockingInfo, forKey: key)
+    }
+
+    /// Record block state for main app to sync
+    private nonisolated func recordBlockState(rewardAppLogicalID: String, defaults: UserDefaults) {
+        let now = Date()
+        let stateKey = "ext_block_\(rewardAppLogicalID)"
+        let timestampKey = "ext_block_\(rewardAppLogicalID)_timestamp"
+
+        defaults.set(true, forKey: stateKey)
+        defaults.set(now.timeIntervalSince1970, forKey: timestampKey)
+
+        // Update global "last block" timestamp so main app knows something changed
+        defaults.set(now.timeIntervalSince1970, forKey: "ext_last_block_timestamp")
+
+        defaults.synchronize()
+    }
 }
 
 // MARK: - Minimal Structs for Shield Config (avoid importing main app's models)
@@ -671,6 +674,7 @@ private struct ExtensionGoalConfigMinimal: Codable {
     struct LinkedGoalMinimal: Codable {
         let learningAppLogicalID: String
         let minutesRequired: Int
+        let rewardMinutesEarned: Int
     }
 }
 
