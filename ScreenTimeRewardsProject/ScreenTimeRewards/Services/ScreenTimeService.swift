@@ -200,8 +200,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
         print("=" + String(repeating: "=", count: 50))
 
-        // Diagnostic polling disabled to reduce log noise and improve performance
-        // Can be re-enabled manually if needed for debugging
+        // Enable polling as fallback for DEBUG builds (Darwin notifications fail in Xcode)
+        #if DEBUG
+        startDebugPolling()
+        #endif
     }
 
     // MARK: - Helper Methods
@@ -737,8 +739,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 180 MINUTE THRESHOLDS PER APP:
-        // Create 180 consecutive 1-minute threshold events per app (3 hours of tracking)
+        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
+        // Create 60 consecutive 1-minute threshold events per app (1 hour of tracking)
         // Each threshold fires once when that minute is reached - NO re-arm/restart needed
         // Extension uses memory-efficient primitive key storage (not JSON parsing)
         // This avoids the bug where restarting monitoring resets iOS usage counters
@@ -754,16 +756,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             #if DEBUG
-            print("[ScreenTimeService] Creating 180 threshold events for \(applications.count) \(category.rawValue) app(s)")
+            print("[ScreenTimeService] Creating 60 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
             // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
-            // 180 minutes = 3 hours of reliable tracking per app
+            // 60 minutes = 1 hour of reliable tracking per app
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 180   // 3 hours - iOS handles this reliably
+                let endMinute = 60    // 1 hour - reduces phantom event surface area
                 // Use stable app identifier instead of sequential index to prevent
                 // usage doubling when app list order changes
                 // NOTE: Using DJB2 hash instead of Swift's .hashValue because
@@ -791,7 +793,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         let totalEvents = monitoredEvents.count
-        print("[ScreenTimeService] Created \(totalEvents) total threshold events (180 per app)")
+        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -1057,47 +1059,79 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// resetDailyCounters (day change). This function trusts extension data for real-time sync.
     private func readExtensionUsageData(defaults: UserDefaults) {
         for (logicalID, var usage) in appUsages {
-            // Read from extension's primitive keys
-            let totalKey = "usage_\(logicalID)_total"
-            let todayKey = "usage_\(logicalID)_today"
+            // Read from PROTECTED ext_ keys (SET semantics - source of truth)
+            // These keys use max(current, threshold) logic, preventing phantom inflation
+            let extTodayKey = "ext_usage_\(logicalID)_today"
+            let extTotalKey = "ext_usage_\(logicalID)_total"
+            let extDateKey = "ext_usage_\(logicalID)_date"
 
-            let totalSeconds = defaults.integer(forKey: totalKey)
-            let todaySeconds = defaults.integer(forKey: todayKey)
+            let extTodaySeconds = defaults.integer(forKey: extTodayKey)
+            let extTotalSeconds = defaults.integer(forKey: extTotalKey)
+            let extDateString = defaults.string(forKey: extDateKey)
 
-            if totalSeconds > 0 || todaySeconds > 0 {
+            // Also read legacy keys for logging/debugging only
+            let legacyTodaySeconds = defaults.integer(forKey: "usage_\(logicalID)_today")
+            let shortID = String(logicalID.prefix(8))
+
+            if extTodaySeconds > 0 || extTotalSeconds > 0 {
+                print("[SYNC] \(shortID)...: ext_today=\(extTodaySeconds)s ext_total=\(extTotalSeconds)s legacy_today=\(legacyTodaySeconds)s")
+
                 // Update in-memory usage - totalTime is the cumulative value
-                usage.totalTime = TimeInterval(totalSeconds)
+                usage.totalTime = TimeInterval(extTotalSeconds)
                 appUsages[logicalID] = usage
 
                 // Also sync to usagePersistence so UI snapshots show correct data
                 if var persistedApp = usagePersistence.app(for: logicalID) {
-                    let resetKey = "usage_\(logicalID)_reset"
-                    let extensionResetTimestamp = defaults.double(forKey: resetKey)
-                    let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+                    // Check if ext_ data is from today using the date string
+                    let todayDateString = {
+                        let formatter = DateFormatter()
+                        formatter.dateFormat = "yyyy-MM-dd"
+                        return formatter.string(from: Date())
+                    }()
+                    let isFromToday = extDateString == todayDateString
 
-                    // Only sync if extension data is from today AND is higher
-                    if extensionResetTimestamp >= startOfToday && todaySeconds > persistedApp.todaySeconds {
-                        let deltaSeconds = todaySeconds - persistedApp.todaySeconds
+                    print("[SYNC] \(shortID)...: persisted_today=\(persistedApp.todaySeconds)s ext_date=\(extDateString ?? "nil") today=\(todayDateString)")
 
-                        persistedApp.todaySeconds = todaySeconds
-                        persistedApp.totalSeconds = max(totalSeconds, persistedApp.totalSeconds)
-                        persistedApp.lastUpdated = Date()
-                        persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
+                    // Trust extension as source of truth for today's usage
+                    if isFromToday {
+                        let deltaSeconds = extTodaySeconds - persistedApp.todaySeconds
 
-                        // Bucket usage into the current hour for hourly chart
-                        let currentHour = Calendar.current.component(.hour, from: Date())
-                        if persistedApp.todayHourlySeconds == nil {
-                            persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
-                            persistedApp.todayHourlySeconds?[currentHour] = todaySeconds
+                        if extTodaySeconds != persistedApp.todaySeconds {
+                            if deltaSeconds > 0 {
+                                print("[SYNC] \(shortID)...: ✅ SYNCING delta=+\(deltaSeconds)s newToday=\(extTodaySeconds)s")
+                            } else {
+                                print("[SYNC] \(shortID)...: 🔧 CORRECTING delta=\(deltaSeconds)s newToday=\(extTodaySeconds)s (was inflated)")
+                            }
+
+                            persistedApp.todaySeconds = extTodaySeconds
+                            persistedApp.totalSeconds = max(extTotalSeconds, persistedApp.totalSeconds)
+                            persistedApp.lastUpdated = Date()
+                            persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
+
+                            // Bucket usage into the current hour for hourly chart
+                            let currentHour = Calendar.current.component(.hour, from: Date())
+                            if deltaSeconds > 0 {
+                                // Normal increase - add delta to current hour
+                                if persistedApp.todayHourlySeconds == nil {
+                                    persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
+                                    persistedApp.todayHourlySeconds?[currentHour] = extTodaySeconds
+                                } else {
+                                    persistedApp.todayHourlySeconds?[currentHour] += deltaSeconds
+                                }
+                            } else {
+                                // Correction (decrease) - reset hourly and set current hour to total
+                                // We don't know which hours were inflated, so reset all
+                                persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
+                                persistedApp.todayHourlySeconds?[currentHour] = extTodaySeconds
+                            }
+
+                            usagePersistence.saveApp(persistedApp)
                         } else {
-                            persistedApp.todayHourlySeconds?[currentHour] += deltaSeconds
+                            print("[SYNC] \(shortID)...: ⏭️ SKIPPED reason=no_change (ext=\(extTodaySeconds)s)")
                         }
-
-                        usagePersistence.saveApp(persistedApp)
-                    } else if extensionResetTimestamp < startOfToday && todaySeconds > 0 {
-                        // Extension has stale data from yesterday - clear it
-                        defaults.set(0, forKey: todayKey)
-                        defaults.set(startOfToday, forKey: resetKey)
+                    } else if extTodaySeconds > 0 {
+                        // Extension has stale data from yesterday - log it (ext_ keys auto-reset on new day)
+                        print("[SYNC] \(shortID)...: ⚠️ STALE ext data (ext_date=\(extDateString ?? "nil") != today=\(todayDateString))")
                     }
                 }
             }
@@ -1332,6 +1366,43 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         print(String(repeating: "=", count: 60) + "\n")
     }
+
+    // MARK: - DEBUG Polling System (Fallback for Xcode builds)
+
+    #if DEBUG
+    private var debugPollingTimer: Timer?
+
+    /// Start simple polling for DEBUG builds (Darwin notifications don't work in Xcode)
+    private func startDebugPolling(interval: TimeInterval = 10) {
+        guard debugPollingTimer == nil else { return }
+
+        print("[ScreenTimeService] 🔄 Starting DEBUG polling (every \(Int(interval))s)")
+        print("[ScreenTimeService] ℹ️ This is needed because Darwin notifications fail during Xcode debugging")
+
+        debugPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            self?.performDebugSync()
+        }
+        RunLoop.current.add(debugPollingTimer!, forMode: .common)
+    }
+
+    /// Stop DEBUG polling
+    private func stopDebugPolling() {
+        debugPollingTimer?.invalidate()
+        debugPollingTimer = nil
+    }
+
+    /// Simple sync for DEBUG polling - minimal logging
+    private func performDebugSync() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        defaults.synchronize() // Force read from disk
+
+        // Sync extension data
+        readExtensionUsageData(defaults: defaults)
+
+        // Notify UI
+        notifyUsageChange()
+    }
+    #endif
 
     // MARK: - Diagnostic Polling System (Disabled for performance)
 
