@@ -8,6 +8,13 @@ import ManagedSettings
 /// Strategy: Primitive key-value storage + re-arm signaling for minute-by-minute tracking
 final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
+    // MARK: - Session Tracking
+    /// Unique session ID for this extension instance (persists until extension terminates)
+    private static let sessionID: String = {
+        let id = UUID().uuidString.prefix(8)
+        return String(id)
+    }()
+
     // MARK: - Constants
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     // NOTE: cooldownSeconds removed - SET semantics prevent double-counting naturally
@@ -18,16 +25,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private let managedSettingsStore = ManagedSettingsStore()
 
     // MARK: - Debug Logging
-    /// Write debug log entry to shared UserDefaults buffer (last 100 entries)
+    /// Write debug log entry to shared UserDefaults buffer (last 500 entries)
     private nonisolated func debugLog(_ message: String, defaults: UserDefaults) {
         let formatter = DateFormatter()
         formatter.dateFormat = "HH:mm:ss.SSS"
         let timestamp = formatter.string(from: Date())
-        let entry = "[\(timestamp)] \(message)"
+        let entry = "[\(timestamp)][\(Self.sessionID)] \(message)"
 
         var log = defaults.string(forKey: "extension_debug_log") ?? ""
         let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let trimmedLines = Array(lines.suffix(99)) // Keep last 99 to add 1 more
+        let trimmedLines = Array(lines.suffix(499)) // Keep last 499 to add 1 more (500 total)
         log = (trimmedLines + [entry]).joined(separator: "\n")
         defaults.set(log, forKey: "extension_debug_log")
         defaults.synchronize() // Ensure log is persisted before extension terminates
@@ -45,15 +52,28 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+        }
         updateHeartbeat()
     }
 
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
-        // No-op
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+        }
     }
 
     // MARK: - Threshold Event Handler
     override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
+        // Log FIRST - before any processing that could fail
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
+            // Increment persistent counter to track total events received
+            let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
+            defaults.set(eventCount, forKey: "ext_total_events_received")
+        }
+
         updateHeartbeat()
 
         // Record usage and signal re-arm
@@ -180,12 +200,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             // === PROTECTED ext_ KEYS (TRUE Source of Truth) ===
             // Uses INCREMENT semantics: first event of new day = 60s
+            debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=60 total=60 date=\(dateString) hour=\(hour)", defaults: defaults)
             defaults.set(60, forKey: "ext_usage_\(appID)_today")
             defaults.set(60, forKey: "ext_usage_\(appID)_total")
             defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
             defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
             defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-            debugLog("EXT_INC appID=\(appID.prefix(8))... NEW_DAY ext_today=60s", defaults: defaults)
 
             // === HOURLY BUCKET TRACKING ===
             for h in 0..<24 {
@@ -217,9 +237,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if thresholdSeconds < lastThreshold {
             debugLog("THRESH_DECREASE appID=\(appID.prefix(8))... new=\(thresholdSeconds)s < last=\(lastThreshold)s, checking catch-up...", defaults: defaults)
 
-            // Check 1: Within 120s of monitoring restart → ALWAYS skip (catch-up from app list change)
-            if timeSinceRestart < 120.0 && restartTimestamp > 0 {
-                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 120s", defaults: defaults)
+            // Check 1: Within 50s of monitoring restart → ALWAYS skip (catch-up from app list change)
+            if timeSinceRestart < 50.0 && restartTimestamp > 0 {
+                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 50s", defaults: defaults)
                 defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
                 return false
             }
@@ -267,16 +287,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // Always update ext_ keys - phantom events were filtered above
+        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + 60) hour=\(hour) (was today=\(currentExtToday))", defaults: defaults)
         defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
         defaults.set(currentExtTotal + 60, forKey: "ext_usage_\(appID)_total")
         defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
         defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
         defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-        debugLog("EXT_INC appID=\(appID.prefix(8))... ext_today=\(newExtToday)s (was \(currentExtToday)s, +60s)", defaults: defaults)
 
         // === HOURLY BUCKET TRACKING ===
         let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
         if storedHourlyDate != dateString {
+            debugLog("HOURLY_RESET appID=\(appID.prefix(8))... date changed from \(storedHourlyDate ?? "nil") to \(dateString)", defaults: defaults)
             for h in 0..<24 {
                 defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
             }
@@ -463,6 +484,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Only reset if this app hasn't been reset today
             let lastReset = defaults.double(forKey: resetKey)
             if lastReset < startOfToday {
+                debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... DAILY_RESET clearing usage and hourly buckets", defaults: defaults)
                 defaults.set(0, forKey: todayKey)
                 defaults.set(startOfToday, forKey: resetKey)
                 defaults.set(0, forKey: totalKey)

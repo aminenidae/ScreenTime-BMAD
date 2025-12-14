@@ -1327,6 +1327,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let received = defaults.integer(forKey: "darwin_notification_seq_received")
         print("Darwin notifications: sent=\(sent), received=\(received)")
 
+        // 3b. Total events received by extension (helps diagnose if iOS is calling)
+        let totalEventsReceived = defaults.integer(forKey: "ext_total_events_received")
+        print("📊 Total events received by extension: \(totalEventsReceived)")
+
         // 4. Check event mappings
         if let mappingData = defaults.data(forKey: "eventMappings"),
            let mappings = try? JSONSerialization.jsonObject(with: mappingData) as? [String: Any] {
@@ -1350,11 +1354,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("  \(app.appName): today=\(today)s, total=\(total)s")
         }
 
-        // 6. Extension debug log (last 10 lines)
-        print("\n📝 Extension log (last 10 lines):")
+        // 6. Extension debug log (last 50 lines)
+        print("\n📝 Extension log (last 50 lines):")
         let log = defaults.string(forKey: "extension_debug_log") ?? ""
         let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
-        for line in lines.suffix(10) {
+        for line in lines.suffix(50) {
             print("  \(line)")
         }
 
