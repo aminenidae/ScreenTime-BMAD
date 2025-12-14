@@ -1,8 +1,9 @@
 # Phantom Usage Fix Report
 
 **Date**: 2025-12-13
-**Status**: RESOLVED ✅
+**Status**: PARTIALLY RESOLVED ⚠️
 **Base Commit**: `efa4207` (Fix build errors after challenge removal)
+**Branch**: `fix/phantom-usage-tracking` (commit `f68ea18`)
 
 ---
 
@@ -54,7 +55,8 @@ iOS DeviceActivity Framework
 │                                             │
 │  Writes to two key sets:                    │
 │  - usage_* keys (INCREMENT-based)           │
-│  - ext_usage_* keys (SET-based)             │
+│  - ext_usage_* keys (INCREMENT-based)       │
+│    ↑ Changed from SET to INCREMENT (Fix 4)  │
 └─────────────────────────────────────────────┘
          │
          │ Writes to App Group UserDefaults
@@ -67,7 +69,7 @@ iOS DeviceActivity Framework
 │  - usage_<appID>_total (seconds)            │
 │  - usage_<appID>_lastThreshold              │
 │                                             │
-│  Protected Keys (SET semantics):            │
+│  Protected Keys (INCREMENT - source of truth):│
 │  - ext_usage_<appID>_today                  │
 │  - ext_usage_<appID>_total                  │
 │  - ext_usage_<appID>_date                   │
@@ -276,6 +278,7 @@ The stable build has been running for 3 days with:
 
 ## Implementation Checklist
 
+### Completed
 - [x] Fix 1: Reduce thresholds from 180 to 60
 - [x] Fix 2: Sync reads from ext_ keys
 - [x] Fix 3: Trust extension completely (SET persisted = ext)
@@ -285,16 +288,112 @@ The stable build has been running for 3 days with:
 - [x] Test: Verify phantom events are still blocked
 - [x] Test: Confirmed stable tracking for new and existing apps
 
+### Remaining (Next Session)
+- [ ] Investigate iOS throttling workaround (if any)
+- [ ] Add session ID to debug logging
+- [ ] Increase debug buffer from 100 to 500 entries
+- [ ] Add EXT_WRITE logging at every ext_ key modification
+- [ ] Add extension lifecycle logging (intervalDidStart/End)
+- [ ] Diagnose ghost increment root cause
+- [ ] Extended production testing on TestFlight
+
 ## Resolution Summary
 
-**Date Resolved**: 2025-12-13
+**Date**: 2025-12-13
+**Status**: PARTIALLY RESOLVED
 
-The phantom usage issue has been resolved. Usage tracking now:
+The core phantom usage issue has been resolved. Usage tracking now:
 - Accurately increments by 60 seconds per minute of real usage
 - Works correctly for both new apps and existing apps
 - Blocks phantom events via SKIP_RESTART and SKIP_RAPID detection
 - Syncs in real-time during Xcode debugging (via DEBUG polling)
 - Uses Darwin notifications in production (TestFlight/App Store)
+
+However, additional anomalies were discovered during extended testing (see Remaining Issues below).
+
+---
+
+## Remaining Issues
+
+### Issue 1: iOS Throttles Threshold Events (Framework Limitation)
+
+**Test**: 551pm log - Ran app for 5 minutes 20 seconds
+**Expected**: 5 threshold events (min 8, 9, 10, 11, 12)
+**Actual**: Only 3 events recorded (min 8, 9, 10)
+
+**Analysis**:
+- Events fired for min=8, min=9, min=10 then stopped
+- iOS simply stopped firing threshold events after min=10
+- No errors or SKIP entries in log - events never arrived
+- This is iOS DeviceActivity framework behavior, NOT a code bug
+
+**Impact**: Usage may under-report if iOS throttles events. Acceptable trade-off.
+
+**Status**: NOT FIXABLE - iOS framework limitation
+
+---
+
+### Issue 2: Ghost Increments (Unresolved)
+
+**Test**: 600pm log - Added ONE new app to learning apps list
+**Expected**: No usage changes (didn't run any apps)
+**Actual**: Other apps received +60s increments without corresponding logs
+
+**Evidence**:
+```
+Extension Log:
+- All events showed SKIP_RESTART (within 80s of restart)
+- Zero RECORDED or EXT_INC entries
+- Yet ext_today values increased by 60s
+
+Sync Log:
+- ext_today values higher than before
+- No corresponding extension events logged
+```
+
+**Hypotheses**:
+1. **Old extension still running**: A previous extension instance might be writing to UserDefaults
+2. **Debug buffer overflow**: The 100-entry rolling buffer may have lost relevant logs
+3. **Unlogged code path**: There may be a code path that writes ext_ keys without logging
+
+**Status**: UNRESOLVED - Needs improved logging to diagnose
+
+---
+
+## Suggested Debug Improvements (Next Session)
+
+### 1. Add Session ID
+Track which extension instance is writing:
+```swift
+let sessionID = UUID().uuidString.prefix(8)
+// Log: "SESSION_START id=ABC12345"
+// Include in all log entries: "[ABC12345] EVENT appID=..."
+```
+
+### 2. Increase Debug Buffer Size
+Current 100 entries may overflow during rapid events:
+```swift
+let lines = log.components(separatedBy: "\n").suffix(500)  // Was 99
+```
+
+### 3. Log Every ext_ Key Write
+Add logging at EVERY location that modifies ext_ keys:
+```swift
+// Before any: defaults.set(value, forKey: "ext_usage_...")
+debugLog("EXT_WRITE key=\(key) value=\(value) caller=\(#function)", defaults: defaults)
+```
+
+### 4. Add Extension Lifecycle Logging
+Log when extension starts/stops:
+```swift
+override func intervalDidStart(for activity: DeviceActivityName) {
+    debugLog("EXTENSION_START activity=\(activity.rawValue)", defaults: defaults)
+}
+
+override func intervalDidEnd(for activity: DeviceActivityName) {
+    debugLog("EXTENSION_END activity=\(activity.rawValue)", defaults: defaults)
+}
+```
 
 ---
 
@@ -319,3 +418,17 @@ The phantom usage issue has been resolved. Usage tracking now:
 3. **INCREMENT + phantom detection = correct tracking**: Events that pass phantom detection are legitimate and should be recorded with INCREMENT.
 
 4. **Stable reference is valuable**: Having a known-working build (iPad Dec 10) provided crucial comparison data.
+
+5. **iOS DeviceActivity throttles events**: The framework doesn't guarantee events fire every minute. Events may be batched or skipped by iOS.
+
+6. **Debug logging is critical**: The 100-entry rolling buffer may be insufficient for diagnosing issues. Session IDs would help identify which extension instance is writing.
+
+7. **Ghost increments suggest unlogged writes**: If ext_ values change without logs, either the buffer overflowed, an old extension is running, or there's an unlogged code path.
+
+---
+
+## Next Session Priority
+
+1. **High**: Add session ID and increase debug buffer to diagnose ghost increments
+2. **Medium**: Add EXT_WRITE logging at every ext_ key modification point
+3. **Low**: Investigate if iOS throttling can be mitigated (likely not)
