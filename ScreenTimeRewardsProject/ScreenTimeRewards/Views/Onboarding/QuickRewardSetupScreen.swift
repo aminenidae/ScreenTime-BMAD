@@ -3,6 +3,7 @@ import FamilyControls
 import ManagedSettings
 
 struct QuickRewardSetupScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appUsageViewModel: AppUsageViewModel
 
     let deviceName: String
@@ -11,6 +12,7 @@ struct QuickRewardSetupScreen: View {
 
     @State private var isPickerPresented = false
     @State private var pendingSelection = FamilyActivitySelection()
+    @State private var chestIsOpen = false
 
     private var canContinue: Bool {
         // Reward apps are optional, can continue without selecting any
@@ -19,13 +21,33 @@ struct QuickRewardSetupScreen: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            ChildOnboardingStepHeader(
-                title: "Select Reward Apps",
-                subtitle: "Choose fun apps that your child can unlock by earning points. You can skip this step.",
-                step: 3,
-                totalSteps: 5,
-                onBack: onBack
-            )
+            VStack(spacing: 16) {
+                OnboardingProgressIndicator(currentStep: 5)
+
+                // Treasure chest animation
+                TreasureChestAnimation(isOpen: $chestIsOpen)
+                    .frame(height: 120)
+                    .padding(.top, 20)
+
+                VStack(spacing: 12) {
+                    // Headline - parent-facing
+                    Text("Define Your System")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+
+                    Text("Reward Apps")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(AppTheme.playfulCoral)
+                        .multilineTextAlignment(.center)
+
+                    // Subtitle - purpose explanation
+                    Text("Select apps your child wants to use - games, entertainment, or social media")
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+            }
 
             Button(action: { isPickerPresented = true }) {
                 Label("Select Apps", systemImage: "plus.circle.fill")
@@ -41,7 +63,24 @@ struct QuickRewardSetupScreen: View {
             if pendingSelection.applicationTokens.isEmpty {
                 emptyState
             } else {
-                SelectedAppGrid(tokens: Array(pendingSelection.applicationTokens))
+                VStack(spacing: 12) {
+                    // Feedback message - parent-facing
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("\(pendingSelection.applicationTokens.count) reward apps selected")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.green.opacity(0.1))
+                    )
+                    .padding(.horizontal)
+
+                    SelectedAppGrid(tokens: Array(pendingSelection.applicationTokens))
+                }
             }
 
             Spacer()
@@ -49,25 +88,49 @@ struct QuickRewardSetupScreen: View {
             VStack(spacing: 12) {
                 Button(action: saveAndContinue) {
                     Text("Continue")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(Color.accentColor)
-                        .cornerRadius(14)
+                        .background(AppTheme.vibrantTeal)
+                        .cornerRadius(16)
                 }
 
-                Button(action: onContinue) {
-                    Text("Skip for now")
-                        .font(.system(size: 15, weight: .medium))
+                HStack(spacing: 16) {
+                    Button(action: onBack) {
+                        HStack(spacing: 6) {
+                            Image(systemName: "chevron.left")
+                            Text("Back")
+                        }
+                        .font(.system(size: 16, weight: .medium))
                         .foregroundColor(.secondary)
+                    }
+
+                    Button(action: onContinue) {
+                        Text("Skip for now")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(.secondary)
+                    }
                 }
             }
-            .padding(.bottom, 16)
+            .padding(.horizontal)
+            .padding(.bottom, 40)
         }
         .padding()
         .background(Color(.systemGroupedBackground))
         .familyActivityPicker(isPresented: $isPickerPresented, selection: $pendingSelection)
+        .onChange(of: pendingSelection.applicationTokens.count) { newValue in
+            // Open treasure chest when apps are selected
+            if newValue > 0 {
+                withAnimation {
+                    chestIsOpen = true
+                }
+            } else if newValue == 0 {
+                withAnimation {
+                    chestIsOpen = false
+                }
+            }
+        }
     }
 
     private var emptyState: some View {
@@ -75,9 +138,9 @@ struct QuickRewardSetupScreen: View {
             Image(systemName: "gamecontroller.fill")
                 .font(.system(size: 42))
                 .foregroundColor(AppTheme.playfulCoral)
-            Text("No reward apps selected")
+            Text("No apps picked yet")
                 .font(.headline)
-            Text("That's okay! You can add them later from the Rewards tab.")
+            Text("That's okay! You can add your favorites later.")
                 .font(.subheadline)
                 .foregroundColor(AppTheme.playfulCoral.opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -88,6 +151,7 @@ struct QuickRewardSetupScreen: View {
             RoundedRectangle(cornerRadius: 16)
                 .fill(AppTheme.playfulCoral.opacity(0.1))
         )
+        .padding(.horizontal)
     }
 
     private func saveAndContinue() {

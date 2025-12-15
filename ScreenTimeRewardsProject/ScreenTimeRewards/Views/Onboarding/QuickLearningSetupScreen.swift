@@ -3,6 +3,7 @@ import FamilyControls
 import ManagedSettings
 
 struct QuickLearningSetupScreen: View {
+    @Environment(\.colorScheme) private var colorScheme
     @EnvironmentObject private var appUsageViewModel: AppUsageViewModel
 
     let deviceName: String
@@ -18,13 +19,40 @@ struct QuickLearningSetupScreen: View {
 
     var body: some View {
         VStack(spacing: 24) {
-            ChildOnboardingStepHeader(
-                title: "Select Learning Apps",
-                subtitle: "Choose the educational apps installed on \(deviceName.isEmpty ? "this device" : deviceName). You can add more later.",
-                step: 2,
-                totalSteps: 4,
-                onBack: onBack
-            )
+            VStack(spacing: 16) {
+                OnboardingProgressIndicator(currentStep: 4)
+
+                VStack(spacing: 12) {
+                    // Icon
+                    ZStack {
+                        Circle()
+                            .fill(AppTheme.vibrantTeal.opacity(0.15))
+                            .frame(width: 80, height: 80)
+
+                        Image(systemName: "brain.head.profile")
+                            .font(.system(size: 40))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+
+                    // Headline - parent-facing
+                    Text("Define Your System")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+
+                    Text("Learning Apps")
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                        .multilineTextAlignment(.center)
+
+                    // Subtitle - purpose explanation
+                    Text("Select apps that encourage learning, reading, or skill development")
+                        .font(.system(size: 15))
+                        .foregroundColor(.secondary)
+                        .multilineTextAlignment(.center)
+                }
+                .padding(.top, 20)
+            }
 
             Button(action: { isPickerPresented = true }) {
                 Label("Select Apps", systemImage: "plus.circle.fill")
@@ -40,7 +68,24 @@ struct QuickLearningSetupScreen: View {
             if pendingSelection.applicationTokens.isEmpty {
                 emptyState
             } else {
-                SelectedAppGrid(tokens: Array(pendingSelection.applicationTokens))
+                VStack(spacing: 12) {
+                    // Feedback message - parent-facing
+                    HStack(spacing: 8) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .foregroundColor(.green)
+                        Text("\(pendingSelection.applicationTokens.count) learning apps selected")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    }
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(Color.green.opacity(0.1))
+                    )
+                    .padding(.horizontal)
+
+                    SelectedAppGrid(tokens: Array(pendingSelection.applicationTokens))
+                }
             }
 
             Spacer()
@@ -48,17 +93,26 @@ struct QuickLearningSetupScreen: View {
             VStack(spacing: 12) {
                 Button(action: saveAndContinue) {
                     Text(minimumMet ? "Continue" : "Select at least one app")
-                        .font(.system(size: 17, weight: .bold))
+                        .font(.system(size: 20, weight: .bold))
                         .foregroundColor(.white)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(minimumMet ? Color.accentColor : Color.accentColor.opacity(0.4))
-                        .cornerRadius(14)
+                        .background(minimumMet ? AppTheme.vibrantTeal : Color.secondary.opacity(0.4))
+                        .cornerRadius(16)
                 }
                 .disabled(!minimumMet)
 
+                Button(action: onBack) {
+                    HStack(spacing: 6) {
+                        Image(systemName: "chevron.left")
+                        Text("Back")
+                    }
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(.secondary)
+                }
             }
-            .padding(.bottom, 16)
+            .padding(.horizontal)
+            .padding(.bottom, 40)
         }
         .padding()
         .background(Color(.systemGroupedBackground))
