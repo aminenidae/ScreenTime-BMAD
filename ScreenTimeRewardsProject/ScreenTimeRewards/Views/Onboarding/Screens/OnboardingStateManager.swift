@@ -171,8 +171,21 @@ class OnboardingStateManager: ObservableObject {
             return
         }
 
-        currentScreen = state.currentScreen
-        completedScreens = state.completedScreens
+        // IMPORTANT: Always start fresh at screen 1 for new onboarding sessions
+        // Only restore currentScreen if onboarding was completed (for re-entry scenarios)
+        // Otherwise, always start from the beginning
+        if state.activationComplete {
+            currentScreen = state.currentScreen
+            completedScreens = state.completedScreens
+        } else {
+            // Fresh start - reset to screen 1
+            currentScreen = 1
+            completedScreens = []
+            // Also clear persisted state to avoid confusion
+            UserDefaults.standard.removeObject(forKey: stateKey)
+            return
+        }
+
         dailyLearningGoalMinutes = state.dailyLearningGoalMinutes
         childAgreementConfirmed = state.childAgreementConfirmed
         learningToRewardRatio = state.learningToRewardRatio
