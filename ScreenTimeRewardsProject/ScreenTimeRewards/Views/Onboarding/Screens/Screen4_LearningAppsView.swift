@@ -12,6 +12,12 @@ struct Screen4_LearningAppsView: View {
     @State private var dailyGoal: Int = 60
     @State private var childAgreementConfirmed: Bool = false
 
+    // Authorization state
+    @State private var isAuthorized = false
+    @State private var isRequestingAuth = false
+    @State private var showAuthError = false
+    @State private var authErrorMessage = ""
+
     private var hasSelectedApps: Bool {
         !onboarding.learningFamilySelection.applicationTokens.isEmpty
     }
@@ -45,44 +51,55 @@ struct Screen4_LearningAppsView: View {
                     Divider()
                         .padding(.horizontal, 24)
 
-                    // Learning apps section
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Learning apps")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .padding(.horizontal, 24)
-
-                        // Select apps button
-                        Button(action: { isPickerPresented = true }) {
-                            HStack {
-                                Image(systemName: "plus.circle.fill")
-                                    .foregroundColor(AppTheme.vibrantTeal)
-                                Text(hasSelectedApps ? "Add more apps" : "Select learning apps")
-                                    .foregroundColor(AppTheme.vibrantTeal)
-                                Spacer()
-                            }
-                            .padding(.horizontal, 24)
-                            .padding(.vertical, 12)
-                        }
-
-                        // Selected apps display
-                        if hasSelectedApps {
-                            SelectedAppsGrid(
-                                tokens: Array(onboarding.learningFamilySelection.applicationTokens),
-                                colorScheme: colorScheme
-                            )
-                            .padding(.horizontal, 24)
-                        }
+                    // Authorization section (show if not authorized)
+                    if !isAuthorized {
+                        AuthorizationSection(
+                            isRequesting: $isRequestingAuth,
+                            colorScheme: colorScheme,
+                            onRequestAuth: requestAuthorization
+                        )
                     }
 
-                    Divider()
-                        .padding(.horizontal, 24)
+                    // Learning apps section (only show if authorized)
+                    if isAuthorized {
+                        VStack(alignment: .leading, spacing: 12) {
+                            Text("Learning apps")
+                                .font(.system(size: 16, weight: .semibold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .padding(.horizontal, 24)
 
-                    // Daily goal section
-                    DailyGoalSelector(
-                        dailyGoal: $dailyGoal,
-                        colorScheme: colorScheme
-                    )
+                            // Select apps button
+                            Button(action: { isPickerPresented = true }) {
+                                HStack {
+                                    Image(systemName: "plus.circle.fill")
+                                        .foregroundColor(AppTheme.vibrantTeal)
+                                    Text(hasSelectedApps ? "Add more apps" : "Select learning apps")
+                                        .foregroundColor(AppTheme.vibrantTeal)
+                                    Spacer()
+                                }
+                                .padding(.horizontal, 24)
+                                .padding(.vertical, 12)
+                            }
+
+                            // Selected apps display
+                            if hasSelectedApps {
+                                SelectedAppsGrid(
+                                    tokens: Array(onboarding.learningFamilySelection.applicationTokens),
+                                    colorScheme: colorScheme
+                                )
+                                .padding(.horizontal, 24)
+                            }
+                        }
+
+                        Divider()
+                            .padding(.horizontal, 24)
+
+                        // Daily goal section
+                        DailyGoalSelector(
+                            dailyGoal: $dailyGoal,
+                            colorScheme: colorScheme
+                        )
+                    }
                 }
                 .padding(.vertical, 16)
             }
@@ -91,7 +108,7 @@ struct Screen4_LearningAppsView: View {
 
             // Primary CTA
             Button(action: saveAndContinue) {
-                Text(canContinue ? "Continue" : (hasSelectedApps ? "Confirm agreement above" : "Select at least one app"))
+                Text(buttonTitle)
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -120,10 +137,78 @@ struct Screen4_LearningAppsView: View {
             isPresented: $isPickerPresented,
             selection: $onboarding.learningFamilySelection
         )
+        .alert("Authorization Error", isPresented: $showAuthError) {
+            Button("Try Again", role: .cancel) {
+                requestAuthorization()
+            }
+            Button("Continue Anyway", role: .destructive) {
+                // Allow continuing without auth for testing
+            }
+        } message: {
+            Text(authErrorMessage)
+        }
         .onAppear {
             onboarding.logScreenView(screenNumber: 4)
             dailyGoal = onboarding.dailyLearningGoalMinutes
             childAgreementConfirmed = onboarding.childAgreementConfirmed
+            checkAuthorizationStatus()
+        }
+    }
+
+    private var buttonTitle: String {
+        if !isAuthorized {
+            return "Enable Screen Time access first"
+        } else if !hasSelectedApps {
+            return "Select at least one app"
+        } else if !childAgreementConfirmed {
+            return "Confirm agreement above"
+        } else {
+            return "Continue"
+        }
+    }
+
+    private func checkAuthorizationStatus() {
+        // Check if already authorized
+        let status = AuthorizationCenter.shared.authorizationStatus
+        isAuthorized = (status == .approved)
+
+        #if DEBUG
+        print("[Screen4] Authorization status: \(status)")
+        #endif
+    }
+
+    private func requestAuthorization() {
+        isRequestingAuth = true
+
+        #if DEBUG
+        print("[Screen4] Requesting FamilyControls authorization...")
+        #endif
+
+        Task {
+            do {
+                try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+
+                await MainActor.run {
+                    isRequestingAuth = false
+                    isAuthorized = true
+                    UserDefaults.standard.set(true, forKey: "authorizationGranted")
+                    onboarding.logEvent("screen_time_authorized")
+
+                    #if DEBUG
+                    print("[Screen4] Authorization granted!")
+                    #endif
+                }
+            } catch {
+                await MainActor.run {
+                    isRequestingAuth = false
+                    authErrorMessage = "Failed to get Screen Time access.\n\nError: \(error.localizedDescription)"
+                    showAuthError = true
+
+                    #if DEBUG
+                    print("[Screen4] Authorization failed: \(error)")
+                    #endif
+                }
+            }
         }
     }
 
@@ -303,6 +388,96 @@ private struct DailyGoalSelector: View {
                 }
             }
             .padding(.horizontal, 24)
+        }
+    }
+}
+
+// MARK: - Authorization Section
+
+private struct AuthorizationSection: View {
+    @Binding var isRequesting: Bool
+    let colorScheme: ColorScheme
+    let onRequestAuth: () -> Void
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // Icon
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.vibrantTeal.opacity(0.1))
+                    .frame(width: 64, height: 64)
+
+                Image(systemName: "figure.2.and.child.holdinghands")
+                    .font(.system(size: 32))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+
+            // Title
+            Text("Enable Screen Time Access")
+                .font(.system(size: 18, weight: .bold))
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .multilineTextAlignment(.center)
+
+            // Description
+            Text("To manage your child's apps, we need permission to use Screen Time controls.")
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .multilineTextAlignment(.center)
+
+            // Features
+            VStack(alignment: .leading, spacing: 10) {
+                AuthFeatureRow(icon: "checkmark.circle.fill", text: "Set learning apps", colorScheme: colorScheme)
+                AuthFeatureRow(icon: "checkmark.circle.fill", text: "Unlock reward apps automatically", colorScheme: colorScheme)
+                AuthFeatureRow(icon: "checkmark.circle.fill", text: "Track daily progress", colorScheme: colorScheme)
+            }
+
+            // Grant Permission Button
+            Button(action: onRequestAuth) {
+                HStack {
+                    if isRequesting {
+                        ProgressView()
+                            .progressViewStyle(CircularProgressViewStyle(tint: .white))
+                    } else {
+                        Image(systemName: "lock.open.fill")
+                        Text("Grant Permission")
+                    }
+                }
+                .font(.system(size: 16, weight: .semibold))
+                .frame(maxWidth: .infinity)
+                .frame(height: 50)
+                .background(isRequesting ? AppTheme.vibrantTeal.opacity(0.6) : AppTheme.vibrantTeal)
+                .foregroundColor(.white)
+                .cornerRadius(12)
+            }
+            .disabled(isRequesting)
+
+            // Privacy note
+            Text("Your data is private and stays on device.")
+                .font(.system(size: 12, weight: .regular))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.7))
+        }
+        .padding(20)
+        .background(AppTheme.card(for: colorScheme))
+        .cornerRadius(16)
+        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        .padding(.horizontal, 24)
+    }
+}
+
+private struct AuthFeatureRow: View {
+    let icon: String
+    let text: String
+    let colorScheme: ColorScheme
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: icon)
+                .font(.system(size: 14))
+                .foregroundColor(.green)
+
+            Text(text)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
         }
     }
 }
