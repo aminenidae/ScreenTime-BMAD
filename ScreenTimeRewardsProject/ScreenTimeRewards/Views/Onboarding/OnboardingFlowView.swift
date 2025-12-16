@@ -1,6 +1,7 @@
 import SwiftUI
 
 /// Routes between the shared onboarding entry and the device-specific flows.
+/// Updated to use the new 7-screen onboarding flow for child devices.
 struct OnboardingFlowView: View {
     enum OnboardingStep {
         case welcome
@@ -12,6 +13,8 @@ struct OnboardingFlowView: View {
     @State private var onboardingStep: OnboardingStep = .welcome
     @State private var deviceName: String
     @StateObject private var deviceModeManager = DeviceModeManager.shared
+    @EnvironmentObject var appUsageViewModel: AppUsageViewModel
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     @AppStorage("hasCompletedParentOnboarding") private var parentComplete = false
     @AppStorage("hasCompletedChildOnboarding") private var childComplete = false
 
@@ -46,15 +49,15 @@ struct OnboardingFlowView: View {
                     )
 
                 case .childFlow:
-                    ChildOnboardingCoordinator(
-                        deviceName: deviceName,
-                        onBack: { onboardingStep = .deviceSelection },
-                        onComplete: { onboardingStep = .welcome }
-                    )
+                    // New 7-screen onboarding flow
+                    OnboardingContainerView { destination in
+                        handleOnboardingComplete(destination: destination)
+                    }
+                    .environmentObject(appUsageViewModel)
+                    .environmentObject(subscriptionManager)
                 }
             }
             .animation(.easeInOut, value: onboardingStep)
-            .padding()
         }
     }
 
@@ -62,6 +65,11 @@ struct OnboardingFlowView: View {
         deviceName = name
         deviceModeManager.setDeviceMode(mode, deviceName: name)
         onboardingStep = mode == .parentDevice ? .parentFlow : .childFlow
+    }
+
+    private func handleOnboardingComplete(destination: OnboardingContainerView.OnboardingDestination) {
+        childComplete = true
+        // The RootView will automatically navigate based on the completed state
     }
 }
 
