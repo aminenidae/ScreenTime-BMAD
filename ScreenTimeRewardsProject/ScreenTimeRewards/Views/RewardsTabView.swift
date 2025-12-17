@@ -3,15 +3,20 @@ import FamilyControls
 import ManagedSettings
 
 // Combined struct to prevent race condition in sheet presentation
-private struct RewardConfigSheetData: Identifiable {
+private struct RewardConfigSheetData: Identifiable, Equatable {
     let snapshot: RewardAppSnapshot
     var config: AppScheduleConfiguration
     var id: String { snapshot.id }
+
+    static func == (lhs: RewardConfigSheetData, rhs: RewardConfigSheetData) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 struct RewardsTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel  // Task 0: Use shared view model
     @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var tutorialManager: TutorialModeManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
@@ -126,27 +131,63 @@ struct RewardsTabView: View {
         }
         // Configuration sheet
         .sheet(item: $configSheetData) { data in
-            AppConfigurationSheet(
-                token: data.snapshot.token,
-                appName: data.snapshot.displayName,
-                appType: .reward,
-                learningSnapshots: viewModel.learningSnapshots,
-                configuration: Binding(
-                    get: { data.config },
-                    set: { newConfig in
-                        configSheetData = RewardConfigSheetData(snapshot: data.snapshot, config: newConfig)
+            if tutorialManager.isActive {
+                // Use tutorial wrapper with overlay support
+                TutorialAppConfigurationSheet(
+                    token: data.snapshot.token,
+                    appName: data.snapshot.displayName,
+                    appType: .reward,
+                    learningSnapshots: viewModel.learningSnapshots,
+                    configuration: Binding(
+                        get: { data.config },
+                        set: { newConfig in
+                            configSheetData = RewardConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                        }
+                    ),
+                    onSave: { savedConfig in
+                        try? scheduleService.saveSchedule(savedConfig)
+                        viewModel.blockRewardApps()
+                        configSheetData = nil
+                        // After save, advance to final settings step
+                        if tutorialManager.currentStep == .tapSaveReward {
+                            tutorialManager.advanceStep()
+                        }
+                    },
+                    onCancel: {
+                        configSheetData = nil
                     }
-                ),
-                onSave: { savedConfig in
-                    try? scheduleService.saveSchedule(savedConfig)
-                    // Re-sync blocking reasons now that schedule is updated
-                    viewModel.blockRewardApps()
-                    configSheetData = nil
-                },
-                onCancel: {
-                    configSheetData = nil
-                }
-            )
+                )
+                .environmentObject(tutorialManager)
+                .interactiveDismissDisabled(true)  // Prevent swipe-to-dismiss during tutorial
+            } else {
+                // Normal config sheet
+                AppConfigurationSheet(
+                    token: data.snapshot.token,
+                    appName: data.snapshot.displayName,
+                    appType: .reward,
+                    learningSnapshots: viewModel.learningSnapshots,
+                    configuration: Binding(
+                        get: { data.config },
+                        set: { newConfig in
+                            configSheetData = RewardConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                        }
+                    ),
+                    onSave: { savedConfig in
+                        try? scheduleService.saveSchedule(savedConfig)
+                        viewModel.blockRewardApps()
+                        configSheetData = nil
+                    },
+                    onCancel: {
+                        configSheetData = nil
+                    }
+                )
+            }
+        }
+        // Advance tutorial when config sheet opens
+        .onChange(of: configSheetData) { newValue in
+            if newValue != nil && tutorialManager.isActive && tutorialManager.currentStep == .tapFirstRewardApp {
+                tutorialManager.advanceStep()  // Move to configTimeWindowReward
+            }
         }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
@@ -204,6 +245,10 @@ private extension RewardsTabView {
             .frame(height: 40)
 
             Button(action: {
+                // If in tutorial and this is the current target, advance the step
+                if tutorialManager.isActive && tutorialManager.isCurrentTarget("add_reward_apps") {
+                    tutorialManager.completeCurrentStep()
+                }
                 viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
                 viewModel.presentPickerWithRetry(for: .reward)
             }) {
@@ -220,6 +265,7 @@ private extension RewardsTabView {
                 .cornerRadius(8)
                 .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
             }
+            .tutorialTarget("add_reward_apps")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
             .background(AppTheme.background(for: colorScheme))
@@ -238,8 +284,9 @@ private extension RewardsTabView {
                 ]
 
                 LazyVGrid(columns: columns, spacing: 8) {
-                    ForEach(viewModel.rewardSnapshots) { snapshot in
+                    ForEach(Array(viewModel.rewardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                         rewardAppRow(snapshot: snapshot)
+                            .tutorialTarget(index == 0 ? "first_reward_app" : "")
                     }
                 }
             } else {

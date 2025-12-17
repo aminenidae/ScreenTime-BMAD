@@ -9,6 +9,9 @@ struct MainTabView: View {
     @AppStorage("hasCompletedChildOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedTab = 0
 
+    // TutorialModeManager - use shared instance (not active outside tutorial, but needed for views)
+    @StateObject private var tutorialManager = TutorialModeManager.shared
+
     var body: some View {
         #if DEBUG
         let _ = print("[MainTabView] Rendering with isParentMode: \(isParentMode)")
@@ -48,6 +51,7 @@ struct MainTabView: View {
                     ParentTabIndicator(selectedTab: $selectedTab)
                 }
                 .environmentObject(viewModel)
+                .environmentObject(tutorialManager)
                 .navigationViewStyle(.stack)
                 .navigationBarHidden(true)
             }
@@ -87,6 +91,7 @@ struct MainTabView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
                 .environmentObject(viewModel)
+                .environmentObject(tutorialManager)
                 .navigationViewStyle(.stack)
                 .navigationBarTitleDisplayMode(.inline)
             }

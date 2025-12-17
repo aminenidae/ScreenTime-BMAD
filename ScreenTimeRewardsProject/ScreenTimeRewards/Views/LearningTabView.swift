@@ -3,15 +3,20 @@ import FamilyControls
 import ManagedSettings
 
 // Combined struct to prevent race condition in sheet presentation
-private struct LearningConfigSheetData: Identifiable {
+private struct LearningConfigSheetData: Identifiable, Equatable {
     let snapshot: LearningAppSnapshot
     var config: AppScheduleConfiguration
     var id: String { snapshot.id }
+
+    static func == (lhs: LearningConfigSheetData, rhs: LearningConfigSheetData) -> Bool {
+        lhs.id == rhs.id
+    }
 }
 
 struct LearningTabView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var tutorialManager: TutorialModeManager
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
@@ -71,26 +76,62 @@ struct LearningTabView: View {
         }
         // Configuration sheet
         .sheet(item: $configSheetData) { data in
-            AppConfigurationSheet(
-                token: data.snapshot.token,
-                appName: data.snapshot.displayName,
-                appType: .learning,
-                configuration: Binding(
-                    get: { data.config },
-                    set: { newConfig in
-                        configSheetData = LearningConfigSheetData(snapshot: data.snapshot, config: newConfig)
+            if tutorialManager.isActive {
+                // Use tutorial wrapper with overlay support
+                TutorialAppConfigurationSheet(
+                    token: data.snapshot.token,
+                    appName: data.snapshot.displayName,
+                    appType: .learning,
+                    learningSnapshots: [],
+                    configuration: Binding(
+                        get: { data.config },
+                        set: { newConfig in
+                            configSheetData = LearningConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                        }
+                    ),
+                    onSave: { savedConfig in
+                        try? scheduleService.saveSchedule(savedConfig)
+                        viewModel.blockRewardApps()
+                        configSheetData = nil
+                        // After save, advance to next major step (tapRewardsTab)
+                        if tutorialManager.currentStep == .tapSaveLearning {
+                            tutorialManager.advanceStep()
+                        }
+                    },
+                    onCancel: {
+                        configSheetData = nil
                     }
-                ),
-                onSave: { savedConfig in
-                    try? scheduleService.saveSchedule(savedConfig)
-                    // Re-sync blocking reasons (linked learning apps may affect reward apps)
-                    viewModel.blockRewardApps()
-                    configSheetData = nil
-                },
-                onCancel: {
-                    configSheetData = nil
-                }
-            )
+                )
+                .environmentObject(tutorialManager)
+                .interactiveDismissDisabled(true)  // Prevent swipe-to-dismiss during tutorial
+            } else {
+                // Normal config sheet
+                AppConfigurationSheet(
+                    token: data.snapshot.token,
+                    appName: data.snapshot.displayName,
+                    appType: .learning,
+                    configuration: Binding(
+                        get: { data.config },
+                        set: { newConfig in
+                            configSheetData = LearningConfigSheetData(snapshot: data.snapshot, config: newConfig)
+                        }
+                    ),
+                    onSave: { savedConfig in
+                        try? scheduleService.saveSchedule(savedConfig)
+                        viewModel.blockRewardApps()
+                        configSheetData = nil
+                    },
+                    onCancel: {
+                        configSheetData = nil
+                    }
+                )
+            }
+        }
+        // Advance tutorial when config sheet opens
+        .onChange(of: configSheetData) { newValue in
+            if newValue != nil && tutorialManager.isActive && tutorialManager.currentStep == .tapFirstLearningApp {
+                tutorialManager.advanceStep()  // Move to configTimeWindowLearning
+            }
         }
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
@@ -196,8 +237,9 @@ struct LearningTabView: View {
             ]
 
             LazyVGrid(columns: columns, spacing: 8) {
-                ForEach(viewModel.learningSnapshots) { snapshot in
+                ForEach(Array(viewModel.learningSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                     learningAppRow(snapshot: snapshot)
+                        .tutorialTarget(index == 0 ? "first_learning_app" : "")
                 }
             }
             .padding(.horizontal, 16)
@@ -322,6 +364,10 @@ struct LearningTabView: View {
             .frame(height: 40)
 
             Button(action: {
+                // If in tutorial and this is the current target, advance the step
+                if tutorialManager.isActive && tutorialManager.isCurrentTarget("add_learning_apps") {
+                    tutorialManager.completeCurrentStep()
+                }
                 viewModel.pendingSelection = FamilyActivitySelection(includeEntireCategory: true)
                 viewModel.presentPickerWithRetry(for: .learning)
             }) {
@@ -338,6 +384,7 @@ struct LearningTabView: View {
                 .cornerRadius(8)
                 .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
             }
+            .tutorialTarget("add_learning_apps")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
             .background(AppTheme.background(for: colorScheme))

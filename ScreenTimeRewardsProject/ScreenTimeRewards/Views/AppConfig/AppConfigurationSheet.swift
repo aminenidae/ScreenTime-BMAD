@@ -2,6 +2,15 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 
+/// Section identifiers for scroll-to-section functionality
+enum AppConfigSection: String {
+    case summary = "config_summary_section"
+    case timeWindow = "config_time_window_section"
+    case dailyLimits = "config_daily_limits_section"
+    case linkedApps = "config_linked_apps_section"
+    case save = "config_save_section"
+}
+
 /// Sheet for configuring per-app schedule and time limits
 struct AppConfigurationSheet: View {
     let token: ApplicationToken
@@ -13,6 +22,9 @@ struct AppConfigurationSheet: View {
     let onSave: (AppScheduleConfiguration) -> Void
     let onCancel: () -> Void
 
+    /// Optional binding to trigger scrolling to a specific section
+    @Binding var scrollToSection: AppConfigSection?
+
     @State private var localConfig: AppScheduleConfiguration
     @State private var isFullDayAccess: Bool
 
@@ -22,6 +34,7 @@ struct AppConfigurationSheet: View {
         appType: AppType,
         learningSnapshots: [LearningAppSnapshot] = [],  // Default to empty for learning apps
         configuration: Binding<AppScheduleConfiguration>,
+        scrollToSection: Binding<AppConfigSection?> = .constant(nil),
         onSave: @escaping (AppScheduleConfiguration) -> Void,
         onCancel: @escaping () -> Void
     ) {
@@ -30,6 +43,7 @@ struct AppConfigurationSheet: View {
         self.appType = appType
         self.learningSnapshots = learningSnapshots
         self._configuration = configuration
+        self._scrollToSection = scrollToSection
         self.onSave = onSave
         self.onCancel = onCancel
 
@@ -40,13 +54,16 @@ struct AppConfigurationSheet: View {
 
     var body: some View {
         NavigationView {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    // App header
-                    appHeader
+            ScrollViewReader { scrollProxy in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 24) {
+                        // App header
+                        appHeader
 
-                    // Summary card (moved to top for visibility)
-                    configSummarySection
+                        // Summary card (moved to top for visibility)
+                        configSummarySection
+                            .id("config_summary_section")
+                            .tutorialTarget("config_summary")
 
                     Divider()
                         .background(ChallengeBuilderTheme.border)
@@ -58,6 +75,8 @@ struct AppConfigurationSheet: View {
                         useAdvancedConfig: $localConfig.useAdvancedTimeWindowConfig,
                         isFullDay: $isFullDayAccess
                     )
+                    .id(AppConfigSection.timeWindow.rawValue)
+                    .tutorialTarget("config_time_window")
                     .onChange(of: isFullDayAccess) { newValue in
                         if newValue {
                             localConfig.allowedTimeWindow = .fullDay
@@ -82,6 +101,8 @@ struct AppConfigurationSheet: View {
                         dailyTimeWindows: localConfig.dailyTimeWindows,
                         useAdvancedTimeWindows: localConfig.useAdvancedTimeWindowConfig
                     )
+                    .id(AppConfigSection.dailyLimits.rawValue)
+                    .tutorialTarget("config_daily_limits")
 
                     // Unlock Requirements Section (reward apps only)
                     if appType == .reward {
@@ -93,12 +114,26 @@ struct AppConfigurationSheet: View {
                             unlockMode: $localConfig.unlockMode,
                             learningSnapshots: learningSnapshots
                         )
+                        .id(AppConfigSection.linkedApps.rawValue)
+                        .tutorialTarget("config_linked_apps")
                     }
 
                     Spacer(minLength: 40)
                 }
                 .padding(20)
             }
+            .onChange(of: scrollToSection) { section in
+                if let section = section {
+                    withAnimation(.easeInOut(duration: 0.3)) {
+                        scrollProxy.scrollTo(section.rawValue, anchor: .top)
+                    }
+                    // Reset after scrolling
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                        scrollToSection = nil
+                    }
+                }
+            }
+            } // Close ScrollViewReader
             .background(ChallengeBuilderTheme.background.ignoresSafeArea())
             .navigationTitle("Configure App")
             .navigationBarTitleDisplayMode(.inline)
@@ -116,6 +151,7 @@ struct AppConfigurationSheet: View {
                     }
                     .fontWeight(.semibold)
                     .foregroundColor(AppTheme.vibrantTeal)
+                    .tutorialTarget("config_save")
                 }
             }
         }

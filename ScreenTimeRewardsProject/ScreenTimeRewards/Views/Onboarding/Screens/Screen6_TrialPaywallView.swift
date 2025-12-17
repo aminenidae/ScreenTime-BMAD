@@ -1,7 +1,7 @@
 import SwiftUI
 import StoreKit
 
-/// Screen 6: 30-Day Trial + Pricing (StoreKit 2)
+/// Screen 5 (was Screen 6): 30-Day Trial + Pricing (StoreKit 2)
 /// Presents the subscription options with 30-day free trial
 struct Screen6_TrialPaywallView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
@@ -86,7 +86,22 @@ struct Screen6_TrialPaywallView: View {
                     .font(.system(size: 12, weight: .regular))
                     .foregroundColor(.red.opacity(0.8))
             }
+            .padding(.bottom, 8)
+
+            // DEBUG: Skip without deleting settings (for development)
+            #if DEBUG
+            Button(action: {
+                onboarding.logEvent("onboarding_dev_skip_paywall")
+                onboarding.advanceScreen()
+            }) {
+                Text("🔧 Dev: Skip & Keep Settings")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(.blue.opacity(0.7))
+            }
             .padding(.bottom, 20)
+            #else
+            Spacer().frame(height: 12)
+            #endif
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .alert("Delete setup?", isPresented: $showConfirmSkip) {
@@ -103,7 +118,7 @@ struct Screen6_TrialPaywallView: View {
             }
         }
         .onAppear {
-            onboarding.logScreenView(screenNumber: 6)
+            onboarding.logScreenView(screenNumber: 5)  // Now screen 5 (was 6)
         }
     }
 
