@@ -1,27 +1,35 @@
 import SwiftUI
 
-// MARK: - Step Model
+// MARK: - Step Card Model
 
-private struct SolutionStep: Identifiable {
+private struct SolutionStepCard: Identifiable {
     let id: Int
-    let emoji: String
+    let imageName: String
+    let stepNumber: String
     let title: String
-    let description: String
+    let subtitle: String
 }
 
-/// Screen 2: Solution (5-Step Cycle with Animation)
-/// Explains the unique 5-step system that makes screen time management automatic
+/// Screen 2: Solution (5-Step Cycle with Image Cards)
+/// Explains the unique 5-step system with visual image cards
+/// Adapts to iPad with grid layout and landscape with smaller cards
 struct Screen2_SolutionView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var visibleSteps: Set<Int> = []
 
-    private let steps: [SolutionStep] = [
-        SolutionStep(id: 0, emoji: "handshake", title: "The Agreement", description: "You and your child agree: \"30 min learning = 30 min YouTube. Deal?\""),
-        SolutionStep(id: 1, emoji: "book.fill", title: "Learning", description: "Your child uses learning apps until they reach the daily goal."),
-        SolutionStep(id: 2, emoji: "lock.open.fill", title: "Auto-Unlock", description: "Reward apps unlock automatically. No parent intervention needed!"),
-        SolutionStep(id: 3, emoji: "play.tv.fill", title: "Reward Time", description: "Your child enjoys earned reward time."),
-        SolutionStep(id: 4, emoji: "lock.fill", title: "Auto-Lock", description: "Apps lock automatically again. No parent intervention needed!")
+    private var layout: ResponsiveCardLayout {
+        ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
+    }
+
+    private let steps: [SolutionStepCard] = [
+        SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree on a Goal", subtitle: "Parent & child discuss learning targets"),
+        SolutionStepCard(id: 1, imageName: "onboarding_C2_2", stepNumber: "2", title: "Child Learns", subtitle: "Educational apps unlock with every milestone"),
+        SolutionStepCard(id: 2, imageName: "onboarding_C2_3", stepNumber: "3", title: "Automatic Unlock", subtitle: "No asking. Just automatic rewards."),
+        SolutionStepCard(id: 3, imageName: "onboarding_C2_4", stepNumber: "4", title: "Enjoy Rewards", subtitle: "Guilt-free entertainment they've earned"),
+        SolutionStepCard(id: 4, imageName: "onboarding_C2_5", stepNumber: "5", title: "Auto-Lock", subtitle: "Time's up. No negotiations. Peaceful transition.")
     ]
 
     var body: some View {
@@ -29,52 +37,67 @@ struct Screen2_SolutionView: View {
             // Title
             VStack(spacing: 8) {
                 Text("What if your child\n**agreed** to the rules?")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                Text("Learning automatically unlocks AND locks reward apps. First, create the agreement together.")
-                    .font(.system(size: 14, weight: .regular))
+                Text("Learning automatically unlocks AND locks reward apps.")
+                    .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
-                    .padding(.horizontal, 24)
+                    .padding(.horizontal, layout.horizontalPadding)
             }
-            .padding(.vertical, 24)
+            .padding(.vertical, layout.isLandscape ? 12 : 20)
+            .frame(maxWidth: 600)
 
-            // 5-Step Cycle (scrollable)
-            ScrollView(.vertical, showsIndicators: false) {
-                VStack(spacing: 0) {
-                    ForEach(steps) { step in
-                        StepRow(
-                            step: step,
-                            isLast: step.id == steps.count - 1,
-                            isVisible: visibleSteps.contains(step.id),
-                            colorScheme: colorScheme
-                        )
-                        .onAppear {
-                            let stepId = step.id
-                            let delay = Double(stepId) * 0.15
-                            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                                withAnimation(.easeOut(duration: 0.4)) {
-                                    _ = visibleSteps.insert(stepId)
+            // 5-Step Image Cards - Grid on iPad, HScroll on iPhone
+            if layout.useGridLayout {
+                // iPad: Scrollable grid
+                ScrollView {
+                    LazyVGrid(
+                        columns: [
+                            GridItem(.flexible(), spacing: layout.cardSpacing),
+                            GridItem(.flexible(), spacing: layout.cardSpacing)
+                        ],
+                        spacing: layout.cardSpacing
+                    ) {
+                        ForEach(steps) { step in
+                            SolutionStepImageCard(step: step, layout: layout, isVisible: visibleSteps.contains(step.id))
+                                .onAppear {
+                                    animateStepAppearance(stepId: step.id)
                                 }
-                            }
                         }
                     }
+                    .padding(.horizontal, layout.horizontalPadding)
+                    .padding(.vertical, 8)
                 }
-                .padding(.vertical, 16)
+            } else {
+                // iPhone: Horizontal scroll
+                ScrollView(.horizontal, showsIndicators: false) {
+                    HStack(spacing: layout.cardSpacing) {
+                        ForEach(steps) { step in
+                            SolutionStepImageCard(step: step, layout: layout, isVisible: visibleSteps.contains(step.id))
+                                .onAppear {
+                                    animateStepAppearance(stepId: step.id)
+                                }
+                        }
+                    }
+                    .padding(.horizontal, layout.horizontalPadding)
+                    .padding(.vertical, 8)
+                }
             }
 
-            Spacer(minLength: 16)
+            Spacer(minLength: layout.isLandscape ? 8 : 16)
 
             // Supporting copy
             Text("The app is the referee, not the bad guy. Because your child helped create the rules, they follow them willingly.")
-                .font(.system(size: 14, weight: .regular))
+                .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .padding(.horizontal, 24)
-                .padding(.bottom, 20)
+                .padding(.horizontal, layout.horizontalPadding)
+                .padding(.bottom, layout.isLandscape ? 12 : 20)
+                .frame(maxWidth: 600)
 
             // Primary CTA
             Button(action: {
@@ -82,13 +105,13 @@ struct Screen2_SolutionView: View {
             }) {
                 Text("See what you'll set up")
                     .font(.system(size: 16, weight: .semibold))
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, layout.horizontalPadding)
 
             Spacer(minLength: 12)
 
@@ -101,66 +124,73 @@ struct Screen2_SolutionView: View {
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
 
-            Spacer(minLength: 24)
+            Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
             onboarding.logScreenView(screenNumber: 2)
         }
     }
+
+    private func animateStepAppearance(stepId: Int) {
+        let delay = Double(stepId) * 0.12
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+            withAnimation(.easeOut(duration: 0.4)) {
+                _ = visibleSteps.insert(stepId)
+            }
+        }
+    }
 }
 
-// MARK: - Step Row Component
+// MARK: - Solution Step Image Card
 
-private struct StepRow: View {
-    let step: SolutionStep
-    let isLast: Bool
+private struct SolutionStepImageCard: View {
+    let step: SolutionStepCard
+    let layout: ResponsiveCardLayout
     let isVisible: Bool
-    let colorScheme: ColorScheme
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
-            // Icon column with connector
-            VStack(spacing: 0) {
-                // Emoji/Icon
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(AppTheme.vibrantTeal.opacity(0.1))
-                        .frame(width: 50, height: 50)
+        ZStack(alignment: .bottomLeading) {
+            // Background image
+            Image(step.imageName)
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(width: layout.useGridLayout ? nil : layout.scrollCardWidth, height: layout.scrollCardHeight)
+                .clipped()
 
-                    Image(systemName: step.emoji)
-                        .font(.system(size: 24))
-                        .foregroundColor(AppTheme.vibrantTeal)
-                }
-
-                // Vertical connector (skip on last step)
-                if !isLast {
-                    Rectangle()
-                        .fill(AppTheme.vibrantTeal.opacity(0.3))
-                        .frame(width: 2, height: 24)
-                }
-            }
-            .frame(width: 50)
+            // Gradient overlay
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    Color.black.opacity(0.0),
+                    Color.black.opacity(0.55)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
 
             // Text content
             VStack(alignment: .leading, spacing: 4) {
+                Text(step.stepNumber)
+                    .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
+                    .foregroundColor(.white)
+
                 Text(step.title)
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .font(.system(size: layout.isRegular ? 20 : 18, weight: .semibold))
+                    .foregroundColor(.white)
 
-                Text(step.description)
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
+                Text(step.subtitle)
+                    .font(.system(size: layout.isRegular ? 14 : 12, weight: .regular))
+                    .foregroundColor(.white.opacity(0.9))
+                    .lineLimit(2)
             }
-            .padding(.bottom, isLast ? 0 : 8)
-
-            Spacer()
+            .padding(layout.isRegular ? 16 : 12)
         }
-        .padding(.horizontal, 24)
-        .opacity(isVisible ? 1.0 : 0.3)
-        .offset(x: isVisible ? 0 : -20)
+        .frame(width: layout.useGridLayout ? nil : layout.scrollCardWidth, height: layout.scrollCardHeight)
+        .cornerRadius(14)
+        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+        .opacity(isVisible ? 1.0 : 0.5)
+        .scaleEffect(isVisible ? 1.0 : 0.95)
+        .animation(.easeOut(duration: 0.4), value: isVisible)
     }
 }
 

@@ -1,65 +1,96 @@
 import SwiftUI
 
-/// Screen 3: Setup Preview
-/// Shows what the user will configure in the next steps
+/// Screen 3: Setup Preview (C3)
+/// Shows what the user will configure with image cards for Learning and Reward apps
+/// Adapts to iPad with side-by-side layout and landscape with smaller cards
 struct Screen3_SetupPreviewView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.horizontalSizeClass) private var hSizeClass
+    @Environment(\.verticalSizeClass) private var vSizeClass
     @State private var showLearningPreview = false
     @State private var showRewardPreview = false
+
+    private var layout: ResponsiveCardLayout {
+        ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             // Title section
             VStack(spacing: 8) {
                 Text("Set up your family system")
-                    .font(.system(size: 26, weight: .bold))
+                    .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Text("(about 3 minutes)")
-                    .font(.system(size: 18, weight: .medium))
+                    .font(.system(size: layout.isRegular ? 20 : 18, weight: .medium))
                     .foregroundColor(AppTheme.vibrantTeal)
 
                 Text("Two quick steps, then it runs automatically every day.")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
                     .padding(.top, 4)
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
+            .padding(.horizontal, layout.horizontalPadding)
+            .padding(.vertical, layout.isLandscape ? 12 : 20)
+            .frame(maxWidth: 600)
 
-            Spacer(minLength: 20)
+            Spacer(minLength: layout.isLandscape ? 8 : 16)
 
-            // Two cards
-            HStack(spacing: 16) {
-                // Card 1: Learning
-                SetupPreviewCard(
-                    stepNumber: 1,
-                    title: "Learning apps",
-                    emoji: "book.fill",
-                    details: ["Choose learning apps", "Set daily learning goal"],
-                    colorScheme: colorScheme
-                ) {
-                    showLearningPreview = true
-                }
+            // Two Image Cards - Side by side on iPad, stacked on iPhone
+            Group {
+                if layout.useSideBySideLayout {
+                    // iPad: Side by side
+                    HStack(spacing: layout.cardSpacing) {
+                        SetupImageCard(
+                            imageName: "onboarding_C3_1",
+                            title: "📚 Learning Apps",
+                            subtitle: "Configure which apps earn screen time",
+                            layout: layout
+                        ) {
+                            showLearningPreview = true
+                        }
 
-                // Card 2: Reward
-                SetupPreviewCard(
-                    stepNumber: 2,
-                    title: "Reward apps",
-                    emoji: "play.tv.fill",
-                    details: ["Choose reward apps", "Set time ratio"],
-                    colorScheme: colorScheme
-                ) {
-                    showRewardPreview = true
+                        SetupImageCard(
+                            imageName: "onboarding_C3_2",
+                            title: "🎮 Reward Apps",
+                            subtitle: "Set approved entertainment options",
+                            layout: layout
+                        ) {
+                            showRewardPreview = true
+                        }
+                    }
+                    .frame(maxWidth: 800)
+                } else {
+                    // iPhone: Stacked
+                    VStack(spacing: layout.cardSpacing) {
+                        SetupImageCard(
+                            imageName: "onboarding_C3_1",
+                            title: "📚 Learning Apps",
+                            subtitle: "Configure which apps earn screen time",
+                            layout: layout
+                        ) {
+                            showLearningPreview = true
+                        }
+
+                        SetupImageCard(
+                            imageName: "onboarding_C3_2",
+                            title: "🎮 Reward Apps",
+                            subtitle: "Set approved entertainment options",
+                            layout: layout
+                        ) {
+                            showRewardPreview = true
+                        }
+                    }
                 }
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, layout.horizontalPadding)
 
-            Spacer(minLength: 32)
+            Spacer(minLength: layout.isLandscape ? 12 : 24)
 
             // Reassurance
             HStack(spacing: 8) {
@@ -68,13 +99,14 @@ struct Screen3_SetupPreviewView: View {
                     .foregroundColor(AppTheme.vibrantTeal)
 
                 Text("You'll do this once. The system repeats daily automatically.")
-                    .font(.system(size: 14, weight: .regular))
+                    .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
             .multilineTextAlignment(.center)
-            .padding(.horizontal, 24)
+            .padding(.horizontal, layout.horizontalPadding)
+            .frame(maxWidth: 600)
 
-            Spacer(minLength: 40)
+            Spacer(minLength: layout.isLandscape ? 16 : 32)
 
             // Primary CTA
             Button(action: {
@@ -82,15 +114,15 @@ struct Screen3_SetupPreviewView: View {
             }) {
                 Text("Start setup")
                     .font(.system(size: 16, weight: .semibold))
-                    .frame(maxWidth: .infinity)
+                    .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(12)
             }
-            .padding(.horizontal, 24)
+            .padding(.horizontal, layout.horizontalPadding)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .sheet(isPresented: $showLearningPreview) {
@@ -115,65 +147,59 @@ struct Screen3_SetupPreviewView: View {
     }
 }
 
-// MARK: - Setup Preview Card
+// MARK: - Setup Image Card
 
-private struct SetupPreviewCard: View {
-    let stepNumber: Int
+private struct SetupImageCard: View {
+    let imageName: String
     let title: String
-    let emoji: String
-    let details: [String]
-    let colorScheme: ColorScheme
-    let onTap: () -> Void
+    let subtitle: String
+    let layout: ResponsiveCardLayout
+    let action: () -> Void
 
     var body: some View {
-        Button(action: onTap) {
-            VStack(alignment: .leading, spacing: 12) {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                // Background image
+                Image(imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: layout.fullWidthCardHeight)
+                    .clipped()
+
+                // Gradient overlay
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.0),
+                        Color.black.opacity(0.5)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                // Text content
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("Step \(stepNumber)")
-                            .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
-
                         Text(title)
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .font(.system(size: layout.isRegular ? 22 : 20, weight: .semibold))
+                            .foregroundColor(.white)
+
+                        Text(subtitle)
+                            .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
+                            .foregroundColor(.white.opacity(0.9))
+                            .lineLimit(2)
                     }
 
                     Spacer()
 
-                    Image(systemName: emoji)
-                        .font(.system(size: 28))
-                        .foregroundColor(AppTheme.vibrantTeal)
-                }
-
-                VStack(alignment: .leading, spacing: 4) {
-                    ForEach(details, id: \.self) { detail in
-                        HStack(spacing: 6) {
-                            Circle()
-                                .fill(AppTheme.vibrantTeal.opacity(0.5))
-                                .frame(width: 4, height: 4)
-
-                            Text(detail)
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                    }
-                }
-
-                HStack {
-                    Spacer()
-                    Text("Preview")
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
                     Image(systemName: "chevron.right")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(.white.opacity(0.7))
                 }
+                .padding(layout.isRegular ? 20 : 16)
             }
-            .padding(16)
-            .background(AppTheme.card(for: colorScheme))
-            .cornerRadius(16)
-            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+            .frame(height: layout.fullWidthCardHeight)
+            .cornerRadius(14)
+            .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
     }

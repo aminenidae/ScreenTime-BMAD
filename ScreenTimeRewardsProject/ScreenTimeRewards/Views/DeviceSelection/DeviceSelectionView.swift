@@ -4,11 +4,14 @@ struct DeviceSelectionView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
     @State private var selectedMode: DeviceMode?
     @State private var deviceName = ""
+    @Environment(\.colorScheme) private var colorScheme
     var showBackButton: Bool = false
     var onDeviceSelected: ((DeviceMode, String) -> Void)?
     var onBack: (() -> Void)?
     var initialMode: DeviceMode? = nil
     var initialDeviceName: String? = nil
+
+    private let tealColor = Color(red: 31/255, green: 134/255, blue: 111/255) // #1F866F
 
     private var trimmedDeviceName: String {
         deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -30,37 +33,45 @@ struct DeviceSelectionView: View {
 
             // Content Area - Main content wrapped in ScrollView
             ScrollView {
-                VStack(spacing: 32) {
-                // Headline Text Component
-                Text("Welcome! Who will be using this device?")
-                    .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(AppColors.textPrimary)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(nil)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 16)
+                VStack(spacing: 24) {
+                    // Headline Text Component
+                    Text("Who will be using this device?")
+                        .font(.system(size: 28, weight: .bold))
+                        .foregroundColor(AppColors.textPrimary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
 
-                    // Text Grid Component - Device Cards
+                    // Image Card Grid - Device Selection
                     VStack(spacing: 16) {
-                        // Parent Card
-                        DeviceTypeCardView(
-                            mode: .parentDevice,
+                        // Parent Device Card
+                        DeviceImageCard(
+                            imageName: "onboarding_0_2",
+                            title: "📱 Parent's Device",
+                            subtitle: "Set rules & monitor progress",
                             isSelected: selectedMode == .parentDevice
                         ) {
-                            selectedMode = .parentDevice
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedMode = .parentDevice
+                            }
                         }
 
-                        // Child Card
-                        DeviceTypeCardView(
-                            mode: .childDevice,
+                        // Child Device Card
+                        DeviceImageCard(
+                            imageName: "onboarding_0_3",
+                            title: "👧 Child's Device",
+                            subtitle: "Earn screen time by learning",
                             isSelected: selectedMode == .childDevice
                         ) {
-                            selectedMode = .childDevice
+                            withAnimation(.easeInOut(duration: 0.2)) {
+                                selectedMode = .childDevice
+                            }
                         }
                     }
                     .padding(.horizontal, 16)
-                    .frame(maxWidth: 512) // max-w-lg
+                    .frame(maxWidth: 512)
 
                     // Text Field Component - Dynamic based on selected mode
                     if let mode = selectedMode {
@@ -86,37 +97,36 @@ struct DeviceSelectionView: View {
                         }
                         .padding(.horizontal, 16)
                         .padding(.vertical, 12)
-                        .frame(maxWidth: 512) // max-w-lg
+                        .frame(maxWidth: 512)
                         .transition(.opacity.combined(with: .move(edge: .bottom)))
                     }
-                    }
-                    .padding(.bottom, 16) // Add bottom padding to ScrollView content
                 }
+                .padding(.bottom, 16)
+            }
 
-                // Footer Area
-                VStack(spacing: 16) {
-                    // Single Button Component
-                    Button(action: {
-                        if let mode = selectedMode, !trimmedDeviceName.isEmpty {
-                            if let callback = onDeviceSelected {
-                                callback(mode, trimmedDeviceName)
-                            } else {
-                                modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
-                            }
+            // Footer Area
+            VStack(spacing: 16) {
+                Button(action: {
+                    if let mode = selectedMode, !trimmedDeviceName.isEmpty {
+                        if let callback = onDeviceSelected {
+                            callback(mode, trimmedDeviceName)
+                        } else {
+                            modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
                         }
-                    }) {
-                        Text("Get Started")
-                            .font(.system(size: 16, weight: .bold))
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background((selectedMode != nil && !trimmedDeviceName.isEmpty) ? AppColors.primary : AppColors.primary.opacity(0.5))
-                            .cornerRadius(12)
                     }
-                    .disabled(selectedMode == nil || trimmedDeviceName.isEmpty)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 12)
-                    .frame(maxWidth: 512) // max-w-lg
+                }) {
+                    Text("Get Started")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 56)
+                        .background((selectedMode != nil && !trimmedDeviceName.isEmpty) ? tealColor : tealColor.opacity(0.5))
+                        .cornerRadius(12)
+                }
+                .disabled(selectedMode == nil || trimmedDeviceName.isEmpty)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 12)
+                .frame(maxWidth: 512)
             }
             .padding(.bottom, 24)
         }
@@ -133,6 +143,91 @@ struct DeviceSelectionView: View {
                 deviceName = initialDeviceName
             }
         }
+    }
+}
+
+// MARK: - Device Image Card Component
+
+private struct DeviceImageCard: View {
+    let imageName: String
+    let title: String
+    let subtitle: String
+    let isSelected: Bool
+    let action: () -> Void
+
+    private let tealColor = Color(red: 31/255, green: 134/255, blue: 111/255)
+
+    var body: some View {
+        Button(action: action) {
+            ZStack(alignment: .bottomLeading) {
+                // Background image
+                Image(imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(height: 180)
+                    .clipped()
+
+                // Gradient overlay
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.0),
+                        Color.black.opacity(0.5)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+
+                // Text content
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(title)
+                        .font(.system(size: 20, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text(subtitle)
+                        .font(.system(size: 14, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                }
+                .padding(16)
+
+                // Selected checkmark overlay
+                if isSelected {
+                    VStack {
+                        HStack {
+                            Spacer()
+                            ZStack {
+                                Circle()
+                                    .fill(tealColor)
+                                    .frame(width: 28, height: 28)
+
+                                Image(systemName: "checkmark")
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(.white)
+                            }
+                            .padding(12)
+                        }
+                        Spacer()
+                    }
+                }
+            }
+            .frame(height: 180)
+            .cornerRadius(14)
+            .overlay(
+                RoundedRectangle(cornerRadius: 14)
+                    .stroke(
+                        isSelected ? tealColor : Color.gray.opacity(0.2),
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            )
+            .shadow(
+                color: isSelected ? tealColor.opacity(0.2) : Color.black.opacity(0.08),
+                radius: isSelected ? 12 : 8,
+                x: 0,
+                y: isSelected ? 4 : 2
+            )
+            .scaleEffect(isSelected ? 1.02 : 1.0)
+            .animation(.easeInOut(duration: 0.2), value: isSelected)
+        }
+        .buttonStyle(.plain)
     }
 }
 

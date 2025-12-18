@@ -77,44 +77,24 @@ struct OnboardingFlowView: View {
 
 private struct OnboardingWelcomeStep: View {
     let onContinue: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
-        VStack(spacing: 40) {
-            Spacer()
+        VStack(spacing: 0) {
+            // Hero Image Card
+            OnboardingHeroCard(
+                imageName: "onboarding_0_1",
+                title: "Turn Screen Time Into Learning Time",
+                subtitle: "Your child earns screen time by learning. The more they learn, the more they unlock.",
+                aspectRatio: 0.65
+            )
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
 
-            VStack(spacing: 20) {
-                // App Icon or Logo placeholder
-                ZStack {
-                    Circle()
-                        .fill(
-                            LinearGradient(
-                                colors: [AppTheme.vibrantTeal, AppTheme.sunnyYellow],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .frame(width: 100, height: 100)
+            Spacer(minLength: 24)
 
-                    Image(systemName: "gamecontroller.fill")
-                        .font(.system(size: 50))
-                        .foregroundColor(.white)
-                }
-                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 5)
-
-                Text("Turn Screen Time\nInto Learning Time")
-                    .font(.system(size: 34, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .lineSpacing(4)
-
-                Text("Your child earns screen time by learning. The more they learn, the more they unlock.")
-                    .font(.system(size: 17))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(.secondary)
-                    .frame(maxWidth: 480)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            VStack(alignment: .leading, spacing: 20) {
+            // Feature rows
+            VStack(alignment: .leading, spacing: 16) {
                 IntroFeatureRow(
                     iconName: "star.fill",
                     title: "Earn by learning",
@@ -133,9 +113,10 @@ private struct OnboardingWelcomeStep: View {
                     subtitle: "Track learning time from any device"
                 )
             }
+            .padding(.horizontal, 24)
             .frame(maxWidth: 520)
 
-            Spacer()
+            Spacer(minLength: 24)
 
             Button(action: onContinue) {
                 Text("Get Started")
@@ -143,11 +124,14 @@ private struct OnboardingWelcomeStep: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: 420)
                     .frame(height: 56)
-                    .background(Color.accentColor)
+                    .background(AppTheme.vibrantTeal)
                     .cornerRadius(14)
             }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
     }
 }
 
