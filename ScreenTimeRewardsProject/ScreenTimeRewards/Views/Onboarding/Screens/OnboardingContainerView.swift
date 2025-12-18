@@ -38,18 +38,20 @@ struct OnboardingContainerView: View {
                     ))
 
             case 4:
-                Screen4_LearningAppsView()
+                Screen4_AuthorizationView()
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing),
                         removal: .move(edge: .leading)
                     ))
 
             case 5:
-                Screen5_RewardAppsView()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    ))
+                Screen5_GuidedTutorialView(
+                    onTutorialComplete: { onboarding.advanceScreen() }
+                )
+                .transition(.asymmetric(
+                    insertion: .move(edge: .trailing),
+                    removal: .move(edge: .leading)
+                ))
 
             case 6:
                 Screen6_TrialPaywallView()
