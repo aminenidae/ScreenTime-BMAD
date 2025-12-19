@@ -18,6 +18,8 @@ struct Screen7_ActivationView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @State private var visibleSteps: Set<Int> = []
+    @State private var animationStarted = false
 
     let onShowChildDashboard: () -> Void
     let onShowParentDashboard: () -> Void
@@ -26,9 +28,13 @@ struct Screen7_ActivationView: View {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
+    /// Delay between each step animation (in seconds)
+    private let stepAnimationDelay: Double = 2.0
+
     private let steps: [ActivationStepCard] = [
         ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss with Your Child", subtitle: "Explain the learning & reward system together"),
-        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try not to adjust for 48 hours. Let them experience the rhythm.")
+        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try not to adjust for 48 hours. Let them experience the rhythm."),
+        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 days, review learning and ask \"Does this feel fair?\"")
     ]
 
     var body: some View {
@@ -49,60 +55,27 @@ struct Screen7_ActivationView: View {
             .padding(.vertical, layout.isLandscape ? 12 : 20)
             .frame(maxWidth: 600)
 
-            // Step Image Cards - Side by side on iPad, horizontal scroll on iPhone
-            if layout.useSideBySideLayout {
-                // iPad: Side by side
-                HStack(spacing: layout.cardSpacing) {
-                    ForEach(steps) { step in
-                        ActivationImageCard(step: step, layout: layout)
-                    }
-                }
-                .padding(.horizontal, layout.horizontalPadding)
-                .padding(.vertical, 8)
-                .frame(maxWidth: 700)
-            } else {
-                // iPhone: Horizontal scroll
-                ScrollView(.horizontal, showsIndicators: false) {
-                    HStack(spacing: layout.cardSpacing) {
+            // Step Image Cards - Vertical scroll with staggered animation
+            ScrollViewReader { proxy in
+                ScrollView(.vertical, showsIndicators: false) {
+                    VStack(spacing: layout.cardSpacing) {
                         ForEach(steps) { step in
-                            ActivationImageCard(step: step, layout: layout)
+                            ActivationImageCard(step: step, layout: layout, isVisible: visibleSteps.contains(step.id))
+                                .id(step.id)
                         }
                     }
                     .padding(.horizontal, layout.horizontalPadding)
                     .padding(.vertical, 8)
                 }
-            }
-
-            Spacer(minLength: layout.isLandscape ? 8 : 16)
-
-            // Additional text step (no image available)
-            HStack(alignment: .top, spacing: 14) {
-                Text("3")
-                    .font(.system(size: layout.isRegular ? 20 : 18, weight: .bold))
-                    .frame(width: layout.isRegular ? 48 : 40, height: layout.isRegular ? 48 : 40)
-                    .background(AppTheme.vibrantTeal)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("Check progress after 3 days")
-                        .font(.system(size: layout.isRegular ? 18 : 16, weight: .semibold))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                    Text("Look at how much learning they've done and ask, \"Does this still feel fair?\" Adjust goals if needed.")
-                        .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        .fixedSize(horizontal: false, vertical: true)
+                .onChange(of: visibleSteps) { newValue in
+                    // Auto-scroll to the latest visible step
+                    if let maxStep = newValue.max() {
+                        withAnimation(.easeInOut(duration: 0.5)) {
+                            proxy.scrollTo(maxStep, anchor: .center)
+                        }
+                    }
                 }
-
-                Spacer()
             }
-            .padding(layout.isRegular ? 20 : 16)
-            .background(AppTheme.card(for: colorScheme))
-            .cornerRadius(14)
-            .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-            .padding(.horizontal, layout.horizontalPadding)
-            .frame(maxWidth: 600)
 
             Spacer(minLength: layout.isLandscape ? 16 : 24)
 
@@ -142,11 +115,27 @@ struct Screen7_ActivationView: View {
         .onAppear {
             onboarding.logScreenView(screenNumber: 7)
             onboarding.logEvent("onboarding_completed")
+            startStepAnimations()
         }
     }
 
     private func completeOnboarding() {
         onboarding.onboardingComplete = true
+    }
+
+    /// Starts the staggered step animations with 2-second delays
+    private func startStepAnimations() {
+        guard !animationStarted else { return }
+        animationStarted = true
+
+        for step in steps {
+            let delay = Double(step.id) * stepAnimationDelay
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    _ = visibleSteps.insert(step.id)
+                }
+            }
+        }
     }
 }
 
@@ -155,52 +144,69 @@ struct Screen7_ActivationView: View {
 private struct ActivationImageCard: View {
     let step: ActivationStepCard
     let layout: ResponsiveCardLayout
+    let isVisible: Bool
+
+    /// Card height - responsive based on device
+    private var cardHeight: CGFloat {
+        if layout.isIpad {
+            return 220
+        } else if layout.isLandscape {
+            return 140
+        } else {
+            return 160
+        }
+    }
+
+    /// Vertical offset for enter animation (enters from bottom)
+    private var enterOffset: CGFloat {
+        isVisible ? 0 : 60
+    }
 
     var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Background image
-            Image(step.imageName)
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(
-                    width: layout.useSideBySideLayout ? nil : layout.scrollCardWidth,
-                    height: layout.scrollCardHeight
+        GeometryReader { geometry in
+            ZStack(alignment: .bottomLeading) {
+                // Background image - explicitly sized to geometry
+                Image(step.imageName)
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geometry.size.width, height: cardHeight)
+                    .clipped()
+
+                // Gradient overlay
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.0),
+                        Color.black.opacity(0.55)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
                 )
-                .clipped()
+                .frame(width: geometry.size.width, height: cardHeight)
 
-            // Gradient overlay
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color.black.opacity(0.0),
-                    Color.black.opacity(0.55)
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
+                // Text content
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(step.stepNumber)
+                        .font(.system(size: layout.isIpad ? 32 : 20, weight: .bold))
+                        .foregroundColor(.white)
 
-            // Text content
-            VStack(alignment: .leading, spacing: 4) {
-                Text(step.stepNumber)
-                    .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
-                    .foregroundColor(.white)
+                    Text(step.title)
+                        .font(.system(size: layout.isIpad ? 20 : 14, weight: .semibold))
+                        .foregroundColor(.white)
 
-                Text(step.title)
-                    .font(.system(size: layout.isRegular ? 20 : 18, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Text(step.subtitle)
-                    .font(.system(size: layout.isRegular ? 14 : 12, weight: .regular))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(2)
+                    Text(step.subtitle)
+                        .font(.system(size: layout.isIpad ? 14 : 11, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                        .lineLimit(2)
+                }
+                .padding(layout.isIpad ? 20 : 10)
             }
-            .padding(layout.isRegular ? 16 : 12)
         }
-        .frame(
-            width: layout.useSideBySideLayout ? nil : layout.scrollCardWidth,
-            height: layout.scrollCardHeight
-        )
+        .frame(height: cardHeight)
         .cornerRadius(14)
-        .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
+        .shadow(color: Color.black.opacity(isVisible ? 0.15 : 0.05), radius: isVisible ? 12 : 4, x: 0, y: isVisible ? 6 : 2)
+        .opacity(isVisible ? 1.0 : 0.0)
+        .offset(y: enterOffset)
+        .scaleEffect(isVisible ? 1.0 : 0.9)
     }
 }
 

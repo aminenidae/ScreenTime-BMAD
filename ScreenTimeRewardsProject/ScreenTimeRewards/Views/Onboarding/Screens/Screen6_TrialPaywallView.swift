@@ -47,14 +47,14 @@ struct Screen6_TrialPaywallView: View {
                         HStack(spacing: layout.cardSpacing) {
                             BenefitImageCard(
                                 imageName: "onboarding_C6_1",
-                                title: "📊 Deep Analytics",
+                                title: "Deep Analytics",
                                 subtitle: "Track learning progress in real-time",
                                 layout: layout
                             )
 
                             BenefitImageCard(
                                 imageName: "onboarding_C6_2",
-                                title: "👨‍👩‍👧‍👦 Manage Multiple Kids",
+                                title: "Manage Multiple Kids",
                                 subtitle: "Control all children from one dashboard",
                                 layout: layout
                             )
@@ -68,14 +68,14 @@ struct Screen6_TrialPaywallView: View {
                             HStack(spacing: layout.cardSpacing) {
                                 BenefitImageCard(
                                     imageName: "onboarding_C6_1",
-                                    title: "📊 Deep Analytics",
+                                    title: "Deep Analytics",
                                     subtitle: "Track learning progress in real-time",
                                     layout: layout
                                 )
 
                                 BenefitImageCard(
                                     imageName: "onboarding_C6_2",
-                                    title: "👨‍👩‍👧‍👦 Manage Multiple Kids",
+                                    title: "Manage Multiple Kids",
                                     subtitle: "Control all children from one dashboard",
                                     layout: layout
                                 )
@@ -185,17 +185,23 @@ struct Screen6_TrialPaywallView: View {
         let subtitle: String
         let layout: ResponsiveCardLayout
 
+        /// Card width - explicit for both iPhone and iPad to prevent overflow
+        private var cardWidth: CGFloat {
+            layout.useGridLayout ? layout.ipadGridCardWidth : layout.benefitCardWidth
+        }
+
+        /// Card height - uses benefit card height
+        private var cardHeight: CGFloat {
+            layout.useGridLayout ? layout.ipadGridCardHeight : layout.benefitCardHeight
+        }
+
         var body: some View {
             ZStack(alignment: .bottomLeading) {
                 // Background image
                 Image(imageName)
                     .resizable()
                     .aspectRatio(contentMode: .fill)
-                    .frame(
-                        width: layout.useGridLayout ? nil : layout.benefitCardWidth,
-                        height: layout.benefitCardHeight
-                    )
-                    .clipped()
+                    .frame(width: cardWidth, height: cardHeight)
 
                 // Gradient overlay
                 LinearGradient(
@@ -220,10 +226,8 @@ struct Screen6_TrialPaywallView: View {
                 }
                 .padding(layout.isRegular ? 16 : 12)
             }
-            .frame(
-                width: layout.useGridLayout ? nil : layout.benefitCardWidth,
-                height: layout.benefitCardHeight
-            )
+            .frame(width: cardWidth, height: cardHeight)
+            .clipped()
             .cornerRadius(12)
             .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 3)
         }

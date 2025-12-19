@@ -49,7 +49,7 @@ struct DeviceSelectionView: View {
                         // Parent Device Card
                         DeviceImageCard(
                             imageName: "onboarding_0_2",
-                            title: "📱 Parent's Device",
+                            title: "Parent's Device",
                             subtitle: "Set rules & monitor progress",
                             isSelected: selectedMode == .parentDevice
                         ) {
@@ -61,7 +61,7 @@ struct DeviceSelectionView: View {
                         // Child Device Card
                         DeviceImageCard(
                             imageName: "onboarding_0_3",
-                            title: "👧 Child's Device",
+                            title: "Child's Device",
                             subtitle: "Earn screen time by learning",
                             isSelected: selectedMode == .childDevice
                         ) {

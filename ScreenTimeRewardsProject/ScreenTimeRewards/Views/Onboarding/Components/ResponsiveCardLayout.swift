@@ -98,6 +98,25 @@ struct ResponsiveCardLayout {
         benefitCardWidth * (150.0 / 260.0)
     }
 
+    // MARK: - iPad Grid/Side-by-Side Card Sizing
+
+    /// Explicit width for cards in iPad grid or side-by-side layouts
+    /// This prevents images from expanding unbounded when using flexible layouts
+    var ipadGridCardWidth: CGFloat {
+        if isIpad && isLandscape {
+            return 320
+        } else if isIpad {
+            return 300
+        } else {
+            return scrollCardWidth // fallback for iPhone
+        }
+    }
+
+    /// Height for cards in iPad grid layouts (maintains aspect ratio)
+    var ipadGridCardHeight: CGFloat {
+        ipadGridCardWidth * (180.0 / 280.0)
+    }
+
     // MARK: - Layout Mode
 
     /// Whether to use grid layout instead of horizontal scroll (iPad)

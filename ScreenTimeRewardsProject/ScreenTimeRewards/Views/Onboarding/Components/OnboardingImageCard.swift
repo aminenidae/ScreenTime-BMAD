@@ -261,7 +261,7 @@ struct OnboardingPlaceholderCard: View {
 
         OnboardingImageCard(
             imageName: "onboarding_0_2",
-            title: "📱 Parent's Device",
+            title: "Parent's Device",
             subtitle: "Set rules & monitor progress",
             isSelected: true,
             aspectRatio: 660.0 / 1170.0,

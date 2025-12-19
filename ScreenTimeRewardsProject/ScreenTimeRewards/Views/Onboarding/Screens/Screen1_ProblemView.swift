@@ -84,39 +84,53 @@ struct Screen1_ProblemView: View {
 private struct ProblemHeroCard: View {
     let layout: ResponsiveCardLayout
 
-    var body: some View {
-        ZStack(alignment: .bottomLeading) {
-            // Background image
-            Image("onboarding_C1")
-                .resizable()
-                .aspectRatio(contentMode: .fill)
-                .frame(height: layout.heroCardHeight)
-                .clipped()
-
-            // Gradient overlay
-            LinearGradient(
-                gradient: Gradient(colors: [
-                    Color.black.opacity(0.0),
-                    Color.black.opacity(0.5)
-                ]),
-                startPoint: .top,
-                endPoint: .bottom
-            )
-
-            // Text overlay
-            VStack(alignment: .leading, spacing: 4) {
-                Text("The Daily Struggle")
-                    .font(.system(size: layout.isRegular ? 24 : 20, weight: .semibold))
-                    .foregroundColor(.white)
-
-                Text("Sound familiar? Screen time negotiations don't have to be this hard.")
-                    .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
-                    .foregroundColor(.white.opacity(0.9))
-                    .lineLimit(2)
-            }
-            .padding(layout.isRegular ? 20 : 16)
+    /// Card height - responsive based on device
+    private var cardHeight: CGFloat {
+        if layout.isIpad {
+            return 280
+        } else if layout.isLandscape {
+            return 160
+        } else {
+            return 200
         }
-        .frame(height: layout.heroCardHeight)
+    }
+
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack(alignment: .bottomLeading) {
+                // Background image - explicitly sized to geometry
+                Image("onboarding_C1")
+                    .resizable()
+                    .aspectRatio(contentMode: .fill)
+                    .frame(width: geometry.size.width, height: cardHeight)
+                    .clipped()
+
+                // Gradient overlay
+                LinearGradient(
+                    gradient: Gradient(colors: [
+                        Color.black.opacity(0.0),
+                        Color.black.opacity(0.5)
+                    ]),
+                    startPoint: .top,
+                    endPoint: .bottom
+                )
+                .frame(width: geometry.size.width, height: cardHeight)
+
+                // Text overlay
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("The Daily Struggle")
+                        .font(.system(size: layout.isIpad ? 24 : 16, weight: .semibold))
+                        .foregroundColor(.white)
+
+                    Text("Sound familiar? Screen time negotiations don't have to be this hard.")
+                        .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
+                        .foregroundColor(.white.opacity(0.9))
+                        .lineLimit(2)
+                }
+                .padding(layout.isIpad ? 20 : 12)
+            }
+        }
+        .frame(height: cardHeight)
         .cornerRadius(14)
         .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
     }

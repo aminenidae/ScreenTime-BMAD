@@ -48,7 +48,7 @@ struct Screen3_SetupPreviewView: View {
                     HStack(spacing: layout.cardSpacing) {
                         SetupImageCard(
                             imageName: "onboarding_C3_1",
-                            title: "📚 Learning Apps",
+                            title: "Learning Apps",
                             subtitle: "Configure which apps earn screen time",
                             layout: layout
                         ) {
@@ -57,7 +57,7 @@ struct Screen3_SetupPreviewView: View {
 
                         SetupImageCard(
                             imageName: "onboarding_C3_2",
-                            title: "🎮 Reward Apps",
+                            title: "Reward Apps",
                             subtitle: "Set approved entertainment options",
                             layout: layout
                         ) {
@@ -70,7 +70,7 @@ struct Screen3_SetupPreviewView: View {
                     VStack(spacing: layout.cardSpacing) {
                         SetupImageCard(
                             imageName: "onboarding_C3_1",
-                            title: "📚 Learning Apps",
+                            title: "Learning Apps",
                             subtitle: "Configure which apps earn screen time",
                             layout: layout
                         ) {
@@ -79,7 +79,7 @@ struct Screen3_SetupPreviewView: View {
 
                         SetupImageCard(
                             imageName: "onboarding_C3_2",
-                            title: "🎮 Reward Apps",
+                            title: "Reward Apps",
                             subtitle: "Set approved entertainment options",
                             layout: layout
                         ) {
@@ -156,48 +156,62 @@ private struct SetupImageCard: View {
     let layout: ResponsiveCardLayout
     let action: () -> Void
 
+    /// Card height - responsive based on device
+    private var cardHeight: CGFloat {
+        if layout.isIpad {
+            return 200
+        } else if layout.isLandscape {
+            return 140
+        } else {
+            return 160
+        }
+    }
+
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                // Background image
-                Image(imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(height: layout.fullWidthCardHeight)
-                    .clipped()
+            GeometryReader { geometry in
+                ZStack(alignment: .bottomLeading) {
+                    // Background image - explicitly sized to geometry
+                    Image(imageName)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: geometry.size.width, height: cardHeight)
+                        .clipped()
 
-                // Gradient overlay
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.5)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
+                    // Gradient overlay
+                    LinearGradient(
+                        gradient: Gradient(colors: [
+                            Color.black.opacity(0.0),
+                            Color.black.opacity(0.5)
+                        ]),
+                        startPoint: .top,
+                        endPoint: .bottom
+                    )
+                    .frame(width: geometry.size.width, height: cardHeight)
 
-                // Text content
-                HStack {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
-                            .font(.system(size: layout.isRegular ? 22 : 20, weight: .semibold))
-                            .foregroundColor(.white)
+                    // Text content
+                    HStack {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(title)
+                                .font(.system(size: layout.isIpad ? 22 : 16, weight: .semibold))
+                                .foregroundColor(.white)
 
-                        Text(subtitle)
-                            .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
-                            .foregroundColor(.white.opacity(0.9))
-                            .lineLimit(2)
+                            Text(subtitle)
+                                .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
+                                .foregroundColor(.white.opacity(0.9))
+                                .lineLimit(2)
+                        }
+
+                        Spacer()
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: layout.isIpad ? 16 : 14, weight: .semibold))
+                            .foregroundColor(.white.opacity(0.7))
                     }
-
-                    Spacer()
-
-                    Image(systemName: "chevron.right")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(.white.opacity(0.7))
+                    .padding(layout.isIpad ? 20 : 12)
                 }
-                .padding(layout.isRegular ? 20 : 16)
             }
-            .frame(height: layout.fullWidthCardHeight)
+            .frame(height: cardHeight)
             .cornerRadius(14)
             .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
         }
