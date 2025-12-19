@@ -80,7 +80,7 @@ struct LearningAppListSection: View {
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 11))
-                    Text("\(totalMinutes) min")
+                    Text("\(totalMinutes) MIN")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(tealColor.opacity(0.6))

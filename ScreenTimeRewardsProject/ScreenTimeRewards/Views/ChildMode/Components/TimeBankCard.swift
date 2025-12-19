@@ -76,7 +76,7 @@ struct TimeBankCard: View {
             // Earned chip
             balanceChip(
                 value: earnedMinutes,
-                label: "earned",
+                label: "EARNED",
                 color: tealColor
             )
 
@@ -88,7 +88,7 @@ struct TimeBankCard: View {
             // Used chip
             balanceChip(
                 value: usedMinutes,
-                label: "used",
+                label: "USED",
                 color: lightCoral
             )
         }
@@ -103,8 +103,9 @@ struct TimeBankCard: View {
                 .font(.system(size: 32, weight: .bold))
                 .foregroundColor(color)
 
-            Text("min \(label)")
-                .font(.system(size: 14, weight: .medium))
+            Text("MIN \(label)")
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1)
                 .foregroundColor(color.opacity(0.8))
         }
         .padding(.horizontal, 16)

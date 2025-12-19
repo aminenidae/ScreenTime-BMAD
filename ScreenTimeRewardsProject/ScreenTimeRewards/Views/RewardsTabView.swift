@@ -209,7 +209,7 @@ struct RewardsTabView: View {
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(lightCoral)
 
-                    Text("minutes")
+                    Text("MINUTES")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(tealColor.opacity(0.6))
                         .padding(.bottom, 4)
@@ -220,7 +220,7 @@ struct RewardsTabView: View {
                         .font(.system(size: 10))
                         .foregroundColor(accentYellow)
 
-                    Text("\(viewModel.availableLearningPoints / 10) minutes available")
+                    Text("\(viewModel.availableLearningPoints / 10) MINUTES AVAILABLE")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(accentYellow)
                 }
@@ -417,7 +417,7 @@ private extension RewardsTabView {
                                     .font(.system(size: 10))
                                     .foregroundColor(accentYellow)
 
-                                Text("Tap to configure")
+                                Text("TAP TO CONFIGURE")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(accentYellow)
                             }

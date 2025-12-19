@@ -55,25 +55,25 @@ struct DailyLimitsPicker: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             VStack(alignment: .leading, spacing: 4) {
-                Text("Daily Limits")
+                Text("DAILY LIMITS")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ChallengeBuilderTheme.text)
 
-                Text("How much time per day?")
+                Text("HOW MUCH TIME PER DAY?")
                     .font(.system(size: 13))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
             // Mode selector: No limit / Weekday/Weekend / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "No limit", isSelected: isNoLimit && !useAdvancedConfig) {
+                modeButton(title: "NO LIMIT", isSelected: isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         setNoLimit()
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Weekday/Weekend", isSelected: !isNoLimit && !useAdvancedConfig) {
+                modeButton(title: "WEEKDAY/WEEKEND", isSelected: !isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit {
@@ -83,7 +83,7 @@ struct DailyLimitsPicker: View {
                     }
                 }
 
-                modeButton(title: "Per-day", isSelected: useAdvancedConfig) {
+                modeButton(title: "PER-DAY", isSelected: useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit && !useAdvancedConfig {
@@ -193,8 +193,8 @@ struct DailyLimitsPicker: View {
         VStack(spacing: 12) {
             // Weekday limit - use Monday's max as representative
             limitRow(
-                title: "Weekdays",
-                subtitle: "Mon - Fri",
+                title: "WEEKDAYS",
+                subtitle: "MON - FRI",
                 value: dailyLimits.weekdayLimit,
                 maxMinutes: effectiveMax(for: 2), // Monday
                 onChange: { newValue in
@@ -204,8 +204,8 @@ struct DailyLimitsPicker: View {
 
             // Weekend limit - use Saturday's max as representative
             limitRow(
-                title: "Weekends",
-                subtitle: "Sat - Sun",
+                title: "WEEKENDS",
+                subtitle: "SAT - SUN",
                 value: dailyLimits.weekendLimit,
                 maxMinutes: effectiveMax(for: 7), // Saturday
                 onChange: { newValue in
@@ -247,7 +247,7 @@ struct DailyLimitsPicker: View {
         HStack(spacing: 12) {
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
 
                 if let subtitle {
@@ -282,28 +282,28 @@ struct DailyLimitsPicker: View {
     private func formatMinutes(_ minutes: Int) -> String {
         // Show actual time for full day (23h 59m for 1439, 24h for 1440)
         if minutes >= 1440 {
-            return "23h 59m"
+            return "23H 59M"
         }
         let hours = minutes / 60
         let mins = minutes % 60
         if hours > 0 && mins > 0 {
-            return "\(hours)h \(mins)m"
+            return "\(hours)H \(mins)M"
         } else if hours > 0 {
-            return "\(hours)h"
+            return "\(hours)H"
         } else {
-            return "\(mins)m"
+            return "\(mins)M"
         }
     }
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "Sunday"
-        case 2: return "Monday"
-        case 3: return "Tuesday"
-        case 4: return "Wednesday"
-        case 5: return "Thursday"
-        case 6: return "Friday"
-        case 7: return "Saturday"
+        case 1: return "SUNDAY"
+        case 2: return "MONDAY"
+        case 3: return "TUESDAY"
+        case 4: return "WEDNESDAY"
+        case 5: return "THURSDAY"
+        case 6: return "FRIDAY"
+        case 7: return "SATURDAY"
         default: return ""
         }
     }

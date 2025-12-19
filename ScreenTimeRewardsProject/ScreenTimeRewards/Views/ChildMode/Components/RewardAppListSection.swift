@@ -85,7 +85,7 @@ struct RewardAppListSection: View {
                 HStack(spacing: 4) {
                     Image(systemName: remainingMinutes > 0 ? "clock.fill" : "clock")
                         .font(.system(size: 11))
-                    Text("\(remainingMinutes) min left")
+                    Text("\(remainingMinutes) MIN LEFT")
                         .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(remainingMinutes > 0 ? lightCoral : tealColor.opacity(0.6))

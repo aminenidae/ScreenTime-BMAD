@@ -148,11 +148,11 @@ struct AppConfigurationSheet: View {
                 }
             }
             .background(creamBackground.ignoresSafeArea())
-            .navigationTitle("Configure App")
+            .navigationTitle("CONFIGURE APP")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("Cancel") {
+                    Button("CANCEL") {
                         onCancel()
                     }
                     .font(.system(size: 16, weight: .medium))
@@ -160,7 +160,7 @@ struct AppConfigurationSheet: View {
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("Save") {
+                    Button("SAVE") {
                         onSave(localConfig)
                     }
                     .font(.system(size: 16, weight: .bold))
@@ -191,11 +191,11 @@ struct AppConfigurationSheet: View {
                 ForEach(summaryLines, id: \.self) { line in
                     HStack(alignment: .top, spacing: 8) {
                         Text("•")
-                            .font(.system(size: 13))
+                            .font(.system(size: 11))
                             .foregroundColor(accentColor)
 
                         Text(line)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .foregroundColor(tealColor.opacity(0.8))
                     }
                 }
@@ -225,7 +225,7 @@ struct AppConfigurationSheet: View {
 
         // Simple mode
         let timeWindow = localConfig.allowedTimeWindow
-        let timeRange = timeWindow.isFullDay ? "anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+        let timeRange = timeWindow.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) AND \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
 
         if limits.weekdayLimit == limits.weekendLimit {
             // 1 line - same for all days
@@ -233,8 +233,8 @@ struct AppConfigurationSheet: View {
         } else {
             // 2 lines - weekday vs weekend
             return [
-                "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
-                "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+                "WEEKDAYS (MON-FRI): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
+                "WEEKENDS (SAT-SUN): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
             ]
         }
     }
@@ -252,7 +252,7 @@ struct AppConfigurationSheet: View {
         func summaryFor(weekday: Int) -> String {
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
             let limitMinutes = limits.limit(for: weekday)
-            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
             return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
         }
 
@@ -270,15 +270,15 @@ struct AppConfigurationSheet: View {
         if Set(allKeys).count == 1 {
             // All 7 days identical - show 1 line
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: 2) : localConfig.allowedTimeWindow
-            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
             return [formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)]
         }
 
         // Check if weekdays same AND weekends same (classic pattern)
         if allWeekdaysSame && weekendSame {
             return [
-                "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))",
-                "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
+                "WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))",
+                "WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))"
             ]
         }
 
@@ -286,7 +286,7 @@ struct AppConfigurationSheet: View {
 
         // Weekdays: show grouped or individual
         if allWeekdaysSame {
-            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+            lines.append("WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))")
         } else {
             // Show individual weekdays
             for weekday in 2...6 {
@@ -296,10 +296,10 @@ struct AppConfigurationSheet: View {
 
         // Weekend: show grouped or individual
         if weekendSame {
-            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
+            lines.append("WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))")
         } else {
-            lines.append("Saturday: \(summaryFor(weekday: 7))")
-            lines.append("Sunday: \(summaryFor(weekday: 1))")
+            lines.append("SATURDAY: \(summaryFor(weekday: 7))")
+            lines.append("SUNDAY: \(summaryFor(weekday: 1))")
         }
 
         return lines
@@ -308,48 +308,52 @@ struct AppConfigurationSheet: View {
     private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
             if timeWindow.isFullDay {
-                return "Your child can use this app anytime"
+                return "YOUR CHILD CAN USE THIS APP ANYTIME"
             } else {
-                return "Your child can use this app \(timeRange)"
+                return "YOUR CHILD CAN USE THIS APP \(timeRange)"
             }
         } else {
-            return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
+            return "YOUR CHILD CAN USE THIS APP FOR \(formatDuration(minutes)) \(timeRange)"
         }
     }
 
     private func formatUsageLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        var modifiedTimeRange = timeRange
+        modifiedTimeRange = modifiedTimeRange.replacingOccurrences(of: "between", with: "BETWEEN")
+        modifiedTimeRange = modifiedTimeRange.replacingOccurrences(of: "and", with: "AND")
+
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
-            return timeRange
+            return modifiedTimeRange
         } else {
-            return "\(formatDuration(minutes)) \(timeRange)"
+            return "\(formatDuration(minutes)) \(modifiedTimeRange)"
         }
     }
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "Sunday"
-        case 2: return "Monday"
-        case 3: return "Tuesday"
-        case 4: return "Wednesday"
-        case 5: return "Thursday"
-        case 6: return "Friday"
-        case 7: return "Saturday"
+        case 1: return "SUNDAY"
+        case 2: return "MONDAY"
+        case 3: return "TUESDAY"
+        case 4: return "WEDNESDAY"
+        case 5: return "THURSDAY"
+        case 6: return "FRIDAY"
+        case 7: return "SATURDAY"
         default: return ""
         }
     }
 
     private func formatDuration(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "unlimited"
+            return "UNLIMITED"
         }
         let hours = minutes / 60
         let mins = minutes % 60
         if hours > 0 && mins > 0 {
-            return "\(hours)h \(mins)m"
+            return "\(hours)H \(mins)M"
         } else if hours > 0 {
-            return "\(hours)h"
+            return "\(hours)H"
         } else {
-            return "\(mins)m"
+            return "\(mins)M"
         }
     }
 

@@ -229,7 +229,7 @@ struct LearningTabView: View {
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(tealColor)
 
-                    Text("minutes")
+                    Text("MINUTES")
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(tealColor.opacity(0.6))
                         .padding(.bottom, 4)
@@ -358,7 +358,7 @@ struct LearningTabView: View {
                                     .font(.system(size: 10))
                                     .foregroundColor(accentYellow)
 
-                                Text("Tap to configure")
+                                Text("TAP TO CONFIGURE")
                                     .font(.system(size: 11, weight: .medium))
                                     .foregroundColor(accentYellow)
                             }

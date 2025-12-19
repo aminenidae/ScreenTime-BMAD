@@ -66,7 +66,7 @@ struct LearningAppDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("DONE") { dismiss() }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(tealColor)
                 }
@@ -100,52 +100,27 @@ struct LearningAppDetailView: View {
     }
 
     private var appHeaderCard: some View {
-        HStack(spacing: 16) {
-            // App Icon
+        HStack {
+            // App Icon only
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(2.0)
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .scaleEffect(1.3)
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(tealColor.opacity(0.1))
-                    .frame(width: 56, height: 56)
+                    .frame(width: 40, height: 40)
                     .overlay(
                         Image(systemName: "app.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: 20))
                             .foregroundColor(tealColor)
                     )
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .labelStyle(.titleOnly)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
-                        .lineLimit(1)
-                } else {
-                    Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Image(systemName: "book.fill")
-                        .font(.system(size: 11))
-                    Text("LEARNING APP")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(1)
-                }
-                .foregroundColor(tealColor.opacity(0.7))
-            }
-
-            Spacer()
         }
-        .padding(16)
+        .frame(maxWidth: .infinity)
+        .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.white.opacity(0.6))
@@ -265,7 +240,7 @@ struct RewardAppDetailView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("Done") { dismiss() }
+                    Button("DONE") { dismiss() }
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(tealColor)
                 }
@@ -300,52 +275,27 @@ struct RewardAppDetailView: View {
     }
 
     private var appHeaderCard: some View {
-        HStack(spacing: 16) {
-            // App Icon
+        HStack {
+            // App Icon only
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(2.0)
-                    .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .scaleEffect(1.3)
+                    .frame(width: 40, height: 40)
+                    .clipShape(RoundedRectangle(cornerRadius: 10))
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: 10)
                     .fill(lightCoral.opacity(0.1))
-                    .frame(width: 56, height: 56)
+                    .frame(width: 40, height: 40)
                     .overlay(
                         Image(systemName: "app.fill")
-                            .font(.system(size: 28))
+                            .font(.system(size: 20))
                             .foregroundColor(lightCoral)
                     )
             }
-
-            VStack(alignment: .leading, spacing: 4) {
-                if #available(iOS 15.2, *) {
-                    Label(snapshot.token)
-                        .labelStyle(.titleOnly)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
-                        .lineLimit(1)
-                } else {
-                    Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
-                        .lineLimit(1)
-                }
-
-                HStack(spacing: 6) {
-                    Image(systemName: "gift.fill")
-                        .font(.system(size: 11))
-                    Text("REWARD APP")
-                        .font(.system(size: 11, weight: .semibold))
-                        .tracking(1)
-                }
-                .foregroundColor(lightCoral)
-            }
-
-            Spacer()
         }
-        .padding(16)
+        .frame(maxWidth: .infinity)
+        .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(Color.white.opacity(0.6))
@@ -459,7 +409,7 @@ private struct HourlyUsageChartCard: View {
 
                 Spacer()
 
-                Text("\(totalMinutes)m total")
+                Text("\(totalMinutes)M TOTAL")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(tealColor.opacity(0.6))
             }
@@ -530,7 +480,7 @@ private struct HourlyUsageChartCard: View {
                 .font(.system(size: 32))
                 .foregroundColor(tealColor.opacity(0.3))
 
-            Text("No usage recorded today")
+            Text("NO USAGE RECORDED TODAY")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(tealColor.opacity(0.5))
         }
@@ -553,9 +503,9 @@ private struct AppUsageChart: View {
     @State private var selectedPeriod: ChartPeriod = .daily
 
     enum ChartPeriod: String, CaseIterable {
-        case daily = "7 Days"
-        case weekly = "4 Weeks"
-        case monthly = "6 Months"
+        case daily = "7 DAYS"
+        case weekly = "4 WEEKS"
+        case monthly = "6 MONTHS"
     }
 
     var body: some View {
@@ -569,7 +519,7 @@ private struct AppUsageChart: View {
                 Spacer()
 
                 Menu {
-                    Picker("Period", selection: $selectedPeriod) {
+                    Picker("PERIOD", selection: $selectedPeriod) {
                         ForEach(ChartPeriod.allCases, id: \.self) { period in
                             Text(period.rawValue).tag(period)
                         }
@@ -658,7 +608,7 @@ private struct AppUsageChart: View {
                 .font(.system(size: 32))
                 .foregroundColor(tealColor.opacity(0.3))
 
-            Text("No usage data yet")
+            Text("NO USAGE DATA YET")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(tealColor.opacity(0.5))
         }

@@ -35,32 +35,32 @@ struct TimeWindowPicker: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header (no toggle)
             VStack(alignment: .leading, spacing: 4) {
-                Text("Allowed Hours")
+                Text("ALLOWED HOURS")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ChallengeBuilderTheme.text)
 
-                Text("When can this app be used?")
+                Text("WHEN CAN THIS APP BE USED?")
                     .font(.system(size: 13))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
             // Mode selector: All day / Same every day / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "All day", isSelected: isFullDay) {
+                modeButton(title: "ALL DAY", isSelected: isFullDay) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = true
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Same every day", isSelected: !isFullDay && !useAdvancedConfig) {
+                modeButton(title: "SAME EVERY DAY", isSelected: !isFullDay && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Per-day", isSelected: !isFullDay && useAdvancedConfig) {
+                modeButton(title: "PER-DAY", isSelected: !isFullDay && useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = true
@@ -96,7 +96,7 @@ struct TimeWindowPicker: View {
     private func modeButton(title: String, isSelected: Bool, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Text(title)
-                .font(.system(size: 13, weight: isSelected ? .semibold : .medium))
+                .font(.system(size: 12, weight: isSelected ? .semibold : .medium))
                 .foregroundColor(isSelected ? .white : ChallengeBuilderTheme.mutedText)
                 .padding(.vertical, 10)
                 .frame(maxWidth: .infinity)
@@ -115,8 +115,8 @@ struct TimeWindowPicker: View {
         VStack(spacing: 12) {
             // Start time - use inline Binding to read/write directly from timeWindow
             HStack {
-                Text("From")
-                    .font(.system(size: 14, weight: .medium))
+                Text("FROM")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
                     .frame(width: 50, alignment: .leading)
 
@@ -140,12 +140,13 @@ struct TimeWindowPicker: View {
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
+                .font(.system(size: 13))
             }
 
             // End time - use inline Binding to read/write directly from timeWindow
             HStack {
-                Text("Until")
-                    .font(.system(size: 14, weight: .medium))
+                Text("UNTIL")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
                     .frame(width: 50, alignment: .leading)
 
@@ -169,6 +170,7 @@ struct TimeWindowPicker: View {
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
+                .font(.system(size: 13))
             }
 
             // Warning if end is before start
@@ -197,7 +199,7 @@ struct TimeWindowPicker: View {
         VStack(spacing: 8) {
             HStack(spacing: 12) {
                 Text(dayName(for: weekday))
-                    .font(.system(size: 14, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
                     .frame(width: 80, alignment: .leading)
 
@@ -223,6 +225,7 @@ struct TimeWindowPicker: View {
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
+                .font(.system(size: 13))
                 .frame(width: 90)
 
                 Text("-")
@@ -248,6 +251,7 @@ struct TimeWindowPicker: View {
                 )
                 .labelsHidden()
                 .datePickerStyle(.compact)
+                .font(.system(size: 13))
                 .frame(width: 90)
             }
 
@@ -273,7 +277,7 @@ struct TimeWindowPicker: View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
-            Text("End time must be after start time")
+            Text("END TIME MUST BE AFTER START TIME")
                 .font(.system(size: 12))
         }
         .foregroundColor(.orange)
@@ -283,7 +287,7 @@ struct TimeWindowPicker: View {
         HStack(spacing: 4) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 10))
-            Text("Invalid range")
+            Text("INVALID RANGE")
                 .font(.system(size: 10))
         }
         .foregroundColor(.orange)
@@ -304,13 +308,13 @@ struct TimeWindowPicker: View {
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "Sunday"
-        case 2: return "Monday"
-        case 3: return "Tuesday"
-        case 4: return "Wednesday"
-        case 5: return "Thursday"
-        case 6: return "Friday"
-        case 7: return "Saturday"
+        case 1: return "SUNDAY"
+        case 2: return "MONDAY"
+        case 3: return "TUESDAY"
+        case 4: return "WEDNESDAY"
+        case 5: return "THURSDAY"
+        case 6: return "FRIDAY"
+        case 7: return "SATURDAY"
         default: return ""
         }
     }

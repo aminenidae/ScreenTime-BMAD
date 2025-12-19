@@ -116,25 +116,6 @@ struct ModeSelectionView: View {
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)
-
-                // Support Bar
-                Button(action: {
-                    // Handle support action
-                }) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "questionmark.circle.fill")
-                            .font(.system(size: 16, weight: .medium))
-
-                        Text("NEED SUPPORT")
-                            .font(.system(size: 14, weight: .semibold))
-                            .tracking(2)
-                    }
-                    .foregroundColor(lightCoral)
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 56)
-                    .background(tealColor)
-                }
-                .buttonStyle(PlainButtonStyle())
             }
             .ignoresSafeArea()
 

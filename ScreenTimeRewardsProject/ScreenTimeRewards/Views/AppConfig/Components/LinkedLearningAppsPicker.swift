@@ -21,13 +21,13 @@ struct LinkedLearningAppsPicker: View {
                         .font(.system(size: 14))
                         .foregroundColor(AppTheme.sunnyYellow)
 
-                    Text("Unlock Requirements")
+                    Text("UNLOCK REQUIREMENTS")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(ChallengeBuilderTheme.text)
                 }
 
-                Text("Link learning apps to unlock this reward")
-                    .font(.system(size: 13))
+                Text("LINK LEARNING APPS TO UNLOCK THIS REWARD")
+                    .font(.system(size: 11))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
@@ -89,12 +89,12 @@ struct LinkedLearningAppsPicker: View {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
-                        .font(.system(size: 14, weight: .medium))
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(ChallengeBuilderTheme.text)
                         .lineLimit(1)
                 } else {
-                    Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                        .font(.system(size: 14, weight: .medium))
+                    Text(snapshot.displayName.isEmpty ? "LEARNING APP" : snapshot.displayName)
+                        .font(.system(size: 12, weight: .medium))
                         .foregroundColor(ChallengeBuilderTheme.text)
                         .lineLimit(1)
                 }
@@ -134,7 +134,7 @@ struct LinkedLearningAppsPicker: View {
         VStack(alignment: .leading, spacing: 8) {
             // First row: Learn time + Period
             HStack(spacing: 8) {
-                Text("Learn:")
+                Text("LEARN:")
                     .font(.system(size: 12))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
 
@@ -155,7 +155,7 @@ struct LinkedLearningAppsPicker: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(formatMinutes(app.minutesRequired))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
                     }
@@ -185,7 +185,7 @@ struct LinkedLearningAppsPicker: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(app.goalPeriod.displayName)
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
                     }
@@ -203,7 +203,7 @@ struct LinkedLearningAppsPicker: View {
 
             // Second row: Reward earned
             HStack(spacing: 8) {
-                Text("Earn:")
+                Text("EARN:")
                     .font(.system(size: 12))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
 
@@ -224,7 +224,7 @@ struct LinkedLearningAppsPicker: View {
                 } label: {
                     HStack(spacing: 4) {
                         Text(formatMinutes(app.rewardMinutesEarned))
-                            .font(.system(size: 13, weight: .medium))
+                            .font(.system(size: 12, weight: .medium))
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
                     }
@@ -237,7 +237,7 @@ struct LinkedLearningAppsPicker: View {
                     )
                 }
 
-                Text("reward")
+                Text("REWARD")
                     .font(.system(size: 12))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
 
@@ -251,8 +251,8 @@ struct LinkedLearningAppsPicker: View {
 
     private var unlockModeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Unlock mode")
-                .font(.system(size: 13, weight: .medium))
+            Text("UNLOCK MODE")
+                .font(.system(size: 12, weight: .medium))
                 .foregroundColor(ChallengeBuilderTheme.text)
 
             // Mode selection
@@ -262,7 +262,7 @@ struct LinkedLearningAppsPicker: View {
             }
 
             Text(unlockMode.description)
-                .font(.system(size: 12))
+                .font(.system(size: 11))
                 .foregroundColor(ChallengeBuilderTheme.mutedText)
         }
         .padding(12)
@@ -281,7 +281,7 @@ struct LinkedLearningAppsPicker: View {
                     .font(.system(size: 14))
 
                 Text(mode.displayName)
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 12, weight: .medium))
             }
             .foregroundColor(isSelected ? AppTheme.vibrantTeal : ChallengeBuilderTheme.text)
             .padding(.horizontal, 12)
