@@ -11,12 +11,18 @@ struct AvatarHeroSection: View {
     @ObservedObject var avatarService: AvatarService
     @Environment(\.colorScheme) var colorScheme
 
+    // Design colors
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
     var onAvatarTap: (() -> Void)?
 
     @State private var showEvolutionCelebration = false
 
     var body: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
+        VStack(spacing: 16) {
             // Avatar display
             AvatarView(
                 avatarState: avatarService.currentAvatarState,
@@ -27,19 +33,19 @@ struct AvatarHeroSection: View {
             )
 
             // Avatar name and stage
-            VStack(spacing: AppTheme.Spacing.tiny) {
+            VStack(spacing: 4) {
                 Text(avatarName)
-                    .font(AppTheme.Typography.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .font(.system(size: 20, weight: .bold))
+                    .foregroundColor(tealColor)
 
                 Text(stageName)
-                    .font(AppTheme.Typography.caption)
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(stageColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(stageColor.opacity(0.15))
+                            .fill(stageColor.opacity(0.2))
                     )
             }
 
@@ -50,7 +56,7 @@ struct AvatarHeroSection: View {
                 maxLevelBadge
             }
         }
-        .padding(.vertical, AppTheme.Spacing.regular)
+        .padding(.vertical, 16)
         .onChange(of: avatarService.pendingEvolution) { newEvolution in
             if newEvolution != nil {
                 showEvolutionCelebration = true
@@ -72,13 +78,13 @@ struct AvatarHeroSection: View {
     // MARK: - Evolution Progress
 
     private var evolutionProgressBar: some View {
-        VStack(spacing: AppTheme.Spacing.small) {
+        VStack(spacing: 8) {
             // Progress bar
             GeometryReader { geometry in
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(AppTheme.progressTrack(for: colorScheme))
+                        .fill(tealColor.opacity(0.1))
                         .frame(height: 8)
 
                     // Progress
@@ -95,31 +101,30 @@ struct AvatarHeroSection: View {
                 }
             }
             .frame(height: 8)
-            .padding(.horizontal, AppTheme.Spacing.large)
+            .padding(.horizontal, 32)
 
             // Progress text
             if let minutesLeft = avatarService.minutesToNextLevel {
                 Text(progressText(minutesLeft: minutesLeft))
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(tealColor.opacity(0.7))
             }
         }
     }
 
     private var maxLevelBadge: some View {
-        HStack(spacing: AppTheme.Spacing.small) {
+        HStack(spacing: 8) {
             Image(systemName: "crown.fill")
-                .foregroundColor(.orange)
+                .foregroundColor(accentYellow)
             Text("Max Level Reached!")
-                .font(AppTheme.Typography.subheadline)
-                .fontWeight(.semibold)
-                .foregroundColor(.orange)
+                .font(.system(size: 14, weight: .semibold))
+                .foregroundColor(accentYellow)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(
             Capsule()
-                .fill(Color.orange.opacity(0.15))
+                .fill(accentYellow.opacity(0.2))
         )
     }
 
@@ -139,22 +144,23 @@ struct AvatarHeroSection: View {
 
     private var stageColor: Color {
         switch currentLevel {
-        case 1: return AppTheme.sunnyYellow
-        case 2: return AppTheme.vibrantTeal
-        case 3: return AppTheme.playfulCoral
+        case 1: return accentYellow
+        case 2: return tealColor
+        case 3: return lightCoral
         case 4: return .orange
-        default: return AppTheme.sunnyYellow
+        default: return accentYellow
         }
     }
 
     private var nextStageColor: Color {
         switch currentLevel {
-        case 1: return AppTheme.vibrantTeal
-        case 2: return AppTheme.playfulCoral
+        case 1: return tealColor
+        case 2: return lightCoral
         case 3: return .orange
         default: return .orange
         }
     }
+
 
     private func progressText(minutesLeft: Int) -> String {
         if minutesLeft >= 60 {

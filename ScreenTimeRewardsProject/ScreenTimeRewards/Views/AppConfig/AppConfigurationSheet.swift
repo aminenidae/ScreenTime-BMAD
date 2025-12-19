@@ -11,6 +11,11 @@ enum AppConfigSection: String {
     case save = "config_save_section"
 }
 
+// Design colors matching ModeSelectionView
+private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+
 /// Sheet for configuring per-app schedule and time limits
 struct AppConfigurationSheet: View {
     let token: ApplicationToken
@@ -52,11 +57,15 @@ struct AppConfigurationSheet: View {
         _isFullDayAccess = State(initialValue: configuration.wrappedValue.allowedTimeWindow.isFullDay)
     }
 
+    private var accentColor: Color {
+        appType == .learning ? tealColor : lightCoral
+    }
+
     var body: some View {
         NavigationView {
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 24) {
+                    VStack(alignment: .leading, spacing: 20) {
                         // App header
                         appHeader
 
@@ -65,76 +74,80 @@ struct AppConfigurationSheet: View {
                             .id("config_summary_section")
                             .tutorialTarget("config_summary")
 
-                    Divider()
-                        .background(ChallengeBuilderTheme.border)
+                        // Divider
+                        Rectangle()
+                            .fill(tealColor.opacity(0.1))
+                            .frame(height: 1)
 
-                    // Time Window Section
-                    TimeWindowPicker(
-                        timeWindow: $localConfig.allowedTimeWindow,
-                        dailyTimeWindows: $localConfig.dailyTimeWindows,
-                        useAdvancedConfig: $localConfig.useAdvancedTimeWindowConfig,
-                        isFullDay: $isFullDayAccess
-                    )
-                    .id(AppConfigSection.timeWindow.rawValue)
-                    .tutorialTarget("config_time_window")
-                    .onChange(of: isFullDayAccess) { newValue in
-                        if newValue {
-                            localConfig.allowedTimeWindow = .fullDay
-                            localConfig.dailyTimeWindows = .allFullDay
-                            localConfig.useAdvancedTimeWindowConfig = false
-                            // Smart default for learning apps: set to unlimited when full day
-                            if appType == .learning {
-                                localConfig.dailyLimits = .unlimited
+                        // Time Window Section
+                        TimeWindowPicker(
+                            timeWindow: $localConfig.allowedTimeWindow,
+                            dailyTimeWindows: $localConfig.dailyTimeWindows,
+                            useAdvancedConfig: $localConfig.useAdvancedTimeWindowConfig,
+                            isFullDay: $isFullDayAccess
+                        )
+                        .id(AppConfigSection.timeWindow.rawValue)
+                        .tutorialTarget("config_time_window")
+                        .onChange(of: isFullDayAccess) { newValue in
+                            if newValue {
+                                localConfig.allowedTimeWindow = .fullDay
+                                localConfig.dailyTimeWindows = .allFullDay
+                                localConfig.useAdvancedTimeWindowConfig = false
+                                // Smart default for learning apps: set to unlimited when full day
+                                if appType == .learning {
+                                    localConfig.dailyLimits = .unlimited
+                                }
                             }
                         }
-                    }
 
-                    Divider()
-                        .background(ChallengeBuilderTheme.border)
+                        // Divider
+                        Rectangle()
+                            .fill(tealColor.opacity(0.1))
+                            .frame(height: 1)
 
-                    // Daily Limits Section
-                    // Pass time window duration to cap limits for both Learning and Reward apps
-                    DailyLimitsPicker(
-                        dailyLimits: $localConfig.dailyLimits,
-                        useAdvancedConfig: $localConfig.useAdvancedDayConfig,
-                        maxAllowedMinutes: localConfig.allowedTimeWindow.durationInMinutes,
-                        dailyTimeWindows: localConfig.dailyTimeWindows,
-                        useAdvancedTimeWindows: localConfig.useAdvancedTimeWindowConfig
-                    )
-                    .id(AppConfigSection.dailyLimits.rawValue)
-                    .tutorialTarget("config_daily_limits")
-
-                    // Unlock Requirements Section (reward apps only)
-                    if appType == .reward {
-                        Divider()
-                            .background(ChallengeBuilderTheme.border)
-
-                        LinkedLearningAppsPicker(
-                            linkedApps: $localConfig.linkedLearningApps,
-                            unlockMode: $localConfig.unlockMode,
-                            learningSnapshots: learningSnapshots
+                        // Daily Limits Section
+                        DailyLimitsPicker(
+                            dailyLimits: $localConfig.dailyLimits,
+                            useAdvancedConfig: $localConfig.useAdvancedDayConfig,
+                            maxAllowedMinutes: localConfig.allowedTimeWindow.durationInMinutes,
+                            dailyTimeWindows: localConfig.dailyTimeWindows,
+                            useAdvancedTimeWindows: localConfig.useAdvancedTimeWindowConfig
                         )
-                        .id(AppConfigSection.linkedApps.rawValue)
-                        .tutorialTarget("config_linked_apps")
-                    }
+                        .id(AppConfigSection.dailyLimits.rawValue)
+                        .tutorialTarget("config_daily_limits")
 
-                    Spacer(minLength: 40)
-                }
-                .padding(20)
-            }
-            .onChange(of: scrollToSection) { section in
-                if let section = section {
-                    withAnimation(.easeInOut(duration: 0.3)) {
-                        scrollProxy.scrollTo(section.rawValue, anchor: .top)
+                        // Unlock Requirements Section (reward apps only)
+                        if appType == .reward {
+                            Rectangle()
+                                .fill(tealColor.opacity(0.1))
+                                .frame(height: 1)
+
+                            LinkedLearningAppsPicker(
+                                linkedApps: $localConfig.linkedLearningApps,
+                                unlockMode: $localConfig.unlockMode,
+                                learningSnapshots: learningSnapshots
+                            )
+                            .id(AppConfigSection.linkedApps.rawValue)
+                            .tutorialTarget("config_linked_apps")
+                        }
+
+                        Spacer(minLength: 40)
                     }
-                    // Reset after scrolling
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
-                        scrollToSection = nil
+                    .padding(20)
+                }
+                .onChange(of: scrollToSection) { section in
+                    if let section = section {
+                        withAnimation(.easeInOut(duration: 0.3)) {
+                            scrollProxy.scrollTo(section.rawValue, anchor: .top)
+                        }
+                        // Reset after scrolling
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) {
+                            scrollToSection = nil
+                        }
                     }
                 }
             }
-            } // Close ScrollViewReader
-            .background(ChallengeBuilderTheme.background.ignoresSafeArea())
+            .background(creamBackground.ignoresSafeArea())
             .navigationTitle("Configure App")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -142,18 +155,20 @@ struct AppConfigurationSheet: View {
                     Button("Cancel") {
                         onCancel()
                     }
-                    .foregroundColor(AppTheme.playfulCoral)
+                    .font(.system(size: 16, weight: .medium))
+                    .foregroundColor(tealColor.opacity(0.7))
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         onSave(localConfig)
                     }
-                    .fontWeight(.semibold)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .font(.system(size: 16, weight: .bold))
+                    .foregroundColor(accentColor)
                     .tutorialTarget("config_save")
                 }
             }
+            .toolbarBackground(creamBackground, for: .navigationBar)
         }
     }
 
@@ -164,35 +179,36 @@ struct AppConfigurationSheet: View {
             HStack(spacing: 6) {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 14))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(accentColor)
 
-                Text("Summary")
-                    .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(ChallengeBuilderTheme.text)
+                Text("SUMMARY")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(tealColor)
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: 6) {
                 ForEach(summaryLines, id: \.self) { line in
                     HStack(alignment: .top, spacing: 8) {
                         Text("•")
                             .font(.system(size: 13))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(accentColor)
 
                         Text(line)
-                            .font(.system(size: 13))
-                            .foregroundColor(ChallengeBuilderTheme.mutedText)
+                            .font(.system(size: 13, weight: .medium))
+                            .foregroundColor(tealColor.opacity(0.8))
                     }
                 }
             }
         }
-        .padding(12)
+        .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 10)
-                .fill(AppTheme.vibrantTeal.opacity(0.08))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(accentColor.opacity(0.08))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 10)
-                        .stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
                 )
         )
     }
@@ -354,20 +370,17 @@ struct AppConfigurationSheet: View {
             if #available(iOS 15.2, *) {
                 Label(token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(1.5)
-                    .frame(width: 50, height: 50)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(ChallengeBuilderTheme.surface)
-                    )
+                    .scaleEffect(1.8)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(ChallengeBuilderTheme.surface)
-                    .frame(width: 50, height: 50)
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(accentColor.opacity(0.1))
+                    .frame(width: 56, height: 56)
                     .overlay(
                         Image(systemName: "app.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(.gray)
+                            .foregroundColor(accentColor)
                     )
             }
 
@@ -377,34 +390,44 @@ struct AppConfigurationSheet: View {
                     Label(token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(ChallengeBuilderTheme.text)
+                        .foregroundColor(tealColor)
                         .lineLimit(1)
                 } else {
                     Text(appName)
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(ChallengeBuilderTheme.text)
+                        .foregroundColor(tealColor)
                         .lineLimit(1)
                 }
 
                 // Category badge
                 HStack(spacing: 6) {
                     Image(systemName: appType == .learning ? "book.fill" : "gift.fill")
-                        .font(.system(size: 11))
+                        .font(.system(size: 10))
 
-                    Text(appType == .learning ? "Learning" : "Reward")
-                        .font(.system(size: 12, weight: .medium))
+                    Text(appType == .learning ? "LEARNING" : "REWARD")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1)
                 }
-                .foregroundColor(appType == .learning ? AppTheme.vibrantTeal : AppTheme.playfulCoral)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
+                .foregroundColor(accentColor)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 5)
                 .background(
                     Capsule()
-                        .fill((appType == .learning ? AppTheme.vibrantTeal : AppTheme.playfulCoral).opacity(0.15))
+                        .fill(accentColor.opacity(0.15))
                 )
             }
 
             Spacer()
         }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 
 }

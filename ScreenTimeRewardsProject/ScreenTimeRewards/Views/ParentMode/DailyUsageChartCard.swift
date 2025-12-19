@@ -6,11 +6,16 @@ struct DailyUsageChartCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedPeriod: TimePeriod = .daily
 
+    // Design colors matching ModeSelectionView
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+
     enum TimePeriod: String, CaseIterable, Identifiable {
-        case hourly = "Hourly Usage"
-        case daily = "Daily Usage"
-        case weekly = "Weekly Usage"
-        case monthly = "Monthly Usage"
+        case hourly = "Hourly"
+        case daily = "Daily"
+        case weekly = "Weekly"
+        case monthly = "Monthly"
 
         var id: String { rawValue }
 
@@ -25,16 +30,17 @@ struct DailyUsageChartCard: View {
     }
 
     var body: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
+        VStack(spacing: 16) {
             // Header
             HStack {
                 Image(systemName: "chart.bar.xaxis")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .font(.system(size: 18))
+                    .foregroundColor(tealColor)
 
-                Text("Usage Trend")
-                    .font(AppTheme.Typography.title3)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("USAGE TREND")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
+                    .foregroundColor(tealColor)
 
                 Spacer()
 
@@ -47,19 +53,20 @@ struct DailyUsageChartCard: View {
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(selectedPeriod.rawValue)
-                            .font(AppTheme.Typography.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        Text(selectedPeriod.rawValue.uppercased())
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(1)
+                            .foregroundColor(tealColor.opacity(0.7))
 
                         Image(systemName: "chevron.down")
-                            .font(.system(size: 10))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(tealColor.opacity(0.7))
                     }
                     .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
+                    .padding(.vertical, 8)
                     .background(
-                        Capsule()
-                            .fill(AppTheme.textSecondary(for: colorScheme).opacity(0.1))
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(tealColor.opacity(0.1))
                     )
                 }
             }
@@ -71,30 +78,35 @@ struct DailyUsageChartCard: View {
             } else {
                 // Fallback for iOS < 16
                 Text("Charts require iOS 16+")
-                    .font(AppTheme.Typography.body)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(tealColor.opacity(0.6))
                     .frame(height: 200)
             }
 
             // Legend
-            HStack(spacing: AppTheme.Spacing.large) {
+            HStack(spacing: 32) {
                 legendItem(
-                    color: AppTheme.vibrantTeal,
+                    color: tealColor,
                     label: "Learning",
                     value: totalLearningMinutes
                 )
 
                 legendItem(
-                    color: AppTheme.playfulCoral,
+                    color: lightCoral,
                     label: "Reward",
                     value: totalRewardMinutes
                 )
             }
         }
-        .padding(AppTheme.Spacing.regular)
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(20)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
+        )
     }
 
     @available(iOS 16.0, *)
@@ -127,13 +139,13 @@ struct DailyUsageChartCard: View {
                         x: .value(xAxisName, item.date, unit: xAxisUnit),
                         y: .value("Minutes", item.minutes)
                     )
-                    .foregroundStyle(AppTheme.vibrantTeal.gradient)
+                    .foregroundStyle(tealColor.gradient)
                 } else {
                     BarMark(
                         x: .value(xAxisName, item.date, unit: xAxisUnit),
                         y: .value("Minutes", item.minutes)
                     )
-                    .foregroundStyle(AppTheme.vibrantTeal.gradient)
+                    .foregroundStyle(tealColor.gradient)
                     .position(by: .value("Category", "Learning"))
                 }
             }
@@ -145,13 +157,13 @@ struct DailyUsageChartCard: View {
                         x: .value(xAxisName, item.date, unit: xAxisUnit),
                         y: .value("Minutes", item.minutes)
                     )
-                    .foregroundStyle(AppTheme.playfulCoral.gradient)
+                    .foregroundStyle(lightCoral.gradient)
                 } else {
                     BarMark(
                         x: .value(xAxisName, item.date, unit: xAxisUnit),
                         y: .value("Minutes", item.minutes)
                     )
-                    .foregroundStyle(AppTheme.playfulCoral.gradient)
+                    .foregroundStyle(lightCoral.gradient)
                     .position(by: .value("Category", "Reward"))
                 }
             }
@@ -161,12 +173,12 @@ struct DailyUsageChartCard: View {
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
                         Text(xAxisLabel(for: date))
-                            .font(AppTheme.Typography.caption2)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(tealColor.opacity(0.6))
                     }
                 }
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    .foregroundStyle(tealColor.opacity(0.15))
             }
         }
         .chartYAxis {
@@ -174,12 +186,12 @@ struct DailyUsageChartCard: View {
                 AxisValueLabel {
                     if let minutes = value.as(Int.self) {
                         Text("\(minutes)m")
-                            .font(AppTheme.Typography.caption2)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(tealColor.opacity(0.6))
                     }
                 }
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                    .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                    .foregroundStyle(tealColor.opacity(0.15))
             }
         }
         .chartLegend(.hidden) // We have our own legend
@@ -187,7 +199,7 @@ struct DailyUsageChartCard: View {
             plotArea
                 .background(
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(colorScheme == .dark ? Color.black.opacity(0.2) : Color.white.opacity(0.5))
+                        .fill(tealColor.opacity(0.03))
                 )
         }
     }
@@ -245,7 +257,7 @@ struct DailyUsageChartCard: View {
 
             guard storedDate == todayString else {
                 #if DEBUG
-                print("[DailyUsageChartCard] ⏭️ Skipping \(logicalID): hourly date '\(storedDate ?? "nil")' != today '\(todayString)'")
+                print("[DailyUsageChartCard] Skipping \(logicalID): hourly date '\(storedDate ?? "nil")' != today '\(todayString)'")
                 #endif
                 continue
             }
@@ -263,7 +275,7 @@ struct DailyUsageChartCard: View {
             #if DEBUG
             let totalForApp = (0..<24).reduce(0) { $0 + defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\($1)") }
             if totalForApp > 0 {
-                print("[DailyUsageChartCard] 📊 \(logicalID): \(totalForApp / 60)m total from hourly buckets")
+                print("[DailyUsageChartCard] \(logicalID): \(totalForApp / 60)m total from hourly buckets")
             }
             #endif
         }
@@ -344,18 +356,18 @@ struct DailyUsageChartCard: View {
 
     private func legendItem(color: Color, label: String, value: Int) -> some View {
         HStack(spacing: 8) {
-            Circle()
+            RoundedRectangle(cornerRadius: 4)
                 .fill(color)
-                .frame(width: 10, height: 10)
+                .frame(width: 12, height: 12)
 
-            Text(label)
-                .font(AppTheme.Typography.caption)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1)
+                .foregroundColor(tealColor.opacity(0.7))
 
             Text("\(value)m")
-                .font(AppTheme.Typography.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(tealColor)
         }
     }
 
@@ -378,5 +390,5 @@ struct DailyUsageChartCard: View {
     DailyUsageChartCard()
         .environmentObject(AppUsageViewModel())
         .padding()
-        .background(Color.gray.opacity(0.1))
+        .background(Color(red: 0.96, green: 0.95, blue: 0.88))
 }

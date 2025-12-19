@@ -10,6 +10,14 @@ struct ChildDashboardView: View {
     @StateObject private var avatarService = AvatarService.shared
     @Environment(\.colorScheme) var colorScheme
 
+    // Design colors matching ModeSelectionView
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    // Very light coral for background (Pastel Pink/Peach)
+    private let veryLightCoral = Color(red: 1.0, green: 0.94, blue: 0.92)
+    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
     @State private var showAvatarCustomization = false
 
     // MARK: - Computed Properties
@@ -43,11 +51,11 @@ struct ChildDashboardView: View {
     var body: some View {
         ZStack {
             // Background
-            AppTheme.background(for: colorScheme)
+            veryLightCoral
                 .ignoresSafeArea()
 
             ScrollView {
-                VStack(spacing: AppTheme.Spacing.xLarge) {
+                VStack(spacing: 24) {
                     // Header with exit button
                     headerSection
 
@@ -64,14 +72,14 @@ struct ChildDashboardView: View {
                         earnedMinutes: totalEarnedMinutes,
                         usedMinutes: totalUsedMinutes
                     )
-                    .padding(.horizontal, AppTheme.Spacing.regular)
+                    .padding(.horizontal, 16)
 
                     // Learning Apps Section
                     LearningAppListSection(
                         snapshots: viewModel.learningSnapshots,
                         totalSeconds: totalLearningSeconds
                     )
-                    .padding(.horizontal, AppTheme.Spacing.regular)
+                    .padding(.horizontal, 16)
 
                     // Reward Apps Section
                     RewardAppListSection(
@@ -79,16 +87,16 @@ struct ChildDashboardView: View {
                         remainingMinutes: remainingMinutes,
                         unlockedApps: viewModel.unlockedRewardApps
                     )
-                    .padding(.horizontal, AppTheme.Spacing.regular)
+                    .padding(.horizontal, 16)
 
                     // Empty state when no apps configured
                     if viewModel.learningSnapshots.isEmpty && viewModel.rewardSnapshots.isEmpty {
                         emptyStateView
                     }
 
-                    Spacer(minLength: AppTheme.Spacing.huge)
+                    Spacer(minLength: 40)
                 }
-                .padding(.top, AppTheme.Spacing.regular)
+                .padding(.top, 16)
             }
             .refreshable {
                 await viewModel.refresh()
@@ -120,12 +128,12 @@ struct ChildDashboardView: View {
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text(greetingText)
-                        .font(AppTheme.Typography.title3)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .font(.system(size: 20, weight: .bold))
+                        .foregroundColor(tealColor)
 
                     Text("Ready to learn and play?")
-                        .font(AppTheme.Typography.subheadline)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(tealColor.opacity(0.8))
                 }
             }
 
@@ -137,15 +145,15 @@ struct ChildDashboardView: View {
             } label: {
                 Image(systemName: "rectangle.portrait.and.arrow.right")
                     .font(.system(size: 18, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(tealColor)
                     .frame(width: 44, height: 44)
                     .background(
-                        Circle()
-                            .fill(AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.2 : 0.1))
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(tealColor.opacity(0.1))
                     )
             }
         }
-        .padding(.horizontal, AppTheme.Spacing.regular)
+        .padding(.horizontal, 16)
     }
 
     private var greetingText: String {

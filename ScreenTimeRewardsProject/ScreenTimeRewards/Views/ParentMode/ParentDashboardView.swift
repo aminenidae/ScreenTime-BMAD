@@ -6,38 +6,76 @@ struct ParentDashboardView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
+    // Design colors matching ModeSelectionView
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    private let accentPeach = Color(red: 1.0, green: 0.70, blue: 0.55)
+    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
     private var topBarStyle: TabTopBarStyle {
-        let dividerOpacity = colorScheme == .dark ? 0.15 : 0.06
         return TabTopBarStyle(
-            background: AppTheme.background(for: colorScheme),
-            titleColor: AppTheme.textPrimary(for: colorScheme),
-            iconColor: AppTheme.vibrantTeal,
-            iconBackground: AppTheme.card(for: colorScheme),
-            dividerColor: Color.black.opacity(dividerOpacity)
+            background: creamBackground,
+            titleColor: tealColor,
+            iconColor: tealColor,
+            iconBackground: tealColor.opacity(0.1),
+            dividerColor: tealColor.opacity(0.15)
         )
     }
 
     var body: some View {
         ZStack {
             // Background
-            AppTheme.background(for: colorScheme)
+            creamBackground
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
-                TabTopBar(title: "Dashboard", style: topBarStyle) {
-                    sessionManager.exitToSelection()
+                // Custom header
+                VStack(spacing: 0) {
+                    HStack {
+                        Button(action: {
+                            sessionManager.exitToSelection()
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(tealColor)
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(tealColor.opacity(0.1))
+                                )
+                        }
+
+                        Spacer()
+
+                        Text("DASHBOARD")
+                            .font(.system(size: 18, weight: .bold))
+                            .tracking(2)
+                            .foregroundColor(tealColor)
+
+                        Spacer()
+
+                        // Invisible spacer for balance
+                        Color.clear
+                            .frame(width: 44, height: 44)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+
+                    Rectangle()
+                        .fill(tealColor.opacity(0.15))
+                        .frame(height: 1)
                 }
+                .background(creamBackground)
 
                 ScrollView {
-                    VStack(spacing: AppTheme.Spacing.regular) {
+                    VStack(spacing: 16) {
                         // Today's Activity Summary
                         todayActivityCard
 
                         // Daily Usage Chart
                         DailyUsageChartCard()
-
-                        // Points Overview - HIDDEN (keeping code for future use)
-                        // pointsOverviewCard
 
                         // Streak Status
                         if viewModel.currentStreak > 0 {
@@ -48,10 +86,10 @@ struct ParentDashboardView: View {
                         quickStatsGrid
 
                         // Bottom padding
-                        Color.clear.frame(height: AppTheme.Spacing.large)
+                        Color.clear.frame(height: 24)
                     }
-                    .padding(.horizontal, AppTheme.Spacing.regular)
-                    .padding(.top, AppTheme.Spacing.tiny)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
                 }
             }
         }
@@ -60,241 +98,158 @@ struct ParentDashboardView: View {
     // MARK: - Today's Activity Card
 
     private var todayActivityCard: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
+        VStack(spacing: 16) {
             HStack {
                 Image(systemName: "chart.bar.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .font(.system(size: 18))
+                    .foregroundColor(tealColor)
 
-                Text("Today's Activity")
-                    .font(AppTheme.Typography.title3)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("TODAY'S ACTIVITY")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
+                    .foregroundColor(tealColor)
 
                 Spacer()
             }
 
-            HStack(spacing: AppTheme.Spacing.regular) {
+            HStack(spacing: 12) {
                 // Learning Time
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                    HStack(spacing: AppTheme.Spacing.small) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "book.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(AppTheme.learningPeach)
+                            .font(.system(size: 14))
+                            .foregroundColor(tealColor)
 
-                        Text("Learning")
-                            .font(AppTheme.Typography.subheadline)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        Text("LEARNING")
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(1)
+                            .foregroundColor(tealColor.opacity(0.7))
                     }
 
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.learningTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(AppTheme.learningPeach)
+                            .foregroundColor(tealColor)
 
                         Text("min")
-                            .font(AppTheme.Typography.callout)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(tealColor.opacity(0.6))
                             .padding(.bottom, 4)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(AppTheme.Spacing.regular)
+                .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(AppTheme.learningPeach.opacity(colorScheme == .dark ? 0.2 : 0.1))
+                        .fill(tealColor.opacity(0.1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(tealColor.opacity(0.2), lineWidth: 1)
+                        )
                 )
 
                 // Reward Time
-                VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                    HStack(spacing: AppTheme.Spacing.small) {
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 6) {
                         Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 16))
-                            .foregroundColor(AppTheme.playfulCoral)
+                            .font(.system(size: 14))
+                            .foregroundColor(lightCoral)
 
-                        Text("Reward")
-                            .font(AppTheme.Typography.subheadline)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        Text("REWARD")
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(1)
+                            .foregroundColor(lightCoral.opacity(0.8))
                     }
 
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.rewardTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(AppTheme.playfulCoral)
+                            .foregroundColor(lightCoral)
 
                         Text("min")
-                            .font(AppTheme.Typography.callout)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(lightCoral.opacity(0.7))
                             .padding(.bottom, 4)
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(AppTheme.Spacing.regular)
+                .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(AppTheme.playfulCoral.opacity(colorScheme == .dark ? 0.2 : 0.1))
+                        .fill(lightCoral.opacity(0.1))
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 16)
+                                .stroke(lightCoral.opacity(0.2), lineWidth: 1)
+                        )
                 )
             }
         }
-        .padding(AppTheme.Spacing.regular)
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(20)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-    }
-
-    // MARK: - Points Overview Card
-
-    private var pointsOverviewCard: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
-            HStack {
-                Image(systemName: "star.circle.fill")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppTheme.sunnyYellow)
-
-                Text("Points Overview")
-                    .font(AppTheme.Typography.title3)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                Spacer()
-            }
-
-            // Points Grid
-            VStack(spacing: AppTheme.Spacing.medium) {
-                // Row 1: Earned & Available
-                HStack(spacing: AppTheme.Spacing.medium) {
-                    pointStatBox(
-                        icon: "plus.circle.fill",
-                        label: "Earned",
-                        value: "\(viewModel.learningRewardPoints)",
-                        color: AppTheme.learningPeach
-                    )
-
-                    pointStatBox(
-                        icon: "checkmark.circle.fill",
-                        label: "Available",
-                        value: "\(viewModel.availableLearningPoints)",
-                        color: AppTheme.sunnyYellow
-                    )
-                }
-
-                // Row 2: Bonus & Consumed
-                HStack(spacing: AppTheme.Spacing.medium) {
-                    pointStatBox(
-                        icon: "star.fill",
-                        label: "Bonus",
-                        value: "\(viewModel.bonusLearningPoints)",
-                        color: Color.orange
-                    )
-
-                    pointStatBox(
-                        icon: "arrow.right.circle.fill",
-                        label: "Consumed",
-                        value: "\(viewModel.totalConsumedPoints)",
-                        color: AppTheme.playfulCoral
-                    )
-                }
-            }
-        }
-        .padding(AppTheme.Spacing.regular)
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(20)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-    }
-
-    private func pointStatBox(icon: String, label: String, value: String, color: Color) -> some View {
-        VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-            HStack(spacing: AppTheme.Spacing.small) {
-                Image(systemName: icon)
-                    .font(.system(size: 14))
-                    .foregroundColor(color)
-
-                Text(label)
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-            }
-
-            Text(value)
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(color)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(AppTheme.Spacing.medium)
+        .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(color.opacity(colorScheme == .dark ? 0.15 : 0.08))
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
         )
     }
 
     // MARK: - Streak Card
 
     private var streakCard: some View {
-        HStack(spacing: AppTheme.Spacing.regular) {
-            // Flame icon with animation
+        HStack(spacing: 16) {
+            // Flame icon
             ZStack {
-                Circle()
-                    .fill(
-                        LinearGradient(
-                            colors: [AppTheme.sunnyYellow.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        )
-                    )
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(accentYellow.opacity(0.2))
                     .frame(width: 64, height: 64)
 
                 Image(systemName: "flame.fill")
                     .font(.system(size: 32))
-                    .foregroundColor(AppTheme.sunnyYellow)
+                    .foregroundColor(accentYellow)
             }
 
-            VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                Text("Daily Streak")
-                    .font(AppTheme.Typography.subheadline)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DAILY STREAK")
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(1.5)
+                    .foregroundColor(tealColor.opacity(0.7))
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(viewModel.currentStreak)")
                         .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(AppTheme.sunnyYellow)
+                        .foregroundColor(tealColor)
 
                     Text("days")
-                        .font(AppTheme.Typography.headline)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(tealColor.opacity(0.6))
                         .padding(.bottom, 4)
                 }
-
-                Text("Keep it up! 🎉")
-                    .font(AppTheme.Typography.caption)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
 
             Spacer()
         }
-        .padding(AppTheme.Spacing.regular)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
+                .fill(Color.white.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(
-                            LinearGradient(
-                                colors: [AppTheme.sunnyYellow.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            ),
-                            lineWidth: 2
-                        )
+                        .stroke(accentYellow.opacity(0.3), lineWidth: 2)
                 )
         )
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
     }
 
     // MARK: - Quick Stats Grid
 
     private var quickStatsGrid: some View {
-        VStack(spacing: AppTheme.Spacing.medium) {
+        VStack(spacing: 16) {
             HStack {
-                Text("Quick Stats")
-                    .font(AppTheme.Typography.title3)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("QUICK STATS")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
+                    .foregroundColor(tealColor)
 
                 Spacer()
             }
@@ -302,62 +257,72 @@ struct ParentDashboardView: View {
             LazyVGrid(columns: [
                 GridItem(.flexible()),
                 GridItem(.flexible())
-            ], spacing: AppTheme.Spacing.medium) {
+            ], spacing: 12) {
                 statTile(
                     icon: "books.vertical.fill",
                     label: "Learning Apps",
                     value: "\(viewModel.learningSnapshots.count)",
-                    color: AppTheme.learningPeach
+                    color: tealColor
                 )
 
                 statTile(
                     icon: "gamecontroller.fill",
                     label: "Reward Apps",
                     value: "\(viewModel.rewardSnapshots.count)",
-                    color: AppTheme.playfulCoral
+                    color: lightCoral
                 )
 
                 statTile(
                     icon: "chart.line.uptrend.xyaxis",
                     label: "Total Apps",
                     value: "\(viewModel.appUsages.count)",
-                    color: AppTheme.sunnyYellow
+                    color: accentYellow
                 )
 
                 statTile(
                     icon: "star.fill",
                     label: "Badges Earned",
                     value: "\(viewModel.badges.filter { $0.isUnlocked }.count)",
-                    color: Color.orange
+                    color: accentPeach
                 )
             }
         }
-        .padding(AppTheme.Spacing.regular)
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(20)
-        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
+        )
     }
 
     private func statTile(icon: String, label: String, value: String, color: Color) -> some View {
-        VStack(spacing: AppTheme.Spacing.small) {
+        VStack(spacing: 8) {
             Image(systemName: icon)
-                .font(.system(size: 24))
+                .font(.system(size: 22))
                 .foregroundColor(color)
 
             Text(value)
                 .font(.system(size: 28, weight: .bold))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .foregroundColor(tealColor)
 
-            Text(label)
-                .font(AppTheme.Typography.caption)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            Text(label.uppercased())
+                .font(.system(size: 10, weight: .medium))
+                .tracking(0.5)
+                .foregroundColor(tealColor.opacity(0.6))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
-        .padding(AppTheme.Spacing.medium)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(color.opacity(colorScheme == .dark ? 0.15 : 0.08))
+                .fill(color.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(color.opacity(0.2), lineWidth: 1)
+                )
         )
     }
 }

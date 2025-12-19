@@ -18,6 +18,11 @@ struct ModeSelectionView: View {
 
     @Environment(\.colorScheme) var colorScheme
 
+    // Colors matching the design
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+
     /// Gets the child's name for display in "Child's Space" button
     /// Uses the device name if it's a child device, otherwise falls back to "Child"
     private var childSpaceName: String {
@@ -35,145 +40,124 @@ struct ModeSelectionView: View {
 
     var body: some View {
         ZStack {
-            // Background
-            AppTheme.background(for: colorScheme)
-                .ignoresSafeArea()
-
             VStack(spacing: 0) {
-                Spacer()
-                    .frame(height: 48)
+                // Parent Space Section
+                Button(action: handleParentModeSelection) {
+                    VStack(spacing: 0) {
+                        Spacer()
 
-                // Logo/Icon section
-                VStack(spacing: 0) {
-                    ZStack {
-                        Circle()
-                            .fill(
-                                LinearGradient(
-                                    colors: [AppTheme.sunnyYellow.opacity(0.3), AppTheme.vibrantTeal.opacity(0.3), AppTheme.playfulCoral.opacity(0.3)],
-                                    startPoint: .topLeading,
-                                    endPoint: .bottomTrailing
-                                )
-                            )
-                            .frame(width: 96, height: 96)
+                        // Lock Icon
+                        Image(systemName: "lock.fill")
+                            .font(.system(size: 56, weight: .regular))
+                            .foregroundColor(tealColor)
+                            .padding(.bottom, 20)
 
-                        Image(systemName: "star.fill")
-                            .font(.system(size: 48))
-                            .foregroundColor(AppTheme.sunnyYellow)
+                        // Title
+                        Text("PARENT SPACE")
+                            .font(.system(size: 28, weight: .bold))
+                            .tracking(3)
+                            .foregroundColor(tealColor)
+                            .padding(.bottom, 8)
+
+                        // Subtitle
+                        Text("ACCESS CONTROLS")
+                            .font(.system(size: 14, weight: .medium))
+                            .tracking(2)
+                            .foregroundColor(tealColor.opacity(0.8))
+                            .padding(.bottom, 24)
+
+                        // Arrow
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(tealColor)
+
+                        Spacer()
                     }
-                    .padding(.top, 16)
-                    .padding(.bottom, 16)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(creamBackground)
                 }
-                .frame(maxWidth: .infinity)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isAuthenticating)
 
-                // Headline Text
-                Text("Ready for Fun & Learning?")
-                    .font(.system(size: 28, weight: .bold))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .tracking(-0.3)
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 20)
-                    .padding(.bottom, 12)
+                // Child Space Section
+                Button(action: handleChildModeSelection) {
+                    VStack(spacing: 0) {
+                        Spacer()
 
-                Spacer()
+                        // Person Icon
+                        Image(systemName: "person.fill")
+                            .font(.system(size: 56, weight: .regular))
+                            .foregroundColor(creamBackground.opacity(0.9))
+                            .padding(.bottom, 20)
 
-                // Button Group
-                VStack(spacing: 16) {
-                    // Parent Space button
-                    Button(action: handleParentModeSelection) {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(AppTheme.playfulCoral.opacity(0.2))
-                                    .frame(width: 32, height: 32)
+                        // Title - Dynamic name
+                        Text("\(childSpaceName.uppercased()) SPACE")
+                            .font(.system(size: 28, weight: .bold))
+                            .tracking(3)
+                            .foregroundColor(creamBackground)
+                            .padding(.bottom, 8)
 
-                                Image(systemName: "lock.fill")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(AppTheme.playfulCoral)
-                            }
+                        // Subtitle
+                        Text("USER INTERFACE")
+                            .font(.system(size: 14, weight: .medium))
+                            .tracking(2)
+                            .foregroundColor(creamBackground.opacity(0.8))
+                            .padding(.bottom, 24)
 
-                            Text("Parent Space")
-                                .font(.system(size: 16, weight: .bold))
-                                .tracking(0.24)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppTheme.card(for: colorScheme))
-                                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-                        )
+                        // Arrow
+                        Image(systemName: "arrow.right")
+                            .font(.system(size: 20, weight: .medium))
+                            .foregroundColor(creamBackground)
+
+                        Spacer()
                     }
-                    .disabled(isAuthenticating)
-
-                    // Child Space button - uses the child's name from device setup
-                    Button(action: handleChildModeSelection) {
-                        HStack(spacing: 12) {
-                            ZStack {
-                                Circle()
-                                    .fill(.white.opacity(0.25))
-                                    .frame(width: 32, height: 32)
-
-                                Image(systemName: "rocket.fill")
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(.white)
-                            }
-
-                            Text("\(childSpaceName) Space")
-                                .font(.system(size: 16, weight: .bold))
-                                .tracking(0.24)
-                        }
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .foregroundColor(.white)
-                        .background(
-                            LinearGradient(
-                                colors: [AppTheme.vibrantTeal, AppTheme.vibrantTeal.opacity(0.8)],
-                                startPoint: .topLeading,
-                                endPoint: .bottomTrailing
-                            )
-                        )
-                        .cornerRadius(12)
-                        .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
-                    }
-                    .disabled(isAuthenticating)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(lightCoral)
                 }
-                .frame(maxWidth: 480)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 12)
+                .buttonStyle(PlainButtonStyle())
+                .disabled(isAuthenticating)
 
-                Spacer()
-
-                // Support link
+                // Support Bar
                 Button(action: {
                     // Handle support action
                 }) {
-                    Text("Need help? Contact Support")
-                        .font(.system(size: 14))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        .underline()
+                    HStack(spacing: 8) {
+                        Image(systemName: "questionmark.circle.fill")
+                            .font(.system(size: 16, weight: .medium))
+
+                        Text("NEED SUPPORT")
+                            .font(.system(size: 14, weight: .semibold))
+                            .tracking(2)
+                    }
+                    .foregroundColor(lightCoral)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 56)
+                    .background(tealColor)
                 }
-                .padding(.top, 16)
-                .padding(.bottom, 32)
+                .buttonStyle(PlainButtonStyle())
             }
+            .ignoresSafeArea()
 
             // Loading overlay
             if isAuthenticating {
-                AppTheme.background(for: colorScheme)
-                    .opacity(0.8)
+                Color.black.opacity(0.4)
                     .ignoresSafeArea()
 
                 VStack(spacing: 16) {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: AppTheme.vibrantTeal))
+                        .progressViewStyle(CircularProgressViewStyle(tint: .white))
                         .scaleEffect(2)
                         .frame(width: 64, height: 64)
 
                     Text("Getting your world ready...")
                         .font(.system(size: 18, weight: .medium))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .foregroundColor(.white)
                 }
+                .padding(32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(tealColor)
+                )
             }
         }
         .alert("Authentication Error", isPresented: $showError) {

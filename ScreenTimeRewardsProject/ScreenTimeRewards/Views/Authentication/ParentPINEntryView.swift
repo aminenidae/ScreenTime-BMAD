@@ -17,109 +17,145 @@ struct ParentPINEntryView: View {
     @State private var attemptCount = 0
     @Environment(\.colorScheme) var colorScheme
 
+    // Design colors matching ModeSelectionView
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let errorColor = Color(red: 0.9, green: 0.3, blue: 0.25)
+
     var body: some View {
-        VStack(spacing: 0) {
-            // Header
-            Text("Enter Your PIN")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Colors.textColor(for: colorScheme))
-                .tracking(-0.5)
-                .padding(.top, 16)
-                .padding(.bottom, 8)
+        ZStack {
+            // Full screen cream background
+            creamBackground
+                .ignoresSafeArea()
 
-            // Error message with fixed height
-            Group {
-                if let errorMessage = errorMessage {
-                    Text(errorMessage)
-                        .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(Colors.error)
-                } else {
-                    Text(" ")
-                        .font(.system(size: 14, weight: .regular))
+            VStack(spacing: 0) {
+                // Header with back button
+                HStack {
+                    Button(action: onDismiss) {
+                        Image(systemName: "chevron.left")
+                            .font(.system(size: 20, weight: .semibold))
+                            .foregroundColor(tealColor)
+                            .frame(width: 44, height: 44)
+                    }
+                    Spacer()
                 }
-            }
-            .frame(height: 20)
-            .padding(.bottom, 16)
+                .padding(.horizontal, 16)
+                .padding(.top, 8)
 
-            // PIN Display
-            HStack(spacing: 16) {
-                ForEach(0..<4, id: \.self) { index in
-                    Circle()
-                        .fill(index < pin.count ?
-                              Colors.primary :
-                              Colors.primaryDim(for: colorScheme))
-                        .frame(width: 16, height: 16)
-                        .overlay(
-                            errorMessage != nil && index >= pin.count ?
-                            Circle()
-                                .stroke(Colors.error, lineWidth: 2) :
-                            nil
-                        )
+                Spacer()
+
+                // Lock Icon
+                Image(systemName: "lock.fill")
+                    .font(.system(size: 48, weight: .regular))
+                    .foregroundColor(tealColor)
+                    .padding(.bottom, 24)
+
+                // Title
+                Text("ENTER PIN")
+                    .font(.system(size: 28, weight: .bold))
+                    .tracking(3)
+                    .foregroundColor(tealColor)
+                    .padding(.bottom, 8)
+
+                // Subtitle
+                Text("ACCESS PARENT CONTROLS")
+                    .font(.system(size: 14, weight: .medium))
+                    .tracking(2)
+                    .foregroundColor(tealColor.opacity(0.7))
+                    .padding(.bottom, 8)
+
+                // Error message with fixed height
+                Group {
+                    if let errorMessage = errorMessage {
+                        Text(errorMessage)
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(errorColor)
+                    } else {
+                        Text(" ")
+                            .font(.system(size: 14, weight: .medium))
+                    }
                 }
-            }
-            .padding(.vertical, 16)
+                .frame(height: 20)
+                .padding(.bottom, 24)
 
-            // Keypad
-            VStack(spacing: 16) {
-                ForEach(0..<3) { row in
-                    HStack(spacing: 16) {
-                        ForEach(1...3, id: \.self) { col in
-                            let number = row * 3 + col
-                            KeypadButton(text: "\(number)") {
-                                appendDigit("\(number)")
+                // PIN Display
+                HStack(spacing: 20) {
+                    ForEach(0..<4, id: \.self) { index in
+                        Circle()
+                            .fill(index < pin.count ? tealColor : Color.clear)
+                            .frame(width: 18, height: 18)
+                            .overlay(
+                                Circle()
+                                    .stroke(
+                                        errorMessage != nil && index >= pin.count ? errorColor : tealColor,
+                                        lineWidth: 2
+                                    )
+                            )
+                    }
+                }
+                .padding(.bottom, 48)
+
+                // Keypad
+                VStack(spacing: 20) {
+                    ForEach(0..<3) { row in
+                        HStack(spacing: 32) {
+                            ForEach(1...3, id: \.self) { col in
+                                let number = row * 3 + col
+                                PINKeyButton(text: "\(number)", tealColor: tealColor, creamColor: creamBackground) {
+                                    appendDigit("\(number)")
+                                }
                             }
                         }
                     }
-                }
 
-                // Bottom row with 0 and delete
-                HStack(spacing: 16) {
-                    // Empty spacer for layout balance
-                    Color.clear
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 80)
+                    // Bottom row with 0 and delete
+                    HStack(spacing: 32) {
+                        // Empty spacer for layout balance
+                        Color.clear
+                            .frame(width: 72, height: 72)
 
-                    // 0 button
-                    KeypadButton(text: "0") {
-                        appendDigit("0")
-                    }
+                        // 0 button
+                        PINKeyButton(text: "0", tealColor: tealColor, creamColor: creamBackground) {
+                            appendDigit("0")
+                        }
 
-                    // Delete button
-                    Button(action: deleteDigit) {
-                        Image(systemName: "delete.left")
-                            .font(.system(size: 32))
-                            .foregroundColor(Colors.primary)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 80)
+                        // Delete button
+                        Button(action: deleteDigit) {
+                            Image(systemName: "delete.left")
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundColor(tealColor)
+                                .frame(width: 72, height: 72)
+                        }
                     }
                 }
-            }
-            .padding(.top, 24)
-            .padding(.bottom, 16)
-            .frame(maxWidth: 320)
+                .frame(maxWidth: 320)
 
-            // Cancel button
-            Button("Cancel") {
-                onDismiss()
+                Spacer()
             }
-            .font(.system(size: 16, weight: .medium))
-            .foregroundColor(Colors.primary)
-            .padding(.top, 16)
-        }
-        .padding(24)
-        .frame(maxWidth: 400)
-        .background(Colors.modalBackground(for: colorScheme))
-        .cornerRadius(24)
-        .disabled(isVerifying)
-        .overlay {
+
+            // Loading overlay
             if isVerifying {
-                ProgressView("Verifying PIN...")
-                    .progressViewStyle(CircularProgressViewStyle())
-                    .padding()
-                    .background(Color.black.opacity(0.1))
-                    .cornerRadius(10)
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 16) {
+                    ProgressView()
+                        .progressViewStyle(CircularProgressViewStyle(tint: creamBackground))
+                        .scaleEffect(1.5)
+
+                    Text("VERIFYING")
+                        .font(.system(size: 14, weight: .semibold))
+                        .tracking(2)
+                        .foregroundColor(creamBackground)
+                }
+                .padding(32)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(tealColor)
+                )
             }
         }
+        .disabled(isVerifying)
     }
 
     private func appendDigit(_ digit: String) {
@@ -142,14 +178,9 @@ struct ParentPINEntryView: View {
         isVerifying = true
         errorMessage = nil
 
-        // In a real implementation, this would call the AuthenticationService
-        // to validate the PIN. For now, we'll simulate the verification.
-
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             isVerifying = false
 
-            // For demonstration, we'll assume the PIN is correct
-            // In a real app, you would check the result from AuthenticationService
             if pin.count == 4 {
                 onPINVerified()
             } else {
@@ -161,58 +192,41 @@ struct ParentPINEntryView: View {
     }
 }
 
-// MARK: - Keypad Button
-extension ParentPINEntryView {
-    struct KeypadButton: View {
-        let text: String
-        let action: () -> Void
-        @Environment(\.colorScheme) var colorScheme
+// MARK: - PIN Key Button
+struct PINKeyButton: View {
+    let text: String
+    let tealColor: Color
+    let creamColor: Color
+    let action: () -> Void
 
-        var body: some View {
-            Button(action: action) {
-                Text(text)
-                    .font(.system(size: 36, weight: .light))
-                    .foregroundColor(Colors.textColor(for: colorScheme))
-                    .frame(maxWidth: .infinity)
-                    .frame(height: 80)
-                    .background(
-                        Circle()
-                            .fill(Colors.keypadBackground(for: colorScheme))
-                    )
-            }
+    var body: some View {
+        Button(action: action) {
+            Text(text)
+                .font(.system(size: 32, weight: .medium))
+                .foregroundColor(tealColor)
+                .frame(width: 72, height: 72)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(tealColor.opacity(0.1))
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(tealColor.opacity(0.3), lineWidth: 1)
+                )
         }
+        .buttonStyle(PINKeyButtonStyle(tealColor: tealColor))
     }
 }
 
-// MARK: - Design Tokens
-extension ParentPINEntryView {
-    struct Colors {
-        static let primary = Color(red: 0.0, green: 0.48, blue: 1.0) // #007AFF
-        static let error = Color(red: 1.0, green: 0.23, blue: 0.19) // #FF3B30
+// MARK: - PIN Key Button Style
+struct PINKeyButtonStyle: ButtonStyle {
+    let tealColor: Color
 
-        static func primaryDim(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ?
-                primary.opacity(0.3) :
-                primary.opacity(0.2)
-        }
-
-        static func textColor(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ?
-                Color(red: 0.898, green: 0.898, blue: 0.898) : // #e5e5e5
-                Color(red: 0.067, green: 0.094, blue: 0.067) // #111811
-        }
-
-        static func modalBackground(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ?
-                Color(red: 0.11, green: 0.11, blue: 0.118) : // #1c1c1e
-                Color.white
-        }
-
-        static func keypadBackground(for colorScheme: ColorScheme) -> Color {
-            colorScheme == .dark ?
-                primary.opacity(0.2) :
-                primary.opacity(0.1)
-        }
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .scaleEffect(configuration.isPressed ? 0.95 : 1.0)
+            .opacity(configuration.isPressed ? 0.8 : 1.0)
+            .animation(.easeInOut(duration: 0.1), value: configuration.isPressed)
     }
 }
 
@@ -220,7 +234,7 @@ extension ParentPINEntryView {
 struct ParentPINEntryView_Previews: PreviewProvider {
     @State static var previewPIN = ""
     @State static var previewError: String? = nil
-    
+
     static var previews: some View {
         ParentPINEntryView(
             pin: $previewPIN,
@@ -228,6 +242,5 @@ struct ParentPINEntryView_Previews: PreviewProvider {
             onPINVerified: {},
             onDismiss: {}
         )
-        .padding()
     }
 }

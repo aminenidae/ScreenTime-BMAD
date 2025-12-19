@@ -20,6 +20,12 @@ struct RewardsTabView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
+    // Design colors matching ModeSelectionView
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
     // App schedule configuration
     @StateObject private var scheduleService = AppScheduleService.shared
 
@@ -29,94 +35,79 @@ struct RewardsTabView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
+            // Background
+            creamBackground
+                .ignoresSafeArea()
+
             VStack(spacing: 0) {
-                TabTopBar(title: "Reward Apps", style: topBarStyle) {
-                    sessionManager.exitToSelection()
+                // Custom header
+                VStack(spacing: 0) {
+                    HStack {
+                        Button(action: {
+                            sessionManager.exitToSelection()
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .font(.system(size: 18, weight: .semibold))
+                                .foregroundColor(tealColor)
+                                .frame(width: 44, height: 44)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 12)
+                                        .fill(tealColor.opacity(0.1))
+                                )
+                        }
+
+                        Spacer()
+
+                        Text("REWARD APPS")
+                            .font(.system(size: 18, weight: .bold))
+                            .tracking(2)
+                            .foregroundColor(tealColor)
+
+                        Spacer()
+
+                        // Invisible spacer for balance
+                        Color.clear
+                            .frame(width: 44, height: 44)
+                    }
+                    .padding(.horizontal, 16)
+                    .padding(.top, 8)
+                    .padding(.bottom, 12)
+
+                    Rectangle()
+                        .fill(tealColor.opacity(0.15))
+                        .frame(height: 1)
                 }
+                .background(creamBackground)
 
                 ScrollView {
                     VStack(spacing: 0) {
                         // Points Summary Card
-                        HStack(spacing: 16) {
-                            // Icon with gradient background
-                            ZStack {
-                                Circle()
-                                    .fill(
-                                        LinearGradient(
-                                            colors: [AppTheme.playfulCoral.opacity(0.3), AppTheme.sunnyYellow.opacity(0.3)],
-                                            startPoint: .topLeading,
-                                            endPoint: .bottomTrailing
-                                        )
-                                    )
-                                    .frame(width: 56, height: 56)
-
-                                Image(systemName: "gift.fill")
-                                    .font(.system(size: 28))
-                                    .foregroundColor(AppTheme.playfulCoral)
-                            }
-
-                            VStack(alignment: .leading, spacing: 4) {
-                                Text("Daily Usage Time")
-                                    .font(.system(size: 14, weight: .medium))
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                                HStack(alignment: .bottom, spacing: 8) {
-                                    Text("\(Int(viewModel.rewardTime / 60))")
-                                        .font(.system(size: 32, weight: .bold))
-                                        .foregroundColor(AppTheme.playfulCoral)
-                                        .tracking(-0.5)
-
-                                    Text("minutes")
-                                        .font(.system(size: 14, weight: .semibold))
-                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                                        .padding(.bottom, 4)
-                                }
-
-                                HStack(spacing: 4) {
-                                    Image(systemName: "clock.badge.checkmark.fill")
-                                        .font(.system(size: 10))
-                                        .foregroundColor(AppTheme.sunnyYellow)
-
-                                    Text("\(viewModel.availableLearningPoints / 10) minutes available")
-                                        .font(.system(size: 12, weight: .medium))
-                                        .foregroundColor(AppTheme.sunnyYellow)
-                                }
-                            }
-
-                            Spacer()
-                        }
-                        .padding(20)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(AppTheme.card(for: colorScheme))
-                                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-                        )
-                        .padding(.horizontal, 4)
-                        .padding(.top, 4)
+                        summaryCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
 
                         // Section Header
                         HStack(spacing: 8) {
                             Image(systemName: "gamecontroller.fill")
-                                .font(.system(size: 20))
-                                .foregroundColor(AppTheme.playfulCoral)
+                                .font(.system(size: 18))
+                                .foregroundColor(lightCoral)
 
-                            Text("Your Rewards")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            Text("YOUR REWARDS")
+                                .font(.system(size: 14, weight: .semibold))
+                                .tracking(1.5)
+                                .foregroundColor(tealColor)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal, 4)
+                        .padding(.horizontal, 16)
                         .padding(.top, 24)
                         .padding(.bottom, 8)
 
                         // List of Reward Apps
                         rewardAppsSection
+                            .padding(.horizontal, 16)
                     }
-                    .padding(.horizontal, 16)
                     .padding(.bottom, 96)
                 }
-                .background(AppTheme.background(for: colorScheme))
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
@@ -192,6 +183,63 @@ struct RewardsTabView: View {
         // NOTE: Picker and sheet presentation handled by MainTabView to avoid conflicts
     }
 
+    // MARK: - Summary Card
+
+    var summaryCard: some View {
+        HStack(spacing: 16) {
+            // Icon with background
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(lightCoral.opacity(0.15))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(lightCoral)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DAILY USAGE TIME")
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(1.5)
+                    .foregroundColor(tealColor.opacity(0.7))
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(Int(viewModel.rewardTime / 60))")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(lightCoral)
+
+                    Text("minutes")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(tealColor.opacity(0.6))
+                        .padding(.bottom, 4)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.badge.checkmark.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(accentYellow)
+
+                    Text("\(viewModel.availableLearningPoints / 10) minutes available")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(accentYellow)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(lightCoral.opacity(0.15), lineWidth: 1)
+                )
+        )
+    }
+
     // MARK: - Helpers
 
     private func isConfigured(_ snapshot: RewardAppSnapshot) -> Bool {
@@ -222,22 +270,12 @@ struct RewardsTabView: View {
 }
 
 private extension RewardsTabView {
-    var topBarStyle: TabTopBarStyle {
-        TabTopBarStyle(
-            background: AppTheme.background(for: colorScheme),
-            titleColor: AppTheme.textPrimary(for: colorScheme),
-            iconColor: AppTheme.playfulCoral,
-            iconBackground: AppTheme.card(for: colorScheme),
-            dividerColor: Color.black.opacity(colorScheme == .dark ? 0.2 : 0.06)
-        )
-    }
-
     var addAppsButton: some View {
         VStack(spacing: 0) {
             LinearGradient(
                 gradient: Gradient(colors: [
-                    AppTheme.background(for: colorScheme).opacity(0),
-                    AppTheme.background(for: colorScheme)
+                    creamBackground.opacity(0),
+                    creamBackground
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -255,20 +293,23 @@ private extension RewardsTabView {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16))
-                    Text("Manage Reward Apps")
-                        .font(.system(size: 16, weight: .bold))
+                    Text("MANAGE REWARD APPS")
+                        .font(.system(size: 14, weight: .bold))
+                        .tracking(1)
                 }
-                .foregroundColor(.white)
+                .foregroundColor(creamBackground)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(AppTheme.playfulCoral)
-                .cornerRadius(8)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .frame(height: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(lightCoral)
+                )
+                .shadow(color: lightCoral.opacity(0.3), radius: 8, x: 0, y: 4)
             }
             .tutorialTarget("add_reward_apps")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(AppTheme.background(for: colorScheme))
+            .background(creamBackground)
         }
     }
 
@@ -277,24 +318,30 @@ private extension RewardsTabView {
             if !viewModel.rewardSnapshots.isEmpty {
                 // Use adaptive grid: 2 columns on iPad (regular width), 1 on iPhone (compact width)
                 let columns = horizontalSizeClass == .regular ? [
-                    GridItem(.flexible(), spacing: 8),
-                    GridItem(.flexible(), spacing: 8)
+                    GridItem(.flexible(), spacing: 12),
+                    GridItem(.flexible(), spacing: 12)
                 ] : [
                     GridItem(.flexible())
                 ]
 
-                LazyVGrid(columns: columns, spacing: 8) {
+                LazyVGrid(columns: columns, spacing: 12) {
                     ForEach(Array(viewModel.rewardSnapshots.enumerated()), id: \.element.id) { index, snapshot in
                         rewardAppRow(snapshot: snapshot)
                             .tutorialTarget(index == 0 ? "first_reward_app" : "")
                     }
                 }
             } else {
-                Text("No reward apps selected")
-                    .font(.system(size: 16))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 40)
+                VStack(spacing: 12) {
+                    Image(systemName: "gamecontroller")
+                        .font(.system(size: 40))
+                        .foregroundColor(tealColor.opacity(0.3))
+
+                    Text("No reward apps selected")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(tealColor.opacity(0.5))
+                }
+                .frame(maxWidth: .infinity)
+                .padding(.vertical, 48)
             }
         }
     }
@@ -319,12 +366,12 @@ private extension RewardsTabView {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(Color.gray.opacity(0.2))
+                            .fill(lightCoral.opacity(0.1))
                             .frame(width: iconSize, height: iconSize)
                             .overlay(
                                 Image(systemName: "app.fill")
                                     .font(.system(size: fallbackIconSize))
-                                    .foregroundColor(.gray)
+                                    .foregroundColor(lightCoral)
                             )
                     }
 
@@ -333,11 +380,11 @@ private extension RewardsTabView {
                             Label(snapshot.token)
                                 .labelStyle(.titleOnly)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .foregroundColor(tealColor)
                         } else {
                             Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .foregroundColor(tealColor)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -347,19 +394,19 @@ private extension RewardsTabView {
                             // Configured: show usage time and config summary
                             HStack(spacing: 4) {
                                 Image(systemName: "clock.fill")
-                                    .font(.system(size: 12))
-                                    .foregroundColor(AppTheme.playfulCoral)
+                                    .font(.system(size: 10))
+                                    .foregroundColor(lightCoral.opacity(0.8))
 
                                 Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
-                                    .font(.system(size: 14, weight: .semibold))
-                                    .foregroundColor(AppTheme.playfulCoral)
+                                    .font(.system(size: 13, weight: .semibold))
+                                    .foregroundColor(lightCoral)
 
                                 if let summary = configSummary(for: snapshot) {
                                     Text("•")
-                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                        .foregroundColor(tealColor.opacity(0.4))
                                     Text(summary)
-                                        .font(.system(size: 12))
-                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                        .font(.system(size: 11))
+                                        .foregroundColor(tealColor.opacity(0.6))
                                         .lineLimit(1)
                                 }
                             }
@@ -368,11 +415,11 @@ private extension RewardsTabView {
                             HStack(spacing: 4) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .font(.system(size: 10))
-                                    .foregroundColor(.orange)
+                                    .foregroundColor(accentYellow)
 
                                 Text("Tap to configure")
-                                    .font(.system(size: 12, weight: .medium))
-                                    .foregroundColor(.orange)
+                                    .font(.system(size: 11, weight: .medium))
+                                    .foregroundColor(accentYellow)
                             }
                         }
                     }
@@ -381,18 +428,17 @@ private extension RewardsTabView {
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(configured ? AppTheme.textSecondary(for: colorScheme) : .orange)
+                        .foregroundColor(configured ? tealColor.opacity(0.5) : accentYellow)
                 }
-                .padding(16)
+                .padding(14)
             }
             .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(AppTheme.card(for: colorScheme))
-                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 12)
-                    .stroke(configured ? Color.clear : Color.orange.opacity(0.5), lineWidth: configured ? 0 : 2)
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(Color.white.opacity(0.6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(configured ? lightCoral.opacity(0.15) : accentYellow.opacity(0.5), lineWidth: configured ? 1 : 2)
+                    )
             )
         }
         .buttonStyle(.plain)

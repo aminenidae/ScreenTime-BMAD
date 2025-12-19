@@ -2,6 +2,12 @@ import SwiftUI
 import FamilyControls
 import Charts
 
+// Design colors matching ModeSelectionView
+private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
 // Combined struct to prevent race condition in sheet presentation
 private struct LearningDetailConfigData: Identifiable {
     let snapshot: LearningAppSnapshot
@@ -24,65 +30,51 @@ struct LearningAppDetailView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                AppUsageDetailContent(
-                    title: snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName,
-                    subtitle: "Learning app overview",
-                    accentColor: AppTheme.vibrantTeal,
-                    persistedUsage: persistedUsage,
-                    pointsPerMinute: snapshot.pointsPerMinute,
-                    dailyHistory: history,
-                    logicalID: snapshot.logicalID
-                )
+                // Background
+                creamBackground
+                    .ignoresSafeArea()
 
-                // Floating Configure Button
-                configureButton(accentColor: AppTheme.learningPeach)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // App icon in center (principal position)
-                ToolbarItem(placement: .principal) {
-                    if #available(iOS 15.2, *) {
-                        Label(snapshot.token)
-                            .labelStyle(.iconOnly)
-                            .scaleEffect(2.7)
-                            .frame(width: 72, height: 72)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
-                    } else {
-                        // Fallback for iOS < 15.2
-                        Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                            .font(.headline)
+                VStack(spacing: 0) {
+                    // App Header Card
+                    appHeaderCard
+
+                    // Content
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Hourly usage chart (today's breakdown)
+                            if #available(iOS 16.0, *) {
+                                HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: tealColor)
+                            }
+
+                            // Historical usage chart
+                            if #available(iOS 16.0, *) {
+                                AppUsageChart(
+                                    dailyHistory: history,
+                                    accentColor: tealColor
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 100)
                     }
                 }
 
-                // Keep existing Done button
+                // Floating Configure Button
+                configureButton
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(tealColor)
                 }
             }
+            .toolbarBackground(creamBackground, for: .navigationBar)
         }
         .onAppear {
-            // Load from persistence (single source of truth)
-            let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
-            print("[LearningAppDetailView] 🔍 onAppear for '\(snapshot.displayName)'")
-            print("[LearningAppDetailView] 🔍 tokenHash: \(tokenHash.prefix(32))...")
-            if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
-                print("[LearningAppDetailView] 🔍 logicalID: \(logicalID)")
-                persistedUsage = service.usagePersistence.app(for: logicalID)
-                if let usage = persistedUsage {
-                    let startOfToday = Calendar.current.startOfDay(for: Date())
-                    let isStale = usage.lastResetDate < startOfToday
-                    print("[LearningAppDetailView] 🔍 persistedUsage found:")
-                    print("    - todaySeconds: \(usage.todaySeconds)")
-                    print("    - lastResetDate: \(usage.lastResetDate)")
-                    print("    - startOfToday: \(startOfToday)")
-                    print("    - isStale: \(isStale)")
-                } else {
-                    print("[LearningAppDetailView] 🔍 persistedUsage is nil")
-                }
-                history = persistedUsage?.dailyHistory ?? []
-            } else {
-                print("[LearningAppDetailView] 🔍 No logicalID found for tokenHash")
-            }
+            loadUsageData()
         }
         .sheet(item: $configSheetData) { data in
             AppConfigurationSheet(
@@ -97,7 +89,6 @@ struct LearningAppDetailView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
-                    // Re-sync blocking reasons after schedule change
                     BlockingCoordinator.shared.refreshAllBlockingStates()
                     configSheetData = nil
                 },
@@ -108,13 +99,71 @@ struct LearningAppDetailView: View {
         }
     }
 
-    private func configureButton(accentColor: Color) -> some View {
+    private var appHeaderCard: some View {
+        HStack(spacing: 16) {
+            // App Icon
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .scaleEffect(2.0)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            } else {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(tealColor.opacity(0.1))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(tealColor)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                if #available(iOS 15.2, *) {
+                    Label(snapshot.token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(tealColor)
+                        .lineLimit(1)
+                } else {
+                    Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(tealColor)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 11))
+                    Text("LEARNING APP")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1)
+                }
+                .foregroundColor(tealColor.opacity(0.7))
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.15), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    private var configureButton: some View {
         VStack(spacing: 0) {
-            // Gradient fade effect
             LinearGradient(
                 gradient: Gradient(colors: [
-                    AppTheme.background(for: colorScheme).opacity(0),
-                    AppTheme.background(for: colorScheme)
+                    creamBackground.opacity(0),
+                    creamBackground
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -124,25 +173,35 @@ struct LearningAppDetailView: View {
             Button(action: {
                 let existingConfig = scheduleService.schedules[snapshot.logicalID]
                     ?? AppScheduleConfiguration.defaultLearning(logicalID: snapshot.logicalID)
-                // Set combined data atomically to prevent race condition
                 configSheetData = LearningDetailConfigData(snapshot: snapshot, config: existingConfig)
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16))
-                    Text("Configure")
-                        .font(.system(size: 16, weight: .bold))
+                    Text("CONFIGURE")
+                        .font(.system(size: 14, weight: .bold))
+                        .tracking(1)
                 }
-                .foregroundColor(.white)
+                .foregroundColor(creamBackground)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(accentColor)
-                .cornerRadius(8)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .frame(height: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(tealColor)
+                )
+                .shadow(color: tealColor.opacity(0.3), radius: 8, x: 0, y: 4)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(AppTheme.background(for: colorScheme))
+            .background(creamBackground)
+        }
+    }
+
+    private func loadUsageData() {
+        let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
+        if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
+            persistedUsage = service.usagePersistence.app(for: logicalID)
+            history = persistedUsage?.dailyHistory ?? []
         }
     }
 }
@@ -156,7 +215,7 @@ private struct RewardDetailConfigData: Identifiable {
 
 struct RewardAppDetailView: View {
     let snapshot: RewardAppSnapshot
-    @EnvironmentObject var viewModel: AppUsageViewModel  // For learningSnapshots in config sheet
+    @EnvironmentObject var viewModel: AppUsageViewModel
     @State private var persistedUsage: UsagePersistence.PersistedApp?
     @State private var history: [UsagePersistence.DailyUsageSummary] = []
     @Environment(\.dismiss) private var dismiss
@@ -170,49 +229,51 @@ struct RewardAppDetailView: View {
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
-                AppUsageDetailContent(
-                    title: snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName,
-                    subtitle: "Reward app overview",
-                    accentColor: AppTheme.playfulCoral,
-                    persistedUsage: persistedUsage,
-                    pointsPerMinute: snapshot.pointsPerMinute,
-                    dailyHistory: history,
-                    logicalID: snapshot.logicalID
-                )
+                // Background
+                creamBackground
+                    .ignoresSafeArea()
 
-                // Floating Configure Button
-                configureButton(accentColor: AppTheme.playfulCoral)
-            }
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                // App icon in center (principal position)
-                ToolbarItem(placement: .principal) {
-                    if #available(iOS 15.2, *) {
-                        Label(snapshot.token)
-                            .labelStyle(.iconOnly)
-                            .scaleEffect(2.7)
-                            .frame(width: 72, height: 72)
-                            .clipShape(RoundedRectangle(cornerRadius: 18))
-                    } else {
-                        // Fallback for iOS < 15.2
-                        Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                            .font(.headline)
+                VStack(spacing: 0) {
+                    // App Header Card
+                    appHeaderCard
+
+                    // Content
+                    ScrollView {
+                        VStack(spacing: 16) {
+                            // Hourly usage chart (today's breakdown)
+                            if #available(iOS 16.0, *) {
+                                HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: lightCoral)
+                            }
+
+                            // Historical usage chart
+                            if #available(iOS 16.0, *) {
+                                AppUsageChart(
+                                    dailyHistory: history,
+                                    accentColor: lightCoral
+                                )
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.top, 16)
+                        .padding(.bottom, 100)
                     }
                 }
 
-                // Keep existing Done button
+                // Floating Configure Button
+                configureButton
+            }
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("Done") { dismiss() }
+                        .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(tealColor)
                 }
             }
+            .toolbarBackground(creamBackground, for: .navigationBar)
         }
         .onAppear {
-            // Load from persistence (single source of truth)
-            let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
-            if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
-                persistedUsage = service.usagePersistence.app(for: logicalID)
-                history = persistedUsage?.dailyHistory ?? []
-            }
+            loadUsageData()
         }
         .sheet(item: $configSheetData) { data in
             AppConfigurationSheet(
@@ -228,7 +289,6 @@ struct RewardAppDetailView: View {
                 ),
                 onSave: { savedConfig in
                     try? scheduleService.saveSchedule(savedConfig)
-                    // Re-sync blocking reasons after schedule change
                     viewModel.blockRewardApps()
                     configSheetData = nil
                 },
@@ -239,13 +299,71 @@ struct RewardAppDetailView: View {
         }
     }
 
-    private func configureButton(accentColor: Color) -> some View {
+    private var appHeaderCard: some View {
+        HStack(spacing: 16) {
+            // App Icon
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .scaleEffect(2.0)
+                    .frame(width: 56, height: 56)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
+            } else {
+                RoundedRectangle(cornerRadius: 14)
+                    .fill(lightCoral.opacity(0.1))
+                    .frame(width: 56, height: 56)
+                    .overlay(
+                        Image(systemName: "app.fill")
+                            .font(.system(size: 28))
+                            .foregroundColor(lightCoral)
+                    )
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                if #available(iOS 15.2, *) {
+                    Label(snapshot.token)
+                        .labelStyle(.titleOnly)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(tealColor)
+                        .lineLimit(1)
+                } else {
+                    Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(tealColor)
+                        .lineLimit(1)
+                }
+
+                HStack(spacing: 6) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 11))
+                    Text("REWARD APP")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(1)
+                }
+                .foregroundColor(lightCoral)
+            }
+
+            Spacer()
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(lightCoral.opacity(0.15), lineWidth: 1)
+                )
+        )
+        .padding(.horizontal, 16)
+        .padding(.top, 8)
+    }
+
+    private var configureButton: some View {
         VStack(spacing: 0) {
-            // Gradient fade effect
             LinearGradient(
                 gradient: Gradient(colors: [
-                    AppTheme.background(for: colorScheme).opacity(0),
-                    AppTheme.background(for: colorScheme)
+                    creamBackground.opacity(0),
+                    creamBackground
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -255,69 +373,36 @@ struct RewardAppDetailView: View {
             Button(action: {
                 let existingConfig = scheduleService.schedules[snapshot.logicalID]
                     ?? AppScheduleConfiguration.defaultReward(logicalID: snapshot.logicalID)
-                // Set combined data atomically to prevent race condition
                 configSheetData = RewardDetailConfigData(snapshot: snapshot, config: existingConfig)
             }) {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16))
-                    Text("Configure")
-                        .font(.system(size: 16, weight: .bold))
+                    Text("CONFIGURE")
+                        .font(.system(size: 14, weight: .bold))
+                        .tracking(1)
                 }
-                .foregroundColor(.white)
+                .foregroundColor(creamBackground)
                 .frame(maxWidth: .infinity)
-                .frame(height: 48)
-                .background(accentColor)
-                .cornerRadius(8)
-                .shadow(color: Color.black.opacity(0.2), radius: 8, x: 0, y: 4)
+                .frame(height: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(lightCoral)
+                )
+                .shadow(color: lightCoral.opacity(0.3), radius: 8, x: 0, y: 4)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(AppTheme.background(for: colorScheme))
+            .background(creamBackground)
         }
     }
-}
 
-// MARK: - Shared Content
-
-private struct AppUsageDetailContent: View {
-    let title: String
-    let subtitle: String
-    let accentColor: Color
-    let persistedUsage: UsagePersistence.PersistedApp?
-    let pointsPerMinute: Int
-    let dailyHistory: [UsagePersistence.DailyUsageSummary]
-    let logicalID: String?  // For hourly chart data
-    @Environment(\.colorScheme) private var colorScheme
-
-    var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Hourly usage chart (today's breakdown)
-                if #available(iOS 16.0, *), let logicalID = logicalID {
-                    HourlyUsageChartCard(logicalID: logicalID, accentColor: accentColor)
-                }
-
-                // Historical usage chart
-                if #available(iOS 16.0, *) {
-                    usageChartCard
-                }
-            }
-            .padding(.horizontal, 20)
-            .padding(.top, 24)
-            .padding(.bottom, 100) // Extra padding for Configure button
+    private func loadUsageData() {
+        let tokenHash = service.usagePersistence.tokenHash(for: snapshot.token)
+        if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
+            persistedUsage = service.usagePersistence.app(for: logicalID)
+            history = persistedUsage?.dailyHistory ?? []
         }
-        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
-    }
-
-    // MARK: - Usage Chart Card
-
-    @available(iOS 16.0, *)
-    private var usageChartCard: some View {
-        AppUsageChart(
-            dailyHistory: dailyHistory,
-            accentColor: accentColor
-        )
     }
 }
 
@@ -327,7 +412,6 @@ private struct AppUsageDetailContent: View {
 private struct HourlyUsageChartCard: View {
     let logicalID: String
     let accentColor: Color
-    @Environment(\.colorScheme) private var colorScheme
 
     private var hourlyData: [(date: Date, minutes: Int)] {
         guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
@@ -338,22 +422,18 @@ private struct HourlyUsageChartCard: View {
         let now = Date()
         let today = calendar.startOfDay(for: now)
 
-        // Get today's date string for comparison
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let todayString = dateFormatter.string(from: now)
 
-        // Check if hourly data is from today
         let storedDate = defaults.string(forKey: "ext_usage_\(logicalID)_hourly_date")
         guard storedDate == todayString else {
-            // Return empty array for all 24 hours
             return (0..<24).compactMap { hour in
                 guard let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) else { return nil }
                 return (date: hourDate, minutes: 0)
             }
         }
 
-        // Read each hour's usage from extension's buckets (all 24 hours)
         return (0..<24).compactMap { hour in
             guard let hourDate = calendar.date(byAdding: .hour, value: hour, to: today) else { return nil }
             let seconds = defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
@@ -367,24 +447,23 @@ private struct HourlyUsageChartCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header
             HStack {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 16))
                     .foregroundColor(accentColor)
 
-                Text("Today's Hourly Usage")
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("TODAY'S HOURLY USAGE")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(tealColor)
 
                 Spacer()
 
                 Text("\(totalMinutes)m total")
-                    .font(.subheadline)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(tealColor.opacity(0.6))
             }
 
-            // Chart
             if totalMinutes == 0 {
                 emptyStateView
             } else {
@@ -404,12 +483,12 @@ private struct HourlyUsageChartCard: View {
                         if let date = value.as(Date.self) {
                             AxisValueLabel {
                                 Text(hourLabel(for: date))
-                                    .font(.caption2)
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(tealColor.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                            .foregroundStyle(tealColor.opacity(0.1))
                     }
                 }
                 .chartYAxis {
@@ -417,28 +496,31 @@ private struct HourlyUsageChartCard: View {
                         AxisValueLabel {
                             if let minutes = value.as(Int.self) {
                                 Text("\(minutes)m")
-                                    .font(.caption2)
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(tealColor.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                            .foregroundStyle(tealColor.opacity(0.1))
                     }
                 }
                 .chartPlotStyle { plotArea in
                     plotArea
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.15) : Color.white.opacity(0.5))
+                                .fill(tealColor.opacity(0.03))
                         )
                 }
             }
         }
-        .padding(20)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
         )
     }
 
@@ -446,11 +528,11 @@ private struct HourlyUsageChartCard: View {
         VStack(spacing: 12) {
             Image(systemName: "clock")
                 .font(.system(size: 32))
-                .foregroundColor(accentColor.opacity(0.5))
+                .foregroundColor(tealColor.opacity(0.3))
 
             Text("No usage recorded today")
-                .font(.subheadline)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(tealColor.opacity(0.5))
         }
         .frame(height: 160)
         .frame(maxWidth: .infinity)
@@ -468,7 +550,6 @@ private struct HourlyUsageChartCard: View {
 private struct AppUsageChart: View {
     let dailyHistory: [UsagePersistence.DailyUsageSummary]
     let accentColor: Color
-    @Environment(\.colorScheme) private var colorScheme
     @State private var selectedPeriod: ChartPeriod = .daily
 
     enum ChartPeriod: String, CaseIterable {
@@ -479,24 +560,38 @@ private struct AppUsageChart: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            // Header with period picker
             HStack {
-                Text("Usage History")
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("USAGE HISTORY")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(tealColor)
 
                 Spacer()
 
-                Picker("Period", selection: $selectedPeriod) {
-                    ForEach(ChartPeriod.allCases, id: \.self) { period in
-                        Text(period.rawValue).tag(period)
+                Menu {
+                    Picker("Period", selection: $selectedPeriod) {
+                        ForEach(ChartPeriod.allCases, id: \.self) { period in
+                            Text(period.rawValue).tag(period)
+                        }
                     }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(selectedPeriod.rawValue.uppercased())
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(0.5)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(tealColor.opacity(0.6))
+                    .padding(.horizontal, 10)
+                    .padding(.vertical, 6)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(tealColor.opacity(0.1))
+                    )
                 }
-                .pickerStyle(.segmented)
-                .frame(width: 200)
             }
 
-            // Chart
             if chartData.isEmpty {
                 emptyStateView
             } else {
@@ -516,12 +611,12 @@ private struct AppUsageChart: View {
                         if let date = value.as(Date.self) {
                             AxisValueLabel {
                                 Text(xAxisLabel(for: date))
-                                    .font(.caption2)
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(tealColor.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                            .foregroundStyle(tealColor.opacity(0.1))
                     }
                 }
                 .chartYAxis {
@@ -529,52 +624,47 @@ private struct AppUsageChart: View {
                         AxisValueLabel {
                             if let minutes = value.as(Int.self) {
                                 Text("\(minutes)m")
-                                    .font(.caption2)
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(tealColor.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.textSecondary(for: colorScheme).opacity(0.2))
+                            .foregroundStyle(tealColor.opacity(0.1))
                     }
                 }
                 .chartPlotStyle { plotArea in
                     plotArea
                         .background(
                             RoundedRectangle(cornerRadius: 8)
-                                .fill(colorScheme == .dark ? Color.black.opacity(0.15) : Color.white.opacity(0.5))
+                                .fill(tealColor.opacity(0.03))
                         )
                 }
             }
         }
-        .padding(20)
+        .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 4)
+                .fill(Color.white.opacity(0.6))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
         )
     }
-
-    // MARK: - Empty State
 
     private var emptyStateView: some View {
         VStack(spacing: 12) {
             Image(systemName: "chart.bar.xaxis")
                 .font(.system(size: 32))
-                .foregroundColor(accentColor.opacity(0.5))
+                .foregroundColor(tealColor.opacity(0.3))
 
             Text("No usage data yet")
-                .font(.subheadline)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-            Text("Start using this app to see your history")
-                .font(.caption)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.7))
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(tealColor.opacity(0.5))
         }
         .frame(height: 180)
         .frame(maxWidth: .infinity)
     }
-
-    // MARK: - Chart Data
 
     private var chartData: [(date: Date, minutes: Int)] {
         switch selectedPeriod {
@@ -639,8 +729,6 @@ private struct AppUsageChart: View {
             .suffix(6)
             .map { (date: $0.key, minutes: $0.value) }
     }
-
-    // MARK: - X-Axis Labels
 
     private func xAxisLabel(for date: Date) -> String {
         let calendar = Calendar.current

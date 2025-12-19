@@ -9,6 +9,12 @@ struct TimeBankCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var isAnimating = false
 
+    // Design colors
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+
     private var remainingMinutes: Int {
         max(earnedMinutes - usedMinutes, 0)
     }
@@ -19,6 +25,8 @@ struct TimeBankCard: View {
             headerSection
 
             // Balance Ring
+            // Note: TimeBalanceRing might need update too, but for now we keep it
+            // Assuming TimeBalanceRing handles its own colors or we can pass them if modified
             TimeBalanceRing(
                 earnedMinutes: earnedMinutes,
                 usedMinutes: usedMinutes
@@ -30,19 +38,12 @@ struct TimeBankCard: View {
         .padding(24)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.xLarge)
-                .fill(
-                    LinearGradient(
-                        colors: [
-                            AppTheme.vibrantTeal,
-                            AppTheme.vibrantTeal.opacity(0.8),
-                            AppTheme.playfulCoral.opacity(0.6)
-                        ],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.9)) // Higher opacity for contrast against Light Coral
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
                 )
-                .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 12, x: 0, y: 6)
         )
         .onAppear {
             withAnimation(.easeOut(duration: 0.6)) {
@@ -57,18 +58,18 @@ struct TimeBankCard: View {
         HStack(spacing: 8) {
             Image(systemName: "banknote.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(tealColor)
                 .rotationEffect(.degrees(isAnimating ? 0 : -10))
                 .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
 
             Text("YOUR TIME BANK")
                 .font(.system(size: 18, weight: .bold))
                 .tracking(1.5)
-                .foregroundColor(.white)
+                .foregroundColor(tealColor)
 
             Image(systemName: "banknote.fill")
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(.white)
+                .foregroundColor(tealColor)
                 .rotationEffect(.degrees(isAnimating ? 0 : 10))
                 .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
         }
@@ -80,19 +81,19 @@ struct TimeBankCard: View {
             balanceChip(
                 value: earnedMinutes,
                 label: "earned",
-                color: AppTheme.sunnyYellow
+                color: tealColor
             )
 
             // Divider
             Text("-")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(.white.opacity(0.6))
+                .foregroundColor(tealColor.opacity(0.4))
 
             // Used chip
             balanceChip(
                 value: usedMinutes,
                 label: "used",
-                color: AppTheme.playfulCoral
+                color: lightCoral
             )
         }
         .scaleEffect(isAnimating ? 1 : 0.9)
@@ -104,21 +105,21 @@ struct TimeBankCard: View {
         VStack(spacing: 2) {
             Text("\(value)")
                 .font(.system(size: 22, weight: .bold, design: .rounded))
-                .foregroundColor(.white)
+                .foregroundColor(color)
                 .contentTransition(.numericText())
 
             Text("min \(label)")
                 .font(.system(size: 12, weight: .medium))
-                .foregroundColor(.white.opacity(0.8))
+                .foregroundColor(color.opacity(0.8))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(
             Capsule()
-                .fill(color.opacity(0.3))
+                .fill(color.opacity(0.1))
                 .overlay(
                     Capsule()
-                        .strokeBorder(color.opacity(0.5), lineWidth: 1)
+                        .strokeBorder(color.opacity(0.3), lineWidth: 1)
                 )
         )
     }

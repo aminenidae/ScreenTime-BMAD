@@ -10,6 +10,11 @@ struct LearningAppListSection: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var isExpanded = true
 
+    // Design colors
+    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
+    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
+    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+
     private var totalMinutes: Int {
         Int(totalSeconds / 60)
     }
@@ -40,9 +45,12 @@ struct LearningAppListSection: View {
         }
         .padding(16)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
-                .fill(AppTheme.card(for: colorScheme))
-                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 3)
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.white.opacity(0.9))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                )
         )
     }
 
@@ -58,18 +66,18 @@ struct LearningAppListSection: View {
                 // Icon
                 ZStack {
                     Circle()
-                        .fill(AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.3 : 0.15))
+                        .fill(tealColor.opacity(0.15))
                         .frame(width: 36, height: 36)
 
                     Image(systemName: "book.fill")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(tealColor)
                 }
 
                 // Title
                 Text("Learning Apps")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .foregroundColor(tealColor)
 
                 Spacer()
 
@@ -80,18 +88,18 @@ struct LearningAppListSection: View {
                     Text("\(totalMinutes) min")
                         .font(.system(size: 14, weight: .semibold))
                 }
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(tealColor)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
                 .background(
                     Capsule()
-                        .fill(AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.25 : 0.12))
+                        .fill(tealColor.opacity(0.1))
                 )
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .foregroundColor(tealColor.opacity(0.6))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -109,12 +117,12 @@ struct LearningAppListSection: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(AppTheme.vibrantTeal.opacity(0.2))
+                    .fill(tealColor.opacity(0.2))
                     .frame(width: 36, height: 36)
                     .overlay(
                         Image(systemName: "book.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(tealColor)
                     )
             }
 
@@ -124,12 +132,12 @@ struct LearningAppListSection: View {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .foregroundColor(tealColor)
                         .lineLimit(1)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                         .font(.system(size: 15, weight: .medium))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .foregroundColor(tealColor)
                         .lineLimit(1)
                 }
             }
@@ -139,12 +147,12 @@ struct LearningAppListSection: View {
             // Usage time
             Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                 .font(.system(size: 15, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(tealColor)
         }
         .padding(12)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .fill(AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.15 : 0.08))
+            RoundedRectangle(cornerRadius: 16)
+                .fill(tealColor.opacity(0.05))
         )
     }
 
@@ -152,15 +160,15 @@ struct LearningAppListSection: View {
         VStack(spacing: 12) {
             Image(systemName: "book.closed")
                 .font(.system(size: 32))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .foregroundColor(tealColor.opacity(0.4))
 
             Text("No learning apps used today")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .foregroundColor(tealColor.opacity(0.6))
 
             Text("Start using your learning apps to earn reward time!")
                 .font(.system(size: 13))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme).opacity(0.8))
+                .foregroundColor(tealColor.opacity(0.5))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)
