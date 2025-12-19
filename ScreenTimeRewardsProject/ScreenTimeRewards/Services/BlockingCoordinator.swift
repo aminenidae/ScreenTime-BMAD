@@ -497,9 +497,11 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this individual goal is met (at least 1 round completed)
                 if currentMinutes >= linkedApp.minutesRequired {
-                    // Calculate completed rounds and earn reward for each round
-                    let completedRounds = currentMinutes / linkedApp.minutesRequired
-                    totalRewardEarned += completedRounds * linkedApp.rewardMinutesEarned
+                    // Calculate proportional reward (Threshold + Proportional)
+                    // Use max(1, ...) to prevent division by zero
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.minutesRequired))
+                    let earned = Double(currentMinutes) * ratio
+                    totalRewardEarned += Int(earned)
                 } else {
                     allGoalsMet = false
                 }
@@ -520,15 +522,19 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this app's goal is met (at least 1 round completed)
                 if currentMinutes >= target {
-                    // Calculate completed rounds and earn reward for each round
-                    let completedRounds = currentMinutes / target
+                    // Calculate proportional reward (Threshold + Proportional)
+                    // Use max(1, ...) to prevent division by zero
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, target))
+                    let earned = Double(currentMinutes) * ratio
+                    let earnedInt = Int(earned)
+
                     let result = LearningGoalCheckResult(
                         isGoalMet: true,
                         targetMinutes: target,
                         currentMinutes: currentMinutes,
-                        rewardMinutesEarned: completedRounds * linkedApp.rewardMinutesEarned
+                        rewardMinutesEarned: earnedInt
                     )
-                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied, \(completedRounds) rounds)")
+                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied, \(earnedInt) minutes earned)")
                     return result
                 }
 

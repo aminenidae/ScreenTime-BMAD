@@ -655,32 +655,36 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     ) -> Int {
         switch goalConfig.unlockMode {
         case "any":
-            // First met goal earns reward minutes (for each completed round)
+            // First met goal earns reward minutes (proportional)
             for linked in goalConfig.linkedLearningApps {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
                 if usageMinutes >= linked.minutesRequired {
-                    // Calculate completed rounds and earn reward for each round
-                    let completedRounds = usageMinutes / linked.minutesRequired
-                    return completedRounds * linked.rewardMinutesEarned
+                    // Calculate proportional reward (Threshold + Proportional)
+                    // Use max(1, ...) to prevent division by zero
+                    let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.minutesRequired))
+                    let earned = Double(usageMinutes) * ratio
+                    return Int(earned)
                 }
             }
             return 0
 
         case "all":
-            // All goals must be met (at least 1 round each), then sum all earned rewards
+            // All goals must be met (at least threshold reached), then sum all earned rewards
             var totalEarned = 0
             for linked in goalConfig.linkedLearningApps {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
                 if usageMinutes < linked.minutesRequired {
-                    return 0  // Not all goals met (at least 1 round required)
+                    return 0  // Not all goals met (threshold not reached)
                 }
-                // Calculate completed rounds and earn reward for each round
-                let completedRounds = usageMinutes / linked.minutesRequired
-                totalEarned += completedRounds * linked.rewardMinutesEarned
+                // Calculate proportional reward (Threshold + Proportional)
+                // Use max(1, ...) to prevent division by zero
+                let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.minutesRequired))
+                let earned = Double(usageMinutes) * ratio
+                totalEarned += Int(earned)
             }
             return totalEarned
 
