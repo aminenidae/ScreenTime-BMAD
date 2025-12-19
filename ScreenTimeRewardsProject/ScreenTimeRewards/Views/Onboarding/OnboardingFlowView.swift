@@ -125,7 +125,7 @@ private struct OnboardingWelcomeStep: View {
                         subtitle: "Track Learning Time From Any Device"
                     )
                 }
-                .padding(.horizontal, 32)
+                .padding(.horizontal, 24)
 
                 Spacer(minLength: 20)
 
@@ -153,12 +153,12 @@ private struct IntroFeatureRow: View {
     let subtitle: String
 
     var body: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: 12) {
             Image(imageName)
                 .resizable()
                 .aspectRatio(contentMode: .fit)
-                .frame(width: 56, height: 56)
-                .clipShape(RoundedRectangle(cornerRadius: 12))
+                .frame(width: 44, height: 44)
+                .clipShape(RoundedRectangle(cornerRadius: 10))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
