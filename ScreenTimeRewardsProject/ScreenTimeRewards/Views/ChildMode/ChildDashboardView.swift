@@ -7,7 +7,6 @@ import ManagedSettings
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @EnvironmentObject var sessionManager: SessionManager
-    @StateObject private var avatarService = AvatarService.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Design colors matching ModeSelectionView
@@ -17,8 +16,6 @@ struct ChildDashboardView: View {
     // Very light coral for background (Pastel Pink/Peach)
     private let veryLightCoral = Color(red: 1.0, green: 0.94, blue: 0.92)
     private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
-
-    @State private var showAvatarCustomization = false
 
     // MARK: - Computed Properties
 
@@ -60,14 +57,6 @@ struct ChildDashboardView: View {
 
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Avatar Hero Section
-                        AvatarHeroSection(
-                            avatarService: avatarService,
-                            onAvatarTap: {
-                                showAvatarCustomization = true
-                            }
-                        )
-
                         // Hero Time Bank Card
                         TimeBankCard(
                             earnedMinutes: totalEarnedMinutes,
@@ -101,14 +90,6 @@ struct ChildDashboardView: View {
             .refreshable {
                 await viewModel.refresh()
             }
-        }
-        .task {
-            // Load avatar state when view appears
-            let deviceID = DeviceModeManager.shared.deviceID
-            await avatarService.loadAvatarState(for: deviceID)
-        }
-        .sheet(isPresented: $showAvatarCustomization) {
-            AvatarCustomizationView(avatarService: avatarService)
         }
     }
 
