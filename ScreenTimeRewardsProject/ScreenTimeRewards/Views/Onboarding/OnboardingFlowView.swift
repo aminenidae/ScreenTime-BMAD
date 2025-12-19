@@ -78,70 +78,79 @@ struct OnboardingFlowView: View {
 private struct OnboardingWelcomeStep: View {
     let onContinue: () -> Void
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.verticalSizeClass) private var vSizeClass
+
+    private var isLandscape: Bool {
+        vSizeClass == .compact
+    }
 
     var body: some View {
         GeometryReader { geometry in
             let imageWidth = geometry.size.width - 48 // 24 padding on each side
+            let imageHeight: CGFloat = isLandscape ? 160 : 260
 
-            VStack(spacing: 0) {
-                // Hero Image (no text overlay)
-                Image("onboarding_0_1")
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: imageWidth, height: 260)
-                    .clipped()
-                    .cornerRadius(14)
-                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-
-                // Title slogan below image
-                Text("We Designed The Only Way\nKids' Screen Time Should Be")
-                    .font(.system(size: 20, weight: .bold))
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .padding(.horizontal, 32)
-                    .padding(.top, 20)
-
-                Spacer(minLength: 16)
-
-                // Feature rows with custom icons
-                VStack(alignment: .leading, spacing: 14) {
-                    IntroFeatureRow(
-                        imageName: "onboarding_icon_1",
-                        title: "Earn By Learning",
-                        subtitle: "Educational Apps Earn Points Automatically"
-                    )
-
-                    IntroFeatureRow(
-                        imageName: "onboarding_icon_2",
-                        title: "Unlock Rewards",
-                        subtitle: "Points Unlock Games And Fun Apps"
-                    )
-
-                    IntroFeatureRow(
-                        imageName: "onboarding_icon_3",
-                        title: "Monitor Progress",
-                        subtitle: "Track Learning Time From Any Device"
-                    )
-                }
-                .padding(.horizontal, 24)
-
-                Spacer(minLength: 20)
-
-                Button(action: onContinue) {
-                    Text("Get Started")
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 56)
-                        .background(AppTheme.vibrantTeal)
+            ScrollView(showsIndicators: false) {
+                VStack(spacing: 0) {
+                    // Hero Image (no text overlay)
+                    Image("onboarding_0_1")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(width: imageWidth, height: imageHeight)
+                        .clipped()
                         .cornerRadius(14)
+                        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                        .padding(.horizontal, 24)
+                        .padding(.top, 16)
+
+                    // Title slogan below image
+                    Text("We Designed The Only Way\nKids' Screen Time Should Be")
+                        .font(.system(size: isLandscape ? 18 : 20, weight: .bold))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .padding(.horizontal, 24)
+                        .padding(.top, isLandscape ? 12 : 20)
+
+                    Spacer(minLength: isLandscape ? 12 : 16)
+
+                    // Feature rows with custom icons
+                    VStack(alignment: .leading, spacing: isLandscape ? 10 : 14) {
+                        IntroFeatureRow(
+                            imageName: "onboarding_icon_1",
+                            title: "Earn By Learning",
+                            subtitle: "Educational Apps Earn Points Automatically"
+                        )
+
+                        IntroFeatureRow(
+                            imageName: "onboarding_icon_2",
+                            title: "Unlock Rewards",
+                            subtitle: "Points Unlock Games And Fun Apps"
+                        )
+
+                        IntroFeatureRow(
+                            imageName: "onboarding_icon_3",
+                            title: "Monitor Progress",
+                            subtitle: "Track Learning Time From Any Device"
+                        )
+                    }
+                    .padding(.horizontal, 24)
+
+                    Spacer(minLength: isLandscape ? 12 : 20)
+
+                    Button(action: onContinue) {
+                        Text("Get Started")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(.white)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 56)
+                            .background(AppTheme.vibrantTeal)
+                            .cornerRadius(14)
+                    }
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 24)
                 }
-                .padding(.horizontal, 24)
-                .padding(.bottom, 24)
+                .frame(minHeight: geometry.size.height)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
     }
