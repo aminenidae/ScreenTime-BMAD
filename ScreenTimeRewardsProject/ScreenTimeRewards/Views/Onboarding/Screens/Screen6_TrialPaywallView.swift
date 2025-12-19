@@ -1,9 +1,9 @@
 import SwiftUI
 import StoreKit
 
-/// Screen 6: 30-Day Trial + Pricing (C6) with benefit image cards
-/// Presents the subscription options with 30-day free trial and visual benefits
-/// Adapts to iPad with grid layout and landscape with smaller cards
+/// Screen 6: 30-Day Trial + Pricing (C6)
+/// Presents the subscription options with 30-day free trial
+/// Adapts to iPad with grid layout and landscape mode
 struct Screen6_TrialPaywallView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @EnvironmentObject var subscriptionManager: SubscriptionManager
@@ -22,77 +22,40 @@ struct Screen6_TrialPaywallView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            VStack(spacing: 8) {
-                Text("Your Family System\nIs Ready")
-                    .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
-                    .lineLimit(3)
-                    .multilineTextAlignment(.center)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                Text("For The Next 30 Days, You'll Get Full Access To All Features.")
-                    .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .multilineTextAlignment(.center)
-                    .padding(.horizontal, layout.horizontalPadding)
-            }
-            .padding(.vertical, layout.isLandscape ? 10 : 16)
-            .frame(maxWidth: 600)
-
             ScrollView {
                 VStack(spacing: layout.cardSpacing) {
-                    // Benefit Image Cards - Grid on iPad, HScroll on iPhone
-                    if layout.useGridLayout {
-                        // iPad: Side by side
-                        HStack(spacing: layout.cardSpacing) {
-                            BenefitImageCard(
-                                imageName: "onboarding_C6_1",
-                                title: "Deep Analytics",
-                                subtitle: "Track Learning Progress In Real-Time",
-                                layout: layout
-                            )
-
-                            BenefitImageCard(
-                                imageName: "onboarding_C6_2",
-                                title: "Manage Multiple Kids",
-                                subtitle: "Control All Children From One Dashboard",
-                                layout: layout
-                            )
-                        }
+                    // Hero image
+                    Image("paywall_hero")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: layout.useGridLayout ? 500 : .infinity)
+                        .frame(height: layout.isLandscape ? 160 : 200)
+                        .clipped()
+                        .cornerRadius(16)
                         .padding(.horizontal, layout.horizontalPadding)
-                        .padding(.vertical, 8)
-                        .frame(maxWidth: 700)
-                    } else {
-                        // iPhone: Horizontal scroll
-                        ScrollView(.horizontal, showsIndicators: false) {
-                            HStack(spacing: layout.cardSpacing) {
-                                BenefitImageCard(
-                                    imageName: "onboarding_C6_1",
-                                    title: "Deep Analytics",
-                                    subtitle: "Track Learning Progress In Real-Time",
-                                    layout: layout
-                                )
 
-                                BenefitImageCard(
-                                    imageName: "onboarding_C6_2",
-                                    title: "Manage Multiple Kids",
-                                    subtitle: "Control All Children From One Dashboard",
-                                    layout: layout
-                                )
-                            }
-                            .padding(.horizontal, layout.horizontalPadding)
-                            .padding(.vertical, 8)
+                    // Value propositions
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "gift.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("Kids Earn Rewards. Not Just Rules.")
+                        }
+                        HStack(spacing: 12) {
+                            Image(systemName: "trophy.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("Learning Feels Like Winning.")
+                        }
+                        HStack(spacing: 12) {
+                            Image(systemName: "heart.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("Parents Relax. Kids Stay Engaged.")
                         }
                     }
-
-                    // Setup summary card
-                    SetupSummaryCard(
-                        learningGoal: onboarding.dailyLearningGoalMinutes,
-                        rewardMinutes: Int(Double(onboarding.dailyLearningGoalMinutes) * onboarding.learningToRewardRatio),
-                        colorScheme: colorScheme
-                    )
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, layout.horizontalPadding)
-                    .frame(maxWidth: 500)
 
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
@@ -177,62 +140,6 @@ struct Screen6_TrialPaywallView: View {
         }
     }
 
-    // MARK: - Benefit Image Card
-
-    struct BenefitImageCard: View {
-        let imageName: String
-        let title: String
-        let subtitle: String
-        let layout: ResponsiveCardLayout
-
-        /// Card width - explicit for both iPhone and iPad to prevent overflow
-        private var cardWidth: CGFloat {
-            layout.useGridLayout ? layout.ipadGridCardWidth : layout.benefitCardWidth
-        }
-
-        /// Card height - uses benefit card height
-        private var cardHeight: CGFloat {
-            layout.useGridLayout ? layout.ipadGridCardHeight : layout.benefitCardHeight
-        }
-
-        var body: some View {
-            ZStack(alignment: .bottomLeading) {
-                // Background image
-                Image(imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: cardWidth, height: cardHeight)
-
-                // Gradient overlay
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.5)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                // Text content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(title)
-                        .font(.system(size: layout.isRegular ? 18 : 16, weight: .semibold))
-                        .foregroundColor(.white)
-
-                    Text(subtitle)
-                        .font(.system(size: layout.isRegular ? 14 : 12, weight: .regular))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(2)
-                }
-                .padding(layout.isRegular ? 16 : 12)
-            }
-            .frame(width: cardWidth, height: cardHeight)
-            .clipped()
-            .cornerRadius(12)
-            .shadow(color: Color.black.opacity(0.1), radius: 6, x: 0, y: 3)
-        }
-    }
-
     private func purchaseAnnual() {
         guard let product = subscriptionManager.product(for: .family) else {
             purchaseError = "Unable to load subscription. Please try again."
@@ -269,37 +176,6 @@ struct Screen6_TrialPaywallView: View {
     }
 }
 
-// MARK: - Setup Summary Card
-
-private struct SetupSummaryCard: View {
-    let learningGoal: Int
-    let rewardMinutes: Int
-    let colorScheme: ColorScheme
-
-    var body: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 4) {
-                Text("\(learningGoal) min learning")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
-
-                Text("Automatically unlocks \(rewardMinutes) min rewards")
-                    .font(.system(size: 13, weight: .regular))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-            }
-
-            Spacer()
-
-            Image(systemName: "checkmark.circle.fill")
-                .foregroundColor(AppTheme.vibrantTeal)
-                .font(.system(size: 22))
-        }
-        .padding(14)
-        .background(AppTheme.vibrantTeal.opacity(0.1))
-        .cornerRadius(12)
-    }
-}
-
 // MARK: - Annual Plan Card
 
 private struct AnnualPlanCard: View {
@@ -323,35 +199,25 @@ private struct AnnualPlanCard: View {
                         .foregroundColor(AppTheme.vibrantTeal)
 
                         // Price
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("59.99")
-                                .font(.system(size: 32, weight: .bold))
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text("4.99 USD / month")
+                                .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text("USD")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                                Text("Billed Yearly")
-                                    .font(.system(size: 11, weight: .semibold))
-                                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            }
+                            Text("59.99 USD billed annually")
+                                .font(.system(size: 14, weight: .regular))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
-
-                        Text("(4.99 USD / month effective)")
-                            .font(.system(size: 12, weight: .regular))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                         // Discount
                         HStack(spacing: 6) {
                             Text("119.88")
-                                .font(.system(size: 11, weight: .regular))
+                                .font(.system(size: 13, weight: .regular))
                                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                 .strikethrough()
 
                             Text("50% off today")
-                                .font(.system(size: 11, weight: .semibold))
+                                .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
                         }
                     }
@@ -374,15 +240,19 @@ private struct AnnualPlanCard: View {
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(10)
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(Color(red: 0.85, green: 0.65, blue: 0.13), lineWidth: 2)
+                    )
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .background(isSelected ? AppTheme.vibrantTeal.opacity(0.05) : AppTheme.card(for: colorScheme))
+        .background(AppTheme.card(for: colorScheme))
         .cornerRadius(16)
         .overlay(
             RoundedRectangle(cornerRadius: 16)
-                .stroke(isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme), lineWidth: isSelected ? 2 : 1)
+                .stroke(Color(red: 0.85, green: 0.65, blue: 0.13), lineWidth: 2)
         )
     }
 }
@@ -401,21 +271,9 @@ private struct MonthlyPlanCard: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
                         // Price
-                        HStack(alignment: .firstTextBaseline, spacing: 4) {
-                            Text("9.99")
-                                .font(.system(size: 32, weight: .bold))
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                            VStack(alignment: .leading, spacing: 0) {
-                                Text("USD")
-                                    .font(.system(size: 12, weight: .regular))
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                                Text("per month")
-                                    .font(.system(size: 11, weight: .regular))
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                            }
-                        }
+                        Text("9.99 USD / month")
+                            .font(.system(size: 18, weight: .bold))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                         Text("Cancel anytime")
                             .font(.system(size: 12, weight: .regular))
