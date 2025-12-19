@@ -18,15 +18,18 @@ struct Screen4_AuthorizationView: View {
                     .font(.system(size: 60))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("Enable Screen Time Access")
-                    .font(.system(size: 26, weight: .bold))
+                Text("ENABLE SCREEN TIME ACCESS")
+                    .font(.system(size: 23, weight: .bold)) // Reduced from 26
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .multilineTextAlignment(.center)
+                    .textCase(.uppercase)
+                    .tracking(3)
 
                 Text("To manage your child's apps, we need permission to use Screen Time controls.")
                     .font(.system(size: 16))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, 24)
             .padding(.top, 48)
@@ -50,6 +53,7 @@ struct Screen4_AuthorizationView: View {
                 Text("Your data is private and stays on device.")
                     .font(.system(size: 14))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, 24)
 
@@ -64,12 +68,13 @@ struct Screen4_AuthorizationView: View {
                     }
                     Text("Grant Permission")
                 }
-                .font(.system(size: 16, weight: .semibold))
+                .font(.system(size: 18, weight: .bold)) // Standardized button font size
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 14)
                 .background(AppTheme.vibrantTeal)
                 .foregroundColor(.white)
-                .cornerRadius(12)
+                .cornerRadius(AppTheme.CornerRadius.medium)
+                .textCase(.uppercase)
             }
             .disabled(isRequesting)
             .padding(.horizontal, 24)
@@ -77,9 +82,15 @@ struct Screen4_AuthorizationView: View {
             // Back button
             Button(action: { onboarding.goBack() }) {
                 Text("Back")
-                    .font(.system(size: 14, weight: .medium))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .font(.system(size: 18, weight: .semibold)) // Semibold and size 18 from guideline icon.
+                    .foregroundColor(AppTheme.vibrantTeal) // Teal color from guideline
+                    .frame(maxWidth: .infinity) // Make it span for consistency
+                    .padding(.vertical, 14)
+                    .background(AppTheme.vibrantTeal.opacity(0.1)) // Background from guideline
+                    .cornerRadius(AppTheme.CornerRadius.medium) // 16pt from guideline
+                    .textCase(.uppercase) // All text uppercase
             }
+            .padding(.horizontal, 24) // Apply padding around the button
             .padding(.vertical, 16)
 
             Spacer(minLength: 24)
@@ -136,6 +147,7 @@ private struct AuthFeatureRow: View {
             Text(text)
                 .font(.system(size: 16))
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .textCase(.uppercase)
         }
     }
 }

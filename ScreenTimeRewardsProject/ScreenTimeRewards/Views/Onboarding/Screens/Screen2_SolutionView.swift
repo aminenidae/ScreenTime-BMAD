@@ -41,17 +41,20 @@ struct Screen2_SolutionView: View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 8) {
-                Text("What If Your Child\n**Agreed** To The Rules?")
-                    .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
+                Text("WHAT IF YOUR CHILD\n**AGREED** TO THE RULES?")
+                    .font(.system(size: layout.isRegular ? 27 : 23, weight: .bold)) // Reduced from 30/26
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .textCase(.uppercase)
+                    .tracking(3)
 
                 Text("Learning Automatically Unlocks AND Locks Reward Apps.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, layout.horizontalPadding)
+                    .textCase(.uppercase)
             }
             .padding(.vertical, layout.isLandscape ? 12 : 20)
             .frame(maxWidth: 600)
@@ -88,18 +91,20 @@ struct Screen2_SolutionView: View {
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.bottom, layout.isLandscape ? 12 : 20)
                 .frame(maxWidth: 600)
+                .textCase(.uppercase)
 
             // Primary CTA
             Button(action: {
                 onboarding.advanceScreen()
             }) {
                 Text("See What You'll Set Up")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
 
@@ -175,23 +180,27 @@ private struct SolutionStepImageCard: View {
                 // Text content
                 VStack(alignment: .leading, spacing: 2) {
                     Text(step.stepNumber)
-                        .font(.system(size: layout.isIpad ? 32 : 20, weight: .bold))
+                        .font(.system(size: layout.isIpad ? 29 : 17, weight: .bold)) // Reduced from 32/20
                         .foregroundColor(.white)
+                        .textCase(.uppercase)
 
                     Text(step.title)
-                        .font(.system(size: layout.isIpad ? 20 : 14, weight: .semibold))
+                        .font(.system(size: layout.isIpad ? 17 : 11, weight: .semibold)) // Reduced from 20/14
                         .foregroundColor(.white)
+                        .textCase(.uppercase)
+                        .tracking(2)
 
                     Text(step.subtitle)
                         .font(.system(size: layout.isIpad ? 14 : 11, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
+                        .textCase(.uppercase)
                 }
                 .padding(layout.isIpad ? 20 : 10)
             }
         }
         .frame(height: cardHeight)
-        .cornerRadius(14)
+        .cornerRadius(AppTheme.CornerRadius.large)
         .shadow(color: Color.black.opacity(isVisible ? 0.15 : 0.05), radius: isVisible ? 12 : 4, x: 0, y: isVisible ? 6 : 2)
         .opacity(isVisible ? 1.0 : 0.0)
         .offset(y: enterOffset)

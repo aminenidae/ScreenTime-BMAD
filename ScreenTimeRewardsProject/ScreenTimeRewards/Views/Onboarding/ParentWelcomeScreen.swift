@@ -5,11 +5,12 @@ struct ParentWelcomeScreen: View {
     let deviceName: String
     let onBack: () -> Void
     let onContinue: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     private let featureRows: [FeatureRow] = [
-        .init(icon: "network", title: "Monitor from anywhere", detail: "Check in on every paired child device from a single dashboard."),
-        .init(icon: "trophy.fill", title: "Create meaningful rewards", detail: "Launch challenges that motivate learning and good habits."),
-        .init(icon: "qrcode.viewfinder", title: "Connect devices securely", detail: "Pair whenever you're ready—no pressure to finish right now.")
+        .init(icon: "network", title: "MONITOR FROM ANYWHERE", detail: "Check in on every paired child device from a single dashboard."),
+        .init(icon: "trophy.fill", title: "CREATE MEANINGFUL REWARDS", detail: "Launch challenges that motivate learning and good habits."),
+        .init(icon: "qrcode.viewfinder", title: "CONNECT DEVICES SECURELY", detail: "Pair whenever you're ready—no pressure to finish right now.")
     ]
 
     var body: some View {
@@ -18,20 +19,23 @@ struct ParentWelcomeScreen: View {
 
             VStack(spacing: 24) {
                 VStack(spacing: 12) {
-                    Text("Welcome, \(deviceName.isEmpty ? "Parent" : deviceName)")
-                        .font(.system(size: 32, weight: .bold))
+                    Text("WELCOME, \(deviceName.isEmpty ? "PARENT" : deviceName.uppercased())")
+                        .font(.system(size: 29, weight: .bold)) // Reduced from 32
                         .multilineTextAlignment(.center)
+                        .textCase(.uppercase)
+                        .tracking(3)
 
                     Text("This device becomes your remote monitor. You'll guide setup on your child's device and connect them with a QR code.")
                         .font(.system(size: 17))
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 520)
+                        .textCase(.uppercase)
                 }
 
                 VStack(spacing: 16) {
                     ForEach(featureRows) { row in
-                        ParentFeatureCard(row: row)
+                        ParentFeatureCard(row: row, colorScheme: colorScheme)
                     }
                 }
             }
@@ -45,14 +49,14 @@ struct ParentWelcomeScreen: View {
                     .foregroundColor(.white)
                     .frame(maxWidth: 400)
                     .frame(height: 56)
-                    .background(Color.accentColor)
-                    .cornerRadius(14)
+                    .background(AppTheme.vibrantTeal)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
-            .padding(.bottom, 16)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
     }
 
     private var header: some View {
@@ -65,9 +69,11 @@ struct ParentWelcomeScreen: View {
 
             Spacer()
 
-            Text("Parent Onboarding")
+            Text("PARENT ONBOARDING")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
+                .textCase(.uppercase)
+                .tracking(2)
         }
     }
 
@@ -81,34 +87,42 @@ struct ParentWelcomeScreen: View {
 
 private struct ParentFeatureCard: View {
     let row: ParentWelcomeScreen.FeatureRow
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.accentColor.opacity(0.12))
+                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                    .fill(AppTheme.vibrantTeal.opacity(0.1))
                     .frame(width: 48, height: 48)
 
                 Image(systemName: row.icon)
-                    .foregroundColor(Color.accentColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
                     .font(.system(size: 22, weight: .semibold))
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.title)
                     .font(.system(size: 17, weight: .semibold))
+                    .textCase(.uppercase)
+                    .tracking(2)
 
                 Text(row.detail)
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
+                    .textCase(.uppercase)
             }
 
             Spacer()
         }
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.secondarySystemBackground))
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+                )
         )
     }
 }

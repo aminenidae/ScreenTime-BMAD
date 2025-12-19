@@ -41,15 +41,19 @@ struct Screen7_ActivationView: View {
         VStack(spacing: 0) {
             // Header
             VStack(spacing: 8) {
-                Text("Your System Is Live")
-                    .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
+                Text("YOUR SYSTEM IS LIVE")
+                    .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .textCase(.uppercase)
+                    .tracking(3)
 
-                Text("Here's What To Do Next With Your Child")
-                    .font(.system(size: layout.isRegular ? 18 : 16, weight: .regular))
+                Text("HERE'S WHAT TO DO NEXT WITH YOUR CHILD")
+                    .font(.system(size: layout.isRegular ? 15 : 13, weight: .regular)) // Reduced from 18/16
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .textCase(.uppercase)
+                    .tracking(2)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.vertical, layout.isLandscape ? 12 : 20)
@@ -85,12 +89,13 @@ struct Screen7_ActivationView: View {
                 onShowChildDashboard()
             }) {
                 Text("Show Child Dashboard")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.bottom, 12)
@@ -101,12 +106,13 @@ struct Screen7_ActivationView: View {
                 onShowParentDashboard()
             }) {
                 Text("Go To Parent Dashboard")
-                    .font(.system(size: 16, weight: .regular))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
-                    .background(AppTheme.card(for: colorScheme))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .cornerRadius(12)
+                    .background(AppTheme.vibrantTeal.opacity(0.1)) // Secondary button style
+                    .foregroundColor(AppTheme.vibrantTeal) // Text color for secondary button
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.bottom, layout.isLandscape ? 16 : 24)
@@ -186,23 +192,27 @@ private struct ActivationImageCard: View {
                 // Text content
                 VStack(alignment: .leading, spacing: 2) {
                     Text(step.stepNumber)
-                        .font(.system(size: layout.isIpad ? 32 : 20, weight: .bold))
+                        .font(.system(size: layout.isIpad ? 29 : 17, weight: .bold)) // Reduced from 32/20
                         .foregroundColor(.white)
+                        .textCase(.uppercase)
 
                     Text(step.title)
-                        .font(.system(size: layout.isIpad ? 20 : 14, weight: .semibold))
+                        .font(.system(size: layout.isIpad ? 17 : 11, weight: .semibold)) // Reduced from 20/14
                         .foregroundColor(.white)
+                        .textCase(.uppercase)
+                        .tracking(2)
 
                     Text(step.subtitle)
                         .font(.system(size: layout.isIpad ? 14 : 11, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
+                        .textCase(.uppercase)
                 }
                 .padding(layout.isIpad ? 20 : 10)
             }
         }
         .frame(height: cardHeight)
-        .cornerRadius(14)
+        .cornerRadius(AppTheme.CornerRadius.large)
         .shadow(color: Color.black.opacity(isVisible ? 0.15 : 0.05), radius: isVisible ? 12 : 4, x: 0, y: isVisible ? 6 : 2)
         .opacity(isVisible ? 1.0 : 0.0)
         .offset(y: enterOffset)

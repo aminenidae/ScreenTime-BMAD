@@ -5,20 +5,23 @@ struct AppTheme {
 
     // MARK: - Brand Colors
 
-    /// Vibrant Teal - Primary accent color (#00A6A6)
-    static let vibrantTeal = Color(red: 0, green: 0.651, blue: 0.651)
+    /// Vibrant Teal - Primary accent color (#007373)
+    static let vibrantTeal = Color(red: 0.0, green: 0.45, blue: 0.45)
 
-    /// Sunny Yellow - Secondary accent, warnings, highlights (#FFD166)
-    static let sunnyYellow = Color(red: 1, green: 0.820, blue: 0.400)
+    /// Sunny Yellow - Secondary accent, warnings, highlights (#FACC4D)
+    static let sunnyYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
 
-    /// Playful Coral - Rewards, achievements, excitement (#EF476F)
-    static let playfulCoral = Color(red: 0.937, green: 0.278, blue: 0.435)
+    /// Playful Coral - Rewards, achievements, excitement (#FA8073)
+    static let playfulCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
 
     /// Deep Navy - Dark background (#073B4C)
     static let deepNavy = Color(red: 0.027, green: 0.231, blue: 0.298)
 
-    /// Light Cream - Light background (#F7F7F2)
-    static let lightCream = Color(red: 0.969, green: 0.969, blue: 0.949)
+    /// Light Cream - Light background (#F5F3E1)
+    static let lightCream = Color(red: 0.96, green: 0.95, blue: 0.88)
+
+    /// Error Red - Destructive actions (#E64D40)
+    static let errorRed = Color(red: 0.9, green: 0.3, blue: 0.25)
 
     // MARK: - Learning Theme Colors (from hourglass icon)
 
@@ -41,7 +44,7 @@ struct AppTheme {
     }
 
     static func card(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color(red: 0.082, green: 0.294, blue: 0.361) : .white
+        scheme == .dark ? Color(red: 0.082, green: 0.294, blue: 0.361) : Color.white.opacity(0.6)
     }
 
     static func textPrimary(for scheme: ColorScheme) -> Color {
@@ -53,7 +56,7 @@ struct AppTheme {
     }
 
     static func border(for scheme: ColorScheme) -> Color {
-        scheme == .dark ? Color.white.opacity(0.2) : Color.black.opacity(0.1)
+        scheme == .dark ? Color.white.opacity(0.2) : vibrantTeal.opacity(0.1)
     }
 
     static func progressTrack(for scheme: ColorScheme) -> Color {
@@ -76,7 +79,7 @@ struct AppTheme {
     static let warning = sunnyYellow
 
     /// Error/destructive states (delete, cancel)
-    static let error = playfulCoral
+    static let error = errorRed
 
     /// Rewards and achievements
     static let reward = playfulCoral
@@ -133,10 +136,10 @@ struct AppTheme {
     // MARK: - Typography
 
     struct Typography {
-        static let largeTitle = Font.system(size: 32, weight: .bold)
-        static let title1 = Font.system(size: 26, weight: .bold)
-        static let title2 = Font.system(size: 22, weight: .bold)
-        static let title3 = Font.system(size: 20, weight: .semibold)
+        static let largeTitle = Font.system(size: 29, weight: .bold) // Original 32
+        static let title1 = Font.system(size: 23, weight: .bold)     // Original 26
+        static let title2 = Font.system(size: 19, weight: .bold)     // Original 22
+        static let title3 = Font.system(size: 17, weight: .semibold) // Original 20
         static let headline = Font.system(size: 18, weight: .semibold)
         static let body = Font.system(size: 16, weight: .regular)
         static let callout = Font.system(size: 15, weight: .regular)
@@ -163,10 +166,9 @@ struct AppTheme {
 
     struct CornerRadius {
         static let small: CGFloat = 8
-        static let medium: CGFloat = 12
-        static let large: CGFloat = 16
-        static let xLarge: CGFloat = 20
-        static let xxLarge: CGFloat = 24
+        static let medium: CGFloat = 16
+        static let large: CGFloat = 20
+        static let xLarge: CGFloat = 24
         static let round: CGFloat = 999
     }
 
@@ -194,6 +196,10 @@ extension View {
         self.background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
                 .fill(AppTheme.card(for: scheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(AppTheme.border(for: scheme), lineWidth: 1)
+                )
                 .shadow(
                     color: AppTheme.Shadow.small.color,
                     radius: AppTheme.Shadow.small.radius,

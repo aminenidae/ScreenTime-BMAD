@@ -20,15 +20,20 @@ struct ParentOnboardingStepHeader: View {
                 Text("Step \(step) of \(totalSteps)")
                     .font(.subheadline)
                     .foregroundColor(.secondary)
+                    .textCase(.uppercase)
             }
 
             VStack(spacing: 8) {
                 Text(title)
-                    .font(.system(size: 28, weight: .bold))
+                    .font(.system(size: 25, weight: .bold)) // Reduced from 28
+                    .textCase(.uppercase)
+                    .tracking(3)
                     .frame(maxWidth: .infinity, alignment: .leading)
 
                 Text(subtitle)
-                    .font(.system(size: 16))
+                    .font(.system(size: 13)) // Reduced from 16
+                    .textCase(.uppercase)
+                    .tracking(2)
                     .foregroundColor(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

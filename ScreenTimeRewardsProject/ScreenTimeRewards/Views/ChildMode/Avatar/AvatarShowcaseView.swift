@@ -80,7 +80,7 @@ struct AvatarShowcaseView: View {
         .padding(AppTheme.Spacing.xLarge)
         .frame(maxWidth: .infinity)
         .background(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.xxLarge)
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
                 .fill(
                     LinearGradient(
                         colors: [
@@ -444,7 +444,7 @@ private struct AvatarSelectionCard: View {
             }
             .padding()
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                     .fill(AppTheme.card(for: colorScheme))
                     .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 2, y: 1)
             )

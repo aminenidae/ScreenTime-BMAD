@@ -31,32 +31,37 @@ struct Screen6_TrialPaywallView: View {
                         .frame(maxWidth: layout.useGridLayout ? 500 : .infinity)
                         .frame(height: layout.isLandscape ? 160 : 200)
                         .clipped()
-                        .cornerRadius(16)
+                        .cornerRadius(AppTheme.CornerRadius.large)
                         .padding(.horizontal, layout.horizontalPadding)
 
-                    // Value propositions
-                    VStack(alignment: .leading, spacing: 10) {
-                        HStack(spacing: 12) {
-                            Image(systemName: "gift.fill")
-                                .foregroundColor(AppTheme.vibrantTeal)
-                            Text("Kids Earn Rewards. Not Just Rules.")
-                        }
-                        HStack(spacing: 12) {
-                            Image(systemName: "trophy.fill")
-                                .foregroundColor(AppTheme.vibrantTeal)
-                            Text("Learning Feels Like Winning.")
-                        }
-                        HStack(spacing: 12) {
-                            Image(systemName: "heart.fill")
-                                .foregroundColor(AppTheme.vibrantTeal)
-                            Text("Parents Relax. Kids Stay Engaged.")
-                        }
-                    }
-                    .font(.system(size: 15, weight: .medium))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, layout.horizontalPadding)
-
+                                                // Value propositions
+                                                VStack(alignment: .leading, spacing: 10) {
+                                                    HStack(spacing: 12) {
+                                                        Image(systemName: "gift.fill")
+                                                            .foregroundColor(AppTheme.vibrantTeal)
+                                                        Text("KIDS EARN REWARDS. NOT JUST RULES.")
+                                                            .textCase(.uppercase)
+                                                            .tracking(1.5)
+                                                    }
+                                                    HStack(spacing: 12) {
+                                                        Image(systemName: "trophy.fill")
+                                                            .foregroundColor(AppTheme.vibrantTeal)
+                                                        Text("LEARNING FEELS LIKE WINNING.")
+                                                            .textCase(.uppercase)
+                                                            .tracking(1.5)
+                                                    }
+                                                    HStack(spacing: 12) {
+                                                        Image(systemName: "heart.fill")
+                                                            .foregroundColor(AppTheme.vibrantTeal)
+                                                        Text("PARENTS RELAX. KIDS STAY ENGAGED.")
+                                                            .textCase(.uppercase)
+                                                            .tracking(1.5)
+                                                    }
+                                                }
+                                                .font(.system(size: 13, weight: .medium)) // Reduced by 2 pts
+                                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .padding(.horizontal, layout.horizontalPadding)
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
                         isSelected: selectedPlan == .annual,
@@ -97,12 +102,14 @@ struct Screen6_TrialPaywallView: View {
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.bottom, layout.isLandscape ? 8 : 12)
+                .textCase(.uppercase)
 
             // Skip link
             Button(action: { showConfirmSkip = true }) {
                 Text("Skip trial and delete setup")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundColor(.red.opacity(0.8))
+                    .textCase(.uppercase)
             }
             .padding(.bottom, 8)
 
@@ -195,6 +202,8 @@ private struct AnnualPlanCard: View {
                                 .font(.system(size: 10))
                             Text("BEST VALUE")
                                 .font(.system(size: 11, weight: .semibold))
+                                .textCase(.uppercase)
+                                .tracking(1.5)
                         }
                         .foregroundColor(AppTheme.vibrantTeal)
 
@@ -234,25 +243,28 @@ private struct AnnualPlanCard: View {
 
             Button(action: onPurchase) {
                 Text("Start 30-Day Free Trial")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                    .foregroundColor(.white) // Always white for primary
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
-                    .foregroundColor(.white)
-                    .cornerRadius(10)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
                     .overlay(
-                        RoundedRectangle(cornerRadius: 10)
-                            .stroke(Color(red: 0.85, green: 0.65, blue: 0.13), lineWidth: 2)
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                            .stroke(AppTheme.sunnyYellow, lineWidth: 2)
                     )
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(Color(red: 0.85, green: 0.65, blue: 0.13), lineWidth: 2)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(AppTheme.sunnyYellow, lineWidth: 2)
+                )
         )
     }
 }
@@ -292,21 +304,24 @@ private struct MonthlyPlanCard: View {
 
             Button(action: onPurchase) {
                 Text("Start 30-Day Free Trial")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(Color.gray.opacity(0.2))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .cornerRadius(10)
+                    .background(AppTheme.vibrantTeal.opacity(0.1)) // Secondary button style
+                    .foregroundColor(AppTheme.vibrantTeal) // Text color for secondary button
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(16)
-        .overlay(
-            RoundedRectangle(cornerRadius: 16)
-                .stroke(isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme), lineWidth: isSelected ? 2 : 1)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme), lineWidth: isSelected ? 2 : 1)
+                )
         )
     }
 }
@@ -327,6 +342,7 @@ private struct PurchasingOverlay: View {
                 Text("Processing...")
                     .font(.system(size: 16, weight: .medium))
                     .foregroundColor(.white)
+                    .textCase(.uppercase)
             }
             .padding(32)
             .background(Color.black.opacity(0.7))

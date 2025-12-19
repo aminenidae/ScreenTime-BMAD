@@ -24,11 +24,13 @@ struct Screen1_ProblemView: View {
             Spacer(minLength: layout.isLandscape ? 12 : 24)
 
             // Headline
-            Text("The \"Five More Minutes\"\nBattle Can End Today")
-                .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
+            Text("THE \"FIVE MORE MINUTES\"\nBATTLE CAN END TODAY")
+                .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .textCase(.uppercase)
+                .tracking(3)
                 .padding(.horizontal, layout.horizontalPadding)
                 .frame(maxWidth: 600)
 
@@ -41,6 +43,7 @@ struct Screen1_ProblemView: View {
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .padding(.horizontal, layout.horizontalPadding)
                 .frame(maxWidth: 600)
+                .textCase(.uppercase)
 
             Spacer(minLength: layout.isLandscape ? 16 : 32)
 
@@ -49,12 +52,13 @@ struct Screen1_ProblemView: View {
                 onboarding.advanceScreen()
             }) {
                 Text("Show Me How")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
 
@@ -106,20 +110,23 @@ private struct ProblemHeroCard: View {
 
                 // Text overlay
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("The Daily Struggle")
-                        .font(.system(size: layout.isIpad ? 24 : 16, weight: .semibold))
+                    Text("THE DAILY STRUGGLE")
+                        .font(.system(size: layout.isIpad ? 21 : 13, weight: .semibold)) // Reduced from 24/16
                         .foregroundColor(.white)
+                        .textCase(.uppercase)
+                        .tracking(2)
 
                     Text("Sound Familiar? Screen Time Negotiations Don't Have To Be This Hard.")
                         .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
+                        .textCase(.uppercase)
                 }
                 .padding(layout.isIpad ? 20 : 12)
             }
         }
         .frame(height: cardHeight)
-        .cornerRadius(14)
+        .cornerRadius(AppTheme.CornerRadius.large)
         .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
     }
 }

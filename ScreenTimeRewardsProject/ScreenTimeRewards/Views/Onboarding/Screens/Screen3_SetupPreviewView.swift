@@ -19,21 +19,25 @@ struct Screen3_SetupPreviewView: View {
         VStack(spacing: 0) {
             // Title section
             VStack(spacing: 8) {
-                Text("Set Up Your Family System")
-                    .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
+                Text("SET UP YOUR FAMILY SYSTEM")
+                    .font(.system(size: layout.isRegular ? 27 : 23, weight: .bold)) // Reduced from 30/26
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .textCase(.uppercase)
+                    .tracking(3)
 
                 Text("(about 3 minutes)")
                     .font(.system(size: layout.isRegular ? 20 : 18, weight: .medium))
                     .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
 
                 Text("Two Quick Steps, Then It Runs Automatically Every Day.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
                     .padding(.top, 4)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.vertical, layout.isLandscape ? 12 : 20)
@@ -101,6 +105,7 @@ struct Screen3_SetupPreviewView: View {
                 Text("You'll Do This Once. The System Repeats Daily Automatically.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .textCase(.uppercase)
             }
             .multilineTextAlignment(.center)
             .padding(.horizontal, layout.horizontalPadding)
@@ -113,12 +118,13 @@ struct Screen3_SetupPreviewView: View {
                 onboarding.advanceScreen()
             }) {
                 Text("Start Setup")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
 
@@ -127,7 +133,7 @@ struct Screen3_SetupPreviewView: View {
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .sheet(isPresented: $showLearningPreview) {
             PreviewSheetView(
-                title: "Learning Apps Setup",
+                title: "LEARNING APPS SETUP",
                 description: "You'll select educational apps like Khan Academy, Duolingo, or any app that encourages learning. Then set a daily goal (we recommend 60 minutes).",
                 colorScheme: colorScheme
             )
@@ -135,7 +141,7 @@ struct Screen3_SetupPreviewView: View {
         }
         .sheet(isPresented: $showRewardPreview) {
             PreviewSheetView(
-                title: "Reward Apps Setup",
+                title: "REWARD APPS SETUP",
                 description: "You'll select reward apps like YouTube, Roblox, or TikTok. Then choose how much reward time learning unlocks (1:1 is a great starting point).",
                 colorScheme: colorScheme
             )
@@ -193,13 +199,16 @@ private struct SetupImageCard: View {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(title)
-                                .font(.system(size: layout.isIpad ? 22 : 16, weight: .semibold))
+                                .font(.system(size: layout.isIpad ? 19 : 13, weight: .semibold)) // Reduced from 22/16
                                 .foregroundColor(.white)
+                                .textCase(.uppercase)
+                                .tracking(2)
 
                             Text(subtitle)
                                 .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
                                 .foregroundColor(.white.opacity(0.9))
                                 .lineLimit(2)
+                                .textCase(.uppercase)
                         }
 
                         Spacer()
@@ -212,7 +221,7 @@ private struct SetupImageCard: View {
                 }
             }
             .frame(height: cardHeight)
-            .cornerRadius(14)
+            .cornerRadius(AppTheme.CornerRadius.large)
             .shadow(color: Color.black.opacity(0.1), radius: 8, x: 0, y: 4)
         }
         .buttonStyle(.plain)
@@ -236,25 +245,29 @@ private struct PreviewSheetView: View {
                 .padding(.top, 12)
 
             Text(title)
-                .font(.system(size: 22, weight: .bold))
+                .font(.system(size: 19, weight: .bold)) // Reduced from 22
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .textCase(.uppercase)
+                .tracking(2)
 
             Text(description)
                 .font(.system(size: 16, weight: .regular))
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
+                .textCase(.uppercase)
 
             Spacer()
 
             Button(action: { dismiss() }) {
                 Text("Got it")
-                    .font(.system(size: 16, weight: .semibold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
-                    .cornerRadius(12)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
+                    .textCase(.uppercase)
             }
             .padding(.horizontal, 24)
             .padding(.bottom, 24)

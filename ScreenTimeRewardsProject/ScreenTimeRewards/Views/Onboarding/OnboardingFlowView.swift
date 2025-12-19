@@ -104,10 +104,12 @@ private struct OnboardingWelcomeStep: View {
 
                     // Title slogan below image
                     Text("We Designed The Only Way\nKids' Screen Time Should Be")
-                        .font(.system(size: isLandscape ? 18 : 20, weight: .bold))
+                        .font(.system(size: isLandscape ? 15 : 17, weight: .bold)) // Increased by 2 pts
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .textCase(.uppercase)
+                        .tracking(3)
                         .padding(.horizontal, 24)
                         .padding(.top, isLandscape ? 12 : 20)
 
@@ -139,12 +141,13 @@ private struct OnboardingWelcomeStep: View {
 
                     Button(action: onContinue) {
                         Text("Get Started")
-                            .font(.system(size: 18, weight: .bold))
+                            .font(.system(size: 18, weight: .bold)) // Keep at 18 for now, standardize later
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
                             .background(AppTheme.vibrantTeal)
-                            .cornerRadius(14)
+                            .cornerRadius(AppTheme.CornerRadius.medium)
+                            .textCase(.uppercase)
                     }
                     .padding(.horizontal, 24)
                     .padding(.bottom, 24)
@@ -167,15 +170,18 @@ private struct IntroFeatureRow: View {
                 .resizable()
                 .aspectRatio(contentMode: .fit)
                 .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: 10))
+                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
+                    .textCase(.uppercase)
+                    .tracking(2)
 
                 Text(subtitle)
-                    .font(.system(size: 15))
+                    .font(.system(size: 13)) // Reduced from 15
                     .foregroundColor(.secondary)
+                    .textCase(.uppercase)
             }
 
             Spacer()
