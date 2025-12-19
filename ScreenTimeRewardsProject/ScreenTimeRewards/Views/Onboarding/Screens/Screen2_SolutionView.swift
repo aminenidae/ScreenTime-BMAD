@@ -30,24 +30,24 @@ struct Screen2_SolutionView: View {
     private let stepAnimationDelay: Double = 2.0
 
     private let steps: [SolutionStepCard] = [
-        SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree on a Goal", subtitle: "Parent & child discuss learning targets"),
-        SolutionStepCard(id: 1, imageName: "onboarding_C2_2", stepNumber: "2", title: "Child Learns", subtitle: "Educational apps unlock with every milestone"),
-        SolutionStepCard(id: 2, imageName: "onboarding_C2_3", stepNumber: "3", title: "Automatic Unlock", subtitle: "No asking. Just automatic rewards."),
-        SolutionStepCard(id: 3, imageName: "onboarding_C2_4", stepNumber: "4", title: "Enjoy Rewards", subtitle: "Guilt-free entertainment they've earned"),
-        SolutionStepCard(id: 4, imageName: "onboarding_C2_5", stepNumber: "5", title: "Auto-Lock", subtitle: "Time's up. No negotiations. Peaceful transition.")
+        SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree On A Goal", subtitle: "Parent & Child Discuss Learning Targets"),
+        SolutionStepCard(id: 1, imageName: "onboarding_C2_2", stepNumber: "2", title: "Child Learns", subtitle: "Educational Apps Unlock With Every Milestone"),
+        SolutionStepCard(id: 2, imageName: "onboarding_C2_3", stepNumber: "3", title: "Automatic Unlock", subtitle: "No Asking. Just Automatic Rewards."),
+        SolutionStepCard(id: 3, imageName: "onboarding_C2_4", stepNumber: "4", title: "Enjoy Rewards", subtitle: "Guilt-Free Entertainment They've Earned"),
+        SolutionStepCard(id: 4, imageName: "onboarding_C2_5", stepNumber: "5", title: "Auto-Lock", subtitle: "Time's Up. No Negotiations. Peaceful Transition.")
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             // Title
             VStack(spacing: 8) {
-                Text("What if your child\n**agreed** to the rules?")
+                Text("What If Your Child\n**Agreed** To The Rules?")
                     .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                Text("Learning automatically unlocks AND locks reward apps.")
+                Text("Learning Automatically Unlocks AND Locks Reward Apps.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
@@ -93,7 +93,7 @@ struct Screen2_SolutionView: View {
             Button(action: {
                 onboarding.advanceScreen()
             }) {
-                Text("See what you'll set up")
+                Text("See What You'll Set Up")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
@@ -102,17 +102,6 @@ struct Screen2_SolutionView: View {
                     .cornerRadius(12)
             }
             .padding(.horizontal, layout.horizontalPadding)
-
-            Spacer(minLength: 12)
-
-            // Secondary link
-            Button(action: {
-                onboarding.skipToSetup()
-            }) {
-                Text("Skip to setup")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-            }
 
             Spacer(minLength: layout.isLandscape ? 12 : 24)
         }

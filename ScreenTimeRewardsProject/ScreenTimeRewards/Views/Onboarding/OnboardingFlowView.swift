@@ -81,48 +81,56 @@ private struct OnboardingWelcomeStep: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            // Hero Image Card
-            OnboardingHeroCard(
-                imageName: "onboarding_0_1",
-                title: "Turn Screen Time Into Learning Time",
-                subtitle: "Your child earns screen time by learning. The more they learn, the more they unlock.",
-                aspectRatio: 0.65
-            )
-            .padding(.horizontal, 16)
-            .padding(.top, 16)
+            // Hero Image (no text overlay)
+            Image("onboarding_0_1")
+                .resizable()
+                .aspectRatio(contentMode: .fill)
+                .frame(height: 260)
+                .clipped()
+                .cornerRadius(14)
+                .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                .padding(.horizontal, 24)
+                .padding(.top, 16)
 
-            Spacer(minLength: 24)
+            // Title slogan below image
+            Text("We Designed The Only Way\nKids' Screen Time Should Be")
+                .font(.system(size: 20, weight: .bold))
+                .multilineTextAlignment(.center)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .padding(.horizontal, 32)
+                .padding(.top, 20)
 
-            // Feature rows
-            VStack(alignment: .leading, spacing: 16) {
+            Spacer(minLength: 16)
+
+            // Feature rows with custom icons
+            VStack(alignment: .leading, spacing: 14) {
                 IntroFeatureRow(
-                    iconName: "star.fill",
-                    title: "Earn by learning",
-                    subtitle: "Educational apps earn points automatically"
+                    imageName: "onboarding_icon_1",
+                    title: "Earn By Learning",
+                    subtitle: "Educational Apps Earn Points Automatically"
                 )
 
                 IntroFeatureRow(
-                    iconName: "gamecontroller.fill",
-                    title: "Unlock rewards",
-                    subtitle: "Points unlock games and fun apps"
+                    imageName: "onboarding_icon_2",
+                    title: "Unlock Rewards",
+                    subtitle: "Points Unlock Games And Fun Apps"
                 )
 
                 IntroFeatureRow(
-                    iconName: "chart.line.uptrend.xyaxis",
-                    title: "Monitor progress",
-                    subtitle: "Track learning time from any device"
+                    imageName: "onboarding_icon_3",
+                    title: "Monitor Progress",
+                    subtitle: "Track Learning Time From Any Device"
                 )
             }
-            .padding(.horizontal, 24)
-            .frame(maxWidth: 520)
+            .padding(.horizontal, 32)
 
-            Spacer(minLength: 24)
+            Spacer(minLength: 20)
 
             Button(action: onContinue) {
                 Text("Get Started")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white)
-                    .frame(maxWidth: 420)
+                    .frame(maxWidth: .infinity)
                     .frame(height: 56)
                     .background(AppTheme.vibrantTeal)
                     .cornerRadius(14)
@@ -136,21 +144,17 @@ private struct OnboardingWelcomeStep: View {
 }
 
 private struct IntroFeatureRow: View {
-    let iconName: String
+    let imageName: String
     let title: String
     let subtitle: String
 
     var body: some View {
         HStack(spacing: 16) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(Color.accentColor.opacity(0.15))
-                    .frame(width: 48, height: 48)
-
-                Image(systemName: iconName)
-                    .font(.system(size: 22, weight: .semibold))
-                    .foregroundColor(Color.accentColor)
-            }
+            Image(imageName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: 56, height: 56)
+                .clipShape(RoundedRectangle(cornerRadius: 12))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)

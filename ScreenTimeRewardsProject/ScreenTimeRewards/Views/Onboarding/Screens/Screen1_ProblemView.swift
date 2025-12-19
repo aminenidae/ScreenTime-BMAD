@@ -24,7 +24,7 @@ struct Screen1_ProblemView: View {
             Spacer(minLength: layout.isLandscape ? 12 : 24)
 
             // Headline
-            Text("The \"five more minutes\"\nbattle can end today")
+            Text("The \"Five More Minutes\"\nBattle Can End Today")
                 .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
@@ -48,7 +48,7 @@ struct Screen1_ProblemView: View {
             Button(action: {
                 onboarding.advanceScreen()
             }) {
-                Text("Show me how")
+                Text("Show Me How")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
@@ -57,18 +57,6 @@ struct Screen1_ProblemView: View {
                     .cornerRadius(12)
             }
             .padding(.horizontal, layout.horizontalPadding)
-
-            Spacer(minLength: 12)
-
-            // Secondary link
-            Button(action: {
-                onboarding.logEvent("onboarding_screen1_skip_tapped")
-                onboarding.skipToActivation()
-            }) {
-                Text("Skip for now")
-                    .font(.system(size: 14, weight: .regular))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-            }
 
             Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
@@ -122,7 +110,7 @@ private struct ProblemHeroCard: View {
                         .font(.system(size: layout.isIpad ? 24 : 16, weight: .semibold))
                         .foregroundColor(.white)
 
-                    Text("Sound familiar? Screen time negotiations don't have to be this hard.")
+                    Text("Sound Familiar? Screen Time Negotiations Don't Have To Be This Hard.")
                         .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)

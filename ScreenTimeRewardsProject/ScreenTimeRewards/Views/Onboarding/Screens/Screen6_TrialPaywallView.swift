@@ -24,13 +24,13 @@ struct Screen6_TrialPaywallView: View {
         VStack(spacing: 0) {
             // Header
             VStack(spacing: 8) {
-                Text("Your family system\nis ready")
+                Text("Your Family System\nIs Ready")
                     .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
                     .lineLimit(3)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                Text("For the next 30 days, you'll get full access to all features.")
+                Text("For The Next 30 Days, You'll Get Full Access To All Features.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
@@ -48,14 +48,14 @@ struct Screen6_TrialPaywallView: View {
                             BenefitImageCard(
                                 imageName: "onboarding_C6_1",
                                 title: "Deep Analytics",
-                                subtitle: "Track learning progress in real-time",
+                                subtitle: "Track Learning Progress In Real-Time",
                                 layout: layout
                             )
 
                             BenefitImageCard(
                                 imageName: "onboarding_C6_2",
                                 title: "Manage Multiple Kids",
-                                subtitle: "Control all children from one dashboard",
+                                subtitle: "Control All Children From One Dashboard",
                                 layout: layout
                             )
                         }
@@ -69,14 +69,14 @@ struct Screen6_TrialPaywallView: View {
                                 BenefitImageCard(
                                     imageName: "onboarding_C6_1",
                                     title: "Deep Analytics",
-                                    subtitle: "Track learning progress in real-time",
+                                    subtitle: "Track Learning Progress In Real-Time",
                                     layout: layout
                                 )
 
                                 BenefitImageCard(
                                     imageName: "onboarding_C6_2",
                                     title: "Manage Multiple Kids",
-                                    subtitle: "Control all children from one dashboard",
+                                    subtitle: "Control All Children From One Dashboard",
                                     layout: layout
                                 )
                             }
@@ -283,7 +283,7 @@ private struct SetupSummaryCard: View {
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("automatically unlocks \(rewardMinutes) min rewards")
+                Text("Automatically unlocks \(rewardMinutes) min rewards")
                     .font(.system(size: 13, weight: .regular))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
@@ -367,7 +367,7 @@ private struct AnnualPlanCard: View {
             .buttonStyle(.plain)
 
             Button(action: onPurchase) {
-                Text("Start 30-day free trial")
+                Text("Start 30-Day Free Trial")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -433,7 +433,7 @@ private struct MonthlyPlanCard: View {
             .buttonStyle(.plain)
 
             Button(action: onPurchase) {
-                Text("Start 30-day free trial")
+                Text("Start 30-Day Free Trial")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)

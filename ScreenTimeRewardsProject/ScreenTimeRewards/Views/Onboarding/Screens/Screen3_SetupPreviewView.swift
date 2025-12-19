@@ -19,7 +19,7 @@ struct Screen3_SetupPreviewView: View {
         VStack(spacing: 0) {
             // Title section
             VStack(spacing: 8) {
-                Text("Set up your family system")
+                Text("Set Up Your Family System")
                     .font(.system(size: layout.isRegular ? 30 : 26, weight: .bold))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
@@ -29,7 +29,7 @@ struct Screen3_SetupPreviewView: View {
                     .font(.system(size: layout.isRegular ? 20 : 18, weight: .medium))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("Two quick steps, then it runs automatically every day.")
+                Text("Two Quick Steps, Then It Runs Automatically Every Day.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
@@ -49,7 +49,7 @@ struct Screen3_SetupPreviewView: View {
                         SetupImageCard(
                             imageName: "onboarding_C3_1",
                             title: "Learning Apps",
-                            subtitle: "Configure which apps earn screen time",
+                            subtitle: "Configure Which Apps Earn Screen Time",
                             layout: layout
                         ) {
                             showLearningPreview = true
@@ -58,7 +58,7 @@ struct Screen3_SetupPreviewView: View {
                         SetupImageCard(
                             imageName: "onboarding_C3_2",
                             title: "Reward Apps",
-                            subtitle: "Set approved entertainment options",
+                            subtitle: "Set Approved Entertainment Options",
                             layout: layout
                         ) {
                             showRewardPreview = true
@@ -71,7 +71,7 @@ struct Screen3_SetupPreviewView: View {
                         SetupImageCard(
                             imageName: "onboarding_C3_1",
                             title: "Learning Apps",
-                            subtitle: "Configure which apps earn screen time",
+                            subtitle: "Configure Which Apps Earn Screen Time",
                             layout: layout
                         ) {
                             showLearningPreview = true
@@ -80,7 +80,7 @@ struct Screen3_SetupPreviewView: View {
                         SetupImageCard(
                             imageName: "onboarding_C3_2",
                             title: "Reward Apps",
-                            subtitle: "Set approved entertainment options",
+                            subtitle: "Set Approved Entertainment Options",
                             layout: layout
                         ) {
                             showRewardPreview = true
@@ -98,7 +98,7 @@ struct Screen3_SetupPreviewView: View {
                     .font(.system(size: 16))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("You'll do this once. The system repeats daily automatically.")
+                Text("You'll Do This Once. The System Repeats Daily Automatically.")
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
@@ -112,7 +112,7 @@ struct Screen3_SetupPreviewView: View {
             Button(action: {
                 onboarding.advanceScreen()
             }) {
-                Text("Start setup")
+                Text("Start Setup")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)

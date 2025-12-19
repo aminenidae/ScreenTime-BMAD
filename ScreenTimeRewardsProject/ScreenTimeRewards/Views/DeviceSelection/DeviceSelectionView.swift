@@ -50,7 +50,7 @@ struct DeviceSelectionView: View {
                         DeviceImageCard(
                             imageName: "onboarding_0_2",
                             title: "Parent's Device",
-                            subtitle: "Set rules & monitor progress",
+                            subtitle: "Set Rules & Monitor Progress",
                             isSelected: selectedMode == .parentDevice
                         ) {
                             withAnimation(.easeInOut(duration: 0.2)) {
@@ -62,7 +62,7 @@ struct DeviceSelectionView: View {
                         DeviceImageCard(
                             imageName: "onboarding_0_3",
                             title: "Child's Device",
-                            subtitle: "Earn screen time by learning",
+                            subtitle: "Earn Screen Time By Learning",
                             isSelected: selectedMode == .childDevice
                         ) {
                             withAnimation(.easeInOut(duration: 0.2)) {

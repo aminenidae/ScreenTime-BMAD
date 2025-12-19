@@ -32,22 +32,22 @@ struct Screen7_ActivationView: View {
     private let stepAnimationDelay: Double = 2.0
 
     private let steps: [ActivationStepCard] = [
-        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss with Your Child", subtitle: "Explain the learning & reward system together"),
-        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try not to adjust for 48 hours. Let them experience the rhythm."),
-        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 days, review learning and ask \"Does this feel fair?\"")
+        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss With Your Child", subtitle: "Explain The Learning & Reward System Together"),
+        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try Not To Adjust For 48 Hours. Let Them Experience The Rhythm."),
+        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 Days, Review Learning And Ask \"Does This Feel Fair?\"")
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
             VStack(spacing: 8) {
-                Text("Your system is live")
+                Text("Your System Is Live")
                     .font(.system(size: layout.isRegular ? 32 : 28, weight: .bold))
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                Text("Here's what to do next with your child")
+                Text("Here's What To Do Next With Your Child")
                     .font(.system(size: layout.isRegular ? 18 : 16, weight: .regular))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
@@ -84,7 +84,7 @@ struct Screen7_ActivationView: View {
                 completeOnboarding()
                 onShowChildDashboard()
             }) {
-                Text("Show child dashboard")
+                Text("Show Child Dashboard")
                     .font(.system(size: 16, weight: .semibold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
@@ -100,7 +100,7 @@ struct Screen7_ActivationView: View {
                 completeOnboarding()
                 onShowParentDashboard()
             }) {
-                Text("Go to parent dashboard")
+                Text("Go To Parent Dashboard")
                     .font(.system(size: 16, weight: .regular))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
