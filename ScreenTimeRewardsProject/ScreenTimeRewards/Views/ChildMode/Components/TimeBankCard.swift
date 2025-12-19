@@ -20,7 +20,7 @@ struct TimeBankCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
+        VStack(spacing: 16) {
             // Header
             headerSection
 
@@ -35,11 +35,11 @@ struct TimeBankCard: View {
             // Breakdown chips
             breakdownSection
         }
-        .padding(24)
+        .padding(16)
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.9)) // Higher opacity for contrast against Light Coral
+                .fill(Color.white.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(tealColor.opacity(0.1), lineWidth: 1)
@@ -57,21 +57,17 @@ struct TimeBankCard: View {
     private var headerSection: some View {
         HStack(spacing: 8) {
             Image(systemName: "banknote.fill")
-                .font(.system(size: 20, weight: .semibold))
+                .font(.system(size: 18))
                 .foregroundColor(tealColor)
                 .rotationEffect(.degrees(isAnimating ? 0 : -10))
                 .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
 
-            Text("YOUR TIME BANK")
-                .font(.system(size: 18, weight: .bold))
+            Text("TIME BANK")
+                .font(.system(size: 14, weight: .semibold))
                 .tracking(1.5)
                 .foregroundColor(tealColor)
 
-            Image(systemName: "banknote.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(tealColor)
-                .rotationEffect(.degrees(isAnimating ? 0 : 10))
-                .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
+            Spacer()
         }
     }
 
@@ -102,14 +98,13 @@ struct TimeBankCard: View {
     }
 
     private func balanceChip(value: Int, label: String, color: Color) -> some View {
-        VStack(spacing: 2) {
+        VStack(spacing: 4) {
             Text("\(value)")
-                .font(.system(size: 22, weight: .bold, design: .rounded))
+                .font(.system(size: 32, weight: .bold))
                 .foregroundColor(color)
-                .contentTransition(.numericText())
 
             Text("min \(label)")
-                .font(.system(size: 12, weight: .medium))
+                .font(.system(size: 14, weight: .medium))
                 .foregroundColor(color.opacity(0.8))
         }
         .padding(.horizontal, 16)

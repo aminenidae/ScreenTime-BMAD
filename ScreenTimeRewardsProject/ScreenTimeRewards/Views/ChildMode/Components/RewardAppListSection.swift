@@ -51,7 +51,7 @@ struct RewardAppListSection: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.9))
+                .fill(Color.white.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(lightCoral.opacity(0.1), lineWidth: 1)
@@ -69,19 +69,14 @@ struct RewardAppListSection: View {
         } label: {
             HStack(spacing: 10) {
                 // Icon
-                ZStack {
-                    Circle()
-                        .fill(lightCoral.opacity(0.15))
-                        .frame(width: 36, height: 36)
-
-                    Image(systemName: "gamecontroller.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(lightCoral)
-                }
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(lightCoral)
 
                 // Title
-                Text("Reward Apps")
-                    .font(.system(size: 18, weight: .bold))
+                Text("REWARD APPS")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
                     .foregroundColor(tealColor)
 
                 Spacer()
@@ -89,21 +84,15 @@ struct RewardAppListSection: View {
                 // Remaining time badge
                 HStack(spacing: 4) {
                     Image(systemName: remainingMinutes > 0 ? "clock.fill" : "clock")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     Text("\(remainingMinutes) min left")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 11, weight: .medium))
                 }
                 .foregroundColor(remainingMinutes > 0 ? lightCoral : tealColor.opacity(0.6))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(remainingMinutes > 0 ? lightCoral.opacity(0.1) : tealColor.opacity(0.05))
-                )
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(tealColor.opacity(0.6))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
@@ -140,12 +129,12 @@ struct RewardAppListSection: View {
                     if #available(iOS 15.2, *) {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(tealColor)
                             .lineLimit(1)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
-                            .font(.system(size: 15, weight: .medium))
+                            .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(tealColor)
                             .lineLimit(1)
                     }
@@ -153,16 +142,16 @@ struct RewardAppListSection: View {
 
                 // Status text
                 if isUnlocked {
-                    Text("\(usedMinutes) min used")
-                        .font(.system(size: 12))
+                    Text("\(usedMinutes) MIN USED")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(tealColor.opacity(0.6))
                 } else if remainingMinutes <= 0 {
-                    Text("No time remaining")
-                        .font(.system(size: 12))
+                    Text("NO TIME REMAINING")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(tealColor.opacity(0.6))
                 } else {
-                    Text("Ready to use")
-                        .font(.system(size: 12))
+                    Text("READY TO USE")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(lightCoral)
                 }
             }

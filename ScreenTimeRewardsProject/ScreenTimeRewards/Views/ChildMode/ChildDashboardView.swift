@@ -54,49 +54,49 @@ struct ChildDashboardView: View {
             veryLightCoral
                 .ignoresSafeArea()
 
-            ScrollView {
-                VStack(spacing: 24) {
-                    // Header with exit button
-                    headerSection
+            VStack(spacing: 0) {
+                // Header with exit button
+                headerSection
 
-                    // Avatar Hero Section
-                    AvatarHeroSection(
-                        avatarService: avatarService,
-                        onAvatarTap: {
-                            showAvatarCustomization = true
+                ScrollView {
+                    VStack(spacing: 16) {
+                        // Avatar Hero Section
+                        AvatarHeroSection(
+                            avatarService: avatarService,
+                            onAvatarTap: {
+                                showAvatarCustomization = true
+                            }
+                        )
+
+                        // Hero Time Bank Card
+                        TimeBankCard(
+                            earnedMinutes: totalEarnedMinutes,
+                            usedMinutes: totalUsedMinutes
+                        )
+
+                        // Learning Apps Section
+                        LearningAppListSection(
+                            snapshots: viewModel.learningSnapshots,
+                            totalSeconds: totalLearningSeconds
+                        )
+
+                        // Reward Apps Section
+                        RewardAppListSection(
+                            snapshots: viewModel.rewardSnapshots,
+                            remainingMinutes: remainingMinutes,
+                            unlockedApps: viewModel.unlockedRewardApps
+                        )
+
+                        // Empty state when no apps configured
+                        if viewModel.learningSnapshots.isEmpty && viewModel.rewardSnapshots.isEmpty {
+                            emptyStateView
                         }
-                    )
 
-                    // Hero Time Bank Card
-                    TimeBankCard(
-                        earnedMinutes: totalEarnedMinutes,
-                        usedMinutes: totalUsedMinutes
-                    )
-                    .padding(.horizontal, 16)
-
-                    // Learning Apps Section
-                    LearningAppListSection(
-                        snapshots: viewModel.learningSnapshots,
-                        totalSeconds: totalLearningSeconds
-                    )
-                    .padding(.horizontal, 16)
-
-                    // Reward Apps Section
-                    RewardAppListSection(
-                        snapshots: viewModel.rewardSnapshots,
-                        remainingMinutes: remainingMinutes,
-                        unlockedApps: viewModel.unlockedRewardApps
-                    )
-                    .padding(.horizontal, 16)
-
-                    // Empty state when no apps configured
-                    if viewModel.learningSnapshots.isEmpty && viewModel.rewardSnapshots.isEmpty {
-                        emptyStateView
+                        Spacer(minLength: 24)
                     }
-
-                    Spacer(minLength: 40)
+                    .padding(.horizontal, 16)
+                    .padding(.top, 16)
                 }
-                .padding(.top, 16)
             }
             .refreshable {
                 await viewModel.refresh()
@@ -115,56 +115,43 @@ struct ChildDashboardView: View {
     // MARK: - Subviews
 
     private var headerSection: some View {
-        HStack {
-            // Greeting with small avatar
-            HStack(spacing: 12) {
-                // Small avatar
-                AvatarView(
-                    avatarState: avatarService.currentAvatarState,
-                    size: .small,
-                    showMood: false,
-                    isInteractive: false
-                )
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(greetingText)
-                        .font(.system(size: 20, weight: .bold))
+        VStack(spacing: 0) {
+            HStack {
+                Button(action: {
+                    sessionManager.exitToSelection()
+                }) {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 18, weight: .semibold))
                         .foregroundColor(tealColor)
-
-                    Text("Ready to learn and play?")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.8))
+                        .frame(width: 44, height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .fill(tealColor.opacity(0.1))
+                        )
                 }
-            }
 
-            Spacer()
+                Spacer()
 
-            // Exit button
-            Button {
-                sessionManager.exitToSelection()
-            } label: {
-                Image(systemName: "rectangle.portrait.and.arrow.right")
-                    .font(.system(size: 18, weight: .semibold))
+                Text("DASHBOARD")
+                    .font(.system(size: 18, weight: .bold))
+                    .tracking(2)
                     .foregroundColor(tealColor)
-                    .frame(width: 44, height: 44)
-                    .background(
-                        RoundedRectangle(cornerRadius: 12)
-                            .fill(tealColor.opacity(0.1))
-                    )
-            }
-        }
-        .padding(.horizontal, 16)
-    }
 
-    private var greetingText: String {
-        let hour = Calendar.current.component(.hour, from: Date())
-        if hour < 12 {
-            return "Good morning!"
-        } else if hour < 17 {
-            return "Good afternoon!"
-        } else {
-            return "Good evening!"
+                Spacer()
+
+                // Invisible spacer for balance
+                Color.clear
+                    .frame(width: 44, height: 44)
+            }
+            .padding(.horizontal, 16)
+            .padding(.top, 8)
+            .padding(.bottom, 12)
+
+            Rectangle()
+                .fill(tealColor.opacity(0.15))
+                .frame(height: 1)
         }
+        .background(veryLightCoral)
     }
 
     private var emptyStateView: some View {
@@ -186,15 +173,16 @@ struct ChildDashboardView: View {
                     .foregroundColor(AppTheme.sunnyYellow)
             }
 
-            Text("Getting Started")
-                .font(AppTheme.Typography.title2)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            Text("GETTING STARTED")
+                .font(.system(size: 28, weight: .bold))
+                .tracking(3)
+                .foregroundColor(tealColor)
 
             Text("Ask a parent to set up your learning and reward apps to start earning play time!")
-                .font(AppTheme.Typography.body)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(tealColor.opacity(0.8))
                 .multilineTextAlignment(.center)
-                .padding(.horizontal, AppTheme.Spacing.xxLarge)
+                .padding(.horizontal, 32)
         }
         .padding(.vertical, AppTheme.Spacing.huge)
     }

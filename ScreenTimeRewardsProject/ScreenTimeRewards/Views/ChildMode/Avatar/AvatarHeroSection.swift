@@ -38,14 +38,15 @@ struct AvatarHeroSection: View {
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(tealColor)
 
-                Text(stageName)
-                    .font(.system(size: 12, weight: .medium))
+                Text(stageName.uppercased())
+                    .font(.system(size: 10, weight: .medium))
+                    .tracking(1)
                     .foregroundColor(stageColor)
                     .padding(.horizontal, 12)
                     .padding(.vertical, 4)
                     .background(
                         Capsule()
-                            .fill(stageColor.opacity(0.2))
+                            .fill(stageColor.opacity(0.15))
                     )
             }
 
@@ -106,7 +107,7 @@ struct AvatarHeroSection: View {
             // Progress text
             if let minutesLeft = avatarService.minutesToNextLevel {
                 Text(progressText(minutesLeft: minutesLeft))
-                    .font(.system(size: 12, weight: .medium))
+                    .font(.system(size: 11, weight: .medium))
                     .foregroundColor(tealColor.opacity(0.7))
             }
         }

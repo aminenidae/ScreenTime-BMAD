@@ -46,7 +46,7 @@ struct LearningAppListSection: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.9))
+                .fill(Color.white.opacity(0.6))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
                         .stroke(tealColor.opacity(0.1), lineWidth: 1)
@@ -64,19 +64,14 @@ struct LearningAppListSection: View {
         } label: {
             HStack(spacing: 10) {
                 // Icon
-                ZStack {
-                    Circle()
-                        .fill(tealColor.opacity(0.15))
-                        .frame(width: 36, height: 36)
-
-                    Image(systemName: "book.fill")
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(tealColor)
-                }
+                Image(systemName: "book.fill")
+                    .font(.system(size: 18))
+                    .foregroundColor(tealColor)
 
                 // Title
-                Text("Learning Apps")
-                    .font(.system(size: 18, weight: .bold))
+                Text("LEARNING APPS")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
                     .foregroundColor(tealColor)
 
                 Spacer()
@@ -84,21 +79,15 @@ struct LearningAppListSection: View {
                 // Total time badge
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
-                        .font(.system(size: 12))
+                        .font(.system(size: 11))
                     Text("\(totalMinutes) min")
-                        .font(.system(size: 14, weight: .semibold))
+                        .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(tealColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(
-                    Capsule()
-                        .fill(tealColor.opacity(0.1))
-                )
+                .foregroundColor(tealColor.opacity(0.6))
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
-                    .font(.system(size: 14, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(tealColor.opacity(0.6))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
@@ -131,12 +120,12 @@ struct LearningAppListSection: View {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(tealColor)
                         .lineLimit(1)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
-                        .font(.system(size: 15, weight: .medium))
+                        .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(tealColor)
                         .lineLimit(1)
                 }
@@ -146,7 +135,7 @@ struct LearningAppListSection: View {
 
             // Usage time
             Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
-                .font(.system(size: 15, weight: .bold))
+                .font(.system(size: 14, weight: .bold))
                 .foregroundColor(tealColor)
         }
         .padding(12)
