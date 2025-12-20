@@ -86,7 +86,7 @@ private struct OnboardingWelcomeStep: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let imageWidth = geometry.size.width - 48 // 24 padding on each side
+            let imageWidth = max(100, geometry.size.width - 48) // 24 padding on each side, minimum 100
             let imageHeight: CGFloat = isLandscape ? 160 : 260
 
             ScrollView(showsIndicators: false) {

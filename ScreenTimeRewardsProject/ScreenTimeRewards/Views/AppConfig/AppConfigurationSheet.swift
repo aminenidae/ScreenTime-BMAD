@@ -11,17 +11,13 @@ enum AppConfigSection: String {
     case save = "config_save_section"
 }
 
-// Design colors matching ModeSelectionView
-private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-
 /// Sheet for configuring per-app schedule and time limits
 struct AppConfigurationSheet: View {
     let token: ApplicationToken
     let appName: String
     let appType: AppType
     let learningSnapshots: [LearningAppSnapshot]  // For reward apps: available learning apps to link
+    @Environment(\.colorScheme) private var colorScheme // Added for AppTheme.background and AppTheme.appCard
 
     @Binding var configuration: AppScheduleConfiguration
     let onSave: (AppScheduleConfiguration) -> Void
@@ -58,14 +54,14 @@ struct AppConfigurationSheet: View {
     }
 
     private var accentColor: Color {
-        appType == .learning ? tealColor : lightCoral
+        appType == .learning ? AppTheme.vibrantTeal : AppTheme.playfulCoral
     }
 
     var body: some View {
         NavigationView {
             ScrollViewReader { scrollProxy in
                 ScrollView {
-                    VStack(alignment: .leading, spacing: 20) {
+                    VStack(alignment: .leading, spacing: AppTheme.Spacing.large) { // Use AppTheme.Spacing
                         // App header
                         appHeader
 
@@ -76,7 +72,7 @@ struct AppConfigurationSheet: View {
 
                         // Divider
                         Rectangle()
-                            .fill(tealColor.opacity(0.1))
+                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
                             .frame(height: 1)
 
                         // Time Window Section
@@ -102,7 +98,7 @@ struct AppConfigurationSheet: View {
 
                         // Divider
                         Rectangle()
-                            .fill(tealColor.opacity(0.1))
+                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
                             .frame(height: 1)
 
                         // Daily Limits Section
@@ -119,7 +115,7 @@ struct AppConfigurationSheet: View {
                         // Unlock Requirements Section (reward apps only)
                         if appType == .reward {
                             Rectangle()
-                                .fill(tealColor.opacity(0.1))
+                                .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
                                 .frame(height: 1)
 
                             LinkedLearningAppsPicker(
@@ -133,7 +129,7 @@ struct AppConfigurationSheet: View {
 
                         Spacer(minLength: 40)
                     }
-                    .padding(20)
+                    .padding(AppTheme.Spacing.large) // Use AppTheme.Spacing
                 }
                 .onChange(of: scrollToSection) { section in
                     if let section = section {
@@ -147,7 +143,7 @@ struct AppConfigurationSheet: View {
                     }
                 }
             }
-            .background(creamBackground.ignoresSafeArea())
+            .background(AppTheme.background(for: colorScheme).ignoresSafeArea()) // Use AppTheme background
             .navigationTitle("CONFIGURE APP")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -155,28 +151,30 @@ struct AppConfigurationSheet: View {
                     Button("CANCEL") {
                         onCancel()
                     }
-                    .font(.system(size: 16, weight: .medium))
-                    .foregroundColor(tealColor.opacity(0.7))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                    .textCase(.uppercase)
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("SAVE") {
                         onSave(localConfig)
                     }
-                    .font(.system(size: 16, weight: .bold))
+                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .foregroundColor(accentColor)
+                    .textCase(.uppercase)
                     .tutorialTarget("config_save")
                 }
             }
-            .toolbarBackground(creamBackground, for: .navigationBar)
+            .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar) // Use AppTheme background
         }
     }
 
     // MARK: - Config Summary Section
 
     private var configSummarySection: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 6) {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
+            HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme.Spacing
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 14))
                     .foregroundColor(accentColor)
@@ -184,31 +182,33 @@ struct AppConfigurationSheet: View {
                 Text("SUMMARY")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                    .textCase(.uppercase)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
                 ForEach(summaryLines, id: \.self) { line in
-                    HStack(alignment: .top, spacing: 8) {
+                    HStack(alignment: .top, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
                         Text("•")
                             .font(.system(size: 11))
                             .foregroundColor(accentColor)
 
                         Text(line)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(tealColor.opacity(0.8))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.8)) // Use AppTheme color
+                            .textCase(.uppercase)
                     }
                 }
             }
         }
-        .padding(14)
+        .padding(AppTheme.Spacing.regular) // Use AppTheme.Spacing
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
-            RoundedRectangle(cornerRadius: 16)
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large) // Use AppTheme.CornerRadius
                 .fill(accentColor.opacity(0.08))
                 .overlay(
-                    RoundedRectangle(cornerRadius: 16)
-                        .stroke(accentColor.opacity(0.2), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large) // Use AppTheme.CornerRadius
+                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
                 )
         )
     }
@@ -369,16 +369,16 @@ struct AppConfigurationSheet: View {
     // MARK: - App Header
 
     private var appHeader: some View {
-        HStack(spacing: 16) {
+        HStack(spacing: AppTheme.Spacing.regular) {
             // App icon
             if #available(iOS 15.2, *) {
                 Label(token)
                     .labelStyle(.iconOnly)
                     .scaleEffect(1.8)
                     .frame(width: 56, height: 56)
-                    .clipShape(RoundedRectangle(cornerRadius: 14))
+                    .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)) // Use AppTheme.CornerRadius
             } else {
-                RoundedRectangle(cornerRadius: 14)
+                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium) // Use AppTheme.CornerRadius
                     .fill(accentColor.opacity(0.1))
                     .frame(width: 56, height: 56)
                     .overlay(
@@ -388,33 +388,36 @@ struct AppConfigurationSheet: View {
                     )
             }
 
-            VStack(alignment: .leading, spacing: 4) {
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.tiny) { // Use AppTheme.Spacing
                 // App name
                 if #available(iOS 15.2, *) {
                     Label(token)
                         .labelStyle(.titleOnly)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
+                        .font(.system(size: 18, weight: .bold)) // Standardized with other titles
+                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
                         .lineLimit(1)
+                        .textCase(.uppercase)
                 } else {
                     Text(appName)
-                        .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(tealColor)
+                        .font(.system(size: 18, weight: .bold)) // Standardized with other titles
+                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
                         .lineLimit(1)
+                        .textCase(.uppercase)
                 }
 
                 // Category badge
-                HStack(spacing: 6) {
+                HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme.Spacing
                     Image(systemName: appType == .learning ? "book.fill" : "gift.fill")
                         .font(.system(size: 10))
 
                     Text(appType == .learning ? "LEARNING" : "REWARD")
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1)
+                        .textCase(.uppercase)
                 }
                 .foregroundColor(accentColor)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .padding(.horizontal, AppTheme.Spacing.regular) // Use AppTheme.Spacing
+                .padding(.vertical, AppTheme.Spacing.tiny) // Use AppTheme.Spacing
                 .background(
                     Capsule()
                         .fill(accentColor.opacity(0.15))
@@ -423,15 +426,8 @@ struct AppConfigurationSheet: View {
 
             Spacer()
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
-                )
-        )
+        .padding(AppTheme.Spacing.regular) // Use AppTheme.Spacing
+        .appCard(colorScheme) // Using the global appCard styling
     }
 
 }

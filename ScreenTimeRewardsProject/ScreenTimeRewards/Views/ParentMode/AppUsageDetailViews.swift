@@ -1,12 +1,17 @@
 import SwiftUI
 import FamilyControls
+import ManagedSettings
 import Charts
 
-// Design colors matching ModeSelectionView
-private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+// Protocol for app snapshots to share common properties for AppDetailHeaderView
+protocol AppIdentifiable {
+    var token: ApplicationToken { get }
+    var displayName: String { get }
+    var logicalID: String { get }
+}
+
+extension LearningAppSnapshot: AppIdentifiable {}
+extension RewardAppSnapshot: AppIdentifiable {}
 
 // Combined struct to prevent race condition in sheet presentation
 private struct LearningDetailConfigData: Identifiable {
@@ -31,33 +36,31 @@ struct LearningAppDetailView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 // Background
-                creamBackground
+                AppTheme.background(for: colorScheme)
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    // App Header Card
-                    appHeaderCard
+                // Content
+                ScrollView {
+                    VStack(spacing: AppTheme.Spacing.large) {
+                        // App Header Card
+                        AppDetailHeaderView(snapshot: snapshot, appType: .learning)
 
-                    // Content
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            // Hourly usage chart (today's breakdown)
-                            if #available(iOS 16.0, *) {
-                                HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: tealColor)
-                            }
-
-                            // Historical usage chart
-                            if #available(iOS 16.0, *) {
-                                AppUsageChart(
-                                    dailyHistory: history,
-                                    accentColor: tealColor
-                                )
-                            }
+                        // Hourly usage chart (today's breakdown)
+                        if #available(iOS 16.0, *) {
+                            HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: AppTheme.vibrantTeal)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 100)
+
+                        // Historical usage chart
+                        if #available(iOS 16.0, *) {
+                            AppUsageChart(
+                                dailyHistory: history,
+                                accentColor: AppTheme.vibrantTeal
+                            )
+                        }
+
+                        Spacer(minLength: 100)
                     }
+                    .padding(AppTheme.Spacing.large)
                 }
 
                 // Floating Configure Button
@@ -67,11 +70,12 @@ struct LearningAppDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("DONE") { dismiss() }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(tealColor)
+                        .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .textCase(.uppercase)
                 }
             }
-            .toolbarBackground(creamBackground, for: .navigationBar)
+            .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar) // Use AppTheme background
         }
         .onAppear {
             loadUsageData()
@@ -99,46 +103,12 @@ struct LearningAppDetailView: View {
         }
     }
 
-    private var appHeaderCard: some View {
-        HStack {
-            // App Icon only
-            if #available(iOS 15.2, *) {
-                Label(snapshot.token)
-                    .labelStyle(.iconOnly)
-                    .scaleEffect(1.3)
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(tealColor.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Image(systemName: "app.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(tealColor)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.15), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-    }
-
     private var configureButton: some View {
         VStack(spacing: 0) {
             LinearGradient(
                 gradient: Gradient(colors: [
-                    creamBackground.opacity(0),
-                    creamBackground
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -150,25 +120,26 @@ struct LearningAppDetailView: View {
                     ?? AppScheduleConfiguration.defaultLearning(logicalID: snapshot.logicalID)
                 configSheetData = LearningDetailConfigData(snapshot: snapshot, config: existingConfig)
             }) {
-                HStack(spacing: 8) {
+                HStack(spacing: AppTheme.Spacing.small) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16))
+                        .font(.system(size: 18))
                     Text("CONFIGURE")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .tracking(1)
+                        .textCase(.uppercase) // Added textCase for consistency
                 }
-                .foregroundColor(creamBackground)
+                .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .frame(height: 56)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(tealColor)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                        .fill(AppTheme.vibrantTeal)
                 )
-                .shadow(color: tealColor.opacity(0.3), radius: 8, x: 0, y: 4)
+                .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-            .background(creamBackground)
+            .padding(.horizontal, AppTheme.Spacing.regular)
+            .padding(.bottom, AppTheme.Spacing.regular)
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 
@@ -205,33 +176,31 @@ struct RewardAppDetailView: View {
         NavigationStack {
             ZStack(alignment: .bottom) {
                 // Background
-                creamBackground
+                AppTheme.background(for: colorScheme)
                     .ignoresSafeArea()
 
-                VStack(spacing: 0) {
-                    // App Header Card
-                    appHeaderCard
+                // Content
+                ScrollView {
+                    VStack(spacing: AppTheme.Spacing.large) {
+                        // App Header Card
+                        AppDetailHeaderView(snapshot: snapshot, appType: .reward)
 
-                    // Content
-                    ScrollView {
-                        VStack(spacing: 16) {
-                            // Hourly usage chart (today's breakdown)
-                            if #available(iOS 16.0, *) {
-                                HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: lightCoral)
-                            }
-
-                            // Historical usage chart
-                            if #available(iOS 16.0, *) {
-                                AppUsageChart(
-                                    dailyHistory: history,
-                                    accentColor: lightCoral
-                                )
-                            }
+                        // Hourly usage chart (today's breakdown)
+                        if #available(iOS 16.0, *) {
+                            HourlyUsageChartCard(logicalID: snapshot.logicalID, accentColor: AppTheme.playfulCoral)
                         }
-                        .padding(.horizontal, 16)
-                        .padding(.top, 16)
-                        .padding(.bottom, 100)
+
+                        // Historical usage chart
+                        if #available(iOS 16.0, *) {
+                            AppUsageChart(
+                                dailyHistory: history,
+                                accentColor: AppTheme.playfulCoral
+                            )
+                        }
+
+                        Spacer(minLength: 100)
                     }
+                    .padding(AppTheme.Spacing.large)
                 }
 
                 // Floating Configure Button
@@ -241,11 +210,12 @@ struct RewardAppDetailView: View {
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("DONE") { dismiss() }
-                        .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(tealColor)
+                        .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .textCase(.uppercase)
                 }
             }
-            .toolbarBackground(creamBackground, for: .navigationBar)
+            .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar) // Use AppTheme background
         }
         .onAppear {
             loadUsageData()
@@ -274,46 +244,12 @@ struct RewardAppDetailView: View {
         }
     }
 
-    private var appHeaderCard: some View {
-        HStack {
-            // App Icon only
-            if #available(iOS 15.2, *) {
-                Label(snapshot.token)
-                    .labelStyle(.iconOnly)
-                    .scaleEffect(1.3)
-                    .frame(width: 40, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
-            } else {
-                RoundedRectangle(cornerRadius: 10)
-                    .fill(lightCoral.opacity(0.1))
-                    .frame(width: 40, height: 40)
-                    .overlay(
-                        Image(systemName: "app.fill")
-                            .font(.system(size: 20))
-                            .foregroundColor(lightCoral)
-                    )
-            }
-        }
-        .frame(maxWidth: .infinity)
-        .padding(10)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(lightCoral.opacity(0.15), lineWidth: 1)
-                )
-        )
-        .padding(.horizontal, 16)
-        .padding(.top, 8)
-    }
-
     private var configureButton: some View {
         VStack(spacing: 0) {
             LinearGradient(
                 gradient: Gradient(colors: [
-                    creamBackground.opacity(0),
-                    creamBackground
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -325,25 +261,26 @@ struct RewardAppDetailView: View {
                     ?? AppScheduleConfiguration.defaultReward(logicalID: snapshot.logicalID)
                 configSheetData = RewardDetailConfigData(snapshot: snapshot, config: existingConfig)
             }) {
-                HStack(spacing: 8) {
+                HStack(spacing: AppTheme.Spacing.small) {
                     Image(systemName: "gearshape.fill")
-                        .font(.system(size: 16))
+                        .font(.system(size: 18))
                     Text("CONFIGURE")
-                        .font(.system(size: 14, weight: .bold))
+                        .font(.system(size: 18, weight: .bold))
                         .tracking(1)
+                        .textCase(.uppercase) // Added textCase for consistency
                 }
-                .foregroundColor(creamBackground)
+                .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
-                .frame(height: 52)
+                .frame(height: 56)
                 .background(
-                    RoundedRectangle(cornerRadius: 16)
-                        .fill(lightCoral)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                        .fill(AppTheme.playfulCoral)
                 )
-                .shadow(color: lightCoral.opacity(0.3), radius: 8, x: 0, y: 4)
+                .shadow(color: AppTheme.playfulCoral.opacity(0.3), radius: 8, x: 0, y: 4)
             }
-            .padding(.horizontal, 16)
-            .padding(.bottom, 16)
-            .background(creamBackground)
+            .padding(.horizontal, AppTheme.Spacing.regular)
+            .padding(.bottom, AppTheme.Spacing.regular)
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 
@@ -362,6 +299,8 @@ struct RewardAppDetailView: View {
 private struct HourlyUsageChartCard: View {
     let logicalID: String
     let accentColor: Color
+
+    @Environment(\.colorScheme) private var colorScheme
 
     private var hourlyData: [(date: Date, minutes: Int)] {
         guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
@@ -396,7 +335,7 @@ private struct HourlyUsageChartCard: View {
     }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.regular) {
             HStack {
                 Image(systemName: "clock.fill")
                     .font(.system(size: 16))
@@ -405,13 +344,15 @@ private struct HourlyUsageChartCard: View {
                 Text("TODAY'S HOURLY USAGE")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
 
                 Spacer()
 
                 Text("\(totalMinutes)M TOTAL")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(tealColor.opacity(0.6))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                    .textCase(.uppercase)
             }
 
             if totalMinutes == 0 {
@@ -424,7 +365,7 @@ private struct HourlyUsageChartCard: View {
                             y: .value("Minutes", item.minutes)
                         )
                         .foregroundStyle(accentColor.gradient)
-                        .cornerRadius(3)
+                        .cornerRadius(AppTheme.CornerRadius.small)
                     }
                 }
                 .frame(height: 160)
@@ -434,55 +375,49 @@ private struct HourlyUsageChartCard: View {
                             AxisValueLabel {
                                 Text(hourLabel(for: date))
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(tealColor.opacity(0.5))
+                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(tealColor.opacity(0.1))
+                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1))
                     }
                 }
                 .chartYAxis {
                     AxisMarks { value in
                         AxisValueLabel {
                             if let minutes = value.as(Int.self) {
-                                Text("\(minutes)m")
+                                Text("\(minutes)M")
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(tealColor.opacity(0.5))
+                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(tealColor.opacity(0.1))
+                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1))
                     }
                 }
                 .chartPlotStyle { plotArea in
                     plotArea
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(tealColor.opacity(0.03))
+                            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
+                                .fill(AppTheme.vibrantTeal.opacity(0.03))
                         )
                 }
             }
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
-                )
-        )
+        .padding(AppTheme.Spacing.regular)
+        .appCard(colorScheme)
     }
 
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
+        VStack(spacing: AppTheme.Spacing.regular) {
             Image(systemName: "clock")
                 .font(.system(size: 32))
-                .foregroundColor(tealColor.opacity(0.3))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.3))
 
             Text("NO USAGE RECORDED TODAY")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(tealColor.opacity(0.5))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                .textCase(.uppercase)
         }
         .frame(height: 160)
         .frame(maxWidth: .infinity)
@@ -494,216 +429,426 @@ private struct HourlyUsageChartCard: View {
     }
 }
 
+
+
 // MARK: - Usage History Chart
 
+
+
 @available(iOS 16.0, *)
+
 private struct AppUsageChart: View {
+
     let dailyHistory: [UsagePersistence.DailyUsageSummary]
+
     let accentColor: Color
+
     @State private var selectedPeriod: ChartPeriod = .daily
 
+
+
+    @Environment(\.colorScheme) private var colorScheme // Added for AppTheme.background
+
+
+
     enum ChartPeriod: String, CaseIterable {
+
         case daily = "7 DAYS"
+
         case weekly = "4 WEEKS"
+
         case monthly = "6 MONTHS"
+
     }
 
+
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
+
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.regular) { // Use AppTheme.Spacing
+
             HStack {
+
                 Text("USAGE HISTORY")
+
                     .font(.system(size: 12, weight: .semibold))
+
                     .tracking(1)
-                    .foregroundColor(tealColor)
+
+                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+
+                    .textCase(.uppercase)
+
+
 
                 Spacer()
 
+
+
                 Menu {
+
                     Picker("PERIOD", selection: $selectedPeriod) {
+
                         ForEach(ChartPeriod.allCases, id: \.self) { period in
+
                             Text(period.rawValue).tag(period)
+
+                                .textCase(.uppercase)
+
                         }
+
                     }
+
                 } label: {
-                    HStack(spacing: 4) {
+
+                    HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme.Spacing
+
                         Text(selectedPeriod.rawValue.uppercased())
+
                             .font(.system(size: 11, weight: .medium))
+
                             .tracking(0.5)
+
                         Image(systemName: "chevron.down")
+
                             .font(.system(size: 10, weight: .medium))
+
                     }
-                    .foregroundColor(tealColor.opacity(0.6))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
+
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6)) // Use AppTheme color
+
+                    .padding(.horizontal, AppTheme.Spacing.regular) // Use AppTheme.Spacing
+
+                    .padding(.vertical, AppTheme.Spacing.tiny) // Use AppTheme.Spacing
+
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(tealColor.opacity(0.1))
+
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small) // Use AppTheme corner radius
+
+                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+
                     )
+
                 }
+
             }
+
+
 
             if chartData.isEmpty {
+
                 emptyStateView
+
             } else {
+
                 Chart {
+
                     ForEach(chartData, id: \.date) { item in
+
                         BarMark(
+
                             x: .value("Date", item.date, unit: xAxisUnit),
+
                             y: .value("Minutes", item.minutes)
+
                         )
+
                         .foregroundStyle(accentColor.gradient)
-                        .cornerRadius(4)
+
+                        .cornerRadius(AppTheme.CornerRadius.small) // Use AppTheme corner radius
+
                     }
+
                 }
+
                 .frame(height: 180)
+
                 .chartXAxis {
+
                     AxisMarks(values: .stride(by: xAxisUnit)) { value in
+
                         if let date = value.as(Date.self) {
+
                             AxisValueLabel {
+
                                 Text(xAxisLabel(for: date))
+
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(tealColor.opacity(0.5))
+
+                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+
                             }
+
                         }
+
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(tealColor.opacity(0.1))
+
+                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+
                     }
+
                 }
+
                 .chartYAxis {
+
                     AxisMarks { value in
+
                         AxisValueLabel {
+
                             if let minutes = value.as(Int.self) {
-                                Text("\(minutes)m")
+
+                                Text("\(minutes)M") // Changed to M for consistency.
+
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(tealColor.opacity(0.5))
+
+                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+
                             }
+
                         }
+
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(tealColor.opacity(0.1))
+
+                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+
                     }
+
                 }
+
                 .chartPlotStyle { plotArea in
+
                     plotArea
+
                         .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(tealColor.opacity(0.03))
+
+                            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small) // Use AppTheme corner radius
+
+                                .fill(AppTheme.vibrantTeal.opacity(0.03)) // Use AppTheme color
+
                         )
+
                 }
+
             }
+
         }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
-                )
-        )
+
+        .padding(AppTheme.Spacing.regular) // Use AppTheme spacing
+
+        .appCard(colorScheme) // Use AppTheme appCard styling
+
     }
+
+
 
     private var emptyStateView: some View {
-        VStack(spacing: 12) {
+
+        VStack(spacing: AppTheme.Spacing.regular) { // Use AppTheme spacing
+
             Image(systemName: "chart.bar.xaxis")
+
                 .font(.system(size: 32))
-                .foregroundColor(tealColor.opacity(0.3))
+
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.3)) // Use AppTheme color
+
+
 
             Text("NO USAGE DATA YET")
+
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(tealColor.opacity(0.5))
+
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+
+                .textCase(.uppercase)
+
         }
+
         .frame(height: 180)
+
         .frame(maxWidth: .infinity)
+
     }
+
+
 
     private var chartData: [(date: Date, minutes: Int)] {
+
         switch selectedPeriod {
+
         case .daily:
+
             return getDailyData()
+
         case .weekly:
+
             return getWeeklyData()
+
         case .monthly:
+
             return getMonthlyData()
+
         }
+
     }
+
+
 
     private var xAxisUnit: Calendar.Component {
+
         switch selectedPeriod {
+
         case .daily: return .day
+
         case .weekly: return .weekOfYear
+
         case .monthly: return .month
+
         }
+
     }
+
+
 
     private func getDailyData() -> [(date: Date, minutes: Int)] {
+
         let calendar = Calendar.current
+
         let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: Date())!
 
+
+
         return dailyHistory
+
             .filter { $0.date >= sevenDaysAgo }
+
             .sorted { $0.date < $1.date }
+
             .map { (date: $0.date, minutes: $0.seconds / 60) }
+
     }
 
+
+
     private func getWeeklyData() -> [(date: Date, minutes: Int)] {
+
         let calendar = Calendar.current
+
         let fourWeeksAgo = calendar.date(byAdding: .day, value: -28, to: Date())!
+
+
 
         var weeklyData: [Date: Int] = [:]
 
+
+
         for item in dailyHistory where item.date >= fourWeeksAgo {
+
             if let weekStart = calendar.dateInterval(of: .weekOfYear, for: item.date)?.start {
+
                 weeklyData[weekStart, default: 0] += item.seconds / 60
+
             }
+
         }
 
+
+
         return weeklyData
+
             .sorted { $0.key < $1.key }
+
             .map { (date: $0.key, minutes: $0.value) }
+
     }
 
+
+
     private func getMonthlyData() -> [(date: Date, minutes: Int)] {
+
         let calendar = Calendar.current
+
         let sixMonthsAgo = calendar.date(byAdding: .month, value: -6, to: Date())!
+
+
 
         var monthlyData: [Date: Int] = [:]
 
+
+
         for item in dailyHistory where item.date >= sixMonthsAgo {
+
             if let monthStart = calendar.dateInterval(of: .month, for: item.date)?.start {
+
                 monthlyData[monthStart, default: 0] += item.seconds / 60
+
             }
+
         }
+
+
 
         return monthlyData
+
             .sorted { $0.key < $1.key }
+
             .suffix(6)
+
             .map { (date: $0.key, minutes: $0.value) }
+
     }
+
+
 
     private func xAxisLabel(for date: Date) -> String {
+
         let calendar = Calendar.current
+
         let formatter = DateFormatter()
 
+
+
         switch selectedPeriod {
+
         case .daily:
+
             let today = calendar.startOfDay(for: Date())
+
             if calendar.isDate(date, inSameDayAs: today) {
+
                 return "Today"
+
             } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+
                       calendar.isDate(date, inSameDayAs: yesterday) {
+
                 return "Yest."
+
             } else {
+
                 formatter.dateFormat = "EEE"
+
                 return formatter.string(from: date)
+
             }
 
+
+
         case .weekly:
+
             formatter.dateFormat = "MMM d"
+
             return formatter.string(from: date)
 
+
+
         case .monthly:
+
             formatter.dateFormat = "MMM"
+
             return formatter.string(from: date)
+
         }
+
     }
+
 }
