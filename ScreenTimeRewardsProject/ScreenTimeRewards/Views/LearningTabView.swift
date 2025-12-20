@@ -36,10 +36,27 @@ struct LearningTabView: View {
         return 0
     }
 
+    // MARK: - Design Colors
+    private var backgroundColor: Color {
+        colorScheme == .dark ? Color(hex: "121212") : AppTheme.background(for: colorScheme)
+    }
+
+    private var cardColor: Color {
+        colorScheme == .dark ? Color(hex: "1C1C1E") : AppTheme.card(for: colorScheme)
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? .white : AppTheme.vibrantTeal
+    }
+
+    private var secondaryTextColor: Color {
+        colorScheme == .dark ? Color(hex: "8E8E93") : AppTheme.vibrantTeal.opacity(0.7)
+    }
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
-            AppTheme.background(for: colorScheme)
+            backgroundColor
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -51,11 +68,11 @@ struct LearningTabView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(primaryTextColor)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(AppTheme.vibrantTeal.opacity(0.1))
+                                        .fill(primaryTextColor.opacity(0.1))
                                 )
                         }
 
@@ -64,7 +81,7 @@ struct LearningTabView: View {
                         Text("LEARNING APPS")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(primaryTextColor)
 
                         Spacer()
 
@@ -77,10 +94,10 @@ struct LearningTabView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .fill(primaryTextColor.opacity(0.15))
                         .frame(height: 1)
                 }
-                .background(AppTheme.background(for: colorScheme))
+                .background(backgroundColor)
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -204,28 +221,28 @@ struct LearningTabView: View {
             // Icon with background
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(AppTheme.vibrantTeal.opacity(0.15))
+                    .fill(primaryTextColor.opacity(0.15))
                     .frame(width: 56, height: 56)
 
                 Image(systemName: "book.fill")
                     .font(.system(size: 26))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(primaryTextColor)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("DAILY GOAL")
                     .font(.system(size: 12, weight: .medium))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(secondaryTextColor)
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(dailyGoalMinutes)")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(primaryTextColor)
 
                     Text("MINUTES")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                        .foregroundColor(secondaryTextColor)
                         .padding(.bottom, 4)
                 }
             }
@@ -236,10 +253,10 @@ struct LearningTabView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
+                .fill(cardColor)
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.border(for: colorScheme), lineWidth: 1)
                 )
         )
     }
@@ -250,12 +267,12 @@ struct LearningTabView: View {
             HStack(spacing: 8) {
                 Image(systemName: "books.vertical.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(primaryTextColor)
 
                 Text("LEARNING APPS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(primaryTextColor)
             }
             .padding(.horizontal, 16)
             .padding(.top, 24)
@@ -301,12 +318,12 @@ struct LearningTabView: View {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(AppTheme.vibrantTeal.opacity(0.1))
+                            .fill(primaryTextColor.opacity(0.1))
                             .frame(width: iconSize, height: iconSize)
                             .overlay(
                                 Image(systemName: "app.fill")
                                     .font(.system(size: fallbackIconSize))
-                                    .foregroundColor(AppTheme.vibrantTeal)
+                                    .foregroundColor(primaryTextColor)
                             )
                     }
 
@@ -315,11 +332,11 @@ struct LearningTabView: View {
                             Label(snapshot.token)
                                 .labelStyle(.titleOnly)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(primaryTextColor)
                         } else {
                             Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(primaryTextColor)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -330,18 +347,18 @@ struct LearningTabView: View {
                             HStack(spacing: 4) {
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 10))
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                                    .foregroundColor(secondaryTextColor)
 
                                 Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
+                                    .foregroundColor(secondaryTextColor)
 
                                 if let summary = configSummary(for: snapshot) {
                                     Text("•")
-                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                                        .foregroundColor(secondaryTextColor.opacity(0.5))
                                     Text(summary)
                                         .font(.system(size: 11))
-                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                                        .foregroundColor(secondaryTextColor.opacity(0.8))
                                         .lineLimit(1)
                                 }
                             }
@@ -365,16 +382,16 @@ struct LearningTabView: View {
                     // Chevron indicator
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(configured ? AppTheme.vibrantTeal.opacity(0.5) : AppTheme.sunnyYellow)
+                        .foregroundColor(configured ? secondaryTextColor : AppTheme.sunnyYellow)
                 }
                 .padding(14)
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(AppTheme.card(for: colorScheme))
+                    .fill(cardColor)
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(configured ? AppTheme.border(for: colorScheme) : AppTheme.sunnyYellow.opacity(0.5), lineWidth: configured ? 1 : 2)
+                            .stroke(configured ? (colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.border(for: colorScheme)) : AppTheme.sunnyYellow.opacity(0.5), lineWidth: configured ? 1 : 2)
                     )
             )
         }
@@ -387,8 +404,8 @@ struct LearningTabView: View {
             // Gradient overlay
             LinearGradient(
                 gradient: Gradient(colors: [
-                    AppTheme.background(for: colorScheme).opacity(0),
-                    AppTheme.background(for: colorScheme)
+                    backgroundColor.opacity(0),
+                    backgroundColor
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -406,15 +423,11 @@ struct LearningTabView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16))
-                    Text("/")
-                        .font(.system(size: 14, weight: .bold))
-                    Image(systemName: "minus.circle.fill")
-                        .font(.system(size: 16))
-                    Text("LEARNING APPS")
+                    Text("MANAGE APPS")
                         .font(.system(size: 14, weight: .bold))
                         .tracking(1)
                 }
-                .foregroundColor(colorScheme == .dark ? AppTheme.deepNavy : AppTheme.lightCream)
+                .foregroundColor(colorScheme == .dark ? Color.black : AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(
@@ -426,7 +439,7 @@ struct LearningTabView: View {
             .tutorialTarget("add_learning_apps")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(AppTheme.background(for: colorScheme))
+            .background(backgroundColor)
         }
     }
 
