@@ -6,11 +6,6 @@ struct DailyUsageChartCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedPeriod: TimePeriod = .daily
 
-    // Design colors matching ModeSelectionView
-    
-    
-    
-
     enum TimePeriod: String, CaseIterable, Identifiable {
         case hourly = "Hourly"
         case daily = "Daily"
@@ -30,7 +25,7 @@ struct DailyUsageChartCard: View {
     }
 
     var body: some View {
-        VStack(spacing: 16) {
+        VStack(spacing: AppTheme.Spacing.regular) { // Use AppTheme spacing
             // Header
             HStack {
                 Image(systemName: "chart.bar.xaxis")
@@ -41,6 +36,7 @@ struct DailyUsageChartCard: View {
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
                     .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
 
                 Spacer()
 
@@ -49,10 +45,11 @@ struct DailyUsageChartCard: View {
                     Picker("Period", selection: $selectedPeriod) {
                         ForEach(TimePeriod.allCases) { period in
                             Text(period.rawValue).tag(period)
+                                .textCase(.uppercase)
                         }
                     }
                 } label: {
-                    HStack(spacing: 4) {
+                    HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme spacing
                         Text(selectedPeriod.rawValue.uppercased())
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
@@ -65,7 +62,7 @@ struct DailyUsageChartCard: View {
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
                     .background(
-                        RoundedRectangle(cornerRadius: 8)
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small) // Use AppTheme corner radius
                             .fill(AppTheme.vibrantTeal.opacity(0.1))
                     )
                 }
@@ -98,13 +95,13 @@ struct DailyUsageChartCard: View {
                 )
             }
         }
-        .padding(16)
+        .padding(AppTheme.Spacing.regular) // Use AppTheme spacing
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large) // Use AppTheme corner radius
+                .fill(AppTheme.card(for: colorScheme)) // Use AppTheme card color
                 .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large) // Use AppTheme corner radius
+                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1) // Use AppTheme border
                 )
         )
     }
@@ -198,7 +195,7 @@ struct DailyUsageChartCard: View {
         .chartPlotStyle { plotArea in
             plotArea
                 .background(
-                    RoundedRectangle(cornerRadius: 12)
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium) // Use AppTheme corner radius
                         .fill(AppTheme.vibrantTeal.opacity(0.03))
                 )
         }
@@ -364,8 +361,9 @@ struct DailyUsageChartCard: View {
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1)
                 .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                .textCase(.uppercase)
 
-            Text("\(value)m")
+            Text("\(value)M") // Consistent formatting
                 .font(.system(size: 12, weight: .bold))
                 .foregroundColor(AppTheme.vibrantTeal)
         }

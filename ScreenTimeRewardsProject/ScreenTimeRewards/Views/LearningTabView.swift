@@ -46,11 +46,11 @@ struct LearningTabView: View {
     }
 
     private var primaryTextColor: Color {
-        colorScheme == .dark ? .white : AppTheme.vibrantTeal
+        colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal
     }
 
     private var secondaryTextColor: Color {
-        colorScheme == .dark ? Color(hex: "8E8E93") : AppTheme.vibrantTeal.opacity(0.7)
+        colorScheme == .dark ? AppTheme.lightCream.opacity(0.7) : AppTheme.vibrantTeal.opacity(0.7)
     }
 
     var body: some View {
