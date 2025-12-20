@@ -15,18 +15,18 @@ struct ParentDashboardView: View {
 
     private var topBarStyle: TabTopBarStyle {
         return TabTopBarStyle(
-            background: AppTheme.lightCream,
-            titleColor: AppTheme.vibrantTeal,
+            background: AppTheme.background(for: colorScheme),
+            titleColor: AppTheme.textPrimary(for: colorScheme),
             iconColor: AppTheme.vibrantTeal,
             iconBackground: AppTheme.vibrantTeal.opacity(0.1),
-            dividerColor: AppTheme.vibrantTeal.opacity(0.15)
+            dividerColor: AppTheme.border(for: colorScheme)
         )
     }
 
     var body: some View {
         ZStack {
             // Background
-            AppTheme.lightCream
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -51,7 +51,7 @@ struct ParentDashboardView: View {
                         Text("DASHBOARD")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                         Spacer()
 
@@ -64,10 +64,10 @@ struct ParentDashboardView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .fill(AppTheme.border(for: colorScheme))
                         .frame(height: 1)
                 }
-                .background(AppTheme.lightCream)
+                .background(AppTheme.background(for: colorScheme))
 
                 ScrollView {
                     VStack(spacing: 16) {

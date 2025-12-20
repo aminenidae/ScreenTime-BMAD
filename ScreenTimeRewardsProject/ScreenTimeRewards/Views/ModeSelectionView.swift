@@ -69,7 +69,7 @@ struct ModeSelectionView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppTheme.lightCream)
+                    .background(AppTheme.lightCream) // Intentionally keeping light cream for contrast design
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)
@@ -107,7 +107,7 @@ struct ModeSelectionView: View {
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppTheme.playfulCoral)
+                    .background(AppTheme.playfulCoral) // Intentionally keeping coral for contrast design
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)
