@@ -10,10 +10,10 @@ struct TimeBankCard: View {
     @State private var isAnimating = false
 
     // Design colors
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+    
+    
+    
+    
 
     private var remainingMinutes: Int {
         max(earnedMinutes - usedMinutes, 0)
@@ -39,10 +39,10 @@ struct TimeBankCard: View {
         .frame(maxWidth: .infinity)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                 )
         )
         .onAppear {
@@ -58,14 +58,14 @@ struct TimeBankCard: View {
         HStack(spacing: 8) {
             Image(systemName: "banknote.fill")
                 .font(.system(size: 18))
-                .foregroundColor(tealColor)
+                .foregroundColor(AppTheme.vibrantTeal)
                 .rotationEffect(.degrees(isAnimating ? 0 : -10))
                 .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
 
             Text("TIME BANK")
                 .font(.system(size: 14, weight: .semibold))
                 .tracking(1.5)
-                .foregroundColor(tealColor)
+                .foregroundColor(AppTheme.vibrantTeal)
 
             Spacer()
         }
@@ -77,19 +77,19 @@ struct TimeBankCard: View {
             balanceChip(
                 value: earnedMinutes,
                 label: "EARNED",
-                color: tealColor
+                color: AppTheme.vibrantTeal
             )
 
             // Divider
             Text("-")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(tealColor.opacity(0.4))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
 
             // Used chip
             balanceChip(
                 value: usedMinutes,
                 label: "USED",
-                color: lightCoral
+                color: AppTheme.playfulCoral
             )
         }
         .scaleEffect(isAnimating ? 1 : 0.9)

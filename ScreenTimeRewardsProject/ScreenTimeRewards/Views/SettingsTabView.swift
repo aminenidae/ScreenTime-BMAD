@@ -11,17 +11,10 @@ struct SettingsTabView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
     @Environment(\.colorScheme) var colorScheme
 
-    // Design colors matching ModeSelectionView
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
-    private let errorRed = Color(red: 0.9, green: 0.3, blue: 0.25)
-
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
-            creamBackground
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -33,11 +26,11 @@ struct SettingsTabView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(tealColor.opacity(0.1))
+                                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                                 )
                         }
 
@@ -46,7 +39,7 @@ struct SettingsTabView: View {
                         Text("SETTINGS")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Spacer()
 
@@ -59,10 +52,10 @@ struct SettingsTabView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(tealColor.opacity(0.15))
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
                         .frame(height: 1)
                 }
-                .background(creamBackground)
+                .background(AppTheme.background(for: colorScheme))
 
                 ScrollView {
                     VStack(spacing: 24) {
@@ -89,7 +82,7 @@ struct SettingsTabView: View {
 
                             Text("This will erase all app settings and data on this device.")
                                 .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(tealColor.opacity(0.5))
+                                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                                 .padding(.horizontal, 4)
                         }
                     }
@@ -121,7 +114,7 @@ private extension SettingsTabView {
             Text(title)
                 .font(.system(size: 12, weight: .semibold))
                 .tracking(1.5)
-                .foregroundColor(tealColor.opacity(0.6))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                 .padding(.horizontal, 4)
 
             content()
@@ -140,33 +133,33 @@ private extension SettingsTabView {
                 // Icon container
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(lightCoral.opacity(0.15))
+                        .fill(AppTheme.playfulCoral.opacity(0.15))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "rectangle.portrait.and.arrow.right")
                         .font(.system(size: 20))
-                        .foregroundColor(lightCoral)
+                        .foregroundColor(AppTheme.playfulCoral)
                 }
 
                 // Label
                 Text("Exit Parent Mode")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Spacer()
 
                 // Chevron
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.4))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
             }
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                            .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                     )
             )
         }
@@ -183,34 +176,34 @@ private extension SettingsTabView {
                 // Icon container
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(tealColor.opacity(0.15))
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "ipad.and.iphone")
                         .font(.system(size: 20))
-                        .foregroundColor(tealColor)
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
 
                 // Status content
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Pairing Status")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(tealColor)
+                        .foregroundColor(AppTheme.vibrantTeal)
 
                     if pairingService.isPaired() {
                         HStack(spacing: 4) {
                             Image(systemName: "checkmark.circle.fill")
                                 .font(.system(size: 11))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
 
                             Text("Paired with Child's iPad")
                                 .font(.system(size: 12, weight: .medium))
-                                .foregroundColor(tealColor.opacity(0.7))
+                                .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
                         }
                     } else {
                         Text("Not paired")
                             .font(.system(size: 12, weight: .medium))
-                            .foregroundColor(tealColor.opacity(0.5))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                     }
                 }
 
@@ -219,15 +212,15 @@ private extension SettingsTabView {
                 // Chevron
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.4))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
             }
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                            .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                     )
             )
         }
@@ -242,33 +235,33 @@ private extension SettingsTabView {
                 // Icon container
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(errorRed.opacity(0.15))
+                        .fill(AppTheme.errorRed.opacity(0.15))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "arrow.counterclockwise")
                         .font(.system(size: 20))
-                        .foregroundColor(errorRed)
+                        .foregroundColor(AppTheme.errorRed)
                 }
 
                 // Label
                 Text("Reset This Device")
                     .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(errorRed)
+                    .foregroundColor(AppTheme.errorRed)
 
                 Spacer()
 
                 // Chevron
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.4))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
             }
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(errorRed.opacity(0.2), lineWidth: 1)
+                            .stroke(AppTheme.errorRed.opacity(0.2), lineWidth: 1)
                     )
             )
         }
@@ -291,31 +284,31 @@ private extension SettingsTabView {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(accentYellow.opacity(0.2))
+                        .fill(AppTheme.sunnyYellow.opacity(0.2))
                         .frame(width: 44, height: 44)
 
                     Image(systemName: "crown.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(accentYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Manage Subscription")
                         .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(tealColor)
+                        .foregroundColor(AppTheme.vibrantTeal)
 
                     Text(subscriptionManager.currentTierName)
                         .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(accentYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
 
                     if subscriptionManager.isInTrial, let days = subscriptionManager.trialDaysRemaining {
                         Text("\(days) days left in trial")
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(tealColor.opacity(0.5))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                     } else if subscriptionManager.isInGracePeriod {
                         Text("Grace Period")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(lightCoral)
+                            .foregroundColor(AppTheme.playfulCoral)
                     }
                 }
 
@@ -323,15 +316,15 @@ private extension SettingsTabView {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.4))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
             }
             .padding(14)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(accentYellow.opacity(0.2), lineWidth: 1)
+                            .stroke(AppTheme.sunnyYellow.opacity(0.2), lineWidth: 1)
                     )
             )
         }

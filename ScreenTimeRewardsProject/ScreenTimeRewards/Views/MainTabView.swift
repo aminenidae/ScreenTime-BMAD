@@ -116,10 +116,10 @@ struct ParentTabIndicator: View {
     @Binding var selectedTab: Int
 
     private let tabs: [(String, String)] = [
-        ("Dashboard", "DashboardIcon"),
-        ("Learning", "LearningIcon"),
-        ("Rewards", "RewardsIcon"),
-        ("Settings", "SettingsIcon")
+        ("Dashboard", "chart.bar.fill"),
+        ("Learning", "book.fill"),
+        ("Rewards", "gift.fill"),
+        ("Settings", "gearshape.fill")
     ]
 
     var body: some View {
@@ -131,15 +131,14 @@ struct ParentTabIndicator: View {
                     }
                 }) {
                     VStack(spacing: 6) {
-                        Image(tabs[index].1)
-                            .renderingMode(.original)
-                            .resizable()
-                            .aspectRatio(contentMode: .fit)
+                        Image(systemName: tabs[index].1)
+                            .font(.system(size: 24, weight: .medium))
+                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.4))
                             .frame(width: 48, height: 48)
 
                         Text(tabs[index].0)
                             .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
-                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : .secondary)
+                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.4))
 
                         // Active indicator
                         RoundedRectangle(cornerRadius: 2)

@@ -7,26 +7,26 @@ struct ParentDashboardView: View {
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     // Design colors matching ModeSelectionView
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let accentPeach = Color(red: 1.0, green: 0.70, blue: 0.55)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+    
+    
+    
+    
+    
 
     private var topBarStyle: TabTopBarStyle {
         return TabTopBarStyle(
-            background: creamBackground,
-            titleColor: tealColor,
-            iconColor: tealColor,
-            iconBackground: tealColor.opacity(0.1),
-            dividerColor: tealColor.opacity(0.15)
+            background: AppTheme.lightCream,
+            titleColor: AppTheme.vibrantTeal,
+            iconColor: AppTheme.vibrantTeal,
+            iconBackground: AppTheme.vibrantTeal.opacity(0.1),
+            dividerColor: AppTheme.vibrantTeal.opacity(0.15)
         )
     }
 
     var body: some View {
         ZStack {
             // Background
-            creamBackground
+            AppTheme.lightCream
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -38,11 +38,11 @@ struct ParentDashboardView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(tealColor.opacity(0.1))
+                                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                                 )
                         }
 
@@ -51,7 +51,7 @@ struct ParentDashboardView: View {
                         Text("DASHBOARD")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Spacer()
 
@@ -64,10 +64,10 @@ struct ParentDashboardView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(tealColor.opacity(0.15))
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
                         .frame(height: 1)
                 }
-                .background(creamBackground)
+                .background(AppTheme.lightCream)
 
                 ScrollView {
                     VStack(spacing: 16) {
@@ -102,12 +102,12 @@ struct ParentDashboardView: View {
             HStack {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Text("TODAY'S ACTIVITY")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Spacer()
             }
@@ -118,22 +118,22 @@ struct ParentDashboardView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "book.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Text("LEARNING")
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
-                            .foregroundColor(tealColor.opacity(0.7))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
                     }
 
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.learningTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Text("min")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(tealColor.opacity(0.6))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                             .padding(.bottom, 4)
                     }
                 }
@@ -141,10 +141,10 @@ struct ParentDashboardView: View {
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(tealColor.opacity(0.1))
+                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(tealColor.opacity(0.2), lineWidth: 1)
+                                .stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1)
                         )
                 )
 
@@ -153,22 +153,22 @@ struct ParentDashboardView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "gamecontroller.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(lightCoral)
+                            .foregroundColor(AppTheme.playfulCoral)
 
                         Text("REWARD")
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
-                            .foregroundColor(lightCoral.opacity(0.8))
+                            .foregroundColor(AppTheme.playfulCoral.opacity(0.8))
                     }
 
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.rewardTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(lightCoral)
+                            .foregroundColor(AppTheme.playfulCoral)
 
                         Text("min")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(lightCoral.opacity(0.7))
+                            .foregroundColor(AppTheme.playfulCoral.opacity(0.7))
                             .padding(.bottom, 4)
                     }
                 }
@@ -176,10 +176,10 @@ struct ParentDashboardView: View {
                 .padding(16)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(lightCoral.opacity(0.1))
+                        .fill(AppTheme.playfulCoral.opacity(0.1))
                         .overlay(
                             RoundedRectangle(cornerRadius: 16)
-                                .stroke(lightCoral.opacity(0.2), lineWidth: 1)
+                                .stroke(AppTheme.playfulCoral.opacity(0.2), lineWidth: 1)
                         )
                 )
             }
@@ -187,10 +187,10 @@ struct ParentDashboardView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                 )
         )
     }
@@ -202,28 +202,28 @@ struct ParentDashboardView: View {
             // Flame icon
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(accentYellow.opacity(0.2))
+                    .fill(AppTheme.sunnyYellow.opacity(0.2))
                     .frame(width: 64, height: 64)
 
                 Image(systemName: "flame.fill")
                     .font(.system(size: 32))
-                    .foregroundColor(accentYellow)
+                    .foregroundColor(AppTheme.sunnyYellow)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("DAILY STREAK")
                     .font(.system(size: 12, weight: .medium))
                     .tracking(1.5)
-                    .foregroundColor(tealColor.opacity(0.7))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(viewModel.currentStreak)")
                         .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(tealColor)
+                        .foregroundColor(AppTheme.vibrantTeal)
 
                     Text("days")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.6))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                         .padding(.bottom, 4)
                 }
             }
@@ -233,10 +233,10 @@ struct ParentDashboardView: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(accentYellow.opacity(0.3), lineWidth: 2)
+                        .stroke(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 2)
                 )
         )
     }
@@ -249,7 +249,7 @@ struct ParentDashboardView: View {
                 Text("QUICK STATS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Spacer()
             }
@@ -262,38 +262,38 @@ struct ParentDashboardView: View {
                     icon: "books.vertical.fill",
                     label: "Learning Apps",
                     value: "\(viewModel.learningSnapshots.count)",
-                    color: tealColor
+                    color: AppTheme.vibrantTeal
                 )
 
                 statTile(
                     icon: "gamecontroller.fill",
                     label: "Reward Apps",
                     value: "\(viewModel.rewardSnapshots.count)",
-                    color: lightCoral
+                    color: AppTheme.playfulCoral
                 )
 
                 statTile(
                     icon: "chart.line.uptrend.xyaxis",
                     label: "Total Apps",
                     value: "\(viewModel.appUsages.count)",
-                    color: accentYellow
+                    color: AppTheme.sunnyYellow
                 )
 
                 statTile(
                     icon: "star.fill",
                     label: "Badges Earned",
                     value: "\(viewModel.badges.filter { $0.isUnlocked }.count)",
-                    color: accentPeach
+                    color: AppTheme.learningPeach
                 )
             }
         }
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(tealColor.opacity(0.1), lineWidth: 1)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                 )
         )
     }
@@ -306,12 +306,12 @@ struct ParentDashboardView: View {
 
             Text(value)
                 .font(.system(size: 28, weight: .bold))
-                .foregroundColor(tealColor)
+                .foregroundColor(AppTheme.vibrantTeal)
 
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .medium))
                 .tracking(0.5)
-                .foregroundColor(tealColor.opacity(0.6))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

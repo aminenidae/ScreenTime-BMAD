@@ -12,10 +12,10 @@ struct AvatarHeroSection: View {
     @Environment(\.colorScheme) var colorScheme
 
     // Design colors
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+    
+    
+    
+    
 
     var onAvatarTap: (() -> Void)?
 
@@ -36,7 +36,7 @@ struct AvatarHeroSection: View {
             VStack(spacing: 4) {
                 Text(avatarName.uppercased())
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Text(stageName.uppercased())
                     .font(.system(size: 10, weight: .medium))
@@ -85,7 +85,7 @@ struct AvatarHeroSection: View {
                 ZStack(alignment: .leading) {
                     // Track
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(tealColor.opacity(0.1))
+                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                         .frame(height: 8)
 
                     // Progress
@@ -108,7 +108,7 @@ struct AvatarHeroSection: View {
             if let minutesLeft = avatarService.minutesToNextLevel {
                 Text(progressText(minutesLeft: minutesLeft).uppercased())
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(tealColor.opacity(0.7))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
             }
         }
     }
@@ -116,16 +116,16 @@ struct AvatarHeroSection: View {
     private var maxLevelBadge: some View {
         HStack(spacing: 8) {
             Image(systemName: "crown.fill")
-                .foregroundColor(accentYellow)
+                .foregroundColor(AppTheme.sunnyYellow)
             Text("Max Level Reached!")
                 .font(.system(size: 14, weight: .semibold))
-                .foregroundColor(accentYellow)
+                .foregroundColor(AppTheme.sunnyYellow)
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(
             Capsule()
-                .fill(accentYellow.opacity(0.2))
+                .fill(AppTheme.sunnyYellow.opacity(0.2))
         )
     }
 
@@ -145,18 +145,18 @@ struct AvatarHeroSection: View {
 
     private var stageColor: Color {
         switch currentLevel {
-        case 1: return accentYellow
-        case 2: return tealColor
-        case 3: return lightCoral
+        case 1: return AppTheme.sunnyYellow
+        case 2: return AppTheme.vibrantTeal
+        case 3: return AppTheme.playfulCoral
         case 4: return .orange
-        default: return accentYellow
+        default: return AppTheme.sunnyYellow
         }
     }
 
     private var nextStageColor: Color {
         switch currentLevel {
-        case 1: return tealColor
-        case 2: return lightCoral
+        case 1: return AppTheme.vibrantTeal
+        case 2: return AppTheme.playfulCoral
         case 3: return .orange
         default: return .orange
         }

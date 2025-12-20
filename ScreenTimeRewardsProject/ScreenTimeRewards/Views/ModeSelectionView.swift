@@ -18,11 +18,6 @@ struct ModeSelectionView: View {
 
     @Environment(\.colorScheme) var colorScheme
 
-    // Colors matching the design
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-
     /// Gets the child's name for display in "Child's Space" button
     /// Uses the device name if it's a child device, otherwise falls back to "Child"
     private var childSpaceName: String {
@@ -49,32 +44,32 @@ struct ModeSelectionView: View {
                         // Lock Icon
                         Image(systemName: "lock.fill")
                             .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
                             .padding(.bottom, 20)
 
                         // Title
                         Text("PARENT SPACE")
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
                             .padding(.bottom, 8)
 
                         // Subtitle
                         Text("ACCESS CONTROLS")
                             .font(.system(size: 14, weight: .medium))
                             .tracking(2)
-                            .foregroundColor(tealColor.opacity(0.8))
+                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
                             .padding(.bottom, 24)
 
                         // Arrow
                         Image(systemName: "arrow.right")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(creamBackground)
+                    .background(AppTheme.lightCream)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)
@@ -87,32 +82,32 @@ struct ModeSelectionView: View {
                         // Person Icon
                         Image(systemName: "person.fill")
                             .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(creamBackground.opacity(0.9))
+                            .foregroundColor(AppTheme.lightCream.opacity(0.9))
                             .padding(.bottom, 20)
 
                         // Title - Dynamic name
                         Text("\(childSpaceName.uppercased()) SPACE")
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
-                            .foregroundColor(creamBackground)
+                            .foregroundColor(AppTheme.lightCream)
                             .padding(.bottom, 8)
 
                         // Subtitle
                         Text("USER INTERFACE")
                             .font(.system(size: 14, weight: .medium))
                             .tracking(2)
-                            .foregroundColor(creamBackground.opacity(0.8))
+                            .foregroundColor(AppTheme.lightCream.opacity(0.8))
                             .padding(.bottom, 24)
 
                         // Arrow
                         Image(systemName: "arrow.right")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(creamBackground)
+                            .foregroundColor(AppTheme.lightCream)
 
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(lightCoral)
+                    .background(AppTheme.playfulCoral)
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)
@@ -137,7 +132,7 @@ struct ModeSelectionView: View {
                 .padding(32)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(tealColor)
+                        .fill(AppTheme.vibrantTeal)
                 )
             }
         }

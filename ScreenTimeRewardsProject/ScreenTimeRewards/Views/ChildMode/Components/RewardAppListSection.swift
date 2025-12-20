@@ -12,9 +12,9 @@ struct RewardAppListSection: View {
     @State private var isExpanded = true
 
     // Design colors
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    
+    
+    
 
     private var totalUsedSeconds: TimeInterval {
         snapshots.reduce(0) { $0 + $1.totalSeconds }
@@ -51,10 +51,10 @@ struct RewardAppListSection: View {
         .padding(16)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(lightCoral.opacity(0.1), lineWidth: 1)
+                        .stroke(AppTheme.playfulCoral.opacity(0.1), lineWidth: 1)
                 )
         )
     }
@@ -71,13 +71,13 @@ struct RewardAppListSection: View {
                 // Icon
                 Image(systemName: "gamecontroller.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(lightCoral)
+                    .foregroundColor(AppTheme.playfulCoral)
 
                 // Title
                 Text("REWARD APPS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Spacer()
 
@@ -88,12 +88,12 @@ struct RewardAppListSection: View {
                     Text("\(remainingMinutes) MIN LEFT")
                         .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(remainingMinutes > 0 ? lightCoral : tealColor.opacity(0.6))
+                .foregroundColor(remainingMinutes > 0 ? AppTheme.playfulCoral : AppTheme.vibrantTeal.opacity(0.6))
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.6))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -114,12 +114,12 @@ struct RewardAppListSection: View {
                     .clipShape(RoundedRectangle(cornerRadius: 8))
             } else {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(lightCoral.opacity(0.2))
+                    .fill(AppTheme.playfulCoral.opacity(0.2))
                     .frame(width: 36, height: 36)
                     .overlay(
                         Image(systemName: "gamecontroller.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(lightCoral)
+                            .foregroundColor(AppTheme.playfulCoral)
                     )
             }
 
@@ -130,12 +130,12 @@ struct RewardAppListSection: View {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
                             .lineLimit(1)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
                             .lineLimit(1)
                     }
                 }
@@ -144,15 +144,15 @@ struct RewardAppListSection: View {
                 if isUnlocked {
                     Text("\(usedMinutes) MIN USED")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.6))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                 } else if remainingMinutes <= 0 {
                     Text("NO TIME REMAINING")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.6))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                 } else {
                     Text("READY TO USE")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(lightCoral)
+                        .foregroundColor(AppTheme.playfulCoral)
                 }
             }
 
@@ -162,17 +162,17 @@ struct RewardAppListSection: View {
             if isUnlocked || remainingMinutes > 0 {
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(lightCoral)
+                    .foregroundColor(AppTheme.playfulCoral)
             } else {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(tealColor.opacity(0.4))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
             }
         }
         .padding(12)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(lightCoral.opacity(0.05))
+                .fill(AppTheme.playfulCoral.opacity(0.05))
         )
         .opacity(remainingMinutes > 0 || isUnlocked ? 1.0 : 0.6)
     }
@@ -181,15 +181,15 @@ struct RewardAppListSection: View {
         VStack(spacing: 12) {
             Image(systemName: "gamecontroller")
                 .font(.system(size: 32))
-                .foregroundColor(tealColor.opacity(0.4))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
 
             Text("No reward apps configured")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(tealColor.opacity(0.6))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
 
             Text("Ask a parent to set up reward apps for you!")
                 .font(.system(size: 13))
-                .foregroundColor(tealColor.opacity(0.5))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

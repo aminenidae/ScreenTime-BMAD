@@ -10,12 +10,12 @@ struct ChildDashboardView: View {
     @Environment(\.colorScheme) var colorScheme
 
     // Design colors matching ModeSelectionView
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
+    
+    
+    
     // Very light coral for background (Pastel Pink/Peach)
-    private let veryLightCoral = Color(red: 1.0, green: 0.94, blue: 0.92)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
+    
+    
 
     // MARK: - Computed Properties
 
@@ -48,7 +48,7 @@ struct ChildDashboardView: View {
     var body: some View {
         ZStack {
             // Background
-            veryLightCoral
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -103,11 +103,11 @@ struct ChildDashboardView: View {
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(tealColor)
+                        .foregroundColor(AppTheme.vibrantTeal)
                         .frame(width: 44, height: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 12)
-                                .fill(tealColor.opacity(0.1))
+                                .fill(AppTheme.vibrantTeal.opacity(0.1))
                         )
                 }
 
@@ -116,7 +116,7 @@ struct ChildDashboardView: View {
                 Text("DASHBOARD")
                     .font(.system(size: 18, weight: .bold))
                     .tracking(2)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 Spacer()
 
@@ -129,10 +129,10 @@ struct ChildDashboardView: View {
             .padding(.bottom, 12)
 
             Rectangle()
-                .fill(tealColor.opacity(0.15))
+                .fill(AppTheme.vibrantTeal.opacity(0.15))
                 .frame(height: 1)
         }
-        .background(veryLightCoral)
+        .background(AppTheme.background(for: colorScheme))
     }
 
     private var emptyStateView: some View {
@@ -157,11 +157,11 @@ struct ChildDashboardView: View {
             Text("GETTING STARTED")
                 .font(.system(size: 28, weight: .bold))
                 .tracking(3)
-                .foregroundColor(tealColor)
+                .foregroundColor(AppTheme.vibrantTeal)
 
             Text("Ask a parent to set up your learning and reward apps to start earning play time!")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(tealColor.opacity(0.8))
+                .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
         }

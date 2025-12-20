@@ -18,14 +18,14 @@ struct ParentPINEntryView: View {
     @Environment(\.colorScheme) var colorScheme
 
     // Design colors matching ModeSelectionView
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let errorColor = Color(red: 0.9, green: 0.3, blue: 0.25)
+    
+    
+    
 
     var body: some View {
         ZStack {
             // Full screen cream background
-            creamBackground
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -34,7 +34,7 @@ struct ParentPINEntryView: View {
                     Button(action: onDismiss) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
                             .frame(width: 44, height: 44)
                     }
                     Spacer()
@@ -47,21 +47,21 @@ struct ParentPINEntryView: View {
                 // Lock Icon
                 Image(systemName: "lock.fill")
                     .font(.system(size: 48, weight: .regular))
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
                     .padding(.bottom, 24)
 
                 // Title
                 Text("ENTER PIN")
                     .font(.system(size: 28, weight: .bold))
                     .tracking(3)
-                    .foregroundColor(tealColor)
+                    .foregroundColor(AppTheme.vibrantTeal)
                     .padding(.bottom, 8)
 
                 // Subtitle
                 Text("ACCESS PARENT CONTROLS")
                     .font(.system(size: 14, weight: .medium))
                     .tracking(2)
-                    .foregroundColor(tealColor.opacity(0.7))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
                     .padding(.bottom, 8)
 
                 // Error message with fixed height
@@ -69,7 +69,7 @@ struct ParentPINEntryView: View {
                     if let errorMessage = errorMessage {
                         Text(errorMessage)
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(errorColor)
+                            .foregroundColor(AppTheme.errorRed)
                     } else {
                         Text(" ")
                             .font(.system(size: 14, weight: .medium))
@@ -82,12 +82,12 @@ struct ParentPINEntryView: View {
                 HStack(spacing: 20) {
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
-                            .fill(index < pin.count ? tealColor : Color.clear)
+                            .fill(index < pin.count ? AppTheme.vibrantTeal : Color.clear)
                             .frame(width: 18, height: 18)
                             .overlay(
                                 Circle()
                                     .stroke(
-                                        errorMessage != nil && index >= pin.count ? errorColor : tealColor,
+                                        errorMessage != nil && index >= pin.count ? AppTheme.errorRed : AppTheme.vibrantTeal,
                                         lineWidth: 2
                                     )
                             )
@@ -101,7 +101,7 @@ struct ParentPINEntryView: View {
                         HStack(spacing: 32) {
                             ForEach(1...3, id: \.self) { col in
                                 let number = row * 3 + col
-                                PINKeyButton(text: "\(number)", tealColor: tealColor, creamColor: creamBackground) {
+                                PINKeyButton(text: "\(number)", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
                                     appendDigit("\(number)")
                                 }
                             }
@@ -115,7 +115,7 @@ struct ParentPINEntryView: View {
                             .frame(width: 72, height: 72)
 
                         // 0 button
-                        PINKeyButton(text: "0", tealColor: tealColor, creamColor: creamBackground) {
+                        PINKeyButton(text: "0", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
                             appendDigit("0")
                         }
 
@@ -123,7 +123,7 @@ struct ParentPINEntryView: View {
                         Button(action: deleteDigit) {
                             Image(systemName: "delete.left")
                                 .font(.system(size: 24, weight: .medium))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .frame(width: 72, height: 72)
                         }
                     }
@@ -140,18 +140,18 @@ struct ParentPINEntryView: View {
 
                 VStack(spacing: 16) {
                     ProgressView()
-                        .progressViewStyle(CircularProgressViewStyle(tint: creamBackground))
+                        .progressViewStyle(CircularProgressViewStyle(tint: AppTheme.background(for: colorScheme)))
                         .scaleEffect(1.5)
 
                     Text("VERIFYING")
                         .font(.system(size: 14, weight: .semibold))
                         .tracking(2)
-                        .foregroundColor(creamBackground)
+                        .foregroundColor(AppTheme.background(for: colorScheme))
                 }
                 .padding(32)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(tealColor)
+                        .fill(AppTheme.vibrantTeal)
                 )
             }
         }

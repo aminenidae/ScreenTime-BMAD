@@ -20,12 +20,6 @@ struct RewardsTabView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
-    // Design colors matching ModeSelectionView
-    private let creamBackground = Color(red: 0.96, green: 0.95, blue: 0.88)
-    private let tealColor = Color(red: 0.0, green: 0.45, blue: 0.45)
-    private let lightCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
-    private let accentYellow = Color(red: 0.98, green: 0.80, blue: 0.30)
-
     // App schedule configuration
     @StateObject private var scheduleService = AppScheduleService.shared
 
@@ -36,7 +30,7 @@ struct RewardsTabView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
-            creamBackground
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: 0) {
@@ -48,11 +42,11 @@ struct RewardsTabView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
-                                        .fill(tealColor.opacity(0.1))
+                                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                                 )
                         }
 
@@ -61,7 +55,7 @@ struct RewardsTabView: View {
                         Text("REWARD APPS")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(tealColor)
+                            .foregroundColor(AppTheme.vibrantTeal)
 
                         Spacer()
 
@@ -74,10 +68,10 @@ struct RewardsTabView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(tealColor.opacity(0.15))
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
                         .frame(height: 1)
                 }
-                .background(creamBackground)
+                .background(AppTheme.background(for: colorScheme))
 
                 ScrollView {
                     VStack(spacing: 0) {
@@ -90,12 +84,12 @@ struct RewardsTabView: View {
                         HStack(spacing: 8) {
                             Image(systemName: "gamecontroller.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(lightCoral)
+                                .foregroundColor(AppTheme.playfulCoral)
 
                             Text("YOUR REWARDS")
                                 .font(.system(size: 14, weight: .semibold))
                                 .tracking(1.5)
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
@@ -190,39 +184,39 @@ struct RewardsTabView: View {
             // Icon with background
             ZStack {
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(lightCoral.opacity(0.15))
+                    .fill(AppTheme.playfulCoral.opacity(0.15))
                     .frame(width: 56, height: 56)
 
                 Image(systemName: "gift.fill")
                     .font(.system(size: 26))
-                    .foregroundColor(lightCoral)
+                    .foregroundColor(AppTheme.playfulCoral)
             }
 
             VStack(alignment: .leading, spacing: 4) {
                 Text("DAILY USAGE TIME")
                     .font(.system(size: 12, weight: .medium))
                     .tracking(1.5)
-                    .foregroundColor(tealColor.opacity(0.7))
+                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(Int(viewModel.rewardTime / 60))")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(lightCoral)
+                        .foregroundColor(AppTheme.playfulCoral)
 
                     Text("MINUTES")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.6))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                         .padding(.bottom, 4)
                 }
 
                 HStack(spacing: 4) {
                     Image(systemName: "clock.badge.checkmark.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(accentYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
 
                     Text("\(viewModel.availableLearningPoints / 10) MINUTES AVAILABLE")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(accentYellow)
+                        .foregroundColor(AppTheme.sunnyYellow)
                 }
             }
 
@@ -232,10 +226,10 @@ struct RewardsTabView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(
             RoundedRectangle(cornerRadius: 20)
-                .fill(Color.white.opacity(0.6))
+                .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 20)
-                        .stroke(lightCoral.opacity(0.15), lineWidth: 1)
+                        .stroke(AppTheme.playfulCoral.opacity(0.15), lineWidth: 1)
                 )
         )
     }
@@ -274,8 +268,8 @@ private extension RewardsTabView {
         VStack(spacing: 0) {
             LinearGradient(
                 gradient: Gradient(colors: [
-                    creamBackground.opacity(0),
-                    creamBackground
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
                 ]),
                 startPoint: .top,
                 endPoint: .bottom
@@ -293,23 +287,27 @@ private extension RewardsTabView {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16))
-                    Text("MANAGE REWARD APPS")
+                    Text("/")
+                        .font(.system(size: 14, weight: .bold))
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 16))
+                    Text("REWARD APPS")
                         .font(.system(size: 14, weight: .bold))
                         .tracking(1)
                 }
-                .foregroundColor(creamBackground)
+                .foregroundColor(AppTheme.background(for: colorScheme))
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(
                     RoundedRectangle(cornerRadius: 16)
-                        .fill(lightCoral)
+                        .fill(AppTheme.playfulCoral)
                 )
-                .shadow(color: lightCoral.opacity(0.3), radius: 8, x: 0, y: 4)
+                .shadow(color: AppTheme.playfulCoral.opacity(0.3), radius: 8, x: 0, y: 4)
             }
             .tutorialTarget("add_reward_apps")
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
-            .background(creamBackground)
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 
@@ -334,11 +332,11 @@ private extension RewardsTabView {
                 VStack(spacing: 12) {
                     Image(systemName: "gamecontroller")
                         .font(.system(size: 40))
-                        .foregroundColor(tealColor.opacity(0.3))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.3))
 
                     Text("No reward apps selected")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(tealColor.opacity(0.5))
+                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 48)
@@ -366,12 +364,12 @@ private extension RewardsTabView {
                             .clipShape(RoundedRectangle(cornerRadius: 8))
                     } else {
                         RoundedRectangle(cornerRadius: 8)
-                            .fill(lightCoral.opacity(0.1))
+                            .fill(AppTheme.playfulCoral.opacity(0.1))
                             .frame(width: iconSize, height: iconSize)
                             .overlay(
                                 Image(systemName: "app.fill")
                                     .font(.system(size: fallbackIconSize))
-                                    .foregroundColor(lightCoral)
+                                    .foregroundColor(AppTheme.playfulCoral)
                             )
                     }
 
@@ -380,11 +378,11 @@ private extension RewardsTabView {
                             Label(snapshot.token)
                                 .labelStyle(.titleOnly)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                         } else {
                             Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(tealColor)
+                                .foregroundColor(AppTheme.vibrantTeal)
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -395,18 +393,18 @@ private extension RewardsTabView {
                             HStack(spacing: 4) {
                                 Image(systemName: "clock.fill")
                                     .font(.system(size: 10))
-                                    .foregroundColor(lightCoral.opacity(0.8))
+                                    .foregroundColor(AppTheme.playfulCoral.opacity(0.8))
 
                                 Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                                     .font(.system(size: 13, weight: .semibold))
-                                    .foregroundColor(lightCoral)
+                                    .foregroundColor(AppTheme.playfulCoral)
 
                                 if let summary = configSummary(for: snapshot) {
                                     Text("•")
-                                        .foregroundColor(tealColor.opacity(0.4))
+                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
                                     Text(summary)
                                         .font(.system(size: 11))
-                                        .foregroundColor(tealColor.opacity(0.6))
+                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
                                         .lineLimit(1)
                                 }
                             }
@@ -415,11 +413,11 @@ private extension RewardsTabView {
                             HStack(spacing: 4) {
                                 Image(systemName: "exclamationmark.triangle.fill")
                                     .font(.system(size: 10))
-                                    .foregroundColor(accentYellow)
+                                    .foregroundColor(AppTheme.sunnyYellow)
 
                                 Text("TAP TO CONFIGURE")
                                     .font(.system(size: 11, weight: .medium))
-                                    .foregroundColor(accentYellow)
+                                    .foregroundColor(AppTheme.sunnyYellow)
                             }
                         }
                     }
@@ -428,16 +426,16 @@ private extension RewardsTabView {
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(configured ? tealColor.opacity(0.5) : accentYellow)
+                        .foregroundColor(configured ? AppTheme.vibrantTeal.opacity(0.5) : AppTheme.sunnyYellow)
                 }
                 .padding(14)
             }
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color.white.opacity(0.6))
+                    .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(configured ? lightCoral.opacity(0.15) : accentYellow.opacity(0.5), lineWidth: configured ? 1 : 2)
+                            .stroke(configured ? AppTheme.playfulCoral.opacity(0.15) : AppTheme.sunnyYellow.opacity(0.5), lineWidth: configured ? 1 : 2)
                     )
             )
         }
