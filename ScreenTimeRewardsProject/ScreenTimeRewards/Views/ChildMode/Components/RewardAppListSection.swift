@@ -77,7 +77,7 @@ struct RewardAppListSection: View {
                 Text("REWARD APPS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
@@ -88,12 +88,12 @@ struct RewardAppListSection: View {
                     Text("\(remainingMinutes) MIN LEFT")
                         .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(remainingMinutes > 0 ? AppTheme.playfulCoral : AppTheme.vibrantTeal.opacity(0.6))
+                .foregroundColor(remainingMinutes > 0 ? AppTheme.playfulCoral : AppTheme.textSecondary(for: colorScheme))
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -130,12 +130,12 @@ struct RewardAppListSection: View {
                         Label(snapshot.token)
                             .labelStyle(.titleOnly)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                             .lineLimit(1)
                     } else {
                         Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                             .font(.system(size: 14, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                             .lineLimit(1)
                     }
                 }
@@ -144,11 +144,11 @@ struct RewardAppListSection: View {
                 if isUnlocked {
                     Text("\(usedMinutes) MIN USED")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 } else if remainingMinutes <= 0 {
                     Text("NO TIME REMAINING")
                         .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 } else {
                     Text("READY TO USE")
                         .font(.system(size: 11, weight: .medium))
@@ -185,11 +185,11 @@ struct RewardAppListSection: View {
 
             Text("No reward apps configured")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
             Text("Ask a parent to set up reward apps for you!")
                 .font(.system(size: 13))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

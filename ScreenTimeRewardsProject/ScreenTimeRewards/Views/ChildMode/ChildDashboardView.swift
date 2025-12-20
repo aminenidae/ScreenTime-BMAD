@@ -116,7 +116,7 @@ struct ChildDashboardView: View {
                 Text("DASHBOARD")
                     .font(.system(size: 18, weight: .bold))
                     .tracking(2)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
@@ -157,11 +157,11 @@ struct ChildDashboardView: View {
             Text("GETTING STARTED")
                 .font(.system(size: 28, weight: .bold))
                 .tracking(3)
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             Text("Ask a parent to set up your learning and reward apps to start earning play time!")
                 .font(.system(size: 14, weight: .medium))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
         }

@@ -72,7 +72,7 @@ struct LearningAppListSection: View {
                 Text("LEARNING APPS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
@@ -83,7 +83,7 @@ struct LearningAppListSection: View {
                     Text("\(totalMinutes) MIN")
                         .font(.system(size: 11, weight: .medium))
                 }
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
@@ -121,12 +121,12 @@ struct LearningAppListSection: View {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                         .lineLimit(1)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "Learning App" : snapshot.displayName)
                         .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                         .lineLimit(1)
                 }
             }
@@ -136,7 +136,7 @@ struct LearningAppListSection: View {
             // Usage time
             Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                 .font(.system(size: 14, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
         }
         .padding(12)
         .background(
@@ -153,11 +153,11 @@ struct LearningAppListSection: View {
 
             Text("No learning apps used today")
                 .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
             Text("Start using your learning apps to earn reward time!")
                 .font(.system(size: 13))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

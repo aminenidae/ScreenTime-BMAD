@@ -57,7 +57,7 @@ struct TimeBalanceRing: View {
                 // Balance amount
                 Text("\(remainingMinutes)")
                     .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.4), value: remainingMinutes)
 
@@ -65,7 +65,7 @@ struct TimeBalanceRing: View {
                 Text("MIN LEFT")
                     .font(.system(size: 11, weight: .medium))
                     .tracking(1)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
         }
         .frame(width: 160, height: 160)

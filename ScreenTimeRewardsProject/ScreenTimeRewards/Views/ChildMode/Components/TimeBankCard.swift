@@ -65,7 +65,7 @@ struct TimeBankCard: View {
             Text("TIME BANK")
                 .font(.system(size: 14, weight: .semibold))
                 .tracking(1.5)
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
             Spacer()
         }
@@ -83,7 +83,7 @@ struct TimeBankCard: View {
             // Divider
             Text("-")
                 .font(.system(size: 20, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
             // Used chip
             balanceChip(
