@@ -38,11 +38,11 @@ struct LearningTabView: View {
 
     // MARK: - Design Colors
     private var backgroundColor: Color {
-        colorScheme == .dark ? Color(hex: "121212") : AppTheme.background(for: colorScheme)
+        AppTheme.background(for: colorScheme)
     }
 
     private var cardColor: Color {
-        colorScheme == .dark ? Color(hex: "1C1C1E") : AppTheme.card(for: colorScheme)
+        AppTheme.card(for: colorScheme)
     }
 
     private var primaryTextColor: Color {
