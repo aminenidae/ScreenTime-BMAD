@@ -22,7 +22,7 @@ struct ScreenTimeRewardsApp: App {
 
     var body: some Scene {
         WindowGroup {
-            RootView()
+            LaunchScreenView()
                 .environment(\.managedObjectContext, persistenceController.container.viewContext)
                 .environmentObject(viewModel)
                 .environmentObject(sessionManager)
