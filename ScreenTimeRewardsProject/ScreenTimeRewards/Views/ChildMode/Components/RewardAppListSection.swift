@@ -67,8 +67,9 @@ struct RewardAppListSection: View {
                 unlockedApp: detailData.unlockedApp,
                 linkedLearningApps: detailData.config?.linkedLearningApps ?? [],
                 learningProgress: calculateLearningProgress(for: detailData.config),
+                learningAppTokens: resolveLearningTokens(for: detailData.config),
                 unlockMode: detailData.config?.unlockMode ?? .all,
-                streakData: getStreakData(for: detailData.snapshot.logicalID),
+                streakSettings: detailData.config?.streakSettings,
                 dailyLimit: detailData.config?.dailyLimits.todayLimit ?? 60,
                 previousDayUsage: nil // Would fetch from historical data
             )
@@ -90,22 +91,17 @@ struct RewardAppListSection: View {
         return progress
     }
 
-    private func getStreakData(for logicalID: String) -> (current: Int, longest: Int, nextMilestone: Int?, progress: Double, bonusEarned: Int)? {
-        let streakService = StreakService.shared
-        guard let record = streakService.streakRecords[logicalID],
-              let config = AppScheduleService.shared.getSchedule(for: logicalID),
-              let settings = config.streakSettings,
-              settings.isEnabled else {
-            return nil
+    private func resolveLearningTokens(for config: AppScheduleConfiguration?) -> [String: ApplicationToken] {
+        guard let config = config else { return [:] }
+        var tokens: [String: ApplicationToken] = [:]
+        
+        for linkedApp in config.linkedLearningApps {
+            if let snapshot = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID }) {
+                tokens[linkedApp.logicalID] = snapshot.token
+            }
         }
         
-        let current = Int(record.currentStreak)
-        let longest = Int(record.longestStreak)
-        let nextMilestone = streakService.getNextMilestone(for: current, settings: settings)
-        let progress = streakService.progressToNextMilestone(current: current, settings: settings)
-        let bonusEarned = streakService.getTotalBonusMinutes(for: logicalID)
-        
-        return (current, longest, nextMilestone, progress, bonusEarned)
+        return tokens
     }
 
     // MARK: - Subviews

@@ -33,11 +33,20 @@ struct AppHeroHeaderCard: View {
             }
 
             // App name
-            Text(appName.uppercased())
-                .font(.system(size: 24, weight: .bold))
-                .tracking(1.5)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .multilineTextAlignment(.center)
+            if #available(iOS 15.2, *) {
+                Label(token)
+                    .labelStyle(.titleOnly)
+                    .font(.system(size: 24, weight: .bold))
+                    //.tracking(1.5) // Tracking modifier not directly available on Label, would need to wrap or inspect
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .multilineTextAlignment(.center)
+            } else {
+                Text(appName.uppercased())
+                    .font(.system(size: 24, weight: .bold))
+                    .tracking(1.5)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .multilineTextAlignment(.center)
+            }
 
             // Status badge
             statusBadge

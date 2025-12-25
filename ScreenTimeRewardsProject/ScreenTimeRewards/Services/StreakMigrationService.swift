@@ -31,10 +31,13 @@ class StreakMigrationService {
             var updatedConfig = config
 
             if globalSettings.isEnabled {
+                // Map legacy settings to new format
+                // Defaulting to 7-day cycle if migrating from old milestones
                 updatedConfig.streakSettings = AppStreakSettings(
                     isEnabled: globalSettings.isEnabled,
-                    bonusPercentage: globalSettings.bonusPercentage,
-                    milestones: globalSettings.milestones,
+                    bonusValue: globalSettings.bonusPercentage,
+                    bonusType: .percentage,
+                    streakCycleDays: 7, 
                     earnedMilestones: globalSettings.earnedMilestones
                 )
             } else {
@@ -55,12 +58,20 @@ class StreakMigrationService {
         print("[StreakMigration] Migration completed successfully")
     }
 
-    private func loadGlobalSettings() -> StreakSettings {
+    private func loadGlobalSettings() -> LegacyStreakSettings {
         guard let data = userDefaults?.data(forKey: "streak_settings"),
-              let settings = try? JSONDecoder().decode(StreakSettings.self, from: data) else {
-            return StreakSettings()
+              let settings = try? JSONDecoder().decode(LegacyStreakSettings.self, from: data) else {
+            return LegacyStreakSettings()
         }
         return settings
+    }
+
+    // Legacy struct for reading old data
+    private struct LegacyStreakSettings: Codable {
+        var isEnabled: Bool = false
+        var bonusPercentage: Int = 10
+        var milestones: [Int] = [7, 14, 30]
+        var earnedMilestones: Set<Int> = []
     }
 
     private func migrateExistingStreakRecord(to appLogicalID: String) {

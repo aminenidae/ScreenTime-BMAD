@@ -84,6 +84,8 @@ class StreakService: ObservableObject {
     
     // MARK: - Milestones & Bonuses
     
+    // MARK: - Milestones & Bonuses
+    
     func checkMilestoneAchievement(
         for appLogicalID: String,
         settings: AppStreakSettings
@@ -91,7 +93,9 @@ class StreakService: ObservableObject {
         guard let record = streakRecords[appLogicalID] else { return nil }
         let current = Int(record.currentStreak)
         
-        if settings.milestones.contains(current) {
+        // Recurring milestone check:
+        // Returns true if current streak is a multiple of cycle days
+        if current > 0 && current % settings.streakCycleDays == 0 {
             return current
         }
         return nil
@@ -102,14 +106,31 @@ class StreakService: ObservableObject {
         appLogicalID: String,
         settings: AppStreakSettings
     ) -> Bool {
+        // With recurring milestones, we can allow claiming every time the cycle completes.
+        // However, to prevent double-claiming on the same day due to multiple checks,
+        // we persist claimed milestones.
         return !settings.earnedMilestones.contains(milestone)
     }
     
     func calculateBonusMinutes(
         earnedMinutes: Int,
-        bonusPercentage: Int
+        settings: AppStreakSettings,
+        multiplier: Int = 1
     ) -> Int {
-        let bonus = Double(earnedMinutes) * (Double(bonusPercentage) / 100.0)
+        var bonus: Double = 0
+        
+        switch settings.bonusType {
+        case .percentage:
+            // (Daily Reward * Percentage) * Streak Length
+            let dailyBonus = Double(earnedMinutes) * (Double(settings.bonusValue) / 100.0)
+            bonus = dailyBonus * Double(multiplier)
+            
+        case .fixedMinutes:
+            // Fixed Amount per day * Streak Length
+            // e.g. 5 mins per day * 7 days = 35 mins
+            bonus = Double(settings.bonusValue) * Double(multiplier)
+        }
+        
         return Int(bonus)
     }
     
@@ -255,10 +276,10 @@ class StreakService: ObservableObject {
 extension StreakService {
     /// Get the next uncompleted milestone for a specific current streak value
     func getNextMilestone(for currentStreak: Int, settings: AppStreakSettings) -> Int? {
-        return settings.milestones
-            .filter { $0 > currentStreak }
-            .sorted()
-            .first
+        // Next multiple of cycle days
+        let cycle = settings.streakCycleDays
+        let next = ((currentStreak / cycle) + 1) * cycle
+        return next
     }
     
     /// Backward compatible overload using default settings
@@ -268,14 +289,19 @@ extension StreakService {
 
     /// Calculate progress toward next milestone (0.0 to 1.0)
     func progressToNextMilestone(current: Int, settings: AppStreakSettings) -> Double {
-        guard let next = getNextMilestone(for: current, settings: settings) else { return 0.0 }
-
-        // Find previous milestone or 0
-        let previous = settings.milestones
-            .filter { $0 < current }
-            .sorted()
-            .last ?? 0
-
+        let cycle = settings.streakCycleDays
+        
+        // Previous milestone is the start of current cycle
+        // e.g. if cycle=7, current=13, prev=7, next=14
+        // e.g. if cycle=7, current=4, prev=0, next=7
+        let previous = (current / cycle) * cycle
+        let next = previous + cycle
+        
+        // If we just hit a milestone today (current == previous), we are at 100% (or 0% of next?)
+        // Usually progress is for the UPCOMING milestone.
+        // If current=7, prev=7, next=14. Progress=0/7 = 0%.
+        // But if we want to show "full circle" on the day of milestone, UI handles that.
+        
         let range = Double(next - previous)
         let progress = Double(current - previous)
 

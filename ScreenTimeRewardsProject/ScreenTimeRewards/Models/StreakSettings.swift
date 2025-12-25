@@ -5,40 +5,46 @@ enum StreakRule: String, Codable, CaseIterable {
     case allGoals = "All Learning Goals"
 }
 
+enum StreakBonusType: String, Codable, CaseIterable {
+    case percentage = "Percentage"
+    case fixedMinutes = "Fixed Minutes"
+}
+
 struct StreakSettings: Codable, Equatable {
     var isEnabled: Bool = false
-    var bonusPercentage: Int = 10 // Default 10%
+    var bonusValue: Int = 10 // Percentage or Minutes
+    var bonusType: StreakBonusType = .percentage
     var streakRule: StreakRule = .anyGoal
-    var milestones: [Int] = [7, 14, 30] // Default milestones
+    var streakCycleDays: Int = 7
     var earnedMilestones: Set<Int> = []
     
-    // Helper to ensure valid percentage
-    mutating func setBonusPercentage(_ percentage: Int) {
-        let validPercentages = [5, 10, 15, 20, 25]
-        if validPercentages.contains(percentage) {
-            self.bonusPercentage = percentage
-        }
+    // Helper to ensure valid value
+    mutating func setBonusValue(_ value: Int) {
+        self.bonusValue = value
     }
 }
 
 /// Per-app streak configuration (embedded in AppScheduleConfiguration)
 struct AppStreakSettings: Codable, Equatable, Hashable {
     var isEnabled: Bool = false
-    var bonusPercentage: Int = 10  // 5, 10, 15, 20, 25
-    var milestones: [Int] = [7, 14, 30]
+    var bonusValue: Int = 10
+    var bonusType: StreakBonusType = .percentage
+    var streakCycleDays: Int = 7
     var earnedMilestones: Set<Int> = []
 
-    mutating func setBonusPercentage(_ percentage: Int) {
-        let validPercentages = [5, 10, 15, 20, 25]
-        if validPercentages.contains(percentage) {
-            self.bonusPercentage = percentage
-        }
+    mutating func setBonusValue(_ value: Int) {
+        self.bonusValue = value
+    }
+    
+    mutating func setStreakCycle(_ days: Int) {
+        self.streakCycleDays = max(1, days)
     }
 
     static let defaultSettings = AppStreakSettings(
         isEnabled: false,
-        bonusPercentage: 10,
-        milestones: [7, 14, 30],
+        bonusValue: 10,
+        bonusType: .percentage,
+        streakCycleDays: 7,
         earnedMilestones: []
     )
 }

@@ -1,8 +1,11 @@
 import SwiftUI
+import FamilyControls
+import ManagedSettings
 
 struct LearningProgressCard: View {
     let linkedLearningApps: [LinkedLearningApp]
     let learningProgress: [String: (used: Int, required: Int, goalMet: Bool)] // Key: logicalID
+    let learningAppTokens: [String: ApplicationToken]
     let unlockMode: UnlockMode
     let isUnlocked: Bool
     @Environment(\.colorScheme) var colorScheme
@@ -53,20 +56,36 @@ struct LearningProgressCard: View {
             // App name and status
             HStack {
                 // Icon placeholder
-                Circle()
-                    .fill(AppTheme.vibrantTeal.opacity(0.2))
-                    .frame(width: 32, height: 32)
-                    .overlay(
-                        Image(systemName: "book.fill")
-                            .font(.system(size: 14))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    )
+                if let token = learningAppTokens[linkedApp.logicalID], #available(iOS 15.2, *) {
+                    Label(token)
+                        .labelStyle(.iconOnly)
+                        .frame(width: 32, height: 32)
+                        .clipShape(Circle())
+                        .overlay(Circle().stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1))
+                } else {
+                    Circle()
+                        .fill(AppTheme.vibrantTeal.opacity(0.2))
+                        .frame(width: 32, height: 32)
+                        .overlay(
+                            Image(systemName: "book.fill")
+                                .font(.system(size: 14))
+                                .foregroundColor(AppTheme.vibrantTeal)
+                        )
+                }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(appName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .lineLimit(1)
+                    if let token = learningAppTokens[linkedApp.logicalID], #available(iOS 15.2, *) {
+                        Label(token)
+                            .labelStyle(.titleOnly)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .lineLimit(1)
+                    } else {
+                        Text(appName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .lineLimit(1)
+                    }
 
                     Text("\(linkedApp.goalPeriod.displayName)")
                         .font(.system(size: 10, weight: .medium))

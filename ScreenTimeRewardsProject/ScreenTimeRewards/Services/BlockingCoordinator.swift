@@ -669,7 +669,8 @@ class BlockingCoordinator: ObservableObject {
                     let earnedMinutes = learningCheck.rewardMinutesEarned
                     let bonus = streakService.calculateBonusMinutes(
                         earnedMinutes: earnedMinutes,
-                        bonusPercentage: streakSettings.bonusPercentage
+                        settings: streakSettings,
+                        multiplier: milestone
                     )
 
                     if bonus > 0 {

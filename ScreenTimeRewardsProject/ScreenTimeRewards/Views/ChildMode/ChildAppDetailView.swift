@@ -1,18 +1,21 @@
 import SwiftUI
 import FamilyControls
+import ManagedSettings
 
 struct ChildAppDetailView: View {
     let snapshot: RewardAppSnapshot
     let unlockedApp: UnlockedRewardApp?
     let linkedLearningApps: [LinkedLearningApp]
     let learningProgress: [String: (used: Int, required: Int, goalMet: Bool)]
+    let learningAppTokens: [String: ApplicationToken]
     let unlockMode: UnlockMode
-    let streakData: (current: Int, longest: Int, nextMilestone: Int?, progress: Double, bonusEarned: Int)?
+    let streakSettings: AppStreakSettings?
     let dailyLimit: Int
     let previousDayUsage: Int?
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
+    @ObservedObject var streakService = StreakService.shared
 
     private var isUnlocked: Bool {
         unlockedApp != nil
@@ -24,6 +27,53 @@ struct ChildAppDetailView: View {
 
     private var usedMinutes: Int {
         Int(snapshot.totalSeconds / 60)
+    }
+
+    private var streakData: (current: Int, longest: Int, nextMilestone: Int?, progress: Double, bonusEarned: Int)? {
+        guard let settings = streakSettings, settings.isEnabled else { return nil }
+        
+        let logicalID = snapshot.logicalID
+        guard let record = streakService.streakRecords[logicalID] else {
+            // If settings enabled but no record yet, show empty/zero state
+            return (0, 0, streakService.getNextMilestone(for: 0, settings: settings), 0.0, 0)
+        }
+        
+        let current = Int(record.currentStreak)
+        let longest = Int(record.longestStreak)
+        let nextMilestone = streakService.getNextMilestone(for: current, settings: settings)
+        let progress = streakService.progressToNextMilestone(current: current, settings: settings)
+        let bonusEarned = streakService.getTotalBonusMinutes(for: logicalID)
+        
+        return (current, longest, nextMilestone, progress, bonusEarned)
+    }
+
+    private var potentialBonusMinutes: Int {
+        guard let settings = streakSettings, settings.isEnabled else { return 0 }
+        
+        let multiplier = Double(settings.streakCycleDays)
+        var totalBonus = 0
+        
+        switch settings.bonusType {
+        case .percentage:
+            // Calculate estimated reward basis
+            var estimatedReward = 0
+            switch unlockMode {
+            case .all:
+                estimatedReward = linkedLearningApps.reduce(0) { $0 + $1.rewardMinutesEarned }
+            case .any:
+                estimatedReward = linkedLearningApps.map { $0.rewardMinutesEarned }.max() ?? 0
+            }
+            
+            // (Daily Reward * Percentage) * Cycle Days
+            let dailyBonus = Double(estimatedReward) * (Double(settings.bonusValue) / 100.0)
+            totalBonus = Int(dailyBonus * multiplier)
+            
+        case .fixedMinutes:
+            // Fixed Amount * Cycle Days
+            totalBonus = Int(Double(settings.bonusValue) * multiplier)
+        }
+        
+        return totalBonus
     }
 
     var body: some View {
@@ -43,6 +93,7 @@ struct ChildAppDetailView: View {
                     LearningProgressCard(
                         linkedLearningApps: linkedLearningApps,
                         learningProgress: learningProgress,
+                        learningAppTokens: learningAppTokens,
                         unlockMode: unlockMode,
                         isUnlocked: isUnlocked
                     )
@@ -54,6 +105,7 @@ struct ChildAppDetailView: View {
                             longestStreak: streakData.longest,
                             nextMilestone: streakData.nextMilestone,
                             bonusMinutesEarned: streakData.bonusEarned,
+                            potentialBonusMinutes: potentialBonusMinutes,
                             progress: streakData.progress
                         )
                     }

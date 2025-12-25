@@ -5,6 +5,7 @@ struct AppStreakCard: View {
     let longestStreak: Int
     let nextMilestone: Int?
     let bonusMinutesEarned: Int
+    let potentialBonusMinutes: Int
     let progress: Double
     @Environment(\.colorScheme) var colorScheme
 
@@ -81,6 +82,21 @@ struct AppStreakCard: View {
                     RoundedRectangle(cornerRadius: 12)
                         .fill(AppTheme.sunnyYellow.opacity(0.1))
                 )
+            }
+            
+            // Potential bonus footer
+            if let milestone = nextMilestone {
+                HStack(spacing: 6) {
+                    Image(systemName: "star.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    
+                    Text("You will earn \(potentialBonusMinutes) minutes bonus at completion of \(milestone)-day streak!")
+                        .font(.system(size: 11, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .multilineTextAlignment(.leading)
+                }
+                .padding(.top, 4)
             }
         }
         .padding(20)

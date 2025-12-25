@@ -131,8 +131,18 @@ struct AppConfigurationSheet: View {
                                 .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                                 .frame(height: 1)
 
+                            let estimatedReward: Int = {
+                                switch localConfig.unlockMode {
+                                case .all:
+                                    return localConfig.linkedLearningApps.reduce(0) { $0 + $1.rewardMinutesEarned }
+                                case .any:
+                                    return localConfig.linkedLearningApps.map { $0.rewardMinutesEarned }.max() ?? 0
+                                }
+                            }()
+
                             StreakSettingsPicker(
-                                streakSettings: $localConfig.streakSettings
+                                streakSettings: $localConfig.streakSettings,
+                                estimatedDailyReward: estimatedReward
                             )
                             .id("config_streak_section")
                             .tutorialTarget("config_streak")
