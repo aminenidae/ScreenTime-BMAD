@@ -71,7 +71,7 @@ struct LearningAppDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("DONE") { dismiss() }
                         .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                         .textCase(.uppercase)
                 }
             }
@@ -211,7 +211,7 @@ struct RewardAppDetailView: View {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button("DONE") { dismiss() }
                         .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                         .textCase(.uppercase)
                 }
             }
@@ -344,14 +344,14 @@ private struct HourlyUsageChartCard: View {
                 Text("TODAY'S HOURLY USAGE")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .textCase(.uppercase)
 
                 Spacer()
 
                 Text("\(totalMinutes)M TOTAL")
                     .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                     .textCase(.uppercase)
             }
 
@@ -375,11 +375,11 @@ private struct HourlyUsageChartCard: View {
                             AxisValueLabel {
                                 Text(hourLabel(for: date))
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1))
+                            .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                     }
                 }
                 .chartYAxis {
@@ -388,11 +388,11 @@ private struct HourlyUsageChartCard: View {
                             if let minutes = value.as(Int.self) {
                                 Text("\(minutes)M")
                                     .font(.system(size: 10, weight: .medium))
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                             }
                         }
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
-                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1))
+                            .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                     }
                 }
                 .chartPlotStyle { plotArea in
@@ -412,11 +412,11 @@ private struct HourlyUsageChartCard: View {
         VStack(spacing: AppTheme.Spacing.regular) {
             Image(systemName: "clock")
                 .font(.system(size: 32))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.3))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
 
             Text("NO USAGE RECORDED TODAY")
                 .font(.system(size: 13, weight: .medium))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                 .textCase(.uppercase)
         }
         .frame(height: 160)
@@ -475,7 +475,7 @@ private struct AppUsageChart: View {
 
                     .tracking(1)
 
-                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
 
                     .textCase(.uppercase)
 
@@ -515,7 +515,7 @@ private struct AppUsageChart: View {
 
                     }
 
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6)) // Use AppTheme color
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6)) // Use AppTheme color
 
                     .padding(.horizontal, AppTheme.Spacing.regular) // Use AppTheme.Spacing
 
@@ -525,7 +525,7 @@ private struct AppUsageChart: View {
 
                         RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small) // Use AppTheme corner radius
 
-                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                            .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
 
                     )
 
@@ -575,7 +575,7 @@ private struct AppUsageChart: View {
 
                                     .font(.system(size: 10, weight: .medium))
 
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5)) // Use AppTheme color
 
                             }
 
@@ -583,7 +583,7 @@ private struct AppUsageChart: View {
 
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
 
-                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                            .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
 
                     }
 
@@ -601,7 +601,7 @@ private struct AppUsageChart: View {
 
                                     .font(.system(size: 10, weight: .medium))
 
-                                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5)) // Use AppTheme color
 
                             }
 
@@ -609,7 +609,7 @@ private struct AppUsageChart: View {
 
                         AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
 
-                            .foregroundStyle(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                            .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
 
                     }
 
@@ -623,7 +623,7 @@ private struct AppUsageChart: View {
 
                             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small) // Use AppTheme corner radius
 
-                                .fill(AppTheme.vibrantTeal.opacity(0.03)) // Use AppTheme color
+                                .fill(AppTheme.brandedText(for: colorScheme).opacity(0.03)) // Use AppTheme color
 
                         )
 
@@ -649,7 +649,7 @@ private struct AppUsageChart: View {
 
                 .font(.system(size: 32))
 
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.3)) // Use AppTheme color
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3)) // Use AppTheme color
 
 
 
@@ -657,7 +657,7 @@ private struct AppUsageChart: View {
 
                 .font(.system(size: 13, weight: .medium))
 
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.5)) // Use AppTheme color
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5)) // Use AppTheme color
 
                 .textCase(.uppercase)
 

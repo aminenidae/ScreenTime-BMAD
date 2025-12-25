@@ -30,12 +30,12 @@ struct DailyUsageChartCard: View {
             HStack {
                 Image(systemName: "chart.bar.xaxis")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text("USAGE TREND")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .textCase(.uppercase)
 
                 Spacer()
@@ -53,11 +53,11 @@ struct DailyUsageChartCard: View {
                         Text(selectedPeriod.rawValue.uppercased())
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                         Image(systemName: "chevron.down")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -171,7 +171,7 @@ struct DailyUsageChartCard: View {
                     AxisValueLabel {
                         Text(xAxisLabel(for: date))
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                     }
                 }
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
@@ -184,7 +184,7 @@ struct DailyUsageChartCard: View {
                     if let minutes = value.as(Int.self) {
                         Text("\(minutes)m")
                             .font(.system(size: 10, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                     }
                 }
                 AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
@@ -365,7 +365,7 @@ struct DailyUsageChartCard: View {
 
             Text("\(value)M") // Consistent formatting
                 .font(.system(size: 12, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
         }
     }
 

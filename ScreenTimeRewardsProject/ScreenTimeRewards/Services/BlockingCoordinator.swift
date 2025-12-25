@@ -623,6 +623,75 @@ class BlockingCoordinator: ObservableObject {
         if !tokensToUnblock.isEmpty {
             service.unblockRewardApps(tokens: tokensToUnblock)
         }
+        
+        // Check Streak
+        checkAndUpdateStreak()
+    }
+
+    /// Check and update streak status based on goals
+    private func checkAndUpdateStreak() {
+        guard !currentRewardTokens.isEmpty else { return }
+
+        let streakService = StreakService.shared
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        // Check streak for EACH reward app independently
+        for token in currentRewardTokens {
+            guard let logicalID = screenTimeService?.getLogicalID(for: token),
+                  let config = scheduleService.getSchedule(for: logicalID),
+                  let streakSettings = config.streakSettings,
+                  streakSettings.isEnabled else {
+                continue
+            }
+
+            // Check if this app's learning goals are met
+            let learningCheck = checkLearningGoal(logicalID: logicalID)
+            let isGoalMet = learningCheck.isGoalMet
+
+            // Update streak for this specific app
+            streakService.checkAndUpdateStreak(
+                goalsCompleted: isGoalMet,
+                for: deviceID,
+                appLogicalID: logicalID,
+                settings: streakSettings
+            )
+
+            // Check for milestones
+            if let milestone = streakService.checkMilestoneAchievement(
+                for: logicalID,
+                settings: streakSettings
+            ) {
+                if streakService.shouldApplyBonus(
+                    for: milestone,
+                    appLogicalID: logicalID,
+                    settings: streakSettings
+                ) {
+                    let earnedMinutes = learningCheck.rewardMinutesEarned
+                    let bonus = streakService.calculateBonusMinutes(
+                        earnedMinutes: earnedMinutes,
+                        bonusPercentage: streakSettings.bonusPercentage
+                    )
+
+                    if bonus > 0 {
+                        streakService.grantBonusMinutes(bonus, for: logicalID)
+                        streakService.markMilestoneEarned(
+                            milestone,
+                            for: logicalID,
+                            settings: streakSettings
+                        )
+
+                        // Post notification for milestone achievement
+                        streakService.notifyMilestoneAchieved(
+                            milestone: milestone,
+                            bonusMinutes: bonus,
+                            appLogicalID: logicalID
+                        )
+
+                        print("[BlockingCoordinator] 🏆 Streak Milestone \(milestone) for \(logicalID)! Granted \(bonus) bonus minutes.")
+                    }
+                }
+            }
+        }
     }
 
     /// Set the blocking reason in BlockingReasonService based on decision

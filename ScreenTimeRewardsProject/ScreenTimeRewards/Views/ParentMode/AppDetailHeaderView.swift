@@ -36,13 +36,13 @@ struct AppDetailHeaderView: View {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 18, weight: .bold)) // Standardized with other titles
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .lineLimit(1)
                         .textCase(.uppercase)
                 } else {
                     Text(snapshot.displayName) // Use displayName from snapshot
                         .font(.system(size: 18, weight: .bold)) // Standardized with other titles
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .lineLimit(1)
                         .textCase(.uppercase)
                 }
@@ -57,7 +57,7 @@ struct AppDetailHeaderView: View {
                         .tracking(1)
                         .textCase(.uppercase)
                 }
-                .foregroundColor(accentColor)
+                .foregroundColor(appType == .learning ? AppTheme.brandedText(for: colorScheme) : accentColor)
                 .padding(.horizontal, AppTheme.Spacing.regular)
                 .padding(.vertical, AppTheme.Spacing.tiny)
                 .background(

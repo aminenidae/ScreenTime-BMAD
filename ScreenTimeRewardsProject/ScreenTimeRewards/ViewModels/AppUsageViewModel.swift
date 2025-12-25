@@ -97,6 +97,15 @@ class AppUsageViewModel: ObservableObject {
     /// Total points consumed (spent) from using unlocked reward apps
     /// These points are permanently spent and should not return to available pool
     @Published var totalConsumedPoints: Int = 0
+    
+    // Calculate total streak bonus across ALL apps
+    var totalStreakBonusMinutes: Int {
+        let streakService = StreakService.shared
+        return currentRewardTokens.reduce(0) { total, token in
+            guard let logicalID = service.getLogicalID(for: token) else { return total }
+            return total + streakService.getTotalBonusMinutes(for: logicalID)
+        }
+    }
 
     /// Available learning points (total earned - reserved for unlocked apps - consumed points)
     /// This uses the NEW linked learning app reward system where points are earned
@@ -110,11 +119,12 @@ class AppUsageViewModel: ObservableObject {
             .filter { _ in true }
             .reduce(0) { $0 + $1.reservedPoints }
         let totalConsumed = totalConsumedPoints
-        let available = max(0, totalEarnedFromLinkedGoals - totalReserved - totalConsumed)
+        let available = max(0, totalEarnedFromLinkedGoals + totalStreakBonusMinutes - totalReserved - totalConsumed)
 
         #if DEBUG
         print("[AppUsageViewModel] 💰 AVAILABLE POINTS CALCULATION (Linked Goal System):")
         print("[AppUsageViewModel]   Total Earned from Goals: \(totalEarnedFromLinkedGoals)")
+        print("[AppUsageViewModel]   Total Streak Bonus: \(totalStreakBonusMinutes)")
         print("[AppUsageViewModel]   Total Reserved: \(totalReserved)")
         print("[AppUsageViewModel]   Total Consumed (spent): \(totalConsumed)")
         print("[AppUsageViewModel]   Available: \(available)")
@@ -368,6 +378,14 @@ class AppUsageViewModel: ObservableObject {
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 self?.usageDidChange()
+            }
+            .store(in: &cancellables)
+            
+        NotificationCenter.default
+            .publisher(for: NSNotification.Name("StreakBonusGranted"))
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                self?.objectWillChange.send()
             }
             .store(in: &cancellables)
     }
@@ -992,6 +1010,11 @@ class AppUsageViewModel: ObservableObject {
         updateTotalRewardPoints()
         updateCategoryRewardPoints()
         updateSortedApplications()
+        
+        
+        let deviceID = DeviceModeManager.shared.deviceID
+        let aggregate = StreakService.shared.getAggregateStreak(for: deviceID)
+        currentStreak = aggregate.current
     }
     
     /// Called when usage data changes

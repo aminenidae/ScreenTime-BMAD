@@ -5,21 +5,10 @@
 //  Option D: First Launch Setup Flow
 //  Requests FamilyControls authorization
 //
+//
 
 import SwiftUI
 import FamilyControls
-
-// MARK: - Design Tokens
-fileprivate struct AuthColors {
-    static let primary = Color(hex: "#4F46E5")
-    static let secondary = Color(hex: "#6366F1")
-    static let success = Color(hex: "#10B981")
-    static let background = Color(hex: "#F9FAFB")
-    static let text = Color(hex: "#1F2937")
-    static let subtext = Color(hex: "#1F2937").opacity(0.7)
-    static let featureDesc = Color(hex: "#1F2937").opacity(0.6)
-    static let privacyText = Color(hex: "#1F2937").opacity(0.5)
-}
 
 struct AuthorizationRequestScreen: View {
     let title: String
@@ -27,6 +16,7 @@ struct AuthorizationRequestScreen: View {
     let buttonTitle: String
     let onAuthorized: () -> Void
     let onBack: (() -> Void)?
+    @Environment(\.colorScheme) private var colorScheme
 
     init(
         title: String = "Enable Family Controls",
@@ -56,6 +46,7 @@ struct AuthorizationRequestScreen: View {
                         HStack {
                             Button(action: onBack) {
                                 Label("Back", systemImage: "chevron.left")
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             }
                             .buttonStyle(.borderless)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -66,19 +57,19 @@ struct AuthorizationRequestScreen: View {
                     // Icon container
                     ZStack {
                         RoundedRectangle(cornerRadius: 16)
-                            .fill(AuthColors.primary.opacity(0.1))
+                            .fill(AppTheme.vibrantTeal.opacity(0.1))
                             .frame(width: 64, height: 64)
 
                         Image(systemName: "figure.2.and.child.holdinghands")
                             .font(.system(size: 36))
-                            .foregroundColor(AuthColors.primary)
+                            .foregroundColor(AppTheme.vibrantTeal)
                     }
                     .padding(.bottom, 24)
 
                     // Title
                     Text(title)
                         .font(.system(size: 28, weight: .bold))
-                        .foregroundColor(AuthColors.text)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .multilineTextAlignment(.center)
                         .lineSpacing(1.25)
                         .padding(.bottom, 12)
@@ -86,7 +77,7 @@ struct AuthorizationRequestScreen: View {
                     // Description
                     Text(message)
                         .font(.system(size: 16))
-                        .foregroundColor(AuthColors.subtext)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
@@ -96,17 +87,20 @@ struct AuthorizationRequestScreen: View {
                     VStack(spacing: 16) {
                         FeatureItem(
                             title: "Set Learning Apps",
-                            description: "Designate educational apps for your child to focus on."
+                            description: "Designate educational apps for your child to focus on.",
+                            colorScheme: colorScheme
                         )
 
                         FeatureItem(
                             title: "Unlock Reward Apps",
-                            description: "Time spent on learning unlocks access to their favorite games and apps."
+                            description: "Time spent on learning unlocks access to their favorite games and apps.",
+                            colorScheme: colorScheme
                         )
 
                         FeatureItem(
                             title: "Ensure Focus",
-                            description: "We'll gently guide your child back to learning apps if they get distracted."
+                            description: "We'll gently guide your child back to learning apps if they get distracted.",
+                            colorScheme: colorScheme
                         )
                     }
                 }
@@ -133,17 +127,17 @@ struct AuthorizationRequestScreen: View {
                         }
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(isRequesting ? AuthColors.primary.opacity(0.6) : AuthColors.primary)
-                        .foregroundColor(.white)
+                        .background(isRequesting ? AppTheme.vibrantTeal.opacity(0.6) : AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.lightCream)
                         .cornerRadius(12)
-                        .shadow(color: AuthColors.primary.opacity(0.3), radius: 12, x: 0, y: 4)
+                        .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 12, x: 0, y: 4)
                     }
                     .disabled(isRequesting)
 
                     // Privacy text
                     Text("Your data is private and secure. Learn more.")
                         .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AuthColors.privacyText)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 16)
@@ -151,12 +145,12 @@ struct AuthorizationRequestScreen: View {
                 .frame(maxWidth: 448) // max-w-md
             }
             .background(
-                AuthColors.background.opacity(0.8)
+                AppTheme.background(for: colorScheme).opacity(0.8)
                     .background(.ultraThinMaterial)
             )
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(AuthColors.background)
+        .background(AppTheme.background(for: colorScheme))
         .alert("Authorization Error", isPresented: $showError) {
             Button("Try Again", role: .cancel) { }
         } message: {
@@ -211,18 +205,19 @@ struct AuthorizationRequestScreen: View {
 struct FeatureItem: View {
     let title: String
     let description: String
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Checkmark icon container
             ZStack {
                 Circle()
-                    .fill(AuthColors.success.opacity(0.1))
+                    .fill(AppTheme.sunnyYellow.opacity(0.1))
                     .frame(width: 24, height: 24)
 
                 Image(systemName: "checkmark")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AuthColors.success)
+                    .foregroundColor(AppTheme.sunnyYellow)
             }
             .frame(width: 24, height: 24)
             .padding(.top, 2)
@@ -231,12 +226,12 @@ struct FeatureItem: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AuthColors.text)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .lineSpacing(1.2)
 
                 Text(description)
                     .font(.system(size: 14))
-                    .foregroundColor(AuthColors.featureDesc)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
                     .lineSpacing(1.3)
             }

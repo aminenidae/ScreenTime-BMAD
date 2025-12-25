@@ -44,32 +44,32 @@ struct ModeSelectionView: View {
                         // Lock Icon
                         Image(systemName: "lock.fill")
                             .font(.system(size: 56, weight: .regular))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .padding(.bottom, 20)
 
                         // Title
                         Text("PARENT SPACE")
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .padding(.bottom, 8)
 
                         // Subtitle
                         Text("ACCESS CONTROLS")
                             .font(.system(size: 14, weight: .medium))
                             .tracking(2)
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                             .padding(.bottom, 24)
 
                         // Arrow
                         Image(systemName: "arrow.right")
                             .font(.system(size: 20, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                         Spacer()
                     }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    .background(AppTheme.lightCream) // Intentionally keeping light cream for contrast design
+                    .background(colorScheme == .dark ? AppTheme.darkTeal : AppTheme.lightCream) // Cream in Light, Dark Teal in Dark
                 }
                 .buttonStyle(PlainButtonStyle())
                 .disabled(isAuthenticating)

@@ -27,6 +27,7 @@ struct ParentPairingScreen: View {
     let onPaired: () -> Void
 
     private let context = CIContext()
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 24) {
@@ -56,10 +57,10 @@ struct ParentPairingScreen: View {
                 }) {
                     Text("I've Connected the Child Device")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(AppTheme.lightCream)
                         .frame(maxWidth: 400)
                         .frame(height: 56)
-                        .background(Color.accentColor)
+                        .background(AppTheme.vibrantTeal)
                         .cornerRadius(14)
                 }
                 .disabled(qrCodeImage == nil)
@@ -68,13 +69,14 @@ struct ParentPairingScreen: View {
                 Button(action: onSkip) {
                     Text("Skip for Now")
                         .font(.system(size: 16, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
             }
             .padding(.bottom, 16)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(AppTheme.background(for: colorScheme))
         .task {
             if qrCodeImage == nil && !isGenerating {
                 await generateQRCode()
@@ -100,10 +102,11 @@ struct ParentPairingScreen: View {
         VStack(spacing: 16) {
             Text("On the child device:")
                 .font(.headline)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
             Text("Open ScreenTime Rewards → Settings → Pair with Parent → Scan this code.")
                 .font(.system(size: 15))
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 440)
 
@@ -126,14 +129,17 @@ struct ParentPairingScreen: View {
 
                 Button(action: { Task { await generateQRCode() } }) {
                     Label("Generate New Code", systemImage: "arrow.clockwise")
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
                 .buttonStyle(.bordered)
             } else {
                 Button(action: { Task { await generateQRCode() } }) {
                     Label("Generate QR Code", systemImage: "qrcode")
                         .font(.headline)
+                        .foregroundColor(AppTheme.lightCream)
                 }
                 .buttonStyle(.borderedProminent)
+                .tint(AppTheme.vibrantTeal)
                 .controlSize(.large)
             }
         }
@@ -141,7 +147,7 @@ struct ParentPairingScreen: View {
         .frame(maxWidth: 640)
         .background(
             RoundedRectangle(cornerRadius: 24)
-                .fill(Color(.systemBackground))
+                .fill(AppTheme.card(for: colorScheme))
                 .shadow(color: Color.black.opacity(0.04), radius: 20, x: 0, y: 10)
         )
     }
@@ -149,21 +155,22 @@ struct ParentPairingScreen: View {
     private var statusBanner: some View {
         HStack(spacing: 12) {
             Image(systemName: status == .success ? "checkmark.circle.fill" : "clock.badge.questionmark")
-                .foregroundColor(status == .success ? .green : .secondary)
+                .foregroundColor(status == .success ? .green : AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 .font(.system(size: 24))
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(status == .success ? "Connected" : "Waiting for scan")
                     .font(.headline)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 if status == .success {
                     Text("You're all set—\(deviceName.isEmpty ? "this device" : deviceName) will show paired devices in the dashboard.")
                         .font(.system(size: 15))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                 } else {
                     Text("We'll stay on this screen while you finish pairing. You can also skip and pair later from Settings.")
                         .font(.system(size: 15))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                 }
             }
 
@@ -173,7 +180,7 @@ struct ParentPairingScreen: View {
         .frame(maxWidth: 640)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color(.secondarySystemBackground))
+                .fill(AppTheme.card(for: colorScheme))
         )
     }
 
@@ -216,11 +223,11 @@ private struct ErrorBanner: View {
     var body: some View {
         HStack(spacing: 12) {
             Image(systemName: "exclamationmark.triangle.fill")
-                .foregroundColor(.yellow)
+                .foregroundColor(AppTheme.sunnyYellow)
 
             Text(message)
                 .font(.system(size: 15))
-                .foregroundColor(.primary)
+                .foregroundColor(Color.primary)
 
             Spacer()
         }
@@ -228,7 +235,7 @@ private struct ErrorBanner: View {
         .frame(maxWidth: 640)
         .background(
             RoundedRectangle(cornerRadius: 16)
-                .fill(Color.yellow.opacity(0.16))
+                .fill(AppTheme.sunnyYellow.opacity(0.16))
         )
     }
 }

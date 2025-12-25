@@ -67,6 +67,8 @@ struct SetupFlowView: View {
 
 // MARK: - PIN Setup Screen (Part of Setup Flow)
 
+// MARK: - PIN Setup Screen (Part of Setup Flow)
+
 struct SetupPINScreen: View {
     let onComplete: () -> Void
 
@@ -75,18 +77,15 @@ struct SetupPINScreen: View {
     @State private var errorMessage: String? = nil
     @State private var isConfirming: Bool = false
     @State private var isProcessing: Bool = false
+    @Environment(\.colorScheme) private var colorScheme
 
     private let authService = AuthenticationService()
 
     var body: some View {
         ZStack {
-            // Gradient background
-            LinearGradient(
-                colors: [Color.blue.opacity(0.3), Color.purple.opacity(0.3)],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // Background
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
             VStack(spacing: 40) {
                 Spacer()
@@ -94,19 +93,20 @@ struct SetupPINScreen: View {
                 // Icon
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 80))
-                    .foregroundColor(.blue)
+                    .foregroundColor(AppTheme.vibrantTeal)
 
                 // Title
                 Text(isConfirming ? "Confirm Your PIN" : "Create Parent PIN")
                     .font(.largeTitle)
                     .fontWeight(.bold)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 // Description
                 Text(isConfirming ?
                     "Enter your PIN again to confirm" :
                     "This PIN will protect Parent Mode settings")
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, 40)
 
@@ -116,7 +116,7 @@ struct SetupPINScreen: View {
                 HStack(spacing: 20) {
                     ForEach(0..<4) { index in
                         Circle()
-                            .fill(index < currentPIN.count ? Color.blue : Color.gray.opacity(0.3))
+                            .fill(index < currentPIN.count ? AppTheme.vibrantTeal : AppTheme.brandedText(for: colorScheme).opacity(0.3))
                             .frame(width: 20, height: 20)
                     }
                 }
@@ -124,7 +124,7 @@ struct SetupPINScreen: View {
                 // Error message
                 if let error = errorMessage {
                     Text(error)
-                        .foregroundColor(.red)
+                        .foregroundColor(AppTheme.sunnyYellow)
                         .font(.caption)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 40)

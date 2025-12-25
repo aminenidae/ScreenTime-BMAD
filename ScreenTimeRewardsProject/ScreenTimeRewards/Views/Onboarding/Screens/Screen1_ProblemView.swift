@@ -7,10 +7,19 @@ struct Screen1_ProblemView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
+    @State private var visibleBullets: Set<Int> = []
+    @State private var animationStarted = false
 
     private var layout: ResponsiveCardLayout {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
+
+    private let bullets = [
+        "your child begs",
+        "you either give up",
+        "or say no... and you are the \"bad guy\"",
+        "there is a better way"
+    ]
 
     var body: some View {
         VStack(spacing: 0) {
@@ -36,14 +45,19 @@ struct Screen1_ProblemView: View {
 
             Spacer(minLength: layout.isLandscape ? 8 : 12)
 
-            // Body copy
-            Text("Every parent knows this conversation. Your child begs. You negotiate. You worry about learning. There's a better way.")
-                .font(.system(size: layout.isRegular ? 18 : 16, weight: .regular))
-                .multilineTextAlignment(.center)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .padding(.horizontal, layout.horizontalPadding)
-                .frame(maxWidth: 600)
-                .textCase(.uppercase)
+            // Animated bullet points
+            VStack(alignment: .leading, spacing: layout.isLandscape ? 10 : 14) {
+                ForEach(bullets.indices, id: \.self) { index in
+                    ProblemBulletRow(
+                        text: bullets[index],
+                        isVisible: visibleBullets.contains(index),
+                        layout: layout,
+                        colorScheme: colorScheme
+                    )
+                }
+            }
+            .padding(.horizontal, layout.horizontalPadding)
+            .frame(maxWidth: 600)
 
             Spacer(minLength: layout.isLandscape ? 16 : 32)
 
@@ -67,7 +81,55 @@ struct Screen1_ProblemView: View {
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
             onboarding.logScreenView(screenNumber: 1)
+            startBulletAnimations()
         }
+    }
+
+    /// Starts the staggered bullet animations with 1-second delays
+    private func startBulletAnimations() {
+        guard !animationStarted else { return }
+        animationStarted = true
+
+        for index in bullets.indices {
+            let delay = Double(index) * 1.0
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
+                    _ = visibleBullets.insert(index)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Problem Bullet Row
+
+private struct ProblemBulletRow: View {
+    let text: String
+    let isVisible: Bool
+    let layout: ResponsiveCardLayout
+    let colorScheme: ColorScheme
+
+    /// Vertical offset for enter animation
+    private var enterOffset: CGFloat {
+        isVisible ? 0 : 20
+    }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            Image(systemName: "circle.fill")
+                .font(.system(size: 6))
+                .foregroundColor(AppTheme.vibrantTeal)
+
+            Text(text)
+                .font(.system(size: layout.isRegular ? 17 : 15, weight: .medium))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .textCase(.uppercase)
+                .tracking(1)
+
+            Spacer()
+        }
+        .opacity(isVisible ? 1.0 : 0.0)
+        .offset(y: enterOffset)
     }
 }
 

@@ -44,7 +44,7 @@ struct ParentPINSetupView: View {
                     }) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .frame(width: 44, height: 44)
                     }
                     Spacer()
@@ -57,21 +57,21 @@ struct ParentPINSetupView: View {
                 // Lock Icon
                 Image(systemName: isConfirming ? "lock.shield.fill" : "lock.fill")
                     .font(.system(size: 48, weight: .regular))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.bottom, 24)
 
                 // Title
                 Text(isConfirming ? "CONFIRM PIN" : "CREATE PIN")
                     .font(.system(size: 28, weight: .bold))
                     .tracking(3)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.bottom, 8)
 
                 // Subtitle
                 Text(isConfirming ? "RE-ENTER YOUR PIN" : "PROTECT PARENT MODE")
                     .font(.system(size: 14, weight: .medium))
                     .tracking(2)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .padding(.bottom, 8)
 
                 // Error message with fixed height
@@ -91,11 +91,11 @@ struct ParentPINSetupView: View {
                 // Progress indicators
                 HStack(spacing: 12) {
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(AppTheme.vibrantTeal.opacity(isConfirming ? 0.3 : 1.0))
+                        .fill(AppTheme.brandedText(for: colorScheme).opacity(isConfirming ? 0.3 : 1.0))
                         .frame(width: 40, height: 6)
 
                     RoundedRectangle(cornerRadius: 4)
-                        .fill(isConfirming ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.3))
+                        .fill(isConfirming ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.3))
                         .frame(width: 40, height: 6)
                 }
                 .padding(.bottom, 24)
@@ -105,12 +105,12 @@ struct ParentPINSetupView: View {
                     ForEach(0..<4, id: \.self) { index in
                         let currentPIN = isConfirming ? confirmPIN : pin
                         Circle()
-                            .fill(index < currentPIN.count ? AppTheme.vibrantTeal : Color.clear)
+                            .fill(index < currentPIN.count ? AppTheme.brandedText(for: colorScheme) : Color.clear)
                             .frame(width: 18, height: 18)
                             .overlay(
                                 Circle()
                                     .stroke(
-                                        errorMessage != nil && index >= currentPIN.count ? AppTheme.errorRed : AppTheme.vibrantTeal,
+                                        errorMessage != nil && index >= currentPIN.count ? AppTheme.errorRed : AppTheme.brandedText(for: colorScheme),
                                         lineWidth: 2
                                     )
                             )
@@ -124,7 +124,7 @@ struct ParentPINSetupView: View {
                         HStack(spacing: 32) {
                             ForEach(1...3, id: \.self) { col in
                                 let number = row * 3 + col
-                                PINKeyButton(text: "\(number)", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
+                                PINKeyButton(text: "\(number)", tealColor: AppTheme.brandedText(for: colorScheme), creamColor: AppTheme.background(for: colorScheme)) {
                                     appendDigit("\(number)")
                                 }
                             }
@@ -138,7 +138,7 @@ struct ParentPINSetupView: View {
                             .frame(width: 72, height: 72)
 
                         // 0 button
-                        PINKeyButton(text: "0", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
+                        PINKeyButton(text: "0", tealColor: AppTheme.brandedText(for: colorScheme), creamColor: AppTheme.background(for: colorScheme)) {
                             appendDigit("0")
                         }
 
@@ -146,7 +146,7 @@ struct ParentPINSetupView: View {
                         Button(action: deleteDigit) {
                             Image(systemName: "delete.left")
                                 .font(.system(size: 24, weight: .medium))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                                 .frame(width: 72, height: 72)
                         }
                     }

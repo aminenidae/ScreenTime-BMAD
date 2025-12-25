@@ -20,6 +20,13 @@ struct ScreenTimeRewardsApp: App {
     @StateObject private var sessionManager = SessionManager.shared
     @StateObject private var modeManager = DeviceModeManager.shared
 
+    init() {
+        // Perform streak migration if needed
+        Task { @MainActor in
+            await StreakMigrationService.shared.performMigrationIfNeeded()
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             LaunchScreenView()
@@ -36,6 +43,10 @@ struct ScreenTimeRewardsApp: App {
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
                 }
+                
+                // Initialize StreakService to ensure midnight timer is running
+                let _ = StreakService.shared
+                print("[ScreenTimeRewardsApp] 🔥 StreakService initialized")
 
                 // Start periodic refresh for blocking states (downtime, daily limits, etc.)
                 BlockingCoordinator.shared.startPeriodicRefresh()

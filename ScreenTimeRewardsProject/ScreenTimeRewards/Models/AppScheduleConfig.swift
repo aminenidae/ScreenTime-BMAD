@@ -430,6 +430,9 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     var linkedLearningApps: [LinkedLearningApp]  // Each with its own time requirement
     var unlockMode: UnlockMode                    // AND (all) or OR (any)
 
+    // Streak configuration (for reward apps only)
+    var streakSettings: AppStreakSettings?
+
     /// Create a new configuration for an app
     init(
         logicalID: String,
@@ -440,7 +443,8 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
         isEnabled: Bool = true,
         useAdvancedDayConfig: Bool = false,
         linkedLearningApps: [LinkedLearningApp] = [],
-        unlockMode: UnlockMode = .all
+        unlockMode: UnlockMode = .all,
+        streakSettings: AppStreakSettings? = nil
     ) {
         self.id = logicalID
         self.allowedTimeWindow = allowedTimeWindow
@@ -451,6 +455,7 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
         self.useAdvancedDayConfig = useAdvancedDayConfig
         self.linkedLearningApps = linkedLearningApps
         self.unlockMode = unlockMode
+        self.streakSettings = streakSettings
     }
 
     /// Get the effective time window for a specific weekday
@@ -485,7 +490,8 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
             allowedTimeWindow: .fullDay,
             dailyLimits: .defaultReward,
             isEnabled: true,
-            useAdvancedDayConfig: false
+            useAdvancedDayConfig: false,
+            streakSettings: .defaultSettings  // Enable by default for new reward apps
         )
     }
 

@@ -34,7 +34,7 @@ struct ParentPINEntryView: View {
                     Button(action: onDismiss) {
                         Image(systemName: "chevron.left")
                             .font(.system(size: 20, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .frame(width: 44, height: 44)
                     }
                     Spacer()
@@ -47,21 +47,21 @@ struct ParentPINEntryView: View {
                 // Lock Icon
                 Image(systemName: "lock.fill")
                     .font(.system(size: 48, weight: .regular))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.bottom, 24)
 
                 // Title
                 Text("ENTER PIN")
                     .font(.system(size: 28, weight: .bold))
                     .tracking(3)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.bottom, 8)
 
                 // Subtitle
                 Text("ACCESS PARENT CONTROLS")
                     .font(.system(size: 14, weight: .medium))
                     .tracking(2)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .padding(.bottom, 8)
 
                 // Error message with fixed height
@@ -82,12 +82,12 @@ struct ParentPINEntryView: View {
                 HStack(spacing: 20) {
                     ForEach(0..<4, id: \.self) { index in
                         Circle()
-                            .fill(index < pin.count ? AppTheme.vibrantTeal : Color.clear)
+                            .fill(index < pin.count ? AppTheme.brandedText(for: colorScheme) : Color.clear)
                             .frame(width: 18, height: 18)
                             .overlay(
                                 Circle()
                                     .stroke(
-                                        errorMessage != nil && index >= pin.count ? AppTheme.errorRed : AppTheme.vibrantTeal,
+                                        errorMessage != nil && index >= pin.count ? AppTheme.errorRed : AppTheme.brandedText(for: colorScheme),
                                         lineWidth: 2
                                     )
                             )
@@ -101,7 +101,7 @@ struct ParentPINEntryView: View {
                         HStack(spacing: 32) {
                             ForEach(1...3, id: \.self) { col in
                                 let number = row * 3 + col
-                                PINKeyButton(text: "\(number)", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
+                                PINKeyButton(text: "\(number)", tealColor: AppTheme.brandedText(for: colorScheme), creamColor: AppTheme.background(for: colorScheme)) {
                                     appendDigit("\(number)")
                                 }
                             }
@@ -115,7 +115,7 @@ struct ParentPINEntryView: View {
                             .frame(width: 72, height: 72)
 
                         // 0 button
-                        PINKeyButton(text: "0", tealColor: AppTheme.vibrantTeal, creamColor: AppTheme.background(for: colorScheme)) {
+                        PINKeyButton(text: "0", tealColor: AppTheme.brandedText(for: colorScheme), creamColor: AppTheme.background(for: colorScheme)) {
                             appendDigit("0")
                         }
 
@@ -123,7 +123,7 @@ struct ParentPINEntryView: View {
                         Button(action: deleteDigit) {
                             Image(systemName: "delete.left")
                                 .font(.system(size: 24, weight: .medium))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                                 .frame(width: 72, height: 72)
                         }
                     }

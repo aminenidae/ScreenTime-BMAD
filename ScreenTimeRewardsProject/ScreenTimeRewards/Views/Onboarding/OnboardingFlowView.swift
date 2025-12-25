@@ -103,11 +103,11 @@ private struct OnboardingWelcomeStep: View {
                         .padding(.top, 16)
 
                     // Title slogan below image
-                    Text("We Designed The Only Way\nKids' Screen Time Should Be")
+                    Text("Kid's Screen Time Reinvented... The right Way")
                         .font(.system(size: isLandscape ? 15 : 17, weight: .bold)) // Increased by 2 pts
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .textCase(.uppercase)
                         .tracking(3)
                         .padding(.horizontal, 24)
@@ -116,23 +116,26 @@ private struct OnboardingWelcomeStep: View {
                     Spacer(minLength: isLandscape ? 12 : 16)
 
                     // Feature rows with custom icons
-                    VStack(alignment: .leading, spacing: isLandscape ? 10 : 14) {
+                    VStack(alignment: .center, spacing: isLandscape ? 10 : 14) {
                         IntroFeatureRow(
                             imageName: "onboarding_icon_1",
                             title: "Earn By Learning",
-                            subtitle: "Educational Apps Earn Points Automatically"
+                            subtitle: "Educational Apps Earn Points Automatically",
+                            colorScheme: colorScheme
                         )
 
                         IntroFeatureRow(
                             imageName: "onboarding_icon_2",
                             title: "Unlock Rewards",
-                            subtitle: "Points Unlock Games And Fun Apps"
+                            subtitle: "Points Unlock Games And Fun Apps",
+                            colorScheme: colorScheme
                         )
 
                         IntroFeatureRow(
                             imageName: "onboarding_icon_3",
                             title: "Monitor Progress",
-                            subtitle: "Track Learning Time From Any Device"
+                            subtitle: "Track Learning Time From Any Device",
+                            colorScheme: colorScheme
                         )
                     }
                     .padding(.horizontal, 24)
@@ -163,6 +166,7 @@ private struct IntroFeatureRow: View {
     let imageName: String
     let title: String
     let subtitle: String
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(spacing: 12) {
@@ -175,16 +179,18 @@ private struct IntroFeatureRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .textCase(.uppercase)
                     .tracking(2)
 
                 Text(subtitle)
                     .font(.system(size: 13)) // Reduced from 15
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                     .textCase(.uppercase)
             }
 
             Spacer()
         }
+        .frame(maxWidth: 400)
     }
 }

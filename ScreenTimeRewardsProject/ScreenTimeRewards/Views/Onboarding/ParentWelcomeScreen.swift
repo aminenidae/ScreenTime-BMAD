@@ -22,12 +22,13 @@ struct ParentWelcomeScreen: View {
                     Text("WELCOME, \(deviceName.isEmpty ? "PARENT" : deviceName.uppercased())")
                         .font(.system(size: 29, weight: .bold)) // Reduced from 32
                         .multilineTextAlignment(.center)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .textCase(.uppercase)
                         .tracking(3)
 
                     Text("This device becomes your remote monitor. You'll guide setup on your child's device and connect them with a QR code.")
                         .font(.system(size: 17))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 520)
                         .textCase(.uppercase)
@@ -46,7 +47,7 @@ struct ParentWelcomeScreen: View {
             Button(action: onContinue) {
                 Text("Show Me the Steps")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(.white)
+                    .foregroundColor(AppTheme.lightCream)
                     .frame(maxWidth: 400)
                     .frame(height: 56)
                     .background(AppTheme.vibrantTeal)
@@ -104,12 +105,13 @@ private struct ParentFeatureCard: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(row.title)
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .textCase(.uppercase)
                     .tracking(2)
 
                 Text(row.detail)
                     .font(.system(size: 15))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                     .textCase(.uppercase)
             }
 

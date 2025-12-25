@@ -38,7 +38,7 @@ struct ParentDashboardView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
@@ -102,12 +102,12 @@ struct ParentDashboardView: View {
             HStack {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text("TODAY'S ACTIVITY")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Spacer()
             }
@@ -118,22 +118,22 @@ struct ParentDashboardView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "book.fill")
                             .font(.system(size: 14))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                         Text("LEARNING")
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     }
 
                     HStack(alignment: .bottom, spacing: 4) {
                         Text("\(Int(viewModel.learningTime / 60))")
                             .font(.system(size: 32, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                         Text("min")
                             .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                             .padding(.bottom, 4)
                     }
                 }
@@ -214,17 +214,24 @@ struct ParentDashboardView: View {
                 Text("DAILY STREAK")
                     .font(.system(size: 12, weight: .medium))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(viewModel.currentStreak)")
                         .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text("days")
                         .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                         .padding(.bottom, 4)
+                }
+                
+                // Milestone Info
+                if let next = StreakService.shared.getNextMilestone(for: viewModel.currentStreak) {
+                    Text("\(next - viewModel.currentStreak) days to \(next)-day bonus!")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
             }
 
@@ -249,7 +256,7 @@ struct ParentDashboardView: View {
                 Text("QUICK STATS")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Spacer()
             }
@@ -306,12 +313,12 @@ struct ParentDashboardView: View {
 
             Text(value)
                 .font(.system(size: 28, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
             Text(label.uppercased())
                 .font(.system(size: 10, weight: .medium))
                 .tracking(0.5)
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity)

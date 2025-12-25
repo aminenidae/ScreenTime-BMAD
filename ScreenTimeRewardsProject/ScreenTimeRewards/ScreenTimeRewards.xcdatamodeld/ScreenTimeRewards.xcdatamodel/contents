@@ -198,6 +198,7 @@
         </fetchIndex>
     </entity>
     <entity name="StreakRecord" representedClassName="StreakRecord" syncable="YES">
+        <attribute name="appLogicalID" optional="YES" attributeType="String"/>
         <attribute name="childDeviceID" optional="YES" attributeType="String"/>
         <attribute name="currentStreak" optional="YES" attributeType="Integer 16" defaultValueString="0" usesScalarValueType="YES"/>
         <attribute name="lastActivityDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
@@ -209,6 +210,13 @@
         </fetchIndex>
         <fetchIndex name="bychildDeviceID">
             <fetchIndexElement property="childDeviceID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byAppLogicalID">
+            <fetchIndexElement property="appLogicalID" type="Binary" order="ascending"/>
+        </fetchIndex>
+        <fetchIndex name="byChildDeviceIDAndApp">
+            <fetchIndexElement property="childDeviceID" type="Binary" order="ascending"/>
+            <fetchIndexElement property="appLogicalID" type="Binary" order="ascending"/>
         </fetchIndex>
     </entity>
     <entity name="SyncQueueItem" representedClassName="SyncQueueItem" syncable="YES">

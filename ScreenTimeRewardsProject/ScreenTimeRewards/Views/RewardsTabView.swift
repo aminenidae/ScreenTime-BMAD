@@ -42,7 +42,7 @@ struct RewardsTabView: View {
                         }) {
                             Image(systemName: "chevron.left")
                                 .font(.system(size: 18, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                                 .frame(width: 44, height: 44)
                                 .background(
                                     RoundedRectangle(cornerRadius: 12)
@@ -55,7 +55,7 @@ struct RewardsTabView: View {
                         Text("REWARD APPS")
                             .font(.system(size: 18, weight: .bold))
                             .tracking(2)
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                         Spacer()
 
@@ -68,7 +68,7 @@ struct RewardsTabView: View {
                     .padding(.bottom, 12)
 
                     Rectangle()
-                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .fill(AppTheme.brandedText(for: colorScheme).opacity(0.15))
                         .frame(height: 1)
                 }
                 .background(AppTheme.background(for: colorScheme))
@@ -89,7 +89,7 @@ struct RewardsTabView: View {
                             Text("YOUR REWARDS")
                                 .font(.system(size: 14, weight: .semibold))
                                 .tracking(1.5)
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         }
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(.horizontal, 16)
@@ -196,16 +196,16 @@ struct RewardsTabView: View {
                 Text("DAILY USAGE TIME")
                     .font(.system(size: 12, weight: .medium))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                 HStack(alignment: .bottom, spacing: 8) {
                     Text("\(Int(viewModel.rewardTime / 60))")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(AppTheme.playfulCoral)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text("MINUTES")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                         .padding(.bottom, 4)
                 }
 
@@ -295,7 +295,7 @@ private extension RewardsTabView {
                         .font(.system(size: 14, weight: .bold))
                         .tracking(1)
                 }
-                .foregroundColor(AppTheme.background(for: colorScheme))
+                .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(
@@ -332,11 +332,11 @@ private extension RewardsTabView {
                 VStack(spacing: 12) {
                     Image(systemName: "gamecontroller")
                         .font(.system(size: 40))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.3))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
 
                     Text("No reward apps selected")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.5))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                 }
                 .frame(maxWidth: .infinity)
                 .padding(.vertical, 48)
@@ -378,11 +378,11 @@ private extension RewardsTabView {
                             Label(snapshot.token)
                                 .labelStyle(.titleOnly)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         } else {
                             Text(snapshot.displayName.isEmpty ? "Reward App" : snapshot.displayName)
                                 .font(.system(size: 14, weight: .semibold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                                 .lineLimit(1)
                                 .truncationMode(.tail)
                         }
@@ -401,10 +401,10 @@ private extension RewardsTabView {
 
                                 if let summary = configSummary(for: snapshot) {
                                     Text("•")
-                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
+                                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
                                     Text(summary)
                                         .font(.system(size: 11))
-                                        .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                                         .lineLimit(1)
                                 }
                             }
@@ -426,7 +426,7 @@ private extension RewardsTabView {
 
                     Image(systemName: "chevron.right")
                         .font(.system(size: 12, weight: .semibold))
-                        .foregroundColor(configured ? AppTheme.vibrantTeal.opacity(0.5) : AppTheme.sunnyYellow)
+                        .foregroundColor(configured ? AppTheme.brandedText(for: colorScheme).opacity(0.5) : AppTheme.sunnyYellow)
                 }
                 .padding(14)
             }

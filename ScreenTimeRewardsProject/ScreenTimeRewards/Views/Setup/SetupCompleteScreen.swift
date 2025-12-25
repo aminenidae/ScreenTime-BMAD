@@ -5,21 +5,13 @@
 //  Option D: First Launch Setup Flow
 //  Shows setup completion and instructions
 //
+//
 
 import SwiftUI
 
-// MARK: - Design Tokens
-fileprivate struct SetupCompleteColors {
-    static let primary = Color(hex: "#4CAF50")
-    static let secondary = Color(hex: "#007AFF")
-    static let background = Color(hex: "#F9F9F9")
-    static let card = Color(hex: "#FFFFFF")
-    static let textPrimary = Color(hex: "#333333")
-    static let textSecondary = Color(hex: "#333333").opacity(0.8)
-}
-
 struct SetupCompleteScreen: View {
     let onComplete: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -28,19 +20,19 @@ struct SetupCompleteScreen: View {
                 // Success icon section
                 ZStack {
                     Circle()
-                        .fill(SetupCompleteColors.primary.opacity(0.1))
+                        .fill(AppTheme.vibrantTeal.opacity(0.1))
                         .frame(width: 160, height: 160)
 
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 128))
-                        .foregroundColor(SetupCompleteColors.primary)
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
                 .padding(.bottom, 32)
 
                 // Headline
                 Text("Setup Complete!")
                     .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(SetupCompleteColors.textPrimary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .multilineTextAlignment(.center)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
@@ -51,7 +43,7 @@ struct SetupCompleteScreen: View {
                 // Subtitle
                 Text("You're all set to empower your child's learning journey.")
                     .font(.system(size: 16))
-                    .foregroundColor(SetupCompleteColors.textSecondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                     .multilineTextAlignment(.center)
                     .lineLimit(nil)
                     .fixedSize(horizontal: false, vertical: true)
@@ -65,21 +57,23 @@ struct SetupCompleteScreen: View {
                     VStack(spacing: 16) {
                         Text("Quick Tips to Get Started")
                             .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(SetupCompleteColors.textPrimary)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .multilineTextAlignment(.center)
 
                         // Tip 1
                         TipCard(
                             icon: "lightbulb.fill",
                             title: "Explore Together:",
-                            description: "Show your child how to earn rewards by using their Learning Apps."
+                            description: "Show your child how to earn rewards by using their Learning Apps.",
+                            colorScheme: colorScheme
                         )
 
                         // Tip 2
                         TipCard(
                             icon: "gearshape.fill",
                             title: "Adjust Goals:",
-                            description: "You can easily change daily time targets from the Parent Dashboard."
+                            description: "You can easily change daily time targets from the Parent Dashboard.",
+                            colorScheme: colorScheme
                         )
                     }
                 }
@@ -96,26 +90,22 @@ struct SetupCompleteScreen: View {
                 Button(action: onComplete) {
                     Text("Start Using App")
                         .font(.system(size: 16, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(AppTheme.lightCream)
                         .frame(maxWidth: .infinity)
                         .frame(height: 48)
-                        .background(SetupCompleteColors.primary)
+                        .background(AppTheme.vibrantTeal)
                         .cornerRadius(12)
-                        .shadow(color: SetupCompleteColors.primary.opacity(0.3), radius: 10, x: 0, y: 4)
+                        .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 10, x: 0, y: 4)
                 }
                 .frame(maxWidth: 448) // max-w-md
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
             .padding(.bottom, 32)
-            .background(
-                SetupCompleteColors.background
-                    .opacity(0.8)
-                    .background(.ultraThinMaterial)
-            )
+            .background(AppTheme.background(for: colorScheme))
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(SetupCompleteColors.background)
+        .background(AppTheme.background(for: colorScheme))
     }
 }
 
@@ -124,13 +114,14 @@ struct TipCard: View {
     let icon: String
     let title: String
     let description: String
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
             // Icon
             Image(systemName: icon)
                 .font(.system(size: 24))
-                .foregroundColor(SetupCompleteColors.secondary)
+                .foregroundColor(AppTheme.playfulCoral)
                 .frame(width: 24, height: 24)
                 .padding(.top, 2)
 
@@ -138,20 +129,20 @@ struct TipCard: View {
             HStack(spacing: 0) {
                 Text(title)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(SetupCompleteColors.textPrimary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 +
                 Text(" ")
                 +
                 Text(description)
                     .font(.system(size: 16))
-                    .foregroundColor(SetupCompleteColors.textPrimary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
             }
             .fixedSize(horizontal: false, vertical: true)
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(16)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SetupCompleteColors.card)
+        .background(AppTheme.card(for: colorScheme))
         .cornerRadius(12)
         .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
     }

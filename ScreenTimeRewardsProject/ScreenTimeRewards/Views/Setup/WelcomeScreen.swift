@@ -5,21 +5,13 @@
 //  Option D: First Launch Setup Flow
 //  Welcome screen shown on first app launch
 //
+//
 
 import SwiftUI
 
-// MARK: - Design Tokens
-fileprivate struct WelcomeColors {
-    static let primary = Color(hex: "#00A693")
-    static let background = Color(hex: "#F7FAFC")
-    static let text = Color(hex: "#2D3748")
-    static let subtext = Color(hex: "#618961")
-    static let border = Color(hex: "#dbe6db")
-    static let card = Color(hex: "#ffffff")
-}
-
 struct WelcomeScreen: View {
     let onContinue: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,19 +22,19 @@ struct WelcomeScreen: View {
                     // Icon
                     ZStack {
                         RoundedRectangle(cornerRadius: 12)
-                            .fill(WelcomeColors.primary.opacity(0.2))
+                            .fill(AppTheme.vibrantTeal.opacity(0.2))
                             .frame(width: 80, height: 80)
 
                         Image(systemName: "graduationcap.fill")
                             .font(.system(size: 48))
-                            .foregroundColor(WelcomeColors.primary)
+                            .foregroundColor(AppTheme.vibrantTeal)
                     }
                     .padding(.bottom, 24)
 
                     // Headline
                     Text("Transform Screen Time into Learning Time")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(WelcomeColors.text)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
@@ -51,7 +43,7 @@ struct WelcomeScreen: View {
                     // Subtitle
                     Text("Guide your child's digital journey. Encourage learning, reward progress, and build healthy habits together.")
                         .font(.system(size: 16))
-                        .foregroundColor(WelcomeColors.subtext)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                         .multilineTextAlignment(.center)
                         .lineLimit(nil)
                         .fixedSize(horizontal: false, vertical: true)
@@ -68,7 +60,8 @@ struct WelcomeScreen: View {
                         icon: "brain.head.profile",
                         title: "Set Learning Goals",
                         description: "Turn educational apps into exciting challenges.",
-                        iconColor: WelcomeColors.primary
+                        iconColor: AppTheme.vibrantTeal,
+                        colorScheme: colorScheme
                     )
 
                     // Feature 2
@@ -76,7 +69,8 @@ struct WelcomeScreen: View {
                         icon: "trophy.fill",
                         title: "Reward Achievements",
                         description: "Unlock games and fun apps as they learn.",
-                        iconColor: WelcomeColors.primary
+                        iconColor: AppTheme.playfulCoral,
+                        colorScheme: colorScheme
                     )
 
                     // Feature 3
@@ -84,7 +78,8 @@ struct WelcomeScreen: View {
                         icon: "figure.2.and.child.holdinghands",
                         title: "Foster Healthy Habits",
                         description: "Create a balanced and positive digital life.",
-                        iconColor: WelcomeColors.primary
+                        iconColor: AppTheme.vibrantTeal,
+                        colorScheme: colorScheme
                     )
                 }
                 .padding(.horizontal, 24)
@@ -99,12 +94,12 @@ struct WelcomeScreen: View {
                 Button(action: onContinue) {
                     Text("Get Started")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(.white)
+                        .foregroundColor(AppTheme.lightCream)
                         .frame(maxWidth: .infinity)
                         .frame(height: 56)
-                        .background(WelcomeColors.primary)
+                        .background(AppTheme.vibrantTeal)
                         .cornerRadius(12)
-                        .shadow(color: WelcomeColors.primary.opacity(0.3), radius: 12, x: 0, y: 4)
+                        .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 12, x: 0, y: 4)
                 }
                 .frame(maxWidth: 480)
 
@@ -112,14 +107,14 @@ struct WelcomeScreen: View {
                 HStack(spacing: 4) {
                     Text("Already have an account?")
                         .font(.system(size: 14))
-                        .foregroundColor(WelcomeColors.subtext)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                     Button(action: {
                         // Login action
                     }) {
                         Text("Log In")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(WelcomeColors.primary)
+                            .foregroundColor(AppTheme.vibrantTeal)
                     }
                 }
             }
@@ -128,7 +123,7 @@ struct WelcomeScreen: View {
             .padding(.bottom, 24)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(WelcomeColors.background)
+        .background(AppTheme.background(for: colorScheme))
     }
 }
 
@@ -138,13 +133,14 @@ struct FeatureRow: View {
     let title: String
     let description: String
     let iconColor: Color
+    let colorScheme: ColorScheme
 
     var body: some View {
         HStack(spacing: 16) {
             // Icon container
             ZStack {
                 RoundedRectangle(cornerRadius: 8)
-                    .fill(WelcomeColors.primary.opacity(0.1))
+                    .fill(iconColor.opacity(0.1))
                     .frame(width: 48, height: 48)
 
                 Image(systemName: icon)
@@ -157,11 +153,11 @@ struct FeatureRow: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.system(size: 16, weight: .bold))
-                    .foregroundColor(WelcomeColors.text)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text(description)
                     .font(.system(size: 14))
-                    .foregroundColor(WelcomeColors.subtext)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .fixedSize(horizontal: false, vertical: true)
             }
 

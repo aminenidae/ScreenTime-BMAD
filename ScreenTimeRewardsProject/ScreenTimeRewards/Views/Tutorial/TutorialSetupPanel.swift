@@ -6,10 +6,15 @@ struct TutorialSetupPanel: View {
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
-        VStack(spacing: 0) {
-            Spacer()
+        ZStack {
+            // Opaque background to cover the dimmed overlay
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
-            VStack(spacing: 24) {
+            VStack(spacing: 0) {
+                Spacer()
+
+                VStack(spacing: 24) {
                 // Success Icon
                 ZStack {
                     Circle()
@@ -130,6 +135,7 @@ struct TutorialSetupPanel: View {
             )
             .padding(.horizontal, 16)
             .padding(.bottom, 32)
+            }
         }
     }
 

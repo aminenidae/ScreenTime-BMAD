@@ -9,6 +9,12 @@ struct ChildDashboardView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @Environment(\.colorScheme) var colorScheme
 
+    @StateObject private var streakService = StreakService.shared
+    @State private var showMilestoneCelebration = false
+    @State private var achievedMilestone: Int = 0
+    @State private var milestoneBonus: Int = 0
+    @State private var milestoneAppName: String = ""
+
     // Design colors matching ModeSelectionView
     
     
@@ -45,6 +51,17 @@ struct ChildDashboardView: View {
         viewModel.availableLearningPoints
     }
 
+    private var aggregateStreak: (current: Int, longest: Int, isAtRisk: Bool) {
+        streakService.getAggregateStreak(for: DeviceModeManager.shared.deviceID)
+    }
+
+    private var appStreaks: [(appName: String, currentStreak: Int, isAtRisk: Bool)] {
+        viewModel.rewardSnapshots.compactMap { snapshot -> (String, Int, Bool)? in
+            guard let record = streakService.streakRecords[snapshot.logicalID] else { return nil }
+            return (snapshot.displayName, Int(record.currentStreak), record.isAtRisk)
+        }
+    }
+
     var body: some View {
         ZStack {
             // Background
@@ -62,6 +79,34 @@ struct ChildDashboardView: View {
                             earnedMinutes: totalEarnedMinutes,
                             usedMinutes: totalUsedMinutes
                         )
+                        
+                        // Streak Card
+                        let deviceID = DeviceModeManager.shared.deviceID
+                        let aggregate = streakService.getAggregateStreak(for: deviceID)
+                        
+                        // Get settings from app with highest streak for progress calculation
+                        let highestAppID = streakService.streakRecords
+                            .max(by: { $0.value.currentStreak < $1.value.currentStreak })?
+                            .key
+                        
+                        let streakSettings = highestAppID.flatMap { appID in
+                            AppScheduleService.shared.getSchedule(for: appID)?.streakSettings
+                        }
+                        
+                        ChildStreakCard(
+                            aggregateStreak: aggregate,
+                            appStreaks: appStreaks,
+                            nextMilestone: streakService.getNextMilestone(
+                                for: aggregate.current,
+                                settings: streakSettings ?? .defaultSettings
+                            ),
+                            progress: streakService.progressToNextMilestone(
+                                current: aggregate.current,
+                                settings: streakSettings ?? .defaultSettings
+                            ),
+                            hasAnyStreaksEnabled: !streakService.streakRecords.isEmpty
+                        )
+
 
                         // Learning Apps Section
                         LearningAppListSection(
@@ -89,6 +134,42 @@ struct ChildDashboardView: View {
             }
             .refreshable {
                 await viewModel.refresh()
+            }
+        }
+        .onAppear {
+            streakService.loadStreaksForChild(childDeviceID: DeviceModeManager.shared.deviceID)
+        }
+        .overlay {
+            if showMilestoneCelebration {
+                StreakMilestoneCelebration(
+                    milestone: achievedMilestone,
+                    bonusMinutes: milestoneBonus,
+                    appName: milestoneAppName,
+                    isPresented: $showMilestoneCelebration
+                )
+                .transition(.scale.combined(with: .opacity))
+                .zIndex(999)
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .streakMilestoneAchieved)) { notification in
+            if let milestone = notification.userInfo?["milestone"] as? Int,
+               let bonus = notification.userInfo?["bonusMinutes"] as? Int,
+               let appLogicalID = notification.userInfo?["appLogicalID"] as? String {
+                
+                achievedMilestone = milestone
+                milestoneBonus = bonus
+                
+                // Get app name from logicalID
+                if let appName = viewModel.rewardSnapshots
+                    .first(where: { $0.logicalID == appLogicalID })?.displayName {
+                    milestoneAppName = appName
+                } else {
+                    milestoneAppName = "App"
+                }
+                
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    showMilestoneCelebration = true
+                }
             }
         }
     }

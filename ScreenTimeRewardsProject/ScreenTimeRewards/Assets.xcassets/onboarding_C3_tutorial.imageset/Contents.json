@@ -1,0 +1,13 @@
+{
+  "images" : [
+    {
+      "filename" : "tutorial_preview.png",
+      "idiom" : "universal",
+      "scale" : "1x"
+    }
+  ],
+  "info" : {
+    "author" : "xcode",
+    "version" : 1
+  }
+}

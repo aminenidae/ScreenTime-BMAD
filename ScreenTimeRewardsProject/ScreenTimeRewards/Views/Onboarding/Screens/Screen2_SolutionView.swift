@@ -27,7 +27,7 @@ struct Screen2_SolutionView: View {
     }
 
     /// Delay between each step animation (in seconds)
-    private let stepAnimationDelay: Double = 2.0
+    private let stepAnimationDelay: Double = 1.0
 
     private let steps: [SolutionStepCard] = [
         SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree On A Goal", subtitle: "Parent & Child Discuss Learning Targets"),
@@ -49,9 +49,14 @@ struct Screen2_SolutionView: View {
                     .textCase(.uppercase)
                     .tracking(3)
 
-                Text("Learning Automatically Unlocks AND Locks Reward Apps.")
+                (Text("Learning Apps ")
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme)) +
+                Text("Automatically")
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .fontWeight(.bold) +
+                Text(" Unlock AND Lock Reward Apps.")
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme)))
                     .font(.system(size: layout.isRegular ? 16 : 14, weight: .regular))
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
                     .padding(.horizontal, layout.horizontalPadding)
                     .textCase(.uppercase)

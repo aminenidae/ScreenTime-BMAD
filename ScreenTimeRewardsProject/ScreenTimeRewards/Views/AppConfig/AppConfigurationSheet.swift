@@ -72,7 +72,7 @@ struct AppConfigurationSheet: View {
 
                         // Divider
                         Rectangle()
-                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                            .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
                             .frame(height: 1)
 
                         // Time Window Section
@@ -98,7 +98,7 @@ struct AppConfigurationSheet: View {
 
                         // Divider
                         Rectangle()
-                            .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                            .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
                             .frame(height: 1)
 
                         // Daily Limits Section
@@ -115,7 +115,7 @@ struct AppConfigurationSheet: View {
                         // Unlock Requirements Section (reward apps only)
                         if appType == .reward {
                             Rectangle()
-                                .fill(AppTheme.vibrantTeal.opacity(0.1)) // Use AppTheme color
+                                .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1)) // Use AppTheme color
                                 .frame(height: 1)
 
                             LinkedLearningAppsPicker(
@@ -125,6 +125,17 @@ struct AppConfigurationSheet: View {
                             )
                             .id(AppConfigSection.linkedApps.rawValue)
                             .tutorialTarget("config_linked_apps")
+
+                            // Streak Rewards Section (reward apps only)
+                            Rectangle()
+                                .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
+                                .frame(height: 1)
+
+                            StreakSettingsPicker(
+                                streakSettings: $localConfig.streakSettings
+                            )
+                            .id("config_streak_section")
+                            .tutorialTarget("config_streak")
                         }
 
                         Spacer(minLength: 40)
@@ -152,7 +163,7 @@ struct AppConfigurationSheet: View {
                         onCancel()
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                     .textCase(.uppercase)
                 }
 
@@ -182,7 +193,7 @@ struct AppConfigurationSheet: View {
                 Text("SUMMARY")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
-                    .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                     .textCase(.uppercase)
             }
 
@@ -195,7 +206,7 @@ struct AppConfigurationSheet: View {
 
                         Text(line)
                             .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(AppTheme.vibrantTeal.opacity(0.8)) // Use AppTheme color
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8)) // Use AppTheme color
                             .textCase(.uppercase)
                     }
                 }
@@ -394,13 +405,13 @@ struct AppConfigurationSheet: View {
                     Label(token)
                         .labelStyle(.titleOnly)
                         .font(.system(size: 18, weight: .bold)) // Standardized with other titles
-                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                         .lineLimit(1)
                         .textCase(.uppercase)
                 } else {
                     Text(appName)
                         .font(.system(size: 18, weight: .bold)) // Standardized with other titles
-                        .foregroundColor(AppTheme.vibrantTeal) // Use AppTheme color
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
                         .lineLimit(1)
                         .textCase(.uppercase)
                 }

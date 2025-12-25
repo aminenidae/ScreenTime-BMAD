@@ -17,6 +17,9 @@ struct AppTheme {
     /// Deep Navy - Dark background (#073B4C)
     static let deepNavy = Color(red: 0.027, green: 0.231, blue: 0.298)
 
+    /// Dark Teal - Card/Tab background (#154B5C)
+    static let darkTeal = Color(hex: "154B5C")
+
     /// Light Cream - Light background (#F5F3E1)
     static let lightCream = Color(red: 0.96, green: 0.95, blue: 0.88)
 
@@ -65,6 +68,12 @@ struct AppTheme {
 
     static func inputBackground(for scheme: ColorScheme) -> Color {
         scheme == .dark ? Color(red: 0.082, green: 0.294, blue: 0.361).opacity(0.5) : Color.white.opacity(0.8)
+    }
+
+    /// Returns Vibrant Teal in Light Mode (Brand) and Light Cream in Dark Mode (Readable).
+    /// Use this for text that needs to be colored (not default black/white) but must remain readable on dark backgrounds.
+    static func brandedText(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? lightCream : vibrantTeal
     }
 
     // MARK: - Semantic Colors

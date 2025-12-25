@@ -117,10 +117,12 @@ struct ParentTabIndicator: View {
 
     private let tabs: [(String, String)] = [
         ("Dashboard", "chart.bar.fill"),
-        ("Learning", "book.fill"),
-        ("Rewards", "gift.fill"),
+        ("Learning Apps", "book.fill"),
+        ("Reward Apps", "gift.fill"),
         ("Settings", "gearshape.fill")
     ]
+
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         HStack(spacing: 0) {
@@ -133,16 +135,16 @@ struct ParentTabIndicator: View {
                     VStack(spacing: 6) {
                         Image(systemName: tabs[index].1)
                             .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.4))
+                            .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
                             .frame(width: 48, height: 48)
 
                         Text(tabs[index].0)
                             .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
-                            .foregroundColor(selectedTab == index ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.4))
+                            .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
 
                         // Active indicator
                         RoundedRectangle(cornerRadius: 2)
-                            .fill(selectedTab == index ? AppTheme.vibrantTeal : Color.clear)
+                            .fill(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : Color.clear)
                             .frame(height: 3)
                     }
                     .frame(maxWidth: .infinity)
@@ -151,12 +153,12 @@ struct ParentTabIndicator: View {
                 .buttonStyle(.plain)
             }
         }
-        .background(.ultraThinMaterial)
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea(edges: .bottom))
         .overlay(
             Rectangle()
                 .frame(height: 0.5)
-                .foregroundColor(Color.secondary.opacity(0.2)),
-            alignment: .bottom
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.2)),
+            alignment: .top // Moved to top for separation
         )
     }
 }

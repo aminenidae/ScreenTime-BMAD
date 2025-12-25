@@ -423,11 +423,15 @@ struct LearningTabView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "plus.circle.fill")
                         .font(.system(size: 16))
-                    Text("MANAGE APPS")
+                    Text("/")
+                        .font(.system(size: 14, weight: .bold))
+                    Image(systemName: "minus.circle.fill")
+                        .font(.system(size: 16))
+                    Text("LEARNING APPS")
                         .font(.system(size: 14, weight: .bold))
                         .tracking(1)
                 }
-                .foregroundColor(colorScheme == .dark ? Color.black : AppTheme.lightCream)
+                .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
                 .frame(height: 52)
                 .background(

@@ -8,13 +8,17 @@ struct RewardAppListSection: View {
     let remainingMinutes: Int
     let unlockedApps: [ApplicationToken: UnlockedRewardApp]
 
+    @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.colorScheme) var colorScheme
     @State private var isExpanded = true
+    @State private var selectedApp: RewardDetailData?
 
-    // Design colors
-    
-    
-    
+    private struct RewardDetailData: Identifiable {
+        let snapshot: RewardAppSnapshot
+        let unlockedApp: UnlockedRewardApp?
+        let config: AppScheduleConfiguration?
+        var id: String { snapshot.id }
+    }
 
     private var totalUsedSeconds: TimeInterval {
         snapshots.reduce(0) { $0 + $1.totalSeconds }
@@ -57,6 +61,51 @@ struct RewardAppListSection: View {
                         .stroke(AppTheme.playfulCoral.opacity(0.1), lineWidth: 1)
                 )
         )
+        .sheet(item: $selectedApp) { detailData in
+            ChildAppDetailView(
+                snapshot: detailData.snapshot,
+                unlockedApp: detailData.unlockedApp,
+                linkedLearningApps: detailData.config?.linkedLearningApps ?? [],
+                learningProgress: calculateLearningProgress(for: detailData.config),
+                unlockMode: detailData.config?.unlockMode ?? .all,
+                streakData: getStreakData(for: detailData.snapshot.logicalID),
+                dailyLimit: detailData.config?.dailyLimits.todayLimit ?? 60,
+                previousDayUsage: nil // Would fetch from historical data
+            )
+        }
+    }
+
+    private func calculateLearningProgress(for config: AppScheduleConfiguration?) -> [String: (used: Int, required: Int, goalMet: Bool)] {
+        guard let config = config else { return [:] }
+        var progress: [String: (used: Int, required: Int, goalMet: Bool)] = [:]
+        
+        for linkedApp in config.linkedLearningApps {
+            // Find usage from snapshots
+            let usedSeconds = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID })?.totalSeconds ?? 0
+            let usedMinutes = Int(usedSeconds / 60)
+            let goalMet = usedMinutes >= linkedApp.minutesRequired
+            progress[linkedApp.logicalID] = (usedMinutes, linkedApp.minutesRequired, goalMet)
+        }
+        
+        return progress
+    }
+
+    private func getStreakData(for logicalID: String) -> (current: Int, longest: Int, nextMilestone: Int?, progress: Double, bonusEarned: Int)? {
+        let streakService = StreakService.shared
+        guard let record = streakService.streakRecords[logicalID],
+              let config = AppScheduleService.shared.getSchedule(for: logicalID),
+              let settings = config.streakSettings,
+              settings.isEnabled else {
+            return nil
+        }
+        
+        let current = Int(record.currentStreak)
+        let longest = Int(record.longestStreak)
+        let nextMilestone = streakService.getNextMilestone(for: current, settings: settings)
+        let progress = streakService.progressToNextMilestone(current: current, settings: settings)
+        let bonusEarned = streakService.getTotalBonusMinutes(for: logicalID)
+        
+        return (current, longest, nextMilestone, progress, bonusEarned)
     }
 
     // MARK: - Subviews
@@ -166,7 +215,7 @@ struct RewardAppListSection: View {
             } else {
                 Image(systemName: "lock.fill")
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
             }
         }
         .padding(12)
@@ -175,6 +224,15 @@ struct RewardAppListSection: View {
                 .fill(AppTheme.playfulCoral.opacity(0.05))
         )
         .opacity(remainingMinutes > 0 || isUnlocked ? 1.0 : 0.6)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            let config = AppScheduleService.shared.getSchedule(for: snapshot.logicalID)
+            selectedApp = RewardDetailData(
+                snapshot: snapshot,
+                unlockedApp: unlockedApps[snapshot.token],
+                config: config
+            )
+        }
     }
 
     private var emptyState: some View {

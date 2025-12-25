@@ -20,6 +20,7 @@ extension StreakRecord {
 
     @NSManaged public var streakID: String?
     @NSManaged public var childDeviceID: String?
+    @NSManaged public var appLogicalID: String?
     @NSManaged public var streakType: String?
     @NSManaged public var currentStreak: Int16
     @NSManaged public var longestStreak: Int16

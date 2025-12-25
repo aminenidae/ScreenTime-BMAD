@@ -3,148 +3,288 @@ import SwiftUI
 struct SubscriptionManagementView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.dismiss) private var dismiss
     @State private var showPaywall = false
 
     var body: some View {
-        List {
-            currentStatusSection
+        ZStack(alignment: .top) {
+            // Background
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
-            if subscriptionManager.isInTrial {
-                trialSection
+            VStack(spacing: 0) {
+                // Header
+                headerView
+
+                ScrollView {
+                    VStack(spacing: 20) {
+                        currentStatusCard
+
+                        if subscriptionManager.isInTrial {
+                            trialCard
+                        }
+
+                        if subscriptionManager.isInGracePeriod {
+                            graceCard
+                        }
+
+                        if subscriptionManager.hasAccess {
+                            benefitsCard
+                        }
+
+                        upgradeCard
+                        managementCard
+                    }
+                    .padding(20)
+                }
             }
-
-            if subscriptionManager.isInGracePeriod {
-                graceSection
-            }
-
-            if subscriptionManager.hasAccess {
-                benefitsSection
-            }
-
-            upgradeSection
-            managementSection
         }
-        .navigationTitle("Subscription")
         .sheet(isPresented: $showPaywall) {
             SubscriptionPaywallView()
         }
     }
 }
 
-// MARK: - Sections
+// MARK: - Components
 
 private extension SubscriptionManagementView {
-    var currentStatusSection: some View {
-        Section {
+    var headerView: some View {
+        ZStack {
+            HStack {
+                Spacer()
+                Button(action: { dismiss() }) {
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 30))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
+                }
+            }
+
+            Text("SUBSCRIPTION")
+                .font(.system(size: 18, weight: .bold))
+                .tracking(2)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+        }
+        .padding(.horizontal, 20)
+        .padding(.vertical, 16)
+        .background(AppTheme.background(for: colorScheme))
+    }
+
+    var currentStatusCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
+                    Text("CURRENT PLAN")
+                        .font(.system(size: 12, weight: .bold))
+                        .tracking(1)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                    
                     Text(subscriptionManager.currentTierName)
-                        .font(.system(size: 18, weight: .bold))
-                    Text(subscriptionManager.currentStatus.displayText)
-                        .font(.system(size: 14))
-                        .foregroundColor(.secondary)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
-
+                
                 Spacer()
-
-                Image(systemName: tierIcon)
-                    .font(.system(size: 40))
-                    .foregroundColor(tierColor)
-            }
-            .padding(.vertical, 8)
-        }
-    }
-
-    var trialSection: some View {
-        Section {
-            if let daysRemaining = subscriptionManager.trialDaysRemaining {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(daysRemaining) days remaining")
-                            .font(.system(size: 16, weight: .semibold))
-                        Text("Free trial ends on \(formattedTrialEndDate)")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "clock.fill")
-                        .foregroundColor(AppTheme.sunnyYellow)
+                
+                ZStack {
+                    Circle()
+                        .fill(tierColor.opacity(0.15))
+                        .frame(width: 50, height: 50)
+                    
+                    Image(systemName: tierIcon)
+                        .font(.system(size: 24))
+                        .foregroundColor(tierColor)
                 }
             }
-        } header: {
-            Text("Free Trial")
-        }
-    }
-
-    var graceSection: some View {
-        Section {
-            if let daysRemaining = subscriptionManager.graceDaysRemaining {
-                Label {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("\(daysRemaining) days to renew")
-                            .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(AppTheme.playfulCoral)
-                        Text("Subscribe now to continue using the app")
-                            .font(.system(size: 14))
-                            .foregroundColor(.secondary)
-                    }
-                } icon: {
-                    Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundColor(AppTheme.playfulCoral)
-                }
-            }
-        } header: {
-            Text("Grace Period")
-        }
-    }
-
-    var benefitsSection: some View {
-        Section {
-            ForEach(subscriptionManager.currentTier.features, id: \.self) { feature in
-                Label(feature, systemImage: "checkmark.circle.fill")
+            
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
                     .foregroundColor(AppTheme.vibrantTeal)
-            }
-        } header: {
-            Text("Your Benefits")
-        }
-    }
-
-    var upgradeSection: some View {
-        Section {
-            if subscriptionManager.currentTier == .individual {
-                Button {
-                    showPaywall = true
-                } label: {
-                    Label("Upgrade to Family", systemImage: "arrow.up.circle.fill")
-                        .foregroundColor(AppTheme.vibrantTeal)
-                }
-            } else if subscriptionManager.currentTier == .free {
-                Button {
-                    showPaywall = true
-                } label: {
-                    Label("Subscribe Now", systemImage: "crown.fill")
-                        .foregroundColor(AppTheme.vibrantTeal)
-                }
+                    .font(.system(size: 14))
+                
+                Text(subscriptionManager.currentStatus.displayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
             }
         }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 10, x: 0, y: 4)
+        )
     }
 
-    var managementSection: some View {
-        Section {
-            Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
-                Label("Manage in App Store", systemImage: "arrow.up.forward.app")
+    var trialCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "clock.fill")
+                    .foregroundColor(AppTheme.sunnyYellow)
+                Text("FREE TRIAL")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(AppTheme.sunnyYellow)
+                    .tracking(1)
             }
+            
+            if let daysRemaining = subscriptionManager.trialDaysRemaining {
+                Text("\(daysRemaining) days remaining")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                
+                Text("Ends on \(formattedTrialEndDate)")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.sunnyYellow.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
 
+    var graceCard: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .foregroundColor(AppTheme.playfulCoral)
+                Text("ACTION REQUIRED")
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(AppTheme.playfulCoral)
+                    .tracking(1)
+            }
+            
+            if let daysRemaining = subscriptionManager.graceDaysRemaining {
+                Text("\(daysRemaining) days to renew")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                
+                Text("Subscribe now to keep using the app")
+                    .font(.system(size: 14))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+            }
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.playfulCoral.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(AppTheme.playfulCoral.opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
+
+    var benefitsCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text("YOUR BENEFITS")
+                .font(.system(size: 12, weight: .bold))
+                .tracking(1)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+            
+            VStack(spacing: 12) {
+                ForEach(subscriptionManager.currentTier.features, id: \.self) { feature in
+                    HStack(spacing: 12) {
+                        Image(systemName: "checkmark.seal.fill")
+                            .foregroundColor(AppTheme.vibrantTeal)
+                            .font(.system(size: 16))
+                        
+                        Text(feature)
+                            .font(.system(size: 15))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                        
+                        Spacer()
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+        )
+    }
+
+    @ViewBuilder
+    var upgradeCard: some View {
+        if subscriptionManager.currentTier == .individual {
             Button {
-                Task {
-                    try? await subscriptionManager.restorePurchases()
-                }
+                showPaywall = true
             } label: {
-                Label("Restore Purchases", systemImage: "arrow.clockwise")
+                HStack {
+                    Label("Upgrade to Family", systemImage: "person.3.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(AppTheme.lightCream)
+                    Spacer()
+                    Image(systemName: "arrow.up.circle.fill")
+                        .foregroundColor(AppTheme.lightCream)
+                }
+                .padding()
+                .background(AppTheme.vibrantTeal)
+                .cornerRadius(16)
             }
-        } header: {
-            Text("Management")
+        } else if subscriptionManager.currentTier == .free {
+            Button {
+                showPaywall = true
+            } label: {
+                HStack {
+                    Label("Unlock Premium", systemImage: "crown.fill")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(AppTheme.lightCream)
+                    Spacer()
+                    Image(systemName: "arrow.right")
+                        .foregroundColor(AppTheme.lightCream)
+                }
+                .padding()
+                .background(AppTheme.vibrantTeal)
+                .cornerRadius(16)
+                .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
         }
+    }
+
+    var managementCard: some View {
+        VStack(spacing: 0) {
+            Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
+                HStack {
+                    Text("Manage in App Store")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    Spacer()
+                    Image(systemName: "arrow.up.forward.app")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                }
+                .padding(16)
+            }
+            
+            Divider()
+                .background(AppTheme.brandedText(for: colorScheme).opacity(0.1))
+            
+            Button {
+                Task { try? await subscriptionManager.restorePurchases() }
+            } label: {
+                HStack {
+                    Text("Restore Purchases")
+                        .font(.system(size: 15, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    Spacer()
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                }
+                .padding(16)
+            }
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
     }
 }
 
@@ -161,7 +301,7 @@ private extension SubscriptionManagementView {
 
     var tierColor: Color {
         switch subscriptionManager.currentTier {
-        case .free: return .secondary
+        case .free: return AppTheme.brandedText(for: colorScheme).opacity(0.6)
         case .individual: return AppTheme.vibrantTeal
         case .family: return AppTheme.sunnyYellow
         }

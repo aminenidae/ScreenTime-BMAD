@@ -29,7 +29,7 @@ struct Screen7_ActivationView: View {
     }
 
     /// Delay between each step animation (in seconds)
-    private let stepAnimationDelay: Double = 2.0
+    private let stepAnimationDelay: Double = 1.0
 
     private let steps: [ActivationStepCard] = [
         ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss With Your Child", subtitle: "Explain The Learning & Reward System Together"),

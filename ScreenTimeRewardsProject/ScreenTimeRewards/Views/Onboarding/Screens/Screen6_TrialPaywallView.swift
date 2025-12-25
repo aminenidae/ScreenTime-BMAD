@@ -60,7 +60,7 @@ struct Screen6_TrialPaywallView: View {
                                                 }
                                                 .font(.system(size: 13, weight: .medium)) // Reduced by 2 pts
                                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                                .frame(maxWidth: .infinity, alignment: .leading)
+                                                .frame(maxWidth: 500) // Center alignment (default) and match card width
                                                 .padding(.horizontal, layout.horizontalPadding)
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
@@ -212,10 +212,12 @@ private struct AnnualPlanCard: View {
                             Text("4.99 USD / month")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .textCase(.uppercase)
 
                             Text("59.99 USD billed annually")
                                 .font(.system(size: 14, weight: .regular))
                                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                .textCase(.uppercase)
                         }
 
                         // Discount
@@ -228,6 +230,7 @@ private struct AnnualPlanCard: View {
                             Text("50% off today")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
+                                .textCase(.uppercase)
                         }
                     }
 
@@ -286,10 +289,12 @@ private struct MonthlyPlanCard: View {
                         Text("9.99 USD / month")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .textCase(.uppercase)
 
                         Text("Cancel anytime")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .textCase(.uppercase)
                     }
 
                     Spacer()
