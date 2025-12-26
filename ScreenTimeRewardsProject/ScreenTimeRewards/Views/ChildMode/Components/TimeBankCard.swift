@@ -98,15 +98,18 @@ struct TimeBankCard: View {
     }
 
     private func balanceChip(value: Int, label: String, color: Color) -> some View {
+        // In dark mode, use cream for better visibility on teal backgrounds
+        let textColor = (colorScheme == .dark && label == "EARNED") ? AppTheme.lightCream : color
+
         VStack(spacing: 4) {
             Text("\(value)")
                 .font(.system(size: 32, weight: .bold))
-                .foregroundColor(color)
+                .foregroundColor(textColor)
 
             Text("MIN \(label)")
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1)
-                .foregroundColor(color.opacity(0.8))
+                .foregroundColor(textColor.opacity(0.8))
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
