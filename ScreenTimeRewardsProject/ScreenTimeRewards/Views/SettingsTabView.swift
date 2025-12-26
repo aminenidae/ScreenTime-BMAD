@@ -4,8 +4,10 @@ import UIKit
 struct SettingsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @EnvironmentObject var viewModel: AppUsageViewModel
     @State private var showingPairingView = false
     @State private var showingSubscriptionManagement = false
+    @State private var showingPairingConfig = false
 
     @State private var showResetConfirmation = false
     @StateObject private var pairingService = DevicePairingService.shared
@@ -75,6 +77,10 @@ struct SettingsTabView: View {
                         // Devices Section
                         settingsSection(title: "DEVICES") {
                             pairingStatusRow
+
+                            if pairingService.isPaired() {
+                                pairingConfigRow
+                            }
                         }
 
                         // Danger Zone Section
@@ -106,6 +112,10 @@ struct SettingsTabView: View {
 
         .sheet(isPresented: $showingSubscriptionManagement) {
             SubscriptionManagementView()
+        }
+
+        .sheet(isPresented: $showingPairingConfig) {
+            PairingConfigView()
         }
     }
 }
@@ -331,6 +341,61 @@ private extension SettingsTabView {
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
                             .stroke(AppTheme.sunnyYellow.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var pairingConfigRow: some View {
+        Button(action: {
+            showingPairingConfig = true
+        }) {
+            HStack(spacing: 16) {
+                // Icon container with badge overlay
+                ZStack(alignment: .topTrailing) {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(AppTheme.vibrantTeal.opacity(0.15))
+                            .frame(width: 44, height: 44)
+
+                        Image(systemName: "gearshape.2.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+
+                    // Add badge if unnamed apps exist
+                    if viewModel.hasUnnamedApps {
+                        NotificationBadge()
+                            .offset(x: 4, y: -4)
+                    }
+                }
+
+                // Label
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Pairing Configuration")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Name apps for monitoring")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                }
+
+                Spacer()
+
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
                     )
             )
         }

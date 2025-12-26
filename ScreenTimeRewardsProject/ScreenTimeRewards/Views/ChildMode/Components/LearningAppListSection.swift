@@ -9,6 +9,7 @@ struct LearningAppListSection: View {
 
     @Environment(\.colorScheme) var colorScheme
     @State private var isExpanded = true
+    @State private var selectedApp: LearningAppSnapshot?
 
     // Design colors
     
@@ -28,12 +29,17 @@ struct LearningAppListSection: View {
             if isExpanded {
                 VStack(spacing: 10) {
                     ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
-                        learningAppRow(snapshot: snapshot)
-                            .transition(.asymmetric(
-                                insertion: .opacity.combined(with: .move(edge: .top)),
-                                removal: .opacity
-                            ))
-                            .animation(.spring(response: 0.4, dampingFraction: 0.8).delay(Double(index) * 0.05), value: isExpanded)
+                        Button {
+                            selectedApp = snapshot
+                        } label: {
+                            learningAppRow(snapshot: snapshot)
+                        }
+                        .buttonStyle(PlainButtonStyle())
+                        .transition(.asymmetric(
+                            insertion: .opacity.combined(with: .move(edge: .top)),
+                            removal: .opacity
+                        ))
+                        .animation(.spring(response: 0.4, dampingFraction: 0.8).delay(Double(index) * 0.05), value: isExpanded)
                     }
                 }
             }
@@ -52,6 +58,9 @@ struct LearningAppListSection: View {
                         .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                 )
         )
+        .sheet(item: $selectedApp) { app in
+            LearningAppDetailView(snapshot: app, showConfiguration: false)
+        }
     }
 
     // MARK: - Subviews

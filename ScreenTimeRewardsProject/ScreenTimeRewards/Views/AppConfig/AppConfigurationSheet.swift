@@ -173,7 +173,7 @@ struct AppConfigurationSheet: View {
                         onCancel()
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
+                    .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
                     .textCase(.uppercase)
                 }
 
@@ -182,7 +182,7 @@ struct AppConfigurationSheet: View {
                         onSave(localConfig)
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                    .foregroundColor(accentColor)
+                    .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
                     .textCase(.uppercase)
                     .tutorialTarget("config_save")
                 }

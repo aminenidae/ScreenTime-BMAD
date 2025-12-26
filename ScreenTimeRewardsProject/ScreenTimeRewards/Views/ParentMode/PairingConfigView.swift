@@ -7,7 +7,9 @@ struct PairingConfigView: View {
     @Environment(\.colorScheme) var colorScheme
     @EnvironmentObject var viewModel: AppUsageViewModel
 
-    private let usagePersistence = UsagePersistence()
+    private var usagePersistence: UsagePersistence {
+        viewModel.usagePersistence
+    }
     @State private var editedNames: [String: String] = [:]
     @State private var isSaving = false
     @State private var showSaveConfirmation = false
@@ -60,9 +62,9 @@ struct PairingConfigView: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal)
                 }
-                
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button(action: saveChanges) {
                         if isSaving {
@@ -71,7 +73,9 @@ struct PairingConfigView: View {
                         } else {
                             Text("Save")
                                 .font(.system(size: 16, weight: .semibold))
-                                .foregroundColor(hasChanges ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.5))
+                                .foregroundColor(colorScheme == .dark
+                                    ? (hasChanges ? AppTheme.lightCream : AppTheme.lightCream.opacity(0.5))
+                                    : (hasChanges ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.5)))
                         }
                     }
                     .disabled(isSaving || !hasChanges)
@@ -215,23 +219,33 @@ struct PairingConfigView: View {
     // MARK: - Learning App Row
 
     private func learningAppRow(for app: LearningAppSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                // App Icon
-                if #available(iOS 15.2, *) {
-                    Label(app.token)
-                        .labelStyle(.iconOnly)
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(AppTheme.vibrantTeal.opacity(0.15))
-                            .frame(width: 40, height: 40)
+        let needsNaming = viewModel.needsNaming(app.displayName)
 
-                        Image(systemName: "book.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(AppTheme.vibrantTeal)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                // App Icon with badge overlay
+                ZStack(alignment: .topTrailing) {
+                    if #available(iOS 15.2, *) {
+                        Label(app.token)
+                            .labelStyle(.iconOnly)
+                            .frame(width: 40, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(AppTheme.vibrantTeal.opacity(0.15))
+                                .frame(width: 40, height: 40)
+
+                            Image(systemName: "book.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(AppTheme.vibrantTeal)
+                        }
+                    }
+
+                    // Show badge if app needs naming
+                    if needsNaming {
+                        NotificationBadge(size: 10)
+                            .offset(x: 3, y: -3)
                     }
                 }
 
@@ -303,23 +317,33 @@ struct PairingConfigView: View {
     // MARK: - Reward App Row
 
     private func rewardAppRow(for app: RewardAppSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 12) {
-                // App Icon
-                if #available(iOS 15.2, *) {
-                    Label(app.token)
-                        .labelStyle(.iconOnly)
-                        .frame(width: 40, height: 40)
-                        .clipShape(RoundedRectangle(cornerRadius: 10))
-                } else {
-                    ZStack {
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(AppTheme.playfulCoral.opacity(0.15))
-                            .frame(width: 40, height: 40)
+        let needsNaming = viewModel.needsNaming(app.displayName)
 
-                        Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 18))
-                            .foregroundColor(AppTheme.playfulCoral)
+        return VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 12) {
+                // App Icon with badge overlay
+                ZStack(alignment: .topTrailing) {
+                    if #available(iOS 15.2, *) {
+                        Label(app.token)
+                            .labelStyle(.iconOnly)
+                            .frame(width: 40, height: 40)
+                            .clipShape(RoundedRectangle(cornerRadius: 10))
+                    } else {
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(AppTheme.playfulCoral.opacity(0.15))
+                                .frame(width: 40, height: 40)
+
+                            Image(systemName: "gamecontroller.fill")
+                                .font(.system(size: 18))
+                                .foregroundColor(AppTheme.playfulCoral)
+                        }
+                    }
+
+                    // Show badge if app needs naming
+                    if needsNaming {
+                        NotificationBadge(size: 10)
+                            .offset(x: 3, y: -3)
                     }
                 }
 
@@ -440,9 +464,20 @@ struct PairingConfigView: View {
     // MARK: - Helper Functions
 
     private func getCurrentDisplayName(for logicalID: String) -> String? {
+        #if DEBUG
+        print("[PairingConfigView] 🔍 getCurrentDisplayName(logicalID: \(logicalID))")
+        #endif
+        
         if let persistedApp = usagePersistence.app(for: logicalID) {
+            #if DEBUG
+            print("[PairingConfigView] 🔍   Found persisted app: '\(persistedApp.displayName)'")
+            #endif
             return persistedApp.displayName
         }
+        
+        #if DEBUG
+        print("[PairingConfigView] 🔍   No persisted app found")
+        #endif
         return nil
     }
 
@@ -469,21 +504,77 @@ struct PairingConfigView: View {
     }
 
     private func loadCurrentNames() {
+        #if DEBUG
+        print("[PairingConfigView] 🔍 loadCurrentNames() called")
+        print("[PairingConfigView] 🔍 Learning apps count: \(learningApps.count)")
+        print("[PairingConfigView] 🔍 Reward apps count: \(rewardApps.count)")
+        #endif
+        
         // Pre-populate editedNames with current values, but skip "Unknown App" entries
         for app in learningApps {
-            if let displayName = getCurrentDisplayName(for: app.logicalID),
-               !displayName.isEmpty,
-               !displayName.hasPrefix("Unknown App") {
-                editedNames[app.logicalID] = displayName
+            #if DEBUG
+            print("[PairingConfigView] 🔍 Checking learning app - logicalID: \(app.logicalID)")
+            print("[PairingConfigView] 🔍   Snapshot displayName: '\(app.displayName)'")
+            #endif
+            
+            if let displayName = getCurrentDisplayName(for: app.logicalID) {
+                #if DEBUG
+                print("[PairingConfigView] 🔍   Persisted displayName: '\(displayName)'")
+                print("[PairingConfigView] 🔍   isEmpty: \(displayName.isEmpty)")
+                print("[PairingConfigView] 🔍   hasPrefix('Unknown App'): \(displayName.hasPrefix("Unknown App"))")
+                #endif
+                
+                if !displayName.isEmpty && !displayName.hasPrefix("Unknown App") {
+                    editedNames[app.logicalID] = displayName
+                    #if DEBUG
+                    print("[PairingConfigView] ✅ Loaded name '\(displayName)' for logicalID: \(app.logicalID)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("[PairingConfigView] ⚠️ Skipped loading name (empty or Unknown App)")
+                    #endif
+                }
+            } else {
+                #if DEBUG
+                print("[PairingConfigView] ⚠️ No persisted app found for logicalID: \(app.logicalID)")
+                #endif
             }
         }
+        
         for app in rewardApps {
-            if let displayName = getCurrentDisplayName(for: app.logicalID),
-               !displayName.isEmpty,
-               !displayName.hasPrefix("Unknown App") {
-                editedNames[app.logicalID] = displayName
+            #if DEBUG
+            print("[PairingConfigView] 🔍 Checking reward app - logicalID: \(app.logicalID)")
+            print("[PairingConfigView] 🔍   Snapshot displayName: '\(app.displayName)'")
+            #endif
+            
+            if let displayName = getCurrentDisplayName(for: app.logicalID) {
+                #if DEBUG
+                print("[PairingConfigView] 🔍   Persisted displayName: '\(displayName)'")
+                print("[PairingConfigView] 🔍   isEmpty: \(displayName.isEmpty)")
+                print("[PairingConfigView] 🔍   hasPrefix('Unknown App'): \(displayName.hasPrefix("Unknown App"))")
+                #endif
+                
+                if !displayName.isEmpty && !displayName.hasPrefix("Unknown App") {
+                    editedNames[app.logicalID] = displayName
+                    #if DEBUG
+                    print("[PairingConfigView] ✅ Loaded name '\(displayName)' for logicalID: \(app.logicalID)")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("[PairingConfigView] ⚠️ Skipped loading name (empty or Unknown App)")
+                    #endif
+                }
+            } else {
+                #if DEBUG
+                print("[PairingConfigView] ⚠️ No persisted app found for logicalID: \(app.logicalID)")
+                #endif
             }
         }
+        
+        #if DEBUG
+        print("[PairingConfigView] 🔍 Final editedNames count: \(editedNames.count)")
+        print("[PairingConfigView] 🔍 editedNames: \(editedNames)")
+        #endif
     }
 
     private var hasChanges: Bool {
@@ -514,52 +605,74 @@ struct PairingConfigView: View {
         // Update learning apps
         for app in learningApps {
             if let newName = editedNames[app.logicalID],
-               !newName.isEmpty,
-               let oldApp = usagePersistence.app(for: app.logicalID) {
-                // Create new PersistedApp with updated displayName
+               !newName.isEmpty {
+
+                // Get existing app or create a new one
+                let existingApp = usagePersistence.app(for: app.logicalID)
+
                 let updatedApp = UsagePersistence.PersistedApp(
-                    logicalID: oldApp.logicalID,
+                    logicalID: app.logicalID,
                     displayName: newName,
-                    category: oldApp.category,
-                    rewardPoints: oldApp.rewardPoints,
-                    totalSeconds: oldApp.totalSeconds,
-                    earnedPoints: oldApp.earnedPoints,
-                    createdAt: oldApp.createdAt,
+                    category: existingApp?.category ?? "learning",
+                    rewardPoints: existingApp?.rewardPoints ?? app.pointsPerMinute,
+                    totalSeconds: existingApp?.totalSeconds ?? Int(app.totalSeconds),
+                    earnedPoints: existingApp?.earnedPoints ?? app.earnedPoints,
+                    createdAt: existingApp?.createdAt ?? Date(),
                     lastUpdated: Date(),
-                    todaySeconds: oldApp.todaySeconds,
-                    todayPoints: oldApp.todayPoints,
-                    lastResetDate: oldApp.lastResetDate,
-                    dailyHistory: oldApp.dailyHistory,
-                    todayHourlySeconds: oldApp.todayHourlySeconds,
-                    todayHourlyPoints: oldApp.todayHourlyPoints
+                    todaySeconds: existingApp?.todaySeconds ?? 0,
+                    todayPoints: existingApp?.todayPoints ?? 0,
+                    lastResetDate: existingApp?.lastResetDate ?? Calendar.current.startOfDay(for: Date()),
+                    dailyHistory: existingApp?.dailyHistory ?? [],
+                    todayHourlySeconds: existingApp?.todayHourlySeconds ?? Array(repeating: 0, count: 24),
+                    todayHourlyPoints: existingApp?.todayHourlyPoints ?? Array(repeating: 0, count: 24)
                 )
+
                 usagePersistence.saveApp(updatedApp)
+
+                #if DEBUG
+                if existingApp == nil {
+                    print("[PairingConfigView] Created new persisted app for '\(newName)' with logicalID: \(app.logicalID)")
+                } else {
+                    print("[PairingConfigView] Updated displayName for '\(newName)' with logicalID: \(app.logicalID)")
+                }
+                #endif
             }
         }
 
         // Update reward apps
         for app in rewardApps {
             if let newName = editedNames[app.logicalID],
-               !newName.isEmpty,
-               let oldApp = usagePersistence.app(for: app.logicalID) {
-                // Create new PersistedApp with updated displayName
+               !newName.isEmpty {
+
+                // Get existing app or create a new one
+                let existingApp = usagePersistence.app(for: app.logicalID)
+
                 let updatedApp = UsagePersistence.PersistedApp(
-                    logicalID: oldApp.logicalID,
+                    logicalID: app.logicalID,
                     displayName: newName,
-                    category: oldApp.category,
-                    rewardPoints: oldApp.rewardPoints,
-                    totalSeconds: oldApp.totalSeconds,
-                    earnedPoints: oldApp.earnedPoints,
-                    createdAt: oldApp.createdAt,
+                    category: existingApp?.category ?? "reward",
+                    rewardPoints: existingApp?.rewardPoints ?? app.pointsPerMinute,
+                    totalSeconds: existingApp?.totalSeconds ?? Int(app.totalSeconds),
+                    earnedPoints: existingApp?.earnedPoints ?? app.earnedPoints,
+                    createdAt: existingApp?.createdAt ?? Date(),
                     lastUpdated: Date(),
-                    todaySeconds: oldApp.todaySeconds,
-                    todayPoints: oldApp.todayPoints,
-                    lastResetDate: oldApp.lastResetDate,
-                    dailyHistory: oldApp.dailyHistory,
-                    todayHourlySeconds: oldApp.todayHourlySeconds,
-                    todayHourlyPoints: oldApp.todayHourlyPoints
+                    todaySeconds: existingApp?.todaySeconds ?? 0,
+                    todayPoints: existingApp?.todayPoints ?? 0,
+                    lastResetDate: existingApp?.lastResetDate ?? Calendar.current.startOfDay(for: Date()),
+                    dailyHistory: existingApp?.dailyHistory ?? [],
+                    todayHourlySeconds: existingApp?.todayHourlySeconds ?? Array(repeating: 0, count: 24),
+                    todayHourlyPoints: existingApp?.todayHourlyPoints ?? Array(repeating: 0, count: 24)
                 )
+
                 usagePersistence.saveApp(updatedApp)
+
+                #if DEBUG
+                if existingApp == nil {
+                    print("[PairingConfigView] Created new persisted app for '\(newName)' with logicalID: \(app.logicalID)")
+                } else {
+                    print("[PairingConfigView] Updated displayName for '\(newName)' with logicalID: \(app.logicalID)")
+                }
+                #endif
             }
         }
 

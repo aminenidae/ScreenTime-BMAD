@@ -36,7 +36,7 @@ struct LaunchScreenView: View {
                     .frame(width: 220, height: 220)
                     .rotationEffect(.degrees(rotationDegrees))
 
-                Text("Learn More... Play More")
+                Text("Learn More... Earn More")
                     .font(AppTheme.Typography.title1)
                     .foregroundColor(AppTheme.vibrantTeal)
                     .textCase(.uppercase)

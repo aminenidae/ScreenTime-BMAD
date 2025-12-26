@@ -17,6 +17,10 @@ struct ChildAppDetailView: View {
     @Environment(\.colorScheme) var colorScheme
     @ObservedObject var streakService = StreakService.shared
 
+    @State private var showMilestoneCelebration = false
+    @State private var achievedMilestone: Int = 0
+    @State private var milestoneBonus: Int = 0
+
     private var isUnlocked: Bool {
         unlockedApp != nil
     }
@@ -99,14 +103,15 @@ struct ChildAppDetailView: View {
                     )
 
                     // 3. Streak Progress (if enabled for this app)
-                    if let streakData = streakData {
-                        AppStreakCard(
+                    if let streakData = streakData, let settings = streakSettings {
+                        ChildAppStreakCard(
                             currentStreak: streakData.current,
                             longestStreak: streakData.longest,
                             nextMilestone: streakData.nextMilestone,
-                            bonusMinutesEarned: streakData.bonusEarned,
-                            potentialBonusMinutes: potentialBonusMinutes,
-                            progress: streakData.progress
+                            progress: streakData.progress,
+                            milestoneCycleDays: settings.streakCycleDays,
+                            isAtRisk: streakService.streakRecords[snapshot.logicalID]?.isAtRisk ?? false,
+                            potentialBonus: potentialBonusMinutes
                         )
                     }
 
@@ -152,6 +157,32 @@ struct ChildAppDetailView: View {
                         }
                         .foregroundColor(AppTheme.playfulCoral)
                     }
+                }
+            }
+            .overlay {
+                if showMilestoneCelebration {
+                    StreakMilestoneCelebration(
+                        milestone: achievedMilestone,
+                        bonusMinutes: milestoneBonus,
+                        appName: snapshot.displayName,
+                        isPresented: $showMilestoneCelebration
+                    )
+                    .transition(.scale.combined(with: .opacity))
+                    .zIndex(999)
+                }
+            }
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .streakMilestoneAchieved)) { notification in
+            if let milestone = notification.userInfo?["milestone"] as? Int,
+               let bonus = notification.userInfo?["bonusMinutes"] as? Int,
+               let appLogicalID = notification.userInfo?["appLogicalID"] as? String,
+               appLogicalID == snapshot.logicalID {
+
+                achievedMilestone = milestone
+                milestoneBonus = bonus
+
+                withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
+                    showMilestoneCelebration = true
                 }
             }
         }

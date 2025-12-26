@@ -222,6 +222,11 @@ class AppUsageViewModel: ObservableObject {
         activePickerContext
     }
     
+    // Expose shared UsagePersistence instance for views that need direct access
+    var usagePersistence: UsagePersistence {
+        service.usagePersistence
+    }
+    
     // TASK 12: Add sorted category properties
     /// Learning application tokens in stable sorted order
     var sortedLearningApps: [ApplicationToken] {
@@ -589,10 +594,28 @@ class AppUsageViewModel: ObservableObject {
 
             // Mark this token hash as processed
             processedTokenHashes.insert(tokenHash)
-            
-            // Get display name
-            let displayName = application.localizedDisplayName ?? "Unknown App"
-            
+
+            // Get display name - prioritize persisted custom name over system name
+            var displayName: String
+            if let persistedApp = service.usagePersistence.app(for: logicalID) {
+                // Check if there's a valid custom name (not empty, not "Unknown App")
+                if !persistedApp.displayName.isEmpty &&
+                   !persistedApp.displayName.hasPrefix("Unknown App") {
+                    // Use the persisted custom name
+                    displayName = persistedApp.displayName
+
+                    #if DEBUG
+                    print("[AppUsageViewModel] 📝 Using persisted name '\(displayName)' for logicalID: \(logicalID)")
+                    #endif
+                } else {
+                    // No custom name yet, fall back to system name
+                    displayName = application.localizedDisplayName ?? "Unknown App"
+                }
+            } else {
+                // App not yet persisted, use system name
+                displayName = application.localizedDisplayName ?? "Unknown App"
+            }
+
             // Determine category
             let category = categoryAssignments[token] ?? AppUsage.AppCategory.learning
             
@@ -2713,5 +2736,30 @@ extension AppUsageViewModel {
         return dailyUsage
             .sorted { $0.key < $1.key }
             .map { (date: $0.key, minutes: $0.value) }
+    }
+}
+
+// MARK: - Unnamed App Detection
+extension AppUsageViewModel {
+    /// Check if an app display name indicates it needs manual naming
+    func needsNaming(_ displayName: String) -> Bool {
+        displayName.isEmpty ||
+        displayName == "Unknown App" ||
+        displayName.hasPrefix("Unknown App")
+    }
+
+    /// Check if there are any unnamed apps in either category
+    var hasUnnamedApps: Bool {
+        hasUnnamedLearningApps || hasUnnamedRewardApps
+    }
+
+    /// Check if there are unnamed learning apps
+    var hasUnnamedLearningApps: Bool {
+        learningSnapshots.contains { needsNaming($0.displayName) }
+    }
+
+    /// Check if there are unnamed reward apps
+    var hasUnnamedRewardApps: Bool {
+        rewardSnapshots.contains { needsNaming($0.displayName) }
     }
 }

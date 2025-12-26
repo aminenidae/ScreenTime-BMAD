@@ -146,7 +146,11 @@ struct RewardAppListSection: View {
     }
 
     private func rewardAppRow(snapshot: RewardAppSnapshot) -> some View {
-        let isUnlocked = unlockedApps[snapshot.token] != nil
+        // App is unlocked if it's in the manual unlock list OR if goals are met (blocking condition clear)
+        let isManuallyUnlocked = unlockedApps[snapshot.token] != nil
+        let isGoalUnlocked = BlockingCoordinator.shared.canUnlockApp(token: snapshot.token)
+        let isUnlocked = isManuallyUnlocked || isGoalUnlocked
+        
         let usedMinutes = Int(snapshot.totalSeconds / 60)
 
         return HStack(spacing: 12) {
@@ -186,25 +190,53 @@ struct RewardAppListSection: View {
                 }
 
                 // Status text
+                // Status text
                 if isUnlocked {
                     Text("\(usedMinutes) MIN USED")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                } else if remainingMinutes <= 0 {
-                    Text("NO TIME REMAINING")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 } else {
-                    Text("READY TO USE")
-                        .font(.system(size: 11, weight: .medium))
-                        .foregroundColor(AppTheme.playfulCoral)
+                    // Check if there is a specific blocking reason
+                    let blockingState = BlockingCoordinator.shared.evaluateBlockingState(for: snapshot.token)
+                    
+                    if let reason = blockingState.primaryReason {
+                        switch reason {
+                        case .learningGoal:
+                            Text("COMPLETE GOAL TO UNLOCK")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        case .downtime:
+                            Text("APP IN DOWNTIME")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        case .dailyLimitReached:
+                            Text("DAILY LIMIT REACHED")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        case .rewardTimeExpired:
+                            Text("TIME EXPIRED")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                    } else {
+                        // Not blocked by system constraints, just waiting for manual unlock
+                        if remainingMinutes > 0 {
+                            Text("TAP TO UNLOCK")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.playfulCoral)
+                        } else {
+                            Text("NO TIME REMAINING")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                    }
                 }
             }
 
             Spacer()
 
             // Lock/unlock indicator
-            if isUnlocked || remainingMinutes > 0 {
+            if isUnlocked {
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(AppTheme.playfulCoral)

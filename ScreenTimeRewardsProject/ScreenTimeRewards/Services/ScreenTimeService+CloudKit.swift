@@ -124,7 +124,39 @@ extension ScreenTimeService {
         } else {
             self.unblockRewardApps(tokens: [token])
         }
-        
+
+        // Apply display name to UsagePersistence
+        if let displayName = config.displayName,
+           !displayName.isEmpty,
+           !displayName.hasPrefix("Unknown App") {
+
+            // Get existing persisted app or create new one
+            let existingApp = usagePersistence.app(for: logicalID)
+
+            let updatedApp = UsagePersistence.PersistedApp(
+                logicalID: logicalID,
+                displayName: displayName,
+                category: config.category ?? "learning",
+                rewardPoints: existingApp?.rewardPoints ?? Int(config.pointsPerMinute),
+                totalSeconds: existingApp?.totalSeconds ?? 0,
+                earnedPoints: existingApp?.earnedPoints ?? 0,
+                createdAt: existingApp?.createdAt ?? Date(),
+                lastUpdated: Date(),
+                todaySeconds: existingApp?.todaySeconds ?? 0,
+                todayPoints: existingApp?.todayPoints ?? 0,
+                lastResetDate: existingApp?.lastResetDate ?? Calendar.current.startOfDay(for: Date()),
+                dailyHistory: existingApp?.dailyHistory ?? [],
+                todayHourlySeconds: existingApp?.todayHourlySeconds ?? Array(repeating: 0, count: 24),
+                todayHourlyPoints: existingApp?.todayHourlyPoints ?? Array(repeating: 0, count: 24)
+            )
+
+            usagePersistence.saveApp(updatedApp)
+
+            #if DEBUG
+            print("[ScreenTimeService] Synced displayName '\(displayName)' to UsagePersistence for logicalID: \(logicalID)")
+            #endif
+        }
+
         #if DEBUG
         print("[ScreenTimeService] Applied config for \(config.displayName ?? "Unknown")")
         #endif

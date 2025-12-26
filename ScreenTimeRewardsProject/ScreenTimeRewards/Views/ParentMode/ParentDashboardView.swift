@@ -77,11 +77,6 @@ struct ParentDashboardView: View {
                         // Daily Usage Chart
                         DailyUsageChartCard()
 
-                        // Streak Status
-                        if viewModel.currentStreak > 0 {
-                            streakCard
-                        }
-
                         // Quick Stats
                         quickStatsGrid
 
@@ -195,58 +190,7 @@ struct ParentDashboardView: View {
         )
     }
 
-    // MARK: - Streak Card
 
-    private var streakCard: some View {
-        HStack(spacing: 16) {
-            // Flame icon
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(AppTheme.sunnyYellow.opacity(0.2))
-                    .frame(width: 64, height: 64)
-
-                Image(systemName: "flame.fill")
-                    .font(.system(size: 32))
-                    .foregroundColor(AppTheme.sunnyYellow)
-            }
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text("DAILY STREAK")
-                    .font(.system(size: 12, weight: .medium))
-                    .tracking(1.5)
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
-
-                HStack(alignment: .bottom, spacing: 8) {
-                    Text("\(viewModel.currentStreak)")
-                        .font(.system(size: 36, weight: .bold))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
-
-                    Text("days")
-                        .font(.system(size: 16, weight: .medium))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                        .padding(.bottom, 4)
-                }
-                
-                // Milestone Info
-                if let next = StreakService.shared.getNextMilestone(for: viewModel.currentStreak) {
-                    Text("\(next - viewModel.currentStreak) days to \(next)-day bonus!")
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(AppTheme.vibrantTeal)
-                }
-            }
-
-            Spacer()
-        }
-        .padding(16)
-        .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(AppTheme.card(for: colorScheme))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 2)
-                )
-        )
-    }
 
     // MARK: - Quick Stats Grid
 
@@ -277,20 +221,6 @@ struct ParentDashboardView: View {
                     label: "Reward Apps",
                     value: "\(viewModel.rewardSnapshots.count)",
                     color: AppTheme.playfulCoral
-                )
-
-                statTile(
-                    icon: "chart.line.uptrend.xyaxis",
-                    label: "Total Apps",
-                    value: "\(viewModel.appUsages.count)",
-                    color: AppTheme.sunnyYellow
-                )
-
-                statTile(
-                    icon: "star.fill",
-                    label: "Badges Earned",
-                    value: "\(viewModel.badges.filter { $0.isUnlocked }.count)",
-                    color: AppTheme.learningPeach
                 )
             }
         }

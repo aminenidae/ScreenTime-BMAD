@@ -687,12 +687,30 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             )
             groupedApplications[category, default: []].append(monitored)
 
+
             // Save app configuration to persistence immediately
             let existingApp = usagePersistence.app(for: logicalID)
             let now = Date()
+            
+            // CRITICAL FIX: Preserve custom displayName if it exists and is not a default "Unknown App" name
+            // This prevents overwriting user-entered names on app restart
+            let finalDisplayName: String
+            if let existing = existingApp,
+               !existing.displayName.isEmpty,
+               !existing.displayName.hasPrefix("Unknown App") {
+                // Preserve the custom name
+                finalDisplayName = existing.displayName
+                #if DEBUG
+                print("[ScreenTimeService]   ✅ Preserving custom name: '\(finalDisplayName)'")
+                #endif
+            } else {
+                // Use the default name for new apps or apps with default names
+                finalDisplayName = displayName
+            }
+            
             let persistedApp = UsagePersistence.PersistedApp(
                 logicalID: logicalID,
-                displayName: displayName,
+                displayName: finalDisplayName,
                 category: category.rawValue,
                 rewardPoints: points,
                 totalSeconds: existingApp?.totalSeconds ?? 0,

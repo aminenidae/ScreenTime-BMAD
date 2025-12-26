@@ -114,6 +114,7 @@ struct MainTabView: View {
 // MARK: - Parent Tab Indicator
 struct ParentTabIndicator: View {
     @Binding var selectedTab: Int
+    @EnvironmentObject var viewModel: AppUsageViewModel
 
     private let tabs: [(String, String)] = [
         ("Dashboard", "chart.bar.fill"),
@@ -133,10 +134,19 @@ struct ParentTabIndicator: View {
                     }
                 }) {
                     VStack(spacing: 6) {
-                        Image(systemName: tabs[index].1)
-                            .font(.system(size: 24, weight: .medium))
-                            .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                            .frame(width: 48, height: 48)
+                        // Wrap icon in ZStack for badge overlay
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: tabs[index].1)
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                                .frame(width: 48, height: 48)
+
+                            // Show badge only for Settings tab (index 3)
+                            if index == 3 && viewModel.hasUnnamedApps {
+                                NotificationBadge()
+                                    .offset(x: 6, y: 8)
+                            }
+                        }
 
                         Text(tabs[index].0)
                             .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))

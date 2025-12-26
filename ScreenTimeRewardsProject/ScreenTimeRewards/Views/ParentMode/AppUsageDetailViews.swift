@@ -2,6 +2,7 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 import Charts
+import CoreData
 
 // Protocol for app snapshots to share common properties for AppDetailHeaderView
 protocol AppIdentifiable {
@@ -32,6 +33,8 @@ struct LearningAppDetailView: View {
     @StateObject private var scheduleService = AppScheduleService.shared
     @State private var configSheetData: LearningDetailConfigData?
 
+    var showConfiguration: Bool = true
+    
     var body: some View {
         NavigationStack {
             ZStack(alignment: .bottom) {
@@ -64,7 +67,9 @@ struct LearningAppDetailView: View {
                 }
 
                 // Floating Configure Button
-                configureButton
+                if showConfiguration {
+                    configureButton
+                }
             }
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -184,6 +189,25 @@ struct RewardAppDetailView: View {
                     VStack(spacing: AppTheme.Spacing.large) {
                         // App Header Card
                         AppDetailHeaderView(snapshot: snapshot, appType: .reward)
+
+                        // App-specific streak card
+                        if let config = scheduleService.getSchedule(for: snapshot.logicalID),
+                           config.streakSettings?.isEnabled == true,
+                           let settings = config.streakSettings {
+                            
+                            let service = StreakService.shared
+                            let record = service.streakRecords[snapshot.logicalID]
+                            let current = Int(record?.currentStreak ?? 0)
+                            let longest = Int(record?.longestStreak ?? 0)
+                            
+                            AppStreakCard(
+                                currentStreak: current,
+                                longestStreak: longest,
+                                streakSettings: settings,
+                                nextMilestone: service.getNextMilestone(for: current, settings: settings),
+                                progress: service.progressToNextMilestone(current: current, settings: settings)
+                            )
+                        }
 
                         // Hourly usage chart (today's breakdown)
                         if #available(iOS 16.0, *) {
@@ -851,4 +875,130 @@ private struct AppUsageChart: View {
 
     }
 
+}
+
+// MARK: - App Streak Card
+
+struct AppStreakCard: View {
+    let currentStreak: Int
+    let longestStreak: Int
+    let streakSettings: AppStreakSettings
+    let nextMilestone: Int?
+    let progress: Double
+    
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isAnimating = false
+    
+    private var milestoneCycleDays: Int {
+        streakSettings.streakCycleDays
+    }
+    
+    private var completedDaysInCycle: Int {
+        Int(round(progress * Double(milestoneCycleDays)))
+    }
+    
+    private var daysUntilMilestone: Int {
+        guard let next = nextMilestone else { return 0 }
+        return max(next - currentStreak, 0)
+    }
+    
+    var body: some View {
+        if streakSettings.isEnabled {
+            VStack(spacing: 12) {
+                // Header
+                HStack {
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 16))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                    
+                    Text("YOUR STREAK FOR THIS APP")
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .tracking(1)
+                    
+                    Spacer()
+                    
+                    if longestStreak > currentStreak {
+                        HStack(spacing: 4) {
+                            Image(systemName: "crown.fill")
+                                .font(.system(size: 10))
+                                .foregroundColor(AppTheme.sunnyYellow)
+                            Text("BEST: \(longestStreak)")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(AppTheme.sunnyYellow)
+                        }
+                        .padding(.horizontal, 6)
+                        .padding(.vertical, 2)
+                        .background(AppTheme.sunnyYellow.opacity(0.15))
+                        .clipShape(Capsule())
+                    }
+                }
+                
+                // Big Count
+                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                    Text("\(currentStreak)")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                    
+                    Text(currentStreak == 1 ? "DAY" : "DAYS")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .padding(.bottom, 4)
+                    
+                    Spacer()
+                }
+                
+                // Milestone Progress (Day X of Y + Dots)
+                if let nextMilestone = nextMilestone {
+                    VStack(spacing: 8) {
+                        HStack {
+                            Text("Day \(completedDaysInCycle) of \(milestoneCycleDays)")
+                                .font(.system(size: 13, weight: .medium))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            
+                            Spacer()
+                            
+                            Text("\(daysUntilMilestone) days left")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                        
+                        // Dots
+                        HStack(spacing: 6) {
+                            ForEach(0..<milestoneCycleDays, id: \.self) { index in
+                                Circle()
+                                    .fill(index < completedDaysInCycle ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.2))
+                                    .frame(height: 10)
+                                    .overlay(
+                                        Circle()
+                                            .stroke(AppTheme.vibrantTeal, lineWidth: 1)
+                                            .opacity(index < completedDaysInCycle ? 0 : 0.3)
+                                    )
+                                    .frame(maxWidth: .infinity)
+                            }
+                        }
+                        .frame(height: 10)
+                        
+                        Text("Reach \(nextMilestone) days for a bonus!")
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 2)
+                    }
+                }
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+            )
+            .overlay(
+                RoundedRectangle(cornerRadius: 16)
+                    .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
+            )
+            .onAppear {
+                withAnimation { isAnimating = true }
+            }
+        }
+    }
 }
