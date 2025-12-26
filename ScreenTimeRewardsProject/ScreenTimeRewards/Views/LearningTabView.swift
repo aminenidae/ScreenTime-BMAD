@@ -31,9 +31,9 @@ struct LearningTabView: View {
         !viewModel.learningSnapshots.isEmpty
     }
 
-    // Daily goal (challenges removed - return 0)
+    // Total learning time today (sum of all learning app durations)
     private var dailyGoalMinutes: Int {
-        return 0
+        return Int(viewModel.learningSnapshots.reduce(0) { $0 + $1.totalSeconds } / 60)
     }
 
     // MARK: - Design Colors

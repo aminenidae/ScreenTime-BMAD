@@ -107,26 +107,18 @@ class AppUsageViewModel: ObservableObject {
         }
     }
 
-    /// Available learning points (total earned - reserved for unlocked apps - consumed points)
-    /// This uses the NEW linked learning app reward system where points are earned
-    /// when learning goals are met, not minute-by-minute accrual.
+    /// Available learning points (total earned - used minutes)
+    /// Simple calculation: Earned (from goals + streak bonuses) - Used (actual usage)
     var availableLearningPoints: Int {
-        // Calculate total earned from linked learning goals (new system)
-        let totalEarnedFromLinkedGoals = BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: currentRewardTokens)
-
-        // Reserved points are still tracked the same way
-        let totalReserved = unlockedRewardApps.values
-            .filter { _ in true }
-            .reduce(0) { $0 + $1.reservedPoints }
-        let totalConsumed = totalConsumedPoints
-        let available = max(0, totalEarnedFromLinkedGoals + totalStreakBonusMinutes - totalReserved - totalConsumed)
+        // Simple calculation: Earned - Used
+        let totalEarned = totalEarnedMinutes + totalStreakBonusMinutes
+        let totalUsed = totalUsedMinutes
+        let available = max(0, totalEarned - totalUsed)
 
         #if DEBUG
-        print("[AppUsageViewModel] 💰 AVAILABLE POINTS CALCULATION (Linked Goal System):")
-        print("[AppUsageViewModel]   Total Earned from Goals: \(totalEarnedFromLinkedGoals)")
-        print("[AppUsageViewModel]   Total Streak Bonus: \(totalStreakBonusMinutes)")
-        print("[AppUsageViewModel]   Total Reserved: \(totalReserved)")
-        print("[AppUsageViewModel]   Total Consumed (spent): \(totalConsumed)")
+        print("[AppUsageViewModel] 💰 AVAILABLE MINUTES CALCULATION:")
+        print("[AppUsageViewModel]   Total Earned (goals + streaks): \(totalEarned)")
+        print("[AppUsageViewModel]   Total Used: \(totalUsed)")
         print("[AppUsageViewModel]   Available: \(available)")
         #endif
 
@@ -142,6 +134,11 @@ class AppUsageViewModel: ObservableObject {
     /// This is the total earned from learning - NOT affected by reward app usage
     var totalEarnedMinutes: Int {
         BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: currentRewardTokens)
+    }
+
+    /// Total reward minutes used (from actual usage tracking)
+    var totalUsedMinutes: Int {
+        Int(rewardSnapshots.reduce(0) { $0 + $1.totalSeconds } / 60)
     }
 
     /// Total points reserved for unlocked reward apps

@@ -214,7 +214,7 @@ struct RewardsTabView: View {
                         .font(.system(size: 10))
                         .foregroundColor(AppTheme.sunnyYellow)
 
-                    Text("\(viewModel.availableLearningPoints / 10) MINUTES AVAILABLE")
+                    Text("\(viewModel.availableLearningPoints) MINUTES AVAILABLE")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.sunnyYellow)
                 }
