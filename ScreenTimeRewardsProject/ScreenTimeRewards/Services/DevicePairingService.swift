@@ -10,6 +10,7 @@ enum PairingError: LocalizedError {
     case shareNotFound
     case invalidQRCode
     case networkError(Error)
+    case sameAccountPairing
 
     var errorDescription: String? {
         switch self {
@@ -23,6 +24,8 @@ enum PairingError: LocalizedError {
             return "Invalid QR code. Please scan a valid pairing QR code."
         case .networkError(let error):
             return "Network error: \(error.localizedDescription)"
+        case .sameAccountPairing:
+            return "Cannot pair devices using the same iCloud account. The parent and child devices must use different Apple IDs for data sync to work properly."
         }
     }
 }
@@ -45,6 +48,11 @@ class DevicePairingService: ObservableObject {
         } catch {
             return false
         }
+    }
+
+    /// Get current CloudKit user's account identifier
+    private func getCurrentUserRecordID() async throws -> CKRecord.ID {
+        return try await container.userRecordID()
     }
 
     /// Ensure the custom zone exists for sharing
@@ -146,11 +154,39 @@ class DevicePairingService: ObservableObject {
         return qrFilter?.outputImage
     }
 
-    /// Create pairing session with CloudKit sharing
+    /// Create pairing session with CloudKit sharing (REQUIRES CloudKit)
     func createPairingSession() async throws -> (sessionID: String, verificationToken: String, share: CKShare, zoneID: CKRecordZone.ID) {
-        // Enforce subscription child-device limit before allowing another pairing
-        let currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Starting createPairingSession...")
+        #endif
+
+        // Check subscription limit - this also verifies CloudKit availability
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Fetching linked child devices to check limit...")
+        #endif
+
+        let currentChildCount: Int
+        do {
+            currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
+            #if DEBUG
+            print("[DevicePairingService] ✅ CloudKit available. Current child count: \(currentChildCount)")
+            #endif
+        } catch let error as CKError where error.code == .notAuthenticated {
+            #if DEBUG
+            print("[DevicePairingService] ❌ CloudKit not authenticated")
+            #endif
+            throw PairingError.networkError(error)
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ❌ CloudKit error: \(error)")
+            #endif
+            throw PairingError.networkError(error)
+        }
+
         guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Device limit reached!")
+            #endif
             throw PairingError.deviceLimitReached
         }
 
@@ -161,8 +197,17 @@ class DevicePairingService: ObservableObject {
         let sessionID = UUID().uuidString
         let verificationToken = UUID().uuidString
 
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Creating CloudKit monitoring zone for child...")
+        #endif
+
         // Create monitoring zone with share
         let (zoneID, share) = try await createMonitoringZoneForChild()
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ CloudKit zone created: \(zoneID.zoneName)")
+        print("[DevicePairingService] Share URL: \(share.url?.absoluteString ?? "nil")")
+        #endif
 
         // Store session locally with expiration
         let sessionData: [String: Any] = [
@@ -178,12 +223,19 @@ class DevicePairingService: ObservableObject {
 
         UserDefaults.standard.set(sessionData, forKey: "pairingSession_\(sessionID)")
 
+        #if DEBUG
+        print("[DevicePairingService] ✅ Pairing session created successfully!")
+        #endif
+
         // Register this parent device in CloudKit (private database)
         Task {
             do {
                 let _ = try await self.cloudKitSync.registerDevice(mode: DeviceMode.parentDevice, childName: nil)
             } catch {
                 // Silent failure - non-critical
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Failed to register parent device (non-critical): \(error)")
+                #endif
             }
         }
 
@@ -254,8 +306,13 @@ class DevicePairingService: ObservableObject {
         return (sessionID, verificationToken)
     }
 
-    /// Accept parent share and register in parent's shared zone
+    /// Accept parent share and register in parent's shared zone (REQUIRES CloudKit)
     func acceptParentShareAndRegister(from payload: PairingPayload) async throws {
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Child: Starting CloudKit pairing process...")
+        print("[DevicePairingService] Share URL: \(payload.shareURL)")
+        #endif
+
         // Check how many parents this child is already paired with
         let currentParentCount = try await getParentPairingCount()
 
@@ -269,8 +326,12 @@ class DevicePairingService: ObservableObject {
         // 1. Parse share URL from payload
         guard let shareURL = URL(string: payload.shareURL) else {
             throw NSError(domain: "PairingError", code: -1,
-                          userInfo: [NSLocalizedDescriptionKey: "Invalid share URL in payload"])
+                          userInfo: [NSLocalizedDescriptionKey: "Invalid pairing QR code. The share URL is malformed."])
         }
+
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Fetching CloudKit share metadata...")
+        #endif
 
         // 2. Fetch share metadata
         let metadata = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKShare.Metadata, Error>) in
@@ -281,10 +342,45 @@ class DevicePairingService: ObservableObject {
                     continuation.resume(returning: metadata)
                 } else {
                     continuation.resume(throwing: NSError(domain: "PairingError", code: -1,
-                                                        userInfo: [NSLocalizedDescriptionKey: "Unknown error fetching share metadata"]))
+                                                        userInfo: [NSLocalizedDescriptionKey: "Unable to fetch pairing information from iCloud."]))
                 }
             }
         }
+
+        // CRITICAL: Validate that parent and child use different iCloud accounts.
+        // CloudKit sharing allows same-account share acceptance, but this causes
+        // data corruption issues in our app architecture where:
+        // - Parent queries both private and shared zones
+        // - Child writes to shared zone
+        // - Same account would see duplicate/conflicting data
+        // Therefore, we explicitly reject same-account pairing.
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Validating share owner is different account...")
+        #endif
+
+        // Check if trying to pair with same iCloud account
+        let currentUserID = try await getCurrentUserRecordID()
+        let shareOwnerID = metadata.rootRecordID.zoneID.ownerName
+
+        #if DEBUG
+        print("[DevicePairingService] Current user: \(currentUserID.recordName)")
+        print("[DevicePairingService] Share owner: \(shareOwnerID)")
+        #endif
+
+        if currentUserID.recordName == shareOwnerID {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Same-account pairing detected!")
+            #endif
+            throw PairingError.sameAccountPairing
+        }
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Different accounts confirmed")
+        #endif
+
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Accepting CloudKit share...")
+        #endif
 
         // 3. Accept the share
         try await container.accept(metadata)
@@ -303,12 +399,20 @@ class DevicePairingService: ObservableObject {
         UserDefaults.standard.set(zoneID.zoneName, forKey: "parentSharedZoneID")
         UserDefaults.standard.set(zoneID.ownerName, forKey: "parentSharedZoneOwner")
 
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Registering child in parent's shared zone...")
+        #endif
+
         // 5. Register in parent's shared zone
         try await registerInParentSharedZone(
             zoneID: metadata.rootRecordID.zoneID,
             rootRecordID: metadata.rootRecordID,
             parentDeviceID: payload.parentDeviceID
         )
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ CloudKit pairing completed successfully!")
+        #endif
     }
 
     // Get count of parent devices child is currently paired with
@@ -358,11 +462,28 @@ class DevicePairingService: ObservableObject {
 
     /// Accept pairing from parent (local-only, no CloudKit writes)
     func acceptParentPairing(from payload: PairingPayload) async throws {
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Child: Accepting local-only pairing...")
+        #endif
+
+        // Check if already paired with a parent
+        if let existingParentID = UserDefaults.standard.string(forKey: "parentDeviceID"),
+           existingParentID != payload.parentDeviceID {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Already paired with another parent. Local pairing only supports 1 parent.")
+            #endif
+            throw PairingError.maxParentsReached
+        }
+
         isPairing = true
         defer { isPairing = false }
 
         // Save parent device ID
         UserDefaults.standard.set(payload.parentDeviceID, forKey: "parentDeviceID")
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Saved parent device ID: \(payload.parentDeviceID)")
+        #endif
 
         // Store pairing info locally
         let pairingInfo: [String: Any] = [
@@ -374,15 +495,21 @@ class DevicePairingService: ObservableObject {
         ]
         UserDefaults.standard.set(pairingInfo, forKey: "childPairingInfo")
 
-        // Register this child device in its OWN CloudKit private database
+        // Register this child device in its OWN CloudKit private database (best effort)
         do {
             let _ = try await self.cloudKitSync.registerDevice(
                 mode: DeviceMode.childDevice,
                 childName: nil,
                 parentDeviceID: payload.parentDeviceID
             )
+            #if DEBUG
+            print("[DevicePairingService] ✅ Registered child device in CloudKit (optional)")
+            #endif
         } catch {
-            // Don't throw - local pairing succeeded
+            // Don't throw - local pairing succeeded even if CloudKit registration fails
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ CloudKit registration failed (non-critical): \(error)")
+            #endif
         }
     }
 

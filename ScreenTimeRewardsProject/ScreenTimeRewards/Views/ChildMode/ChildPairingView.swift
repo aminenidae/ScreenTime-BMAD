@@ -284,7 +284,13 @@ private extension ChildPairingView {
             } catch {
                 await MainActor.run {
                     self.isPairing = false
-                    self.errorMessage = "Failed to pair: \(error.localizedDescription)"
+
+                    // Show specific error for same-account pairing
+                    if case PairingError.sameAccountPairing = error {
+                        self.errorMessage = error.localizedDescription
+                    } else {
+                        self.errorMessage = "Failed to pair: \(error.localizedDescription)"
+                    }
                 }
             }
         }

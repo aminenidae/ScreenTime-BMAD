@@ -90,7 +90,21 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         // Query all zones (including shared zones)
-        let (matchResults, _) = try await privateDatabase.records(matching: query)
+        let (matchResults, _): ([(CKRecord.ID, Result<CKRecord, Error>)], CKQueryOperation.Cursor?)
+        do {
+            (matchResults, _) = try await privateDatabase.records(matching: query)
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Query completed successfully. Processing \(matchResults.count) results...")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ CRITICAL ERROR querying CloudKit:")
+            print("[CloudKitSyncService] Error type: \(type(of: error))")
+            print("[CloudKitSyncService] Error description: \(error.localizedDescription)")
+            print("[CloudKitSyncService] Full error: \(error)")
+            #endif
+            throw error
+        }
 
         var devices: [RegisteredDevice] = []
 
