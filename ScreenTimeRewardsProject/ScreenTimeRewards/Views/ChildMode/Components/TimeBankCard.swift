@@ -97,6 +97,7 @@ struct TimeBankCard: View {
         .animation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.4), value: isAnimating)
     }
 
+    @ViewBuilder
     private func balanceChip(value: Int, label: String, color: Color) -> some View {
         // In dark mode, use cream for better visibility on teal backgrounds
         let textColor = (colorScheme == .dark && label == "EARNED") ? AppTheme.lightCream : color
