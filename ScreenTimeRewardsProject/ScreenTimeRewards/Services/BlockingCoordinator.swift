@@ -451,31 +451,19 @@ class BlockingCoordinator: ObservableObject {
             return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
-        // DIAGNOSTIC: Log each linked app and compare data sources
+        // DIAGNOSTIC: Log each linked app usage from UsagePersistence
         for (index, linkedApp) in linkedApps.enumerated() {
             print("[BlockingCoordinator] 🔍   LinkedApp[\(index)]: logicalID=\(linkedApp.logicalID), minutesRequired=\(linkedApp.minutesRequired)")
 
-            // Check UserDefaults directly
-            let userDefaultsMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
-            print("[BlockingCoordinator] 🔍     UserDefaults key: usage_\(linkedApp.logicalID)_today")
-            print("[BlockingCoordinator] 🔍     UserDefaults value: \(userDefaultsMinutes * 60) seconds (\(userDefaultsMinutes) minutes)")
+            let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
+            print("[BlockingCoordinator] 🔍     Current usage: \(currentMinutes) minutes")
 
-            // Also check UsagePersistence for comparison
             if let persistedApp = screenTimeService?.usagePersistence.app(for: linkedApp.logicalID) {
                 let startOfToday = Calendar.current.startOfDay(for: Date())
                 let isToday = persistedApp.lastResetDate >= startOfToday
-                print("[BlockingCoordinator] 🔍     UsagePersistence: app exists=true, todaySeconds=\(persistedApp.todaySeconds), lastResetDate=\(persistedApp.lastResetDate), isToday=\(isToday)")
-                if isToday {
-                    let persistedMinutes = persistedApp.todaySeconds / 60
-                    print("[BlockingCoordinator] 🔍     UsagePersistence minutes: \(persistedMinutes)")
-                    if persistedMinutes != userDefaultsMinutes {
-                        print("[BlockingCoordinator] ⚠️     DATA MISMATCH: UserDefaults=\(userDefaultsMinutes)min vs UsagePersistence=\(persistedMinutes)min")
-                    }
-                } else {
-                    print("[BlockingCoordinator] 🔍     UsagePersistence data is stale (from previous day)")
-                }
+                print("[BlockingCoordinator] 🔍     UsagePersistence: todaySeconds=\(persistedApp.todaySeconds), lastResetDate=\(persistedApp.lastResetDate), isToday=\(isToday)")
             } else {
-                print("[BlockingCoordinator] 🔍     UsagePersistence: app exists=false for logicalID '\(linkedApp.logicalID)'")
+                print("[BlockingCoordinator] 🔍     UsagePersistence: No data found for logicalID '\(linkedApp.logicalID)'")
             }
         }
 
@@ -571,14 +559,16 @@ class BlockingCoordinator: ObservableObject {
     }
 
     private func getTodayUsageMinutes(for logicalID: String) -> Int {
-        guard let defaults = UserDefaults(suiteName: appGroupID) else {
-            print("[BlockingCoordinator] ⚠️ getTodayUsageMinutes: Failed to access App Group UserDefaults")
+        // Read from UsagePersistence (same source as app cards) instead of UserDefaults
+        // This ensures bank card and app cards show consistent usage times
+        guard let persistedApp = screenTimeService?.usagePersistence.app(for: logicalID) else {
             return 0
         }
-        let key = "usage_\(logicalID)_today"
-        let usageSeconds = defaults.integer(forKey: key)
-        // Note: Detailed logging is done in checkLearningGoal() to avoid duplication
-        return usageSeconds / 60
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+        if persistedApp.lastResetDate >= startOfToday {
+            return persistedApp.todaySeconds / 60
+        }
+        return 0
     }
 
     // MARK: - Sync All Reward Apps
