@@ -1036,6 +1036,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.set(newReceivedSeq, forKey: "darwin_notification_seq_received")
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_received")
             sharedDefaults.synchronize()
+            
+            print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
         default:
             break
@@ -1048,6 +1050,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// With 240 static thresholds (1min, 2min, ... 240min), NO restart is needed!
     /// Each threshold fires once when cumulative usage reaches that minute.
     private func handleExtensionUsageRecorded(defaults: UserDefaults) {
+        print("[ScreenTimeService] 🔄 Syncing extension usage data...")
+        
         // Read updated usage data from extension's primitive keys
         readExtensionUsageData(defaults: defaults)
 
@@ -1076,6 +1080,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// NOTE: Staleness is handled by forceResetAllDailyCounters (v5 migration) and
     /// resetDailyCounters (day change). This function trusts extension data for real-time sync.
     private func readExtensionUsageData(defaults: UserDefaults) {
+        // DEFENSIVE: If appUsages is empty, load from persistence first
+        // This prevents data loss when sync happens before apps are loaded
+        if appUsages.isEmpty {
+            print("⚠️ [ScreenTimeService] appUsages is empty - loading from persistence first")
+            let apps = usagePersistence.loadAllApps()
+            self.appUsages = apps.reduce(into: [:]) { dict, pair in
+                let (logicalID, persistedApp) = pair
+                dict[logicalID] = appUsage(from: persistedApp)
+            }
+            print("✅ [ScreenTimeService] Loaded \(appUsages.count) apps from persistence")
+        }
+
         for (logicalID, var usage) in appUsages {
             // Read from PROTECTED ext_ keys (SET semantics - source of truth)
             // These keys use max(current, threshold) logic, preventing phantom inflation
@@ -1144,6 +1160,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                             }
 
                             usagePersistence.saveApp(persistedApp)
+
+                            // Also create/update Core Data UsageRecord for CloudKit sync
+                            // This ensures parent devices can see child usage data
+                            syncUsageRecordFromExtensionData(
+                                logicalID: logicalID,
+                                displayName: persistedApp.displayName,
+                                category: usage.category,
+                                todaySeconds: extTodaySeconds,
+                                todayPoints: persistedApp.todayPoints
+                            )
                         } else {
                             print("[SYNC] \(shortID)...: ⏭️ SKIPPED reason=no_change (ext=\(extTodaySeconds)s)")
                         }
@@ -1153,6 +1179,146 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     }
                 }
             }
+        }
+    }
+
+    // MARK: - UsageRecord Sync from Extension Data
+
+    /// Check if extension-based UsageRecord creation is enabled
+    /// This is a safety feature to allow gradual rollout and instant rollback
+    var isExtensionRecordSyncEnabled: Bool {
+        UserDefaults.standard.bool(forKey: "enableExtensionBasedRecordCreation")
+    }
+
+    /// Enable extension-based record creation (call once during testing)
+    func enableExtensionRecordSync() {
+        UserDefaults.standard.set(true, forKey: "enableExtensionBasedRecordCreation")
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Extension-based UsageRecord sync ENABLED")
+        #endif
+    }
+
+    /// Disable extension-based record creation (instant rollback)
+    func disableExtensionRecordSync() {
+        UserDefaults.standard.set(false, forKey: "enableExtensionBasedRecordCreation")
+        #if DEBUG
+        print("[ScreenTimeService] 🛑 Extension-based UsageRecord sync DISABLED")
+        #endif
+    }
+
+    /// Create or update UsageRecord Core Data entity from extension usage data
+    /// Called by readExtensionUsageData() to ensure usage data is persisted for CloudKit sync
+    ///
+    /// SAFEGUARDS:
+    /// - Feature flag controlled (disabled by default)
+    /// - Only runs if device is paired with parent
+    /// - Finds ANY record for app on given day (prevents duplicates)
+    /// - Updates existing record instead of creating duplicates
+    /// - Only saves if values actually changed (minimizes Core Data writes)
+    private func syncUsageRecordFromExtensionData(
+        logicalID: String,
+        displayName: String,
+        category: AppUsage.AppCategory,
+        todaySeconds: Int,
+        todayPoints: Int
+    ) {
+        // SAFEGUARD 1: Feature flag check
+        guard isExtensionRecordSyncEnabled else {
+            return  // Feature disabled, skip
+        }
+
+        // SAFEGUARD 2: Only create records if device is paired with parent
+        guard UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil else {
+            return  // Not paired, skip record creation
+        }
+
+        // SAFEGUARD 3: Only create records for apps with actual usage
+        guard todaySeconds > 0 else {
+            return  // No usage to record
+        }
+
+        let context = PersistenceController.shared.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        // SAFEGUARD 4: Find ANY existing record for this app TODAY
+        // Uses date range to catch records created by BOTH code paths:
+        // - Extension-based: sessionStart = start of day (00:00)
+        // - Threshold-based: sessionStart = actual usage time (e.g., 14:32)
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+        fetchRequest.predicate = NSPredicate(
+            format: "logicalID == %@ AND deviceID == %@ AND sessionStart >= %@ AND sessionStart < %@",
+            logicalID,
+            deviceID,
+            today as NSDate,
+            tomorrow as NSDate
+        )
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "sessionStart", ascending: false)]
+        fetchRequest.fetchLimit = 1
+
+        do {
+            let existing = try context.fetch(fetchRequest).first
+
+            if let record = existing {
+                // SAFEGUARD 5: Update existing record ONLY if values changed
+                // Minimizes Core Data writes and CloudKit uploads
+                if record.totalSeconds != Int32(todaySeconds) || record.earnedPoints != Int32(todayPoints) {
+                    let oldSeconds = record.totalSeconds
+                    let oldPoints = record.earnedPoints
+
+                    record.totalSeconds = Int32(todaySeconds)
+                    record.earnedPoints = Int32(todayPoints)
+                    record.sessionEnd = Date()
+                    record.isSynced = false  // Mark for re-upload to CloudKit
+
+                    try context.save()
+
+                    #if DEBUG
+                    print("[ScreenTimeService] 💾 Updated UsageRecord from extension:")
+                    print("   App: \(displayName)")
+                    print("   Old: \(oldSeconds)s, \(oldPoints)pts")
+                    print("   New: \(todaySeconds)s, \(todayPoints)pts")
+                    print("   Marked for CloudKit re-upload")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("[ScreenTimeService] ⏭️ Skipped update (no change): \(displayName) - \(todaySeconds)s")
+                    #endif
+                }
+            } else {
+                // Create new record for today
+                let record = UsageRecord(context: context)
+                record.recordID = UUID().uuidString
+                record.deviceID = deviceID
+                record.logicalID = logicalID
+                record.displayName = displayName
+                record.category = category.rawValue
+                record.totalSeconds = Int32(todaySeconds)
+                record.sessionStart = today  // Use start of day for consistency
+                record.sessionEnd = Date()
+                record.earnedPoints = Int32(todayPoints)
+                record.isSynced = false  // Mark for CloudKit upload
+
+                try context.save()
+
+                #if DEBUG
+                print("[ScreenTimeService] 💾 Created NEW UsageRecord from extension:")
+                print("   App: \(displayName)")
+                print("   Usage: \(todaySeconds)s (\(todaySeconds/60)min)")
+                print("   Points: \(todayPoints)pts")
+                print("   Category: \(category.rawValue)")
+                print("   Ready for CloudKit upload")
+                #endif
+            }
+        } catch {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to sync UsageRecord from extension data:")
+            print("   App: \(displayName)")
+            print("   Error: \(error.localizedDescription)")
+            #endif
         }
     }
 
@@ -1395,14 +1561,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private var debugPollingTimer: Timer?
 
     /// Start simple polling for DEBUG builds (Darwin notifications don't work in Xcode)
-    private func startDebugPolling(interval: TimeInterval = 10) {
+    private func startDebugPolling(interval: TimeInterval = 60) {
         guard debugPollingTimer == nil else { return }
 
         print("[ScreenTimeService] 🔄 Starting DEBUG polling (every \(Int(interval))s)")
         print("[ScreenTimeService] ℹ️ This is needed because Darwin notifications fail during Xcode debugging")
 
         debugPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            self?.performDebugSync()
+            Task { @MainActor in
+                self?.performDebugSync()
+            }
         }
         RunLoop.current.add(debugPollingTimer!, forMode: .common)
     }
@@ -1413,11 +1581,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         debugPollingTimer = nil
     }
 
-    /// Simple sync for DEBUG polling - minimal logging
+    /// Simple sync for DEBUG polling - shows when polling triggers sync
     private func performDebugSync() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         defaults.synchronize() // Force read from disk
 
+        print("[ScreenTimeService] ⏰ DEBUG polling triggered - syncing extension data")
+        
         // Sync extension data
         readExtensionUsageData(defaults: defaults)
 
@@ -1425,6 +1595,51 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         notifyUsageChange()
     }
     #endif
+
+    // MARK: - Production Background Sync (Safety net for missed Darwin notifications)
+
+    private var backgroundSyncTimer: Timer?
+
+    /// Start background polling as safety net for missed Darwin notifications
+    /// Unlike DEBUG polling, this runs in production with longer interval (5 min)
+    func startBackgroundSync(interval: TimeInterval = 300) {  // 5 minutes default
+        guard backgroundSyncTimer == nil else { return }
+
+        print("[ScreenTimeService] 🔄 Starting background sync (every \(Int(interval))s)")
+        print("[ScreenTimeService] ℹ️ This provides safety net for missed Darwin notifications")
+
+        backgroundSyncTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.syncExtensionDataSafely()
+            }
+        }
+        RunLoop.current.add(backgroundSyncTimer!, forMode: .common)
+    }
+
+    /// Stop background sync timer
+    func stopBackgroundSync() {
+        backgroundSyncTimer?.invalidate()
+        backgroundSyncTimer = nil
+    }
+
+    /// Safely sync extension data with error handling and logging
+    private func syncExtensionDataSafely() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            print("⚠️ [ScreenTimeService] Background sync failed - app group unavailable")
+            return
+        }
+
+        // Force flush from disk to catch any pending writes
+        defaults.synchronize()
+
+        print("[ScreenTimeService] ⏰ Background sync triggered")
+
+        // Read extension data
+        readExtensionUsageData(defaults: defaults)
+
+        // Notify UI to update
+        notifyUsageChange()
+    }
 
     // MARK: - Diagnostic Polling System (Disabled for performance)
 
@@ -1775,15 +1990,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Call this when app becomes active to ensure UI shows latest data.
     func refreshFromExtension() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            #if DEBUG
-            print("[ScreenTimeService] ⚠️ refreshFromExtension: Failed to access app group")
-            #endif
+            print("⚠️ [ScreenTimeService] refreshFromExtension: Failed to access app group UserDefaults")
             return
         }
 
         #if DEBUG
         print("[ScreenTimeService] 🔄 refreshFromExtension: Reading extension data...")
         #endif
+
+        // CRITICAL: Force flush from disk before reading
+        // Extension writes may not be visible in memory cache yet
+        defaults.synchronize()
 
         readExtensionUsageData(defaults: defaults)
         notifyUsageChange()
@@ -1862,6 +2079,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
+
+        #if DEBUG
+        let totalApps = appUsages.values.filter { $0.category == .learning }.count + appUsages.values.filter { $0.category == .reward }.count
+        print("[ScreenTimeService] 🔔 DeviceActivity monitoring started successfully")
+        print("   - Total apps monitored: \(totalApps) (learning + reward)")
+        print("   - Total threshold events: \(events.count)")
+        print("   - Schedule: 00:00 - 23:59 (repeating daily)")
+        print("   - Activity name: \(activityName)")
+        #endif
 
         // Set global restart timestamp for extension catch-up detection
         // Extension uses this to skip catch-up events within 10 seconds of restart
@@ -2406,11 +2632,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 do {
                     try context.save()
                     #if DEBUG
-                    print("[ScreenTimeService] ✅ Created NEW UsageRecord for CloudKit sync: \(logicalID)")
+                    print("[ScreenTimeService] 💾 ===== UsageRecord CREATED =====")
+                    print("   - App: \(application.displayName)")
+                    print("   - Duration: \(Int(duration))s (\(Int(duration/60))min)")
+                    print("   - Points: \(recordMinutes * application.rewardPoints)")
+                    print("   - Category: \(application.category.rawValue)")
+                    print("   - IsSynced: false (ready for CloudKit upload)")
+                    print("   - DeviceID: \(deviceID)")
                     #endif
                 } catch {
                     #if DEBUG
-                    print("[ScreenTimeService] ⚠️ Failed to save UsageRecord: \(error)")
+                    print("[ScreenTimeService] ❌ Failed to save UsageRecord: \(error)")
                     #endif
                 }
             }
@@ -2540,7 +2772,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     fileprivate func handleEventThresholdReached(_ event: DeviceActivityEvent.Name, timestamp: Date = Date()) {
         #if DEBUG
-        print("[ScreenTimeService] Event threshold reached: \(event.rawValue) at \(timestamp)")
+        print("[ScreenTimeService] 🔔 ===== THRESHOLD EVENT RECEIVED =====")
+        print("   - Event name: \(event.rawValue)")
+        print("   - Timestamp: \(timestamp)")
+        print("   - Thread: \(Thread.isMainThread ? "Main" : "Background")")
         #endif
 
         // === PHANTOM EVENT PROTECTION ===

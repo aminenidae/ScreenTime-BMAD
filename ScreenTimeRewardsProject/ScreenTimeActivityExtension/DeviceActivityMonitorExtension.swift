@@ -66,12 +66,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Threshold Event Handler
     override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
+        // Console visibility for development
+        print("🔔 [EXTENSION] THRESHOLD EVENT: \(event.rawValue)")
+
         // Log FIRST - before any processing that could fail
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
             // Increment persistent counter to track total events received
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
+
+            // Show event count in console
+            print("🔔 [EXTENSION] Total events: \(eventCount)")
         }
 
         updateHeartbeat()
@@ -115,6 +121,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
         debugLog("EVENT appID=\(appID.prefix(8))... min=\(thresholdMinutes) currentToday=\(currentToday)s lastThresh=\(currentThreshold)s", defaults: defaults)
 
+        // Console visibility for development
+        print("📝 [EXTENSION] Recording: app=\(appID.prefix(8))... minute=\(thresholdMinutes) currentToday=\(currentToday)s")
+
         // 3. SET usage to threshold value (not INCREMENT)
         let now = Date().timeIntervalSince1970
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
@@ -122,6 +131,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if !didUpdate {
             return false
         }
+
+        // Confirm recording success in console
+        let newToday = defaults.integer(forKey: "usage_\(appID)_today")
+        print("✅ [EXTENSION] Recorded +60s - total today: \(newToday)s")
 
         // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")

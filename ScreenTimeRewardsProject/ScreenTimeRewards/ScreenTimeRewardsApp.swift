@@ -25,6 +25,14 @@ struct ScreenTimeRewardsApp: App {
         Task { @MainActor in
             await StreakMigrationService.shared.performMigrationIfNeeded()
         }
+
+        // DEBUG: Check pairing context on startup
+        #if DEBUG
+        print("🔍 [STARTUP] Pairing Context Check:")
+        print("   - Parent Zone ID: \(UserDefaults.standard.string(forKey: "parentSharedZoneID") ?? "❌ NOT SET")")
+        print("   - Parent Zone Owner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "❌ NOT SET")")
+        print("   - Parent Root Record: \(UserDefaults.standard.string(forKey: "parentSharedRootRecordName") ?? "❌ NOT SET")")
+        #endif
     }
 
     var body: some Scene {
@@ -43,7 +51,11 @@ struct ScreenTimeRewardsApp: App {
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
                 }
-                
+
+                // Start background sync as safety net for missed Darwin notifications
+                ScreenTimeService.shared.startBackgroundSync()
+                print("[ScreenTimeRewardsApp] 🔄 Started background sync timer (5min polling)")
+
                 // Initialize StreakService to ensure midnight timer is running
                 let _ = StreakService.shared
                 print("[ScreenTimeRewardsApp] 🔥 StreakService initialized")
@@ -56,6 +68,10 @@ struct ScreenTimeRewardsApp: App {
                 // Stop periodic refresh when app goes to background
                 BlockingCoordinator.shared.stopPeriodicRefresh()
                 print("[ScreenTimeRewardsApp] ⏸️ Stopped BlockingCoordinator periodic refresh")
+
+                // Stop background sync to save resources
+                ScreenTimeService.shared.stopBackgroundSync()
+                print("[ScreenTimeRewardsApp] ⏸️ Stopped background sync timer")
 
             @unknown default:
                 break
