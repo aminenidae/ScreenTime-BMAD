@@ -192,6 +192,32 @@ struct AppTheme {
         static let medium = (color: Color.black.opacity(0.1), radius: CGFloat(4), x: CGFloat(0), y: CGFloat(2))
         static let large = (color: Color.black.opacity(0.15), radius: CGFloat(8), x: CGFloat(0), y: CGFloat(4))
     }
+
+    // MARK: - Gradients
+
+    struct Gradients {
+        /// Parent dashboard background gradient
+        static func parentBackground(for scheme: ColorScheme) -> LinearGradient {
+            LinearGradient(
+                colors: scheme == .dark
+                    ? [AppTheme.deepNavy, AppTheme.darkTeal]
+                    : [AppTheme.lightCream, Color(hex: "F5F8FA")],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+
+        /// Subtle card gradient for empty states
+        static func cardSubtle(for scheme: ColorScheme) -> LinearGradient {
+            LinearGradient(
+                colors: scheme == .dark
+                    ? [AppTheme.darkTeal, AppTheme.deepNavy.opacity(0.8)]
+                    : [Color.white.opacity(0.7), Color.white.opacity(0.3)],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+        }
+    }
 }
 
 // MARK: - View Extensions for Easy Access

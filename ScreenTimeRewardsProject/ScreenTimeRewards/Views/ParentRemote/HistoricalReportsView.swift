@@ -4,6 +4,7 @@ import CoreData
 struct HistoricalReportsView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     @State private var selectedDateRange: DateRange = .week
+    @Environment(\.colorScheme) var colorScheme
     
     enum DateRange: String, CaseIterable {
         case week = "Week"
@@ -56,22 +57,28 @@ struct HistoricalReportsView: View {
             }
         }
         .padding()
-        .background(Color.gray.opacity(0.1))
-        .cornerRadius(12)
+        .background(AppTheme.card(for: colorScheme))
+        .cornerRadius(AppTheme.CornerRadius.medium)
+        .overlay(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+        )
     }
 }
 
 private struct EmptyReportsView: View {
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(spacing: 8) {
             Image(systemName: "chart.bar.doc.horizontal")
                 .font(.largeTitle)
-                .foregroundColor(.gray)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             Text("No historical data")
-                .foregroundColor(.gray)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             Text("Reports will appear here after your child uses apps")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
         }
         .frame(maxWidth: .infinity, minHeight: 100)
@@ -81,42 +88,43 @@ private struct EmptyReportsView: View {
 private struct DailySummaryCard: View {
     let summary: DailySummary
     let date: Date
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(spacing: 12) {
             Text(formatDate(date))
                 .font(.caption)
                 .fontWeight(.medium)
-                .foregroundColor(.secondary)
-            
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
             VStack(spacing: 8) {
                 StatItem(
                     title: "Learning",
                     value: TimeFormatting.formatSeconds(summary.totalLearningSeconds),
                     icon: "book",
-                    color: .blue
+                    color: AppTheme.vibrantTeal
                 )
 
                 StatItem(
                     title: "Reward",
                     value: TimeFormatting.formatSeconds(summary.totalRewardSeconds),
                     icon: "gamecontroller",
-                    color: .green
+                    color: AppTheme.playfulCoral
                 )
-                
+
                 StatItem(
                     title: "Points",
                     value: String(summary.totalPointsEarned),
                     icon: "star",
-                    color: .orange
+                    color: AppTheme.sunnyYellow
                 )
             }
         }
         .frame(width: 120)
         .padding()
-        .background(Color.white)
-        .cornerRadius(10)
-        .shadow(radius: 2)
+        .background(AppTheme.card(for: colorScheme))
+        .cornerRadius(AppTheme.CornerRadius.small)
+        .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 2)
     }
     
     private func formatDate(_ date: Date) -> String {
@@ -131,7 +139,8 @@ private struct StatItem: View {
     let value: String
     let icon: String
     let color: Color
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         HStack(spacing: 6) {
             Image(systemName: icon)
@@ -143,7 +152,7 @@ private struct StatItem: View {
                     .fontWeight(.medium)
                 Text(title)
                     .font(.caption2)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
         }
     }
@@ -151,7 +160,8 @@ private struct StatItem: View {
 
 private struct WeeklyTrendChart: View {
     let dailySummaries: [DailySummary]
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Weekly Trend")
@@ -170,7 +180,7 @@ private struct WeeklyTrendChart: View {
                             path.move(to: CGPoint(x: 0, y: y))
                             path.addLine(to: CGPoint(x: chartWidth, y: y))
                         }
-                        .stroke(Color.gray.opacity(0.3), lineWidth: 0.5)
+                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 0.5)
                     }
                     
                     // Data points and lines
@@ -183,21 +193,21 @@ private struct WeeklyTrendChart: View {
                             
                             // Point
                             Circle()
-                                .fill(Color.blue)
+                                .fill(AppTheme.sunnyYellow)
                                 .frame(width: 8, height: 8)
                                 .position(x: x, y: y)
-                            
+
                             // Line to next point
                             if index < dailySummaries.count - 1 {
                                 let nextSummary = dailySummaries[index + 1]
                                 let nextX = CGFloat(index + 1) * (chartWidth / CGFloat(dailySummaries.count - 1))
                                 let nextY = chartHeight - (CGFloat(nextSummary.totalPointsEarned) / CGFloat(maxPoints)) * chartHeight
-                                
+
                                 Path { path in
                                     path.move(to: CGPoint(x: x, y: y))
                                     path.addLine(to: CGPoint(x: nextX, y: nextY))
                                 }
-                                .stroke(Color.blue, lineWidth: 2)
+                                .stroke(AppTheme.sunnyYellow, lineWidth: 2)
                             }
                         }
                     }
@@ -211,52 +221,53 @@ private struct WeeklyTrendChart: View {
 
 private struct CategoryBreakdownView: View {
     let dailySummaries: [DailySummary]
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Category Breakdown")
                 .font(.headline)
                 .fontWeight(.medium)
-            
+
             if !dailySummaries.isEmpty {
                 let totalLearning = dailySummaries.reduce(0) { $0 + $1.totalLearningSeconds }
                 let totalReward = dailySummaries.reduce(0) { $0 + $1.totalRewardSeconds }
                 let totalTime = totalLearning + totalReward
-                
+
                 if totalTime > 0 {
                     VStack(spacing: 8) {
                         HStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.blue)
+                            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
+                                .fill(AppTheme.vibrantTeal)
                                 .frame(width: CGFloat(totalLearning) / CGFloat(totalTime) * 200, height: 20)
-                            
+
                             Text("Learning")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
-                        
+
                         HStack {
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(Color.green)
+                            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
+                                .fill(AppTheme.playfulCoral)
                                 .frame(width: CGFloat(totalReward) / CGFloat(totalTime) * 200, height: 20)
-                            
+
                             Text("Reward")
                                 .font(.caption)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
                     }
-                    
+
                     HStack {
                         StatBadge(
                             title: "Learning",
                             value: TimeFormatting.formatSeconds(totalLearning),
-                            color: .blue
+                            color: AppTheme.vibrantTeal
                         )
 
                         StatBadge(
                             title: "Reward",
                             value: TimeFormatting.formatSeconds(totalReward),
-                            color: .green
+                            color: AppTheme.playfulCoral
                         )
                     }
                 }
@@ -269,7 +280,8 @@ private struct StatBadge: View {
     let title: String
     let value: String
     let color: Color
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(spacing: 4) {
             Text(value)
@@ -277,14 +289,14 @@ private struct StatBadge: View {
                 .fontWeight(.medium)
             Text(title)
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
         }
         .frame(maxWidth: .infinity)
         .padding()
-        .background(Color.white)
-        .cornerRadius(8)
+        .background(AppTheme.card(for: colorScheme))
+        .cornerRadius(AppTheme.CornerRadius.small)
         .overlay(
-            RoundedRectangle(cornerRadius: 8)
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
                 .stroke(color.opacity(0.3), lineWidth: 1)
         )
     }

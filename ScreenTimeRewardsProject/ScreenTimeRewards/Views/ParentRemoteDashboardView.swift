@@ -5,24 +5,17 @@ struct ParentRemoteDashboardView: View {
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var showingRefreshIndicator = false
     @State private var showingPairingView = false
+    @Environment(\.colorScheme) var colorScheme
     // Added @AppStorage for parent name as per UX/UI improvements Phase 1
     // Using device name as fallback since we couldn't find a specific parent name field
     @AppStorage("parentName") private var parentName: String = ""
-    
+
     var body: some View {
         NavigationView {
             ZStack {
-                // Soft gradient background
-                LinearGradient(
-                    colors: [
-                        Color(red: 0.95, green: 0.97, blue: 1.0),  // Very light blue
-                        Color(red: 0.98, green: 0.95, blue: 1.0),  // Very light purple
-                        Color(red: 1.0, green: 0.97, blue: 0.98)   // Very light pink
-                    ],
-                    startPoint: .topLeading,
-                    endPoint: .bottomTrailing
-                )
-                .ignoresSafeArea()
+                // App-themed gradient background
+                AppTheme.Gradients.parentBackground(for: colorScheme)
+                    .ignoresSafeArea()
 
                 ScrollView {
                     VStack(spacing: 20) {
@@ -38,7 +31,7 @@ struct ParentRemoteDashboardView: View {
 
                             Text("Device: \(modeManager.deviceName)")
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
                         .padding(.top)
                     
@@ -78,29 +71,24 @@ struct ParentRemoteDashboardView: View {
                             
                             Text("To get started, set up a child device and link it to this parent device using the pairing process.")
                                 .font(.subheadline)
-                                .foregroundColor(.secondary)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                 .multilineTextAlignment(.center)
-                            
+
                             Button("Pair Devices") {
                                 showingPairingView = true
                             }
                             .buttonStyle(.borderedProminent)
+                            .tint(AppTheme.vibrantTeal)
                         }
                         .padding()
                         .background(
-                            RoundedRectangle(cornerRadius: 12)
-                                .fill(
-                                    LinearGradient(
-                                        colors: [
-                                            Color.white.opacity(0.7),
-                                            Color.gray.opacity(0.1)
-                                        ],
-                                        startPoint: .top,
-                                        endPoint: .bottom
-                                    )
+                            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                                .fill(AppTheme.Gradients.cardSubtle(for: colorScheme))
+                                .overlay(
+                                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
                                 )
                         )
-                        .cornerRadius(12)
                         .padding(.horizontal)
                     }
                     
@@ -171,21 +159,22 @@ struct ParentRemoteDashboardView: View {
 
 private struct ErrorBanner: View {
     let message: String
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         HStack {
             Image(systemName: "exclamationmark.triangle")
-                .foregroundColor(.red)
-            
+                .foregroundColor(AppTheme.errorRed)
+
             Text(message)
                 .font(.caption)
-                .foregroundColor(.red)
-            
+                .foregroundColor(AppTheme.errorRed)
+
             Spacer()
         }
         .padding()
-        .background(Color.red.opacity(0.1))
-        .cornerRadius(8)
+        .background(AppTheme.errorRed.opacity(0.1))
+        .cornerRadius(AppTheme.CornerRadius.small)
     }
 }
 

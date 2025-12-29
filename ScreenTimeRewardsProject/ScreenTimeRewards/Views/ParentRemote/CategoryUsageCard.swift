@@ -2,6 +2,7 @@ import SwiftUI
 
 struct CategoryUsageCard: View {
     let summary: CategoryUsageSummary
+    @Environment(\.colorScheme) var colorScheme
 
     var categoryIcon: String {
         switch summary.category {
@@ -15,11 +16,11 @@ struct CategoryUsageCard: View {
 
     var categoryColor: Color {
         switch summary.category {
-        case "Learning": return .blue
-        case "Reward": return .purple
-        case "Social": return .green
-        case "Creative": return .orange
-        default: return .gray
+        case "Learning": return AppTheme.vibrantTeal
+        case "Reward": return AppTheme.playfulCoral
+        case "Social": return AppTheme.sunnyYellow
+        case "Creative": return AppTheme.sunnyYellow
+        default: return AppTheme.textSecondary(for: colorScheme)
         }
     }
 
@@ -37,13 +38,13 @@ struct CategoryUsageCard: View {
 
                     Text("\(summary.appCount) app\(summary.appCount == 1 ? "" : "s") active")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
 
             Divider()

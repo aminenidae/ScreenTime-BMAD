@@ -36,6 +36,7 @@ struct DeviceCardCarousel: View {
 /// Individual device card with device name and icon
 struct DeviceCard: View {
     let device: RegisteredDevice
+    @Environment(\.colorScheme) var colorScheme
 
     var deviceIcon: String {
         if let deviceName = device.deviceName?.lowercased() {
@@ -48,43 +49,16 @@ struct DeviceCard: View {
         return "laptopcomputer"
     }
 
-    // Soft gradient colors based on device type
-    var cardGradient: LinearGradient {
-        let colors: [Color]
-
+    // Subtle device-type tint overlay
+    var deviceTypeTint: Color {
         if let deviceName = device.deviceName?.lowercased() {
             if deviceName.contains("ipad") {
-                // Soft purple gradient for iPad
-                colors = [
-                    Color(red: 0.95, green: 0.93, blue: 1.0),
-                    Color(red: 0.98, green: 0.96, blue: 1.0)
-                ]
+                return AppTheme.vibrantTeal.opacity(0.1)
             } else if deviceName.contains("iphone") {
-                // Soft blue gradient for iPhone
-                colors = [
-                    Color(red: 0.93, green: 0.97, blue: 1.0),
-                    Color(red: 0.96, green: 0.98, blue: 1.0)
-                ]
-            } else {
-                // Soft green gradient for other devices
-                colors = [
-                    Color(red: 0.93, green: 1.0, blue: 0.97),
-                    Color(red: 0.96, green: 1.0, blue: 0.98)
-                ]
+                return AppTheme.playfulCoral.opacity(0.1)
             }
-        } else {
-            // Default soft gradient
-            colors = [
-                Color(red: 0.97, green: 0.97, blue: 1.0),
-                Color(red: 0.99, green: 0.99, blue: 1.0)
-            ]
         }
-
-        return LinearGradient(
-            colors: colors,
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
+        return AppTheme.sunnyYellow.opacity(0.1)
     }
 
     var body: some View {
@@ -92,13 +66,13 @@ struct DeviceCard: View {
             // Device icon
             Image(systemName: deviceIcon)
                 .font(.system(size: 80))
-                .foregroundColor(.blue)
+                .foregroundColor(AppTheme.vibrantTeal)
 
             // Device name
             Text(device.deviceName ?? "Unknown Device")
                 .font(.title2)
                 .fontWeight(.bold)
-                .foregroundColor(.primary)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
@@ -106,19 +80,27 @@ struct DeviceCard: View {
             HStack(spacing: 6) {
                 Text("Tap to view")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                 Image(systemName: "chevron.right")
                     .font(.caption)
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .padding()
         .background(
-            RoundedRectangle(cornerRadius: 20)
-                .fill(cardGradient)
-                .shadow(color: .black.opacity(0.15), radius: 10, x: 0, y: 5)
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .fill(deviceTypeTint)
+                )
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+                )
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 10, x: 0, y: 5)
         )
     }
 }

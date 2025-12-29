@@ -6,9 +6,10 @@ import CoreData
 struct ChildUsageDashboardView: View {
     let devices: [RegisteredDevice]
     let selectedDeviceID: String?
-    
+
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var currentIndex: Int = 0
+    @Environment(\.colorScheme) var colorScheme
     
     init(devices: [RegisteredDevice], selectedDeviceID: String?) {
         self.devices = devices
@@ -28,17 +29,9 @@ struct ChildUsageDashboardView: View {
     
     var body: some View {
         ZStack {
-            // Soft gradient background for usage dashboard
-            LinearGradient(
-                colors: [
-                    Color(red: 0.96, green: 0.98, blue: 1.0),   // Soft blue
-                    Color(red: 0.98, green: 0.96, blue: 1.0),   // Soft lavender
-                    Color(red: 1.0, green: 0.98, blue: 0.96)    // Soft peach
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            .ignoresSafeArea()
+            // App-themed gradient background
+            AppTheme.Gradients.parentBackground(for: colorScheme)
+                .ignoresSafeArea()
 
             TabView(selection: $currentIndex) {
                 ForEach(Array(devices.enumerated()), id: \.element.deviceID) { index, device in
@@ -60,26 +53,26 @@ struct ChildUsageDashboardView: View {
                         }
                     }) {
                         Image(systemName: "chevron.left")
-                            .foregroundColor(currentIndex > 0 ? .blue : .gray)
+                            .foregroundColor(currentIndex > 0 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
                     }
                     .disabled(currentIndex == 0)
-                    
+
                     VStack(spacing: 2) {
                         Text(currentDevice?.deviceName ?? "Device")
                             .font(.headline)
-                        
+
                         Text("\(currentIndex + 1) of \(devices.count)")
                             .font(.caption)
-                            .foregroundColor(.secondary)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
-                    
+
                     Button(action: {
                         withAnimation {
                             currentIndex = min(devices.count - 1, currentIndex + 1)
                         }
                     }) {
                         Image(systemName: "chevron.right")
-                            .foregroundColor(currentIndex < devices.count - 1 ? .blue : .gray)
+                            .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
                     }
                     .disabled(currentIndex >= devices.count - 1)
                 }

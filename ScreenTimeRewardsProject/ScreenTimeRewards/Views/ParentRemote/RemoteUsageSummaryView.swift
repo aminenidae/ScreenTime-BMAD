@@ -3,7 +3,8 @@ import CoreData
 
 struct RemoteUsageSummaryView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
-    
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
@@ -13,7 +14,7 @@ struct RemoteUsageSummaryView: View {
                         .fontWeight(.bold)
                     Spacer()
                     Text(Date().formatted(date: .abbreviated, time: .omitted))
-                        .foregroundColor(.secondary)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
                 .padding(.horizontal)
 
@@ -30,16 +31,18 @@ struct RemoteUsageSummaryView: View {
 }
 
 private struct EmptyStateView: View {
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         VStack(spacing: 12) {
             Image(systemName: "chart.bar.doc.horizontal")
                 .font(.system(size: 60))
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             Text("No usage data yet")
                 .font(.headline)
             Text("Activity will appear here when your child uses monitored apps")
                 .font(.caption)
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .multilineTextAlignment(.center)
         }
         .padding()
@@ -49,11 +52,12 @@ private struct EmptyStateView: View {
 
 private struct CategoryUsageView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         if viewModel.categorySummaries.isEmpty {
             Text("No usage data yet")
-                .foregroundColor(.secondary)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .frame(maxWidth: .infinity, minHeight: 100)
                 .onAppear {
                     #if DEBUG
