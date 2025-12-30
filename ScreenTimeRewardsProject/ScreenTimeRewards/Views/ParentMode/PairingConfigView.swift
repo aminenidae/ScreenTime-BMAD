@@ -676,6 +676,9 @@ struct PairingConfigView: View {
             }
         }
 
+        // Update existing UsageRecords with new displayNames
+        updateUsageRecordDisplayNames()
+
         // Also save to CloudKit for cross-device sync
         saveToCloudKit()
 
@@ -688,8 +691,52 @@ struct PairingConfigView: View {
         }
     }
     
+    // MARK: - Update UsageRecords
+
+    /// Update all existing UsageRecords with new displayNames
+    /// This ensures historical records show the custom name set by the user
+    private func updateUsageRecordDisplayNames() {
+        let context = PersistenceController.shared.container.viewContext
+        var updatedCount = 0
+
+        for (logicalID, newName) in editedNames {
+            guard !newName.isEmpty else { continue }
+
+            let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "logicalID == %@", logicalID)
+
+            do {
+                let records = try context.fetch(fetchRequest)
+                for record in records {
+                    if record.displayName != newName {
+                        record.displayName = newName
+                        record.isSynced = false  // Re-upload to CloudKit with new name
+                        updatedCount += 1
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[PairingConfigView] ❌ Error updating UsageRecords for \(logicalID): \(error)")
+                #endif
+            }
+        }
+
+        if updatedCount > 0 {
+            do {
+                try context.save()
+                #if DEBUG
+                print("[PairingConfigView] ✅ Updated displayName in \(updatedCount) UsageRecords")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[PairingConfigView] ❌ Error saving UsageRecords: \(error)")
+                #endif
+            }
+        }
+    }
+
     // MARK: - CloudKit Sync
-    
+
     /// Save app names to Core Data for automatic CloudKit sync
     private func saveToCloudKit() {
         let context = PersistenceController.shared.container.viewContext
