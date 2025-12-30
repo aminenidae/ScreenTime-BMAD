@@ -432,39 +432,16 @@ class BlockingCoordinator: ObservableObject {
     }
 
     private func checkLearningGoal(logicalID: String) -> LearningGoalCheckResult {
-        // DIAGNOSTIC: Log the reward app being checked
-        print("[BlockingCoordinator] 🔍 DIAGNOSTIC: Checking learning goal for reward app: \(logicalID)")
-
         guard let config = scheduleService.getSchedule(for: logicalID) else {
-            print("[BlockingCoordinator] 🔍   No schedule found - returning default learning requirement")
             // No schedule = default learning requirement
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let linkedApps = config.linkedLearningApps
-        print("[BlockingCoordinator] 🔍   Linked apps count: \(linkedApps.count)")
-        print("[BlockingCoordinator] 🔍   Unlock mode: \(config.unlockMode.rawValue)")
 
         // No linked learning apps = goal is met (no requirement, no reward)
         if linkedApps.isEmpty {
-            print("[BlockingCoordinator] 🔍   No linked apps - goal is automatically met")
             return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0, rewardMinutesEarned: 0)
-        }
-
-        // DIAGNOSTIC: Log each linked app usage from UsagePersistence
-        for (index, linkedApp) in linkedApps.enumerated() {
-            print("[BlockingCoordinator] 🔍   LinkedApp[\(index)]: logicalID=\(linkedApp.logicalID), minutesRequired=\(linkedApp.minutesRequired)")
-
-            let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
-            print("[BlockingCoordinator] 🔍     Current usage: \(currentMinutes) minutes")
-
-            if let persistedApp = screenTimeService?.usagePersistence.app(for: linkedApp.logicalID) {
-                let startOfToday = Calendar.current.startOfDay(for: Date())
-                let isToday = persistedApp.lastResetDate >= startOfToday
-                print("[BlockingCoordinator] 🔍     UsagePersistence: todaySeconds=\(persistedApp.todaySeconds), lastResetDate=\(persistedApp.lastResetDate), isToday=\(isToday)")
-            } else {
-                print("[BlockingCoordinator] 🔍     UsagePersistence: No data found for logicalID '\(linkedApp.logicalID)'")
-            }
         }
 
         // Calculate total required, current progress, and reward earned
@@ -516,14 +493,12 @@ class BlockingCoordinator: ObservableObject {
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
-                    let result = LearningGoalCheckResult(
+                    return LearningGoalCheckResult(
                         isGoalMet: true,
                         targetMinutes: target,
                         currentMinutes: currentMinutes,
                         rewardMinutesEarned: earnedInt
                     )
-                    print("[BlockingCoordinator] 🔍   Result: isGoalMet=true (ANY mode satisfied, \(earnedInt) minutes earned)")
-                    return result
                 }
 
                 // Track best progress
@@ -534,7 +509,6 @@ class BlockingCoordinator: ObservableObject {
 
             // None completed - return best progress (no reward yet)
             if let best = bestProgress {
-                print("[BlockingCoordinator] 🔍   Result: isGoalMet=false, best progress=\(best.current)/\(best.target) minutes")
                 return LearningGoalCheckResult(
                     isGoalMet: false,
                     targetMinutes: best.target,
@@ -544,12 +518,10 @@ class BlockingCoordinator: ObservableObject {
             }
 
             // Fallback
-            print("[BlockingCoordinator] 🔍   Result: isGoalMet=false (fallback)")
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
         let isGoalMet = totalCurrent >= totalTarget
-        print("[BlockingCoordinator] 🔍   Result: isGoalMet=\(isGoalMet), totalCurrent=\(totalCurrent)/\(totalTarget) minutes")
         return LearningGoalCheckResult(
             isGoalMet: isGoalMet,
             targetMinutes: totalTarget,
@@ -767,9 +739,6 @@ class BlockingCoordinator: ObservableObject {
     /// Refresh all blocking states for currently tracked reward apps
     func refreshAllBlockingStates() {
         guard !currentRewardTokens.isEmpty else {
-            #if DEBUG
-            print("[BlockingCoordinator] No reward tokens to refresh")
-            #endif
             return
         }
 

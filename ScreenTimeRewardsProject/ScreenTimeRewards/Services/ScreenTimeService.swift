@@ -199,11 +199,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] appUsages count: \(appUsages.count)")
         print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
         print("=" + String(repeating: "=", count: 50))
-
-        // Enable polling as fallback for DEBUG builds (Darwin notifications fail in Xcode)
-        #if DEBUG
-        startDebugPolling()
-        #endif
     }
 
     // MARK: - Helper Methods
@@ -1092,6 +1087,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("✅ [ScreenTimeService] Loaded \(appUsages.count) apps from persistence")
         }
 
+        // Track sync statistics for summary log
+        var syncedApps: [(name: String, delta: Int)] = []
+        var unchangedCount = 0
+
         for (logicalID, var usage) in appUsages {
             // Read from PROTECTED ext_ keys (SET semantics - source of truth)
             // These keys use max(current, threshold) logic, preventing phantom inflation
@@ -1103,13 +1102,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let extTotalSeconds = defaults.integer(forKey: extTotalKey)
             let extDateString = defaults.string(forKey: extDateKey)
 
-            // Also read legacy keys for logging/debugging only
-            let legacyTodaySeconds = defaults.integer(forKey: "usage_\(logicalID)_today")
-            let shortID = String(logicalID.prefix(8))
-
             if extTodaySeconds > 0 || extTotalSeconds > 0 {
-                print("[SYNC] \(shortID)...: ext_today=\(extTodaySeconds)s ext_total=\(extTotalSeconds)s legacy_today=\(legacyTodaySeconds)s")
-
                 // Update in-memory usage - totalTime is the cumulative value
                 usage.totalTime = TimeInterval(extTotalSeconds)
                 appUsages[logicalID] = usage
@@ -1124,18 +1117,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     }()
                     let isFromToday = extDateString == todayDateString
 
-                    print("[SYNC] \(shortID)...: persisted_today=\(persistedApp.todaySeconds)s ext_date=\(extDateString ?? "nil") today=\(todayDateString)")
-
                     // Trust extension as source of truth for today's usage
                     if isFromToday {
                         let deltaSeconds = extTodaySeconds - persistedApp.todaySeconds
 
                         if extTodaySeconds != persistedApp.todaySeconds {
-                            if deltaSeconds > 0 {
-                                print("[SYNC] \(shortID)...: ✅ SYNCING delta=+\(deltaSeconds)s newToday=\(extTodaySeconds)s")
-                            } else {
-                                print("[SYNC] \(shortID)...: 🔧 CORRECTING delta=\(deltaSeconds)s newToday=\(extTodaySeconds)s (was inflated)")
-                            }
+                            // Track for summary log
+                            syncedApps.append((name: persistedApp.displayName, delta: deltaSeconds))
 
                             persistedApp.todaySeconds = extTodaySeconds
                             persistedApp.totalSeconds = max(extTotalSeconds, persistedApp.totalSeconds)
@@ -1171,15 +1159,24 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                                 todayPoints: persistedApp.todayPoints
                             )
                         } else {
-                            print("[SYNC] \(shortID)...: ⏭️ SKIPPED reason=no_change (ext=\(extTodaySeconds)s)")
+                            unchangedCount += 1
                         }
-                    } else if extTodaySeconds > 0 {
-                        // Extension has stale data from yesterday - log it (ext_ keys auto-reset on new day)
-                        print("[SYNC] \(shortID)...: ⚠️ STALE ext data (ext_date=\(extDateString ?? "nil") != today=\(todayDateString))")
                     }
                 }
             }
         }
+
+        // Print summary log
+        #if DEBUG
+        if !syncedApps.isEmpty || unchangedCount > 0 {
+            let syncSummary = syncedApps.map { "\($0.name): \($0.delta > 0 ? "+" : "")\($0.delta)s" }.joined(separator: ", ")
+            if syncedApps.isEmpty {
+                print("[ScreenTimeService] 📊 No changes, \(unchangedCount) apps unchanged")
+            } else {
+                print("[ScreenTimeService] 📊 Synced \(syncedApps.count) app(s): \(syncSummary) | \(unchangedCount) unchanged")
+            }
+        }
+        #endif
     }
 
     // MARK: - UsageRecord Sync from Extension Data
@@ -1266,27 +1263,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 // SAFEGUARD 5: Update existing record ONLY if values changed
                 // Minimizes Core Data writes and CloudKit uploads
                 if record.totalSeconds != Int32(todaySeconds) || record.earnedPoints != Int32(todayPoints) {
-                    let oldSeconds = record.totalSeconds
-                    let oldPoints = record.earnedPoints
-
                     record.totalSeconds = Int32(todaySeconds)
                     record.earnedPoints = Int32(todayPoints)
                     record.sessionEnd = Date()
                     record.isSynced = false  // Mark for re-upload to CloudKit
 
                     try context.save()
-
-                    #if DEBUG
-                    print("[ScreenTimeService] 💾 Updated UsageRecord from extension:")
-                    print("   App: \(displayName)")
-                    print("   Old: \(oldSeconds)s, \(oldPoints)pts")
-                    print("   New: \(todaySeconds)s, \(todayPoints)pts")
-                    print("   Marked for CloudKit re-upload")
-                    #endif
-                } else {
-                    #if DEBUG
-                    print("[ScreenTimeService] ⏭️ Skipped update (no change): \(displayName) - \(todaySeconds)s")
-                    #endif
                 }
             } else {
                 // Create new record for today
@@ -1554,47 +1536,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         print(String(repeating: "=", count: 60) + "\n")
     }
-
-    // MARK: - DEBUG Polling System (Fallback for Xcode builds)
-
-    #if DEBUG
-    private var debugPollingTimer: Timer?
-
-    /// Start simple polling for DEBUG builds (Darwin notifications don't work in Xcode)
-    private func startDebugPolling(interval: TimeInterval = 60) {
-        guard debugPollingTimer == nil else { return }
-
-        print("[ScreenTimeService] 🔄 Starting DEBUG polling (every \(Int(interval))s)")
-        print("[ScreenTimeService] ℹ️ This is needed because Darwin notifications fail during Xcode debugging")
-
-        debugPollingTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.performDebugSync()
-            }
-        }
-        RunLoop.current.add(debugPollingTimer!, forMode: .common)
-    }
-
-    /// Stop DEBUG polling
-    private func stopDebugPolling() {
-        debugPollingTimer?.invalidate()
-        debugPollingTimer = nil
-    }
-
-    /// Simple sync for DEBUG polling - shows when polling triggers sync
-    private func performDebugSync() {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-        defaults.synchronize() // Force read from disk
-
-        print("[ScreenTimeService] ⏰ DEBUG polling triggered - syncing extension data")
-        
-        // Sync extension data
-        readExtensionUsageData(defaults: defaults)
-
-        // Notify UI
-        notifyUsageChange()
-    }
-    #endif
 
     // MARK: - Production Background Sync (Safety net for missed Darwin notifications)
 
@@ -2150,9 +2091,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     private func notifyUsageChange() {
-        #if DEBUG
-        print("[ScreenTimeService] Notifying usage change to observers")
-        #endif
         NotificationCenter.default.post(name: Self.usageDidChangeNotification, object: nil)
     }
 
@@ -3268,11 +3206,7 @@ func configureWithTestApplications() {
     /// Get logical ID for a given token (for debugging purposes)
     func getLogicalID(for token: ApplicationToken) -> String? {
         let tokenHash = usagePersistence.tokenHash(for: token)
-        let logicalID = usagePersistence.logicalID(for: tokenHash)
-        #if DEBUG
-        print("[ScreenTimeService] 🔍 getLogicalID: tokenHash=\(tokenHash.prefix(30))... -> logicalID=\(logicalID ?? "nil")")
-        #endif
-        return logicalID
+        return usagePersistence.logicalID(for: tokenHash)
     }
     
     /// Get the app group identifier for UserDefaults access

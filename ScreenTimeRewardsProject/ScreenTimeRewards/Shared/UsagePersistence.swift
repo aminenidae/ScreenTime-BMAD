@@ -503,9 +503,12 @@ final class UsagePersistence {
         #endif
     }
 
-    // Made unconditional for debugging stale data issue
+    // Conditional verbose logging - summary in production, details in DEBUG
     func printDebugInfo() {
         let today = Calendar.current.startOfDay(for: Date())
+
+        #if DEBUG
+        // DEBUG: Full detailed dump
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "MMM d, HH:mm"
 
@@ -523,6 +526,11 @@ final class UsagePersistence {
         for (hash, mapping) in cachedTokenMappings {
             print("   • \(hash.prefix(16))… -> \(mapping.logicalID) [\(mapping.displayName)]")
         }
+        #else
+        // PRODUCTION: Summary only
+        let appsWithUsageToday = cachedApps.values.filter { $0.todaySeconds > 0 }.count
+        print("[UsagePersistence] ✅ Loaded \(cachedApps.count) apps (\(appsWithUsageToday) with usage today), \(cachedTokenMappings.count) token mappings")
+        #endif
     }
 
     // MARK: - Private helpers

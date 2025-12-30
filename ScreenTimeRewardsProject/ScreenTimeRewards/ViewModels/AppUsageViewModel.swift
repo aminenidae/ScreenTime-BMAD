@@ -517,11 +517,7 @@ class AppUsageViewModel: ObservableObject {
     private func updateSortedApplications() {
         // Use the master selection (union of all apps) for deterministic ordering
         self.sortedApplications = masterSelection.sortedApplications(using: service.usagePersistence)
-        
-        #if DEBUG
-        print("[AppUsageViewModel] 🔄 Updated sorted applications snapshot: \(sortedApplications.count) apps")
-        #endif
-        
+
         // Update snapshots whenever sorted applications change
         updateSnapshots()
     }
@@ -603,10 +599,6 @@ class AppUsageViewModel: ObservableObject {
                    !persistedApp.displayName.hasPrefix("Unknown App") {
                     // Use the persisted custom name
                     displayName = persistedApp.displayName
-
-                    #if DEBUG
-                    print("[AppUsageViewModel] 📝 Using persisted name '\(displayName)' for logicalID: \(logicalID)")
-                    #endif
                 } else {
                     // No custom name yet, fall back to system name
                     displayName = application.localizedDisplayName ?? "Unknown App"
@@ -643,13 +635,6 @@ class AppUsageViewModel: ObservableObject {
                 }
             }
 
-            #if DEBUG
-            if totalSeconds > 0 {
-                print("[AppUsageViewModel] 🔍 DIAGNOSTIC: Reading usage for '\(displayName)'")
-                print("[AppUsageViewModel] 🔍 DIAGNOSTIC: logicalID=\(logicalID), todayUsage=\(totalSeconds)s")
-            }
-            #endif
-
             // Look up assigned points
             let pointsPerMinute = rewardPoints[token] ?? getDefaultRewardPoints(for: category)
 
@@ -683,18 +668,6 @@ class AppUsageViewModel: ObservableObject {
         self.learningSnapshots = newLearningSnapshots
         self.rewardSnapshots = newRewardSnapshots
         
-        #if DEBUG
-        print("[AppUsageViewModel] 🔄 Updated snapshots - Learning: \(newLearningSnapshots.count), Reward: \(newRewardSnapshots.count)")
-        // TASK L: Add targeted diagnostics to verify ordering stability
-        let learningLogicalIDs = newLearningSnapshots.map(\.logicalID)
-        let rewardLogicalIDs = newRewardSnapshots.map(\.logicalID)
-        let learningTokenHashes = newLearningSnapshots.map(\.tokenHash)
-        let rewardTokenHashes = newRewardSnapshots.map(\.tokenHash)
-        print("[AppUsageViewModel] 📋 Learning snapshot logical IDs: \(learningLogicalIDs)")
-        print("[AppUsageViewModel] 📋 Learning snapshot token hashes: \(learningTokenHashes)")
-        print("[AppUsageViewModel] 📋 Reward snapshot logical IDs: \(rewardLogicalIDs)")
-        print("[AppUsageViewModel] 📋 Reward snapshot token hashes: \(rewardTokenHashes)")
-        #endif
     }
 
     private func getDefaultRewardPoints(for category: AppUsage.AppCategory) -> Int {
