@@ -77,6 +77,19 @@ struct ChildUsageDashboardView: View {
                     .disabled(currentIndex >= devices.count - 1)
                 }
             }
+
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    Task {
+                        if let device = currentDevice {
+                            await viewModel.loadChildData(for: device)
+                        }
+                    }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+            }
         }
         .onAppear {
             Task {
@@ -94,23 +107,26 @@ struct ChildUsageDashboardView: View {
 struct ChildUsagePageView: View {
     let device: RegisteredDevice
     @ObservedObject var viewModel: ParentRemoteViewModel
-    
+
     var body: some View {
         ScrollView {
             VStack(spacing: 24) {
                 // Reuse existing components from your current implementation
                 RemoteUsageSummaryView(viewModel: viewModel)
                     .padding(.horizontal)
-                
+
                 Divider()
                     .padding(.horizontal)
-                
+
                 HistoricalReportsView(viewModel: viewModel)
                     .padding(.horizontal)
-                
+
                 Spacer(minLength: 40)
             }
             .padding(.vertical)
+        }
+        .refreshable {
+            await viewModel.loadChildData(for: device)
         }
         .onAppear {
             Task {
