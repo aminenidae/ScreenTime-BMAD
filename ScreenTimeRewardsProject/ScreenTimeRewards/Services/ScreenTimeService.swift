@@ -1181,33 +1181,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // MARK: - UsageRecord Sync from Extension Data
 
-    /// Check if extension-based UsageRecord creation is enabled
-    /// This is a safety feature to allow gradual rollout and instant rollback
-    var isExtensionRecordSyncEnabled: Bool {
-        UserDefaults.standard.bool(forKey: "enableExtensionBasedRecordCreation")
-    }
-
-    /// Enable extension-based record creation (call once during testing)
-    func enableExtensionRecordSync() {
-        UserDefaults.standard.set(true, forKey: "enableExtensionBasedRecordCreation")
-        #if DEBUG
-        print("[ScreenTimeService] ✅ Extension-based UsageRecord sync ENABLED")
-        #endif
-    }
-
-    /// Disable extension-based record creation (instant rollback)
-    func disableExtensionRecordSync() {
-        UserDefaults.standard.set(false, forKey: "enableExtensionBasedRecordCreation")
-        #if DEBUG
-        print("[ScreenTimeService] 🛑 Extension-based UsageRecord sync DISABLED")
-        #endif
-    }
-
     /// Create or update UsageRecord Core Data entity from extension usage data
     /// Called by readExtensionUsageData() to ensure usage data is persisted for CloudKit sync
     ///
     /// SAFEGUARDS:
-    /// - Feature flag controlled (disabled by default)
     /// - Only runs if device is paired with parent
     /// - Finds ANY record for app on given day (prevents duplicates)
     /// - Updates existing record instead of creating duplicates
@@ -1219,17 +1196,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         todaySeconds: Int,
         todayPoints: Int
     ) {
-        // SAFEGUARD 1: Feature flag check
-        guard isExtensionRecordSyncEnabled else {
-            return  // Feature disabled, skip
-        }
-
-        // SAFEGUARD 2: Only create records if device is paired with parent
+        // SAFEGUARD 1: Only create records if device is paired with parent
         guard UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil else {
             return  // Not paired, skip record creation
         }
 
-        // SAFEGUARD 3: Only create records for apps with actual usage
+        // SAFEGUARD 2: Only create records for apps with actual usage
         guard todaySeconds > 0 else {
             return  // No usage to record
         }
@@ -1237,7 +1209,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let context = PersistenceController.shared.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID
 
-        // SAFEGUARD 4: Find ANY existing record for this app TODAY
+        // SAFEGUARD 3: Find ANY existing record for this app TODAY
         // Uses date range to catch records created by BOTH code paths:
         // - Extension-based: sessionStart = start of day (00:00)
         // - Threshold-based: sessionStart = actual usage time (e.g., 14:32)
@@ -1260,7 +1232,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let existing = try context.fetch(fetchRequest).first
 
             if let record = existing {
-                // SAFEGUARD 5: Update existing record ONLY if values changed
+                // SAFEGUARD 4: Update existing record ONLY if values changed
                 // Minimizes Core Data writes and CloudKit uploads
                 if record.totalSeconds != Int32(todaySeconds) || record.earnedPoints != Int32(todayPoints) {
                     record.totalSeconds = Int32(todaySeconds)
