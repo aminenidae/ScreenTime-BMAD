@@ -58,15 +58,9 @@ struct CategoryDetailView: View {
                                 }
 
                                 HStack {
-                                    Text(formatDate(app.sessionStart))
+                                    Text("Last 7 days")
                                         .font(.caption)
                                         .foregroundColor(.secondary)
-
-                                    if let end = app.sessionEnd {
-                                        Text("→ \(formatTime(end))")
-                                            .font(.caption)
-                                            .foregroundColor(.secondary)
-                                    }
                                 }
                             }
 
@@ -163,20 +157,6 @@ struct CategoryDetailView: View {
         }
     }
 
-    private func formatDate(_ date: Date?) -> String {
-        guard let date = date else { return "Unknown" }
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter.string(from: date)
-    }
-
-    private func formatTime(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.timeStyle = .short
-        formatter.dateStyle = .none
-        return formatter.string(from: date)
-    }
 }
 
 // MARK: - App Name Editor Sheet

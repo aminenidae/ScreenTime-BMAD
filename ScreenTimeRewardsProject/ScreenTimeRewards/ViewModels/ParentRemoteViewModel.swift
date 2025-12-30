@@ -210,79 +210,71 @@ class ParentRemoteViewModel: ObservableObject {
         print("[ParentRemoteViewModel] CloudKit error (\(error.code)): \(error.localizedDescription)")
     }
     
-    /// De-duplicate overlapping usage records for the same app
-    /// When the child device updates a record multiple times, we may receive multiple versions.
-    /// This function keeps only the most recent/complete record for each unique session.
+    /// De-duplicate and aggregate usage records for the same app
+    /// When the child device syncs records from multiple days, we may receive multiple records per app.
+    /// This function aggregates all records for each unique app into a single summary record.
     private func deduplicateRecords(_ records: [UsageRecord]) -> [UsageRecord] {
         #if DEBUG
-        print("[ParentRemoteViewModel] 🔍 De-duplicating \(records.count) records...")
+        print("[ParentRemoteViewModel] 🔍 De-duplicating and aggregating \(records.count) records...")
         #endif
 
-        // Group by logicalID to find potential duplicates
+        // Group by logicalID to find all records for each unique app
         let groupedByApp = Dictionary(grouping: records) { $0.logicalID ?? "unknown" }
 
-        var deduplicated: [UsageRecord] = []
+        var aggregated: [UsageRecord] = []
 
         for (logicalID, appRecords) in groupedByApp {
-            if appRecords.count == 1 {
-                // No duplicates for this app
-                deduplicated.append(appRecords[0])
-                continue
-            }
-
-            // Multiple records for same app - check for overlapping sessions
             #if DEBUG
-            print("[ParentRemoteViewModel] 🔍 Found \(appRecords.count) records for \(logicalID)")
+            if appRecords.count > 1 {
+                print("[ParentRemoteViewModel] 🔍 Found \(appRecords.count) records for \(logicalID) - aggregating...")
+            }
             #endif
 
-            // Group by session start time (records with same/similar start are likely duplicates)
-            var sessionGroups: [[UsageRecord]] = []
-
-            for record in appRecords {
-                guard let sessionStart = record.sessionStart else {
-                    deduplicated.append(record)
-                    continue
+            // Find the record with the most recent sessionEnd (for display name, category, etc.)
+            let mostRecentRecord = appRecords.max { a, b in
+                guard let aEnd = a.sessionEnd, let bEnd = b.sessionEnd else {
+                    return (a.sessionEnd == nil) && (b.sessionEnd != nil)
                 }
+                return aEnd < bEnd
+            } ?? appRecords[0]
 
-                // Find a group with matching start time (within 1 minute tolerance)
-                var foundGroup = false
-                for i in 0..<sessionGroups.count {
-                    if let firstRecordStart = sessionGroups[i].first?.sessionStart,
-                       abs(sessionStart.timeIntervalSince(firstRecordStart)) < 60 {
-                        sessionGroups[i].append(record)
-                        foundGroup = true
-                        break
-                    }
-                }
+            // Sum up total seconds and points from all records
+            let totalSeconds = appRecords.reduce(0) { $0 + Int($1.totalSeconds) }
+            let totalPoints = appRecords.reduce(0) { $0 + Int($1.earnedPoints) }
 
-                if !foundGroup {
-                    sessionGroups.append([record])
-                }
+            // Create an aggregated record using the most recent record as template
+            let entity = NSEntityDescription.entity(forEntityName: "UsageRecord", in: PersistenceController.shared.container.viewContext)!
+            let aggregatedRecord = UsageRecord(entity: entity, insertInto: nil)
+
+            // Copy metadata from most recent record
+            aggregatedRecord.recordID = mostRecentRecord.recordID
+            aggregatedRecord.deviceID = mostRecentRecord.deviceID
+            aggregatedRecord.logicalID = logicalID
+            aggregatedRecord.displayName = mostRecentRecord.displayName
+            aggregatedRecord.category = mostRecentRecord.category
+            aggregatedRecord.sessionStart = appRecords.compactMap { $0.sessionStart }.min() // Earliest session
+            aggregatedRecord.sessionEnd = mostRecentRecord.sessionEnd // Latest session end
+            aggregatedRecord.syncTimestamp = mostRecentRecord.syncTimestamp
+
+            // Set aggregated totals
+            aggregatedRecord.totalSeconds = Int32(totalSeconds)
+            aggregatedRecord.earnedPoints = Int32(totalPoints)
+
+            #if DEBUG
+            if appRecords.count > 1 {
+                let individualTotals = appRecords.map { Int($0.totalSeconds) }
+                print("[ParentRemoteViewModel]   ✅ Aggregated \(appRecords.count) records: \(individualTotals) → \(totalSeconds)s total")
             }
+            #endif
 
-            // For each session group, keep only the record with latest sessionEnd (most complete)
-            for group in sessionGroups {
-                let mostRecent = group.max { a, b in
-                    guard let aEnd = a.sessionEnd, let bEnd = b.sessionEnd else {
-                        return a.totalSeconds < b.totalSeconds
-                    }
-                    return aEnd < bEnd
-                }
-
-                if let record = mostRecent {
-                    #if DEBUG
-                    print("[ParentRemoteViewModel]   ✅ Keeping most recent: \(record.totalSeconds)s (discarding \(group.count - 1) older versions)")
-                    #endif
-                    deduplicated.append(record)
-                }
-            }
+            aggregated.append(aggregatedRecord)
         }
 
         #if DEBUG
-        print("[ParentRemoteViewModel] ✅ De-duplication complete: \(records.count) → \(deduplicated.count) records")
+        print("[ParentRemoteViewModel] ✅ Aggregation complete: \(records.count) records → \(aggregated.count) unique apps")
         #endif
 
-        return deduplicated
+        return aggregated
     }
 
     func aggregateByCategory(_ records: [UsageRecord]) -> [CategoryUsageSummary] {
