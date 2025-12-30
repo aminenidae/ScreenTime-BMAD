@@ -3504,6 +3504,40 @@ extension ScreenTimeService {
         }
     }
 
+    /// Dump all UsageRecords for debugging
+    func dumpUsageRecords() {
+        print("[ScreenTimeService] ===== UsageRecords Dump =====")
+
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<UsageRecord> = UsageRecord.fetchRequest()
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "sessionStart", ascending: false)]
+
+        do {
+            let records = try context.fetch(fetchRequest)
+            print("[ScreenTimeService] Total records: \(records.count)")
+
+            let unsynced = records.filter { !$0.isSynced }
+            let synced = records.filter { $0.isSynced }
+            print("[ScreenTimeService] Unsynced: \(unsynced.count) | Synced: \(synced.count)")
+
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "MM/dd HH:mm"
+
+            for (i, r) in records.prefix(15).enumerated() {
+                let date = r.sessionStart.map { dateFormatter.string(from: $0) } ?? "?"
+                let mins = r.totalSeconds / 60
+                let syncStatus = r.isSynced ? "✅" : "⏳"
+                print("  \(i+1). \(syncStatus) \(r.displayName ?? "?") | \(mins)m | \(r.earnedPoints)pts | \(date)")
+            }
+
+            if records.count > 15 {
+                print("  ... and \(records.count - 15) more")
+            }
+        } catch {
+            print("[ScreenTimeService] ❌ Failed to fetch records: \(error)")
+        }
+    }
+
     /// Mark all existing usage records as unsynced for testing
     func markAllRecordsAsUnsynced() {
         print("[ScreenTimeService] ===== Marking All Records As Unsynced =====")
