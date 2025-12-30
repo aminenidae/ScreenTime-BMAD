@@ -324,6 +324,7 @@ enum GoalPeriod: String, Codable, CaseIterable {
 /// Represents a linked learning app with its time requirement and reward earned
 struct LinkedLearningApp: Codable, Equatable, Hashable {
     let logicalID: String           // ID of the learning app
+    var displayName: String?        // App name for display (synced to parent)
     var minutesRequired: Int        // minutes needed (e.g., 15, 30, 45)
     var goalPeriod: GoalPeriod      // daily or weekly
     var rewardMinutesEarned: Int    // reward time granted when goal is met
@@ -331,19 +332,21 @@ struct LinkedLearningApp: Codable, Equatable, Hashable {
     static func defaultRequirement(logicalID: String) -> LinkedLearningApp {
         LinkedLearningApp(
             logicalID: logicalID,
+            displayName: nil,
             minutesRequired: 15,
             goalPeriod: .daily,
             rewardMinutesEarned: 15  // Default 1:1 ratio
         )
     }
 
-    // Custom Codable to handle backward compatibility (existing configs without rewardMinutesEarned)
+    // Custom Codable to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case logicalID, minutesRequired, goalPeriod, rewardMinutesEarned
+        case logicalID, displayName, minutesRequired, goalPeriod, rewardMinutesEarned
     }
 
-    init(logicalID: String, minutesRequired: Int, goalPeriod: GoalPeriod, rewardMinutesEarned: Int) {
+    init(logicalID: String, displayName: String? = nil, minutesRequired: Int, goalPeriod: GoalPeriod, rewardMinutesEarned: Int) {
         self.logicalID = logicalID
+        self.displayName = displayName
         self.minutesRequired = minutesRequired
         self.goalPeriod = goalPeriod
         self.rewardMinutesEarned = rewardMinutesEarned
@@ -352,6 +355,7 @@ struct LinkedLearningApp: Codable, Equatable, Hashable {
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         logicalID = try container.decode(String.self, forKey: .logicalID)
+        displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         minutesRequired = try container.decode(Int.self, forKey: .minutesRequired)
         goalPeriod = try container.decode(GoalPeriod.self, forKey: .goalPeriod)
         // Backward compatibility: default to minutesRequired (1:1) if not present

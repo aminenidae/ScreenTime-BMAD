@@ -64,6 +64,33 @@ struct ScreenTimeRewardsApp: App {
                 BlockingCoordinator.shared.startPeriodicRefresh()
                 print("[ScreenTimeRewardsApp] ⏱️ Started BlockingCoordinator periodic refresh")
 
+                // Sync app configurations to CloudKit for paired child devices
+                // This ensures existing apps sync to parent dashboard on app open
+                if modeManager.isChildDevice,
+                   UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil {
+                    Task {
+                        // First, backfill AppConfiguration entities from existing persisted apps
+                        // This handles apps configured before this sync feature was added
+                        await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
+
+                        // Then upload app configurations to CloudKit
+                        do {
+                            try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                            print("[ScreenTimeRewardsApp] ✅ Synced app configurations to parent")
+                        } catch {
+                            print("[ScreenTimeRewardsApp] ⚠️ Failed to sync app configs: \(error.localizedDescription)")
+                        }
+
+                        // Also upload shield states (blocked/unlocked status)
+                        do {
+                            try await CloudKitSyncService.shared.uploadShieldStatesToParent()
+                            print("[ScreenTimeRewardsApp] ✅ Synced shield states to parent")
+                        } catch {
+                            print("[ScreenTimeRewardsApp] ⚠️ Failed to sync shield states: \(error.localizedDescription)")
+                        }
+                    }
+                }
+
             case .background, .inactive:
                 // Stop periodic refresh when app goes to background
                 BlockingCoordinator.shared.stopPeriodicRefresh()

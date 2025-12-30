@@ -4,6 +4,7 @@ import DeviceActivity
 import FamilyControls
 import ManagedSettings
 import CoreData
+import UIKit
 
 /// Service to handle Screen Time API functionality while exposing deterministic
 /// state for the SwiftUI layer.
@@ -3183,7 +3184,13 @@ func configureWithTestApplications() {
         let tokenHash = usagePersistence.tokenHash(for: token)
         return usagePersistence.logicalID(for: tokenHash)
     }
-    
+
+    /// Get display name for a given logicalID (looks up from persisted apps)
+    func getDisplayName(for logicalID: String) -> String? {
+        let persistedApps = usagePersistence.loadAllApps()
+        return persistedApps[logicalID]?.displayName
+    }
+
     /// Get the app group identifier for UserDefaults access
     func getAppGroupIdentifier() -> String {
         return "group.com.screentimerewards.shared"
@@ -3311,8 +3318,130 @@ extension ScreenTimeService {
         if category == .reward {
             syncGoalConfigsToExtension()
         }
+
+        // Sync AppConfiguration to CloudKit so parent device can see app list
+        Task {
+            await syncAppConfigurationToCloudKit(token: token, category: category)
+        }
     }
-    
+
+    /// Sync app configuration to CloudKit for parent device visibility
+    private func syncAppConfigurationToCloudKit(token: ApplicationToken, category: AppUsage.AppCategory) async {
+        let context = PersistenceController.shared.container.viewContext
+        let logicalID = getLogicalID(for: token) ?? usagePersistence.tokenHash(for: token)
+        let deviceID = DeviceModeManager.shared.deviceID  // Use consistent ID from registration
+        let displayName = getDisplayName(for: token) ?? "Unknown App"
+
+        await context.perform {
+            // Fetch or create AppConfiguration
+            let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+            fetchRequest.predicate = NSPredicate(format: "logicalID == %@ AND deviceID == %@", logicalID, deviceID)
+
+            let config: AppConfiguration
+            if let existing = try? context.fetch(fetchRequest).first {
+                config = existing
+            } else {
+                config = AppConfiguration(context: context)
+                config.logicalID = logicalID
+                config.deviceID = deviceID
+                config.dateAdded = Date()
+            }
+
+            // Update fields
+            config.category = category.rawValue
+            config.displayName = displayName
+            config.tokenHash = self.usagePersistence.tokenHash(for: token)
+            config.pointsPerMinute = Int16(self.rewardPointsAssignments[token] ?? 1)
+            config.isEnabled = true
+            config.lastModified = Date()
+            config.syncStatus = "pending"
+
+            do {
+                try context.save()
+                #if DEBUG
+                print("[ScreenTimeService] Saved AppConfiguration for \(displayName) (\(category.rawValue))")
+                #endif
+            } catch {
+                print("[ScreenTimeService] Error saving AppConfiguration: \(error)")
+            }
+        }
+
+        // Trigger CloudKit upload
+        do {
+            try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+        } catch {
+            print("[ScreenTimeService] Error uploading AppConfiguration to CloudKit: \(error)")
+        }
+    }
+
+    /// Backfill AppConfiguration entities from all existing persisted apps
+    /// This ensures apps configured before this feature was added get synced to CloudKit
+    func backfillAppConfigurationsForCloudKit() async {
+        #if DEBUG
+        print("[ScreenTimeService] ===== Backfilling AppConfigurations from PersistedApps =====")
+        #endif
+
+        let persistedApps = usagePersistence.loadAllApps()
+        guard !persistedApps.isEmpty else {
+            #if DEBUG
+            print("[ScreenTimeService] No persisted apps to backfill")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] Found \(persistedApps.count) persisted apps to backfill")
+        #endif
+
+        let context = PersistenceController.shared.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID  // Use consistent ID from registration
+
+        await context.perform {
+            var createdCount = 0
+            var updatedCount = 0
+
+            for (logicalID, persistedApp) in persistedApps {
+                // Skip uncategorized apps
+                guard persistedApp.category == "Learning" || persistedApp.category == "Reward" else {
+                    continue
+                }
+
+                // Fetch or create AppConfiguration
+                let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+                fetchRequest.predicate = NSPredicate(format: "logicalID == %@ AND deviceID == %@", logicalID, deviceID)
+
+                let config: AppConfiguration
+                if let existing = try? context.fetch(fetchRequest).first {
+                    config = existing
+                    updatedCount += 1
+                } else {
+                    config = AppConfiguration(context: context)
+                    config.logicalID = logicalID
+                    config.deviceID = deviceID
+                    config.dateAdded = persistedApp.createdAt
+                    createdCount += 1
+                }
+
+                // Update fields from persisted app
+                config.category = persistedApp.category
+                config.displayName = persistedApp.displayName
+                config.pointsPerMinute = Int16(persistedApp.rewardPoints)
+                config.isEnabled = true
+                config.lastModified = Date()
+                config.syncStatus = "pending"
+            }
+
+            do {
+                try context.save()
+                #if DEBUG
+                print("[ScreenTimeService] ✅ Backfilled \(createdCount) new + \(updatedCount) updated AppConfigurations")
+                #endif
+            } catch {
+                print("[ScreenTimeService] ❌ Error saving backfilled AppConfigurations: \(error)")
+            }
+        }
+    }
+
     /// Assign reward points to an application token
     /// This method provides a way for external code to modify reward point assignments
     func assignRewardPoints(_ points: Int, to token: ApplicationToken) {

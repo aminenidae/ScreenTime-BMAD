@@ -3,6 +3,142 @@ import Combine
 import CloudKit
 import CoreData
 
+// MARK: - Full App Configuration DTO
+
+/// Data transfer object containing full app configuration data from CloudKit
+/// Includes schedule, linked apps, and streak settings that were JSON-encoded
+struct FullAppConfigDTO: Identifiable, Hashable {
+    var id: String { logicalID }
+
+    // Basic fields
+    let logicalID: String
+    let deviceID: String
+    let displayName: String
+    let category: String
+    let pointsPerMinute: Int
+    let isEnabled: Bool
+    let blockingEnabled: Bool
+    let tokenHash: String?
+    let lastModified: Date?
+
+    // Full schedule configuration (decoded from JSON)
+    var scheduleConfig: AppScheduleConfiguration?
+
+    // Quick-access fields for display
+    var dailyLimitSummary: String?
+    var timeWindowSummary: String?
+
+    // Linked learning apps (decoded from JSON)
+    var linkedLearningApps: [LinkedLearningApp]
+    var unlockMode: UnlockMode
+
+    // Streak settings (decoded from JSON)
+    var streakSettings: AppStreakSettings?
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.logicalID = record["CD_logicalID"] as? String ?? ""
+        self.deviceID = record["CD_deviceID"] as? String ?? ""
+        self.displayName = record["CD_displayName"] as? String ?? "Unknown"
+        self.category = record["CD_category"] as? String ?? "Unknown"
+        self.pointsPerMinute = record["CD_pointsPerMinute"] as? Int ?? 1
+        self.isEnabled = record["CD_isEnabled"] as? Bool ?? true
+        self.blockingEnabled = record["CD_blockingEnabled"] as? Bool ?? false
+        self.tokenHash = record["CD_tokenHash"] as? String
+        self.lastModified = record["CD_lastModified"] as? Date
+
+        // Quick-access display fields
+        self.dailyLimitSummary = record["CD_dailyLimitSummary"] as? String
+        self.timeWindowSummary = record["CD_timeWindowSummary"] as? String
+
+        // Decode full schedule config
+        if let scheduleJSON = record["CD_scheduleConfigJSON"] as? String,
+           let data = scheduleJSON.data(using: .utf8),
+           let config = try? JSONDecoder().decode(AppScheduleConfiguration.self, from: data) {
+            self.scheduleConfig = config
+        }
+
+        // Decode linked learning apps
+        if let linkedJSON = record["CD_linkedAppsJSON"] as? String,
+           let data = linkedJSON.data(using: .utf8),
+           let apps = try? JSONDecoder().decode([LinkedLearningApp].self, from: data) {
+            self.linkedLearningApps = apps
+        } else {
+            self.linkedLearningApps = []
+        }
+
+        // Parse unlock mode
+        if let modeStr = record["CD_unlockMode"] as? String,
+           let mode = UnlockMode(rawValue: modeStr) {
+            self.unlockMode = mode
+        } else {
+            self.unlockMode = .all
+        }
+
+        // Decode streak settings
+        if let streakJSON = record["CD_streakSettingsJSON"] as? String,
+           let data = streakJSON.data(using: .utf8),
+           let settings = try? JSONDecoder().decode(AppStreakSettings.self, from: data) {
+            self.streakSettings = settings
+        }
+    }
+
+    // Hashable conformance
+    func hash(into hasher: inout Hasher) {
+        hasher.combine(logicalID)
+    }
+
+    static func == (lhs: FullAppConfigDTO, rhs: FullAppConfigDTO) -> Bool {
+        lhs.logicalID == rhs.logicalID
+    }
+}
+
+// MARK: - Shield State DTO
+
+/// Data transfer object for shield state from CloudKit
+/// Shows whether a reward app is currently blocked or unlocked
+struct ShieldStateDTO: Identifiable {
+    var id: String { rewardAppLogicalID }
+
+    let rewardAppLogicalID: String
+    let deviceID: String
+    let isUnlocked: Bool
+    let unlockedAt: Date?
+    let reason: String
+    let syncTimestamp: Date?
+    let rewardAppDisplayName: String?
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.rewardAppLogicalID = record["CD_rewardAppLogicalID"] as? String ?? ""
+        self.deviceID = record["CD_deviceID"] as? String ?? ""
+        self.isUnlocked = record["CD_isUnlocked"] as? Bool ?? false
+        self.unlockedAt = record["CD_unlockedAt"] as? Date
+        self.reason = record["CD_reason"] as? String ?? "unknown"
+        self.syncTimestamp = record["CD_syncTimestamp"] as? Date
+        self.rewardAppDisplayName = record["CD_rewardAppDisplayName"] as? String
+    }
+
+    /// Display string for current status
+    var statusDisplay: String {
+        if isUnlocked {
+            if let unlockedAt = unlockedAt {
+                let formatter = DateFormatter()
+                formatter.timeStyle = .short
+                return "Unlocked at \(formatter.string(from: unlockedAt))"
+            }
+            return "Unlocked"
+        } else {
+            return "Blocked"
+        }
+    }
+
+    /// Short status indicator
+    var statusIcon: String {
+        isUnlocked ? "lock.open.fill" : "lock.fill"
+    }
+}
+
 @MainActor
 class ParentRemoteViewModel: ObservableObject {
     @Published var linkedChildDevices: [RegisteredDevice] = []
@@ -13,9 +149,20 @@ class ParentRemoteViewModel: ObservableObject {
     @Published var appConfigurations: [AppConfiguration] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    
+
     // Store summaries for each device (Multi-Child Device Support)
     @Published var deviceSummaries: [String: CategoryUsageSummary] = [:]
+
+    // Child app configurations (synced from CloudKit) - basic Core Data entities
+    @Published var childLearningApps: [AppConfiguration] = []
+    @Published var childRewardApps: [AppConfiguration] = []
+
+    // Full app configurations with schedule/goals/streaks (decoded from CloudKit JSON)
+    @Published var childLearningAppsFullConfig: [FullAppConfigDTO] = []
+    @Published var childRewardAppsFullConfig: [FullAppConfigDTO] = []
+
+    // Shield states for reward apps (blocked/unlocked status)
+    @Published var childShieldStates: [String: ShieldStateDTO] = [:]
 
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
@@ -132,16 +279,96 @@ class ParentRemoteViewModel: ObservableObject {
             fetchRequest.predicate = NSPredicate(format: "deviceID == %@", device.deviceID ?? "")
             
             appConfigurations = try context.fetch(fetchRequest)
+
+            // Also load child app configurations from CloudKit
+            await loadChildAppConfigurations(for: device)
         } catch let error as CKError {
             handleCloudKitError(error)
         } catch {
             errorMessage = "Failed to load child data: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error loading child data: \(error)")
         }
-        
+
         isLoading = false
     }
-    
+
+    /// Load child's app configurations from CloudKit (all configured apps, even with 0 usage)
+    /// Fetches both basic AppConfiguration entities and full DTOs with schedule/goals/streaks
+    func loadChildAppConfigurations(for device: RegisteredDevice) async {
+        guard let deviceID = device.deviceID else { return }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Loading Child App Configurations =====")
+        print("[ParentRemoteViewModel] Device ID: \(deviceID)")
+        #endif
+
+        do {
+            // Fetch basic configurations (for backward compatibility)
+            let configs = try await cloudKitService.fetchChildAppConfigurations(deviceID: deviceID)
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Fetched \(configs.count) app configurations from CloudKit")
+            #endif
+
+            // Filter into learning and reward categories
+            let learning = configs.filter { $0.category == "Learning" && $0.isEnabled }
+            let reward = configs.filter { $0.category == "Reward" && $0.isEnabled }
+
+            // Also fetch full DTOs with schedule/goals/streaks
+            let fullConfigs = try await cloudKitService.fetchChildAppConfigurationsFullDTO(deviceID: deviceID)
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Fetched \(fullConfigs.count) full app configurations (DTOs)")
+            for dto in fullConfigs {
+                print("[ParentRemoteViewModel]   App: \(dto.displayName) | Category: \(dto.category)")
+                if let schedule = dto.scheduleConfig {
+                    print("[ParentRemoteViewModel]       Daily Limit: \(schedule.dailyLimits.displaySummary)")
+                    print("[ParentRemoteViewModel]       Time Window: \(schedule.todayTimeWindow.displayString)")
+                }
+                if !dto.linkedLearningApps.isEmpty {
+                    print("[ParentRemoteViewModel]       Linked Apps: \(dto.linkedLearningApps.count) (\(dto.unlockMode.displayName))")
+                }
+            }
+            #endif
+
+            // Filter full DTOs into learning and reward categories
+            let learningFull = fullConfigs.filter { $0.category == "Learning" && $0.isEnabled }
+            let rewardFull = fullConfigs.filter { $0.category == "Reward" && $0.isEnabled }
+
+            // Fetch shield states for reward apps
+            let shieldStates = try await cloudKitService.fetchChildShieldStates(deviceID: deviceID)
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Fetched \(shieldStates.count) shield states")
+            for (logicalID, state) in shieldStates {
+                print("[ParentRemoteViewModel]   \(state.rewardAppDisplayName ?? logicalID): \(state.isUnlocked ? "UNLOCKED" : "BLOCKED")")
+            }
+            #endif
+
+            await MainActor.run {
+                // Basic AppConfiguration entities
+                self.childLearningApps = learning
+                self.childRewardApps = reward
+
+                // Full DTOs with schedule/goals/streaks
+                self.childLearningAppsFullConfig = learningFull
+                self.childRewardAppsFullConfig = rewardFull
+
+                // Shield states for reward apps
+                self.childShieldStates = shieldStates
+            }
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Categorized: \(learning.count) learning apps, \(reward.count) reward apps")
+            print("[ParentRemoteViewModel] Full configs: \(learningFull.count) learning, \(rewardFull.count) reward")
+            print("[ParentRemoteViewModel] Shield states: \(shieldStates.count)")
+            print("[ParentRemoteViewModel] ===== End Loading Child App Configurations =====")
+            #endif
+        } catch {
+            print("[ParentRemoteViewModel] Error loading child app configurations: \(error)")
+        }
+    }
+
     /// Send a configuration update to a child device
     func sendConfigurationUpdate(_ configuration: AppConfiguration) async {
         guard let selectedDevice = selectedChildDevice else { return }
