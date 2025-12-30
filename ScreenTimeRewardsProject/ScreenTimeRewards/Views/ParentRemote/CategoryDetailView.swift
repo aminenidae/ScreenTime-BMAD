@@ -126,18 +126,24 @@ struct CategoryDetailView: View {
         }
     }
 
-    /// Get display name for an app (custom or default)
+    /// Get display name for an app (CloudKit synced name, local custom, or fallback)
     private func displayName(for app: UsageRecord) -> String {
+        // 1. First check if CloudKit has a custom name from child device
+        if let cloudKitName = app.displayName,
+           !cloudKitName.isEmpty,
+           !cloudKitName.hasPrefix("Unknown") {
+            return cloudKitName
+        }
+
+        // 2. Check local custom name (parent's overrides)
         guard let logicalID = app.logicalID else {
             return "Unknown App"
         }
-
-        // Check if custom name exists
         if let customName = namingService.getCustomName(for: logicalID) {
             return customName
         }
 
-        // Use default privacy-protected naming
+        // 3. Fallback to privacy-protected naming
         let category = app.category ?? "Unknown"
         let appNumber = abs(logicalID.hashValue) % 100
         return "Privacy Protected \(category) App #\(appNumber)"
