@@ -289,14 +289,75 @@ class CloudKitSyncService: ObservableObject {
         let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)  // 🔧 FIX: Use parent's owner!
         let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
 
+        // === UPSERT LOGIC: Query existing records to avoid duplicates ===
+        // Get deviceID for the query (all records should have same deviceID)
+        guard let deviceID = records.first?.deviceID else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ No deviceID found in records")
+            #endif
+            return
+        }
+
+        // Query existing CloudKit records for today for this device
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let tomorrow = calendar.date(byAdding: .day, value: 1, to: today)!
+
+        var existingRecordsByLogicalID: [String: CKRecord] = [:]
+
+        do {
+            let predicate = NSPredicate(
+                format: "CD_deviceID == %@ AND CD_sessionStart >= %@ AND CD_sessionStart < %@",
+                deviceID, today as NSDate, tomorrow as NSDate
+            )
+            let query = CKQuery(recordType: "CD_UsageRecord", predicate: predicate)
+            let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
+
+            for (_, result) in matches {
+                if case .success(let record) = result,
+                   let logicalID = record["CD_logicalID"] as? String {
+                    existingRecordsByLogicalID[logicalID] = record
+                }
+            }
+
+            #if DEBUG
+            print("[CloudKitSyncService] Found \(existingRecordsByLogicalID.count) existing records in CloudKit for today")
+            #endif
+        } catch {
+            // If query fails (e.g., schema not ready), log and continue with creating new records
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Could not query existing records: \(error.localizedDescription)")
+            print("[CloudKitSyncService] Will create new records instead of upserting")
+            #endif
+        }
+
         var toSave: [CKRecord] = []
+        var updatedCount = 0
+        var createdCount = 0
+
         for item in records {
-            let recID = CKRecord.ID(recordName: "UR-\(UUID().uuidString)", zoneID: zoneID)
-            let rec = CKRecord(recordType: "CD_UsageRecord", recordID: recID)
-            
-            // IMPORTANT: Link the new record to the shared root so it belongs to the share
-            rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
-            
+            let rec: CKRecord
+
+            // Check if record already exists in CloudKit for this app
+            if let existingRecord = existingRecordsByLogicalID[item.logicalID ?? ""] {
+                // UPDATE existing record
+                rec = existingRecord
+                updatedCount += 1
+                #if DEBUG
+                print("[CloudKitSyncService] 🔄 Updating existing record: \(existingRecord.recordID.recordName) for \(item.logicalID ?? "unknown")")
+                #endif
+            } else {
+                // CREATE new record
+                let recID = CKRecord.ID(recordName: "UR-\(UUID().uuidString)", zoneID: zoneID)
+                rec = CKRecord(recordType: "CD_UsageRecord", recordID: recID)
+                // Link new record to the shared root so it belongs to the share
+                rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
+                createdCount += 1
+                #if DEBUG
+                print("[CloudKitSyncService] ➕ Creating new record for \(item.logicalID ?? "unknown")")
+                #endif
+            }
+
             // Map UsageRecord fields to CloudKit record fields (using CD_ prefix to match Core Data schema)
             rec["CD_deviceID"] = item.deviceID as? CKRecordValue
             rec["CD_logicalID"] = item.logicalID as? CKRecordValue
@@ -309,16 +370,11 @@ class CloudKitSyncService: ObservableObject {
             rec["CD_syncTimestamp"] = Date() as CKRecordValue
 
             toSave.append(rec)
-            
-            #if DEBUG
-            print("[CloudKitSyncService] Preparing to upload usage record:")
-            print("  - Record ID: \(recID.recordName)")
-            print("  - Device ID: \(item.deviceID ?? "nil")")
-            print("  - App: \(item.displayName ?? "nil")")
-            print("  - Duration: \(item.totalSeconds)s")
-            print("  - Points: \(item.earnedPoints)")
-            #endif
         }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Prepared \(toSave.count) records: \(createdCount) new, \(updatedCount) updates")
+        #endif
 
         if toSave.isEmpty {
             #if DEBUG
