@@ -1234,9 +1234,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             if let record = existing {
                 // SAFEGUARD 4: Update existing record ONLY if values changed
                 // Minimizes Core Data writes and CloudKit uploads
-                if record.totalSeconds != Int32(todaySeconds) || record.earnedPoints != Int32(todayPoints) {
+                if record.totalSeconds != Int32(todaySeconds) ||
+                   record.earnedPoints != Int32(todayPoints) ||
+                   record.displayName != displayName {
                     record.totalSeconds = Int32(todaySeconds)
                     record.earnedPoints = Int32(todayPoints)
+                    record.displayName = displayName  // Update custom name if changed
                     record.sessionEnd = Date()
                     record.isSynced = false  // Mark for re-upload to CloudKit
 
