@@ -192,9 +192,7 @@ private extension SettingsTabView {
 
     var pairingStatusRow: some View {
         Button(action: {
-            if !pairingService.isPaired() {
-                showingPairingView = true
-            }
+            showingPairingView = true
         }) {
             HStack(spacing: 16) {
                 // Icon container
