@@ -1072,4 +1072,228 @@ class CloudKitSyncService: ObservableObject {
 
         return Array(merged.values)
     }
+
+    // MARK: - Daily Usage History Sync
+
+    /// Upload daily usage history to parent's shared zone
+    /// Syncs last N days of per-app dailyHistory from UsagePersistence
+    func uploadDailyUsageHistoryToParent(daysToSync: Int = 30) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Uploading Daily Usage History To Parent's Zone =====")
+        #endif
+
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        // Load all apps from UsagePersistence
+        let persistence = UsagePersistence()
+        let allApps = persistence.loadAllApps()
+
+        guard !allApps.isEmpty else {
+            #if DEBUG
+            print("[CloudKitSyncService] No apps found in UsagePersistence")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Found \(allApps.count) apps with usage data")
+        #endif
+
+        // Get share context
+        guard
+            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
+            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),
+            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
+        else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
+            #endif
+            return
+        }
+
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+        let sharedDB = container.sharedCloudDatabase
+
+        // Calculate date range
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let cutoffDate = calendar.date(byAdding: .day, value: -daysToSync, to: today)!
+
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        // Query existing history records for upsert
+        var existingByKey: [String: CKRecord] = [:]
+        do {
+            let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
+            let query = CKQuery(recordType: "CD_DailyUsageHistory", predicate: predicate)
+            let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
+            for (_, result) in matches {
+                if case .success(let record) = result,
+                   let logicalID = record["CD_logicalID"] as? String,
+                   let date = record["CD_date"] as? Date {
+                    let key = "\(logicalID)-\(dateFormatter.string(from: date))"
+                    existingByKey[key] = record
+                }
+            }
+            #if DEBUG
+            print("[CloudKitSyncService] Found \(existingByKey.count) existing history records in CloudKit")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Could not query existing history records: \(error.localizedDescription)")
+            #endif
+        }
+
+        var toSave: [CKRecord] = []
+        var updatedCount = 0
+        var createdCount = 0
+
+        for (logicalID, app) in allApps {
+            // Skip uncategorized apps
+            guard app.category == "Learning" || app.category == "Reward" else { continue }
+
+            // Upload historical days from dailyHistory
+            for summary in app.dailyHistory where summary.date >= cutoffDate {
+                let dateStr = dateFormatter.string(from: summary.date)
+                let key = "\(logicalID)-\(dateStr)"
+
+                let rec: CKRecord
+                if let existing = existingByKey[key] {
+                    rec = existing
+                    updatedCount += 1
+                } else {
+                    // Use deterministic record ID for upsert
+                    let recID = CKRecord.ID(recordName: "DUH-\(deviceID)-\(logicalID)-\(dateStr)", zoneID: zoneID)
+                    rec = CKRecord(recordType: "CD_DailyUsageHistory", recordID: recID)
+                    rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
+                    createdCount += 1
+                }
+
+                rec["CD_deviceID"] = deviceID as CKRecordValue
+                rec["CD_logicalID"] = logicalID as CKRecordValue
+                rec["CD_displayName"] = app.displayName as CKRecordValue
+                rec["CD_date"] = summary.date as CKRecordValue
+                rec["CD_seconds"] = summary.seconds as CKRecordValue
+                rec["CD_category"] = app.category as CKRecordValue
+                rec["CD_syncTimestamp"] = Date() as CKRecordValue
+
+                toSave.append(rec)
+            }
+
+            // Also upload today's data if available
+            if app.todaySeconds > 0 {
+                let dateStr = dateFormatter.string(from: today)
+                let key = "\(logicalID)-\(dateStr)"
+
+                let rec: CKRecord
+                if let existing = existingByKey[key] {
+                    rec = existing
+                    updatedCount += 1
+                } else {
+                    let recID = CKRecord.ID(recordName: "DUH-\(deviceID)-\(logicalID)-\(dateStr)", zoneID: zoneID)
+                    rec = CKRecord(recordType: "CD_DailyUsageHistory", recordID: recID)
+                    rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
+                    createdCount += 1
+                }
+
+                rec["CD_deviceID"] = deviceID as CKRecordValue
+                rec["CD_logicalID"] = logicalID as CKRecordValue
+                rec["CD_displayName"] = app.displayName as CKRecordValue
+                rec["CD_date"] = today as CKRecordValue
+                rec["CD_seconds"] = app.todaySeconds as CKRecordValue
+                rec["CD_category"] = app.category as CKRecordValue
+                rec["CD_syncTimestamp"] = Date() as CKRecordValue
+
+                toSave.append(rec)
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Prepared \(toSave.count) history records: \(createdCount) new, \(updatedCount) updates")
+        #endif
+
+        if toSave.isEmpty { return }
+
+        // CloudKit has a limit of 400 records per batch
+        let batchSize = 400
+        var savedTotal = 0
+
+        for batch in stride(from: 0, to: toSave.count, by: batchSize) {
+            let end = min(batch + batchSize, toSave.count)
+            let batchRecords = Array(toSave[batch..<end])
+
+            let (savedRecords, _) = try await sharedDB.modifyRecords(saving: batchRecords, deleting: [])
+            savedTotal += savedRecords.count
+
+            #if DEBUG
+            print("[CloudKitSyncService] Saved batch \(batch/batchSize + 1): \(savedRecords.count) records")
+            #endif
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Successfully uploaded \(savedTotal) daily usage history records to parent's zone")
+        #endif
+    }
+
+    /// Fetch child's daily usage history from CloudKit shared zones
+    /// Returns array of DailyUsageHistoryDTO with per-app daily summaries
+    func fetchChildDailyUsageHistory(deviceID: String, daysToFetch: Int = 30) async throws -> [DailyUsageHistoryDTO] {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Child Daily Usage History =====")
+        print("[CloudKitSyncService] Device ID: \(deviceID)")
+        #endif
+
+        let db = container.privateCloudDatabase
+        var results: [DailyUsageHistoryDTO] = []
+
+        // Calculate date range
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let startDate = calendar.date(byAdding: .day, value: -daysToFetch, to: today)!
+
+        // Enumerate all zones (shared zones appear in parent's private database)
+        let zones = try await db.allRecordZones()
+
+        for zone in zones {
+            if zone.zoneID.zoneName == CKRecordZone.default().zoneID.zoneName {
+                continue
+            }
+
+            do {
+                let predicate = NSPredicate(
+                    format: "CD_deviceID == %@ AND CD_date >= %@",
+                    deviceID, startDate as NSDate
+                )
+                let query = CKQuery(recordType: "CD_DailyUsageHistory", predicate: predicate)
+                let (matches, _) = try await db.records(matching: query, inZoneWith: zone.zoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): found \(matches.count) history records")
+                #endif
+
+                for (_, res) in matches {
+                    if case .success(let record) = res {
+                        let dto = DailyUsageHistoryDTO(from: record)
+                        results.append(dto)
+
+                        #if DEBUG
+                        print("[CloudKitSyncService]   - \(dto.displayName) on \(dto.date): \(dto.seconds)s (\(dto.category))")
+                        #endif
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error querying zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Fetched \(results.count) daily usage history records")
+        #endif
+
+        return results
+    }
 }

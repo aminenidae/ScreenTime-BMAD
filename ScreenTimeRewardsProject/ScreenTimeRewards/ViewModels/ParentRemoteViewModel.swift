@@ -139,6 +139,44 @@ struct ShieldStateDTO: Identifiable {
     }
 }
 
+// MARK: - Daily Usage History DTO
+
+/// Data transfer object for daily usage history from CloudKit
+/// Contains per-app daily usage summaries for historical display
+struct DailyUsageHistoryDTO: Identifiable {
+    var id: String { "\(logicalID)-\(date.timeIntervalSince1970)" }
+
+    let deviceID: String
+    let logicalID: String
+    let displayName: String
+    let date: Date
+    let seconds: Int
+    let category: String
+    let syncTimestamp: Date?
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.deviceID = record["CD_deviceID"] as? String ?? ""
+        self.logicalID = record["CD_logicalID"] as? String ?? ""
+        self.displayName = record["CD_displayName"] as? String ?? "Unknown"
+        self.date = record["CD_date"] as? Date ?? Date()
+        self.seconds = record["CD_seconds"] as? Int ?? 0
+        self.category = record["CD_category"] as? String ?? "Unknown"
+        self.syncTimestamp = record["CD_syncTimestamp"] as? Date
+    }
+
+    /// Formatted time string (e.g., "1h 23m")
+    var formattedTime: String {
+        let hours = seconds / 3600
+        let minutes = (seconds % 3600) / 60
+        if hours > 0 {
+            return "\(hours)h \(minutes)m"
+        } else {
+            return "\(minutes)m"
+        }
+    }
+}
+
 @MainActor
 class ParentRemoteViewModel: ObservableObject {
     @Published var linkedChildDevices: [RegisteredDevice] = []
@@ -163,6 +201,31 @@ class ParentRemoteViewModel: ObservableObject {
 
     // Shield states for reward apps (blocked/unlocked status)
     @Published var childShieldStates: [String: ShieldStateDTO] = [:]
+
+    // Daily usage history (synced from CloudKit)
+    @Published var childDailyUsageHistory: [DailyUsageHistoryDTO] = []
+    @Published var childDailyUsageByApp: [String: [DailyUsageHistoryDTO]] = [:]  // Grouped by logicalID
+
+    /// Aggregated daily totals from per-app history
+    /// Returns array of (date, learningSeconds, rewardSeconds) sorted by date descending
+    var aggregatedDailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)] {
+        var totals: [Date: (learning: Int, reward: Int)] = [:]
+        let calendar = Calendar.current
+
+        for record in childDailyUsageHistory {
+            let dayStart = calendar.startOfDay(for: record.date)
+            var current = totals[dayStart] ?? (learning: 0, reward: 0)
+            if record.category == "Learning" {
+                current.learning += record.seconds
+            } else if record.category == "Reward" {
+                current.reward += record.seconds
+            }
+            totals[dayStart] = current
+        }
+
+        return totals.map { (date: $0.key, learningSeconds: $0.value.learning, rewardSeconds: $0.value.reward) }
+            .sorted { $0.date > $1.date }
+    }
 
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
@@ -345,6 +408,16 @@ class ParentRemoteViewModel: ObservableObject {
             }
             #endif
 
+            // Fetch daily usage history (last 30 days)
+            let usageHistory = try await cloudKitService.fetchChildDailyUsageHistory(deviceID: deviceID, daysToFetch: 30)
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Fetched \(usageHistory.count) daily usage history records")
+            #endif
+
+            // Group history by app logicalID
+            let historyByApp = Dictionary(grouping: usageHistory) { $0.logicalID }
+
             await MainActor.run {
                 // Basic AppConfiguration entities
                 self.childLearningApps = learning
@@ -356,12 +429,17 @@ class ParentRemoteViewModel: ObservableObject {
 
                 // Shield states for reward apps
                 self.childShieldStates = shieldStates
+
+                // Daily usage history
+                self.childDailyUsageHistory = usageHistory
+                self.childDailyUsageByApp = historyByApp
             }
 
             #if DEBUG
             print("[ParentRemoteViewModel] Categorized: \(learning.count) learning apps, \(reward.count) reward apps")
             print("[ParentRemoteViewModel] Full configs: \(learningFull.count) learning, \(rewardFull.count) reward")
             print("[ParentRemoteViewModel] Shield states: \(shieldStates.count)")
+            print("[ParentRemoteViewModel] Daily usage history: \(usageHistory.count) records for \(historyByApp.count) apps")
             print("[ParentRemoteViewModel] ===== End Loading Child App Configurations =====")
             #endif
         } catch {

@@ -64,6 +64,10 @@ struct ScreenTimeRewardsApp: App {
                 BlockingCoordinator.shared.startPeriodicRefresh()
                 print("[ScreenTimeRewardsApp] ⏱️ Started BlockingCoordinator periodic refresh")
 
+                // Initialize real-time sync coordinator (listens for shield changes, throttles syncs)
+                let _ = RealTimeSyncCoordinator.shared
+                print("[ScreenTimeRewardsApp] 📡 RealTimeSyncCoordinator initialized")
+
                 // Sync app configurations to CloudKit for paired child devices
                 // This ensures existing apps sync to parent dashboard on app open
                 if modeManager.isChildDevice,
@@ -87,6 +91,14 @@ struct ScreenTimeRewardsApp: App {
                             print("[ScreenTimeRewardsApp] ✅ Synced shield states to parent")
                         } catch {
                             print("[ScreenTimeRewardsApp] ⚠️ Failed to sync shield states: \(error.localizedDescription)")
+                        }
+
+                        // Upload daily usage history (last 30 days)
+                        do {
+                            try await CloudKitSyncService.shared.uploadDailyUsageHistoryToParent()
+                            print("[ScreenTimeRewardsApp] ✅ Synced daily usage history to parent")
+                        } catch {
+                            print("[ScreenTimeRewardsApp] ⚠️ Failed to sync usage history: \(error.localizedDescription)")
                         }
                     }
                 }

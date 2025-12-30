@@ -5,29 +5,32 @@ struct HistoricalReportsView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     @State private var selectedDateRange: DateRange = .week
     @Environment(\.colorScheme) var colorScheme
-    
+
     enum DateRange: String, CaseIterable {
         case week = "Week"
         case month = "Month"
-        case year = "Year"
-        
+
         var days: Int {
             switch self {
             case .week: return 7
             case .month: return 30
-            case .year: return 365
             }
         }
     }
-    
+
+    /// Get filtered daily totals based on selected date range
+    private var filteredDailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)] {
+        Array(viewModel.aggregatedDailyTotals.prefix(selectedDateRange.days))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Text("Historical Reports")
                     .font(.headline)
-                
+
                 Spacer()
-                
+
                 Picker("Date Range", selection: $selectedDateRange) {
                     ForEach(DateRange.allCases, id: \.self) { range in
                         Text(range.rawValue).tag(range)
@@ -36,24 +39,26 @@ struct HistoricalReportsView: View {
                 .pickerStyle(MenuPickerStyle())
                 .frame(width: 120)
             }
-            
-            if viewModel.dailySummaries.isEmpty && !viewModel.isLoading {
+
+            if viewModel.childDailyUsageHistory.isEmpty && !viewModel.isLoading {
                 EmptyReportsView()
             } else {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 20) {
-                        ForEach(viewModel.dailySummaries.prefix(selectedDateRange.days), id: \.summaryID) { summary in
-                            if let date = summary.date {
-                                DailySummaryCard(summary: summary, date: date)
-                            }
+                        ForEach(filteredDailyTotals, id: \.date) { dayData in
+                            DailyTotalCard(
+                                date: dayData.date,
+                                learningSeconds: dayData.learningSeconds,
+                                rewardSeconds: dayData.rewardSeconds
+                            )
                         }
                     }
                     .padding(.horizontal)
                 }
-                
-                WeeklyTrendChart(dailySummaries: Array(viewModel.dailySummaries.prefix(selectedDateRange.days)))
-                
-                CategoryBreakdownView(dailySummaries: Array(viewModel.dailySummaries.prefix(selectedDateRange.days)))
+
+                UsageTrendChart(dailyTotals: filteredDailyTotals)
+
+                CategoryBreakdownView(dailyTotals: filteredDailyTotals)
             }
         }
         .padding()
@@ -85,9 +90,10 @@ private struct EmptyReportsView: View {
     }
 }
 
-private struct DailySummaryCard: View {
-    let summary: DailySummary
+private struct DailyTotalCard: View {
     let date: Date
+    let learningSeconds: Int
+    let rewardSeconds: Int
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -100,23 +106,23 @@ private struct DailySummaryCard: View {
             VStack(spacing: 8) {
                 StatItem(
                     title: "Learning",
-                    value: TimeFormatting.formatSeconds(summary.totalLearningSeconds),
+                    value: TimeFormatting.formatSeconds(learningSeconds),
                     icon: "book",
                     color: AppTheme.vibrantTeal
                 )
 
                 StatItem(
                     title: "Reward",
-                    value: TimeFormatting.formatSeconds(summary.totalRewardSeconds),
+                    value: TimeFormatting.formatSeconds(rewardSeconds),
                     icon: "gamecontroller",
                     color: AppTheme.playfulCoral
                 )
 
                 StatItem(
-                    title: "Points",
-                    value: String(summary.totalPointsEarned),
-                    icon: "star",
-                    color: AppTheme.sunnyYellow
+                    title: "Total",
+                    value: TimeFormatting.formatSeconds(learningSeconds + rewardSeconds),
+                    icon: "clock",
+                    color: AppTheme.textSecondary(for: colorScheme)
                 )
             }
         }
@@ -126,7 +132,7 @@ private struct DailySummaryCard: View {
         .cornerRadius(AppTheme.CornerRadius.small)
         .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 2)
     }
-    
+
     private func formatDate(_ date: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "MMM d"
@@ -158,20 +164,20 @@ private struct StatItem: View {
     }
 }
 
-private struct WeeklyTrendChart: View {
-    let dailySummaries: [DailySummary]
+private struct UsageTrendChart: View {
+    let dailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)]
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Weekly Trend")
+            Text("Usage Trend")
                 .font(.headline)
                 .fontWeight(.medium)
-            
+
             GeometryReader { geometry in
                 let chartWidth = geometry.size.width
                 let chartHeight = geometry.size.height - 40 // Space for labels
-                
+
                 ZStack(alignment: .bottomLeading) {
                     // Grid lines
                     ForEach(0..<5) { index in
@@ -182,32 +188,35 @@ private struct WeeklyTrendChart: View {
                         }
                         .stroke(AppTheme.border(for: colorScheme), lineWidth: 0.5)
                     }
-                    
-                    // Data points and lines
-                    if !dailySummaries.isEmpty {
-                        let maxPoints = dailySummaries.map { $0.totalPointsEarned }.max() ?? 1
-                        
-                        ForEach(Array(dailySummaries.enumerated()), id: \.element.summaryID) { index, summary in
-                            let x = CGFloat(index) * (chartWidth / CGFloat(dailySummaries.count - 1))
-                            let y = chartHeight - (CGFloat(summary.totalPointsEarned) / CGFloat(maxPoints)) * chartHeight
-                            
+
+                    // Data points and lines (show total time)
+                    if !dailyTotals.isEmpty && dailyTotals.count > 1 {
+                        let maxTime = dailyTotals.map { $0.learningSeconds + $0.rewardSeconds }.max() ?? 1
+                        let sortedByDate = dailyTotals.sorted { $0.date < $1.date }
+
+                        ForEach(Array(sortedByDate.enumerated()), id: \.element.date) { index, dayData in
+                            let totalSeconds = dayData.learningSeconds + dayData.rewardSeconds
+                            let x = CGFloat(index) * (chartWidth / CGFloat(sortedByDate.count - 1))
+                            let y = chartHeight - (CGFloat(totalSeconds) / CGFloat(maxTime)) * chartHeight
+
                             // Point
                             Circle()
-                                .fill(AppTheme.sunnyYellow)
+                                .fill(AppTheme.vibrantTeal)
                                 .frame(width: 8, height: 8)
                                 .position(x: x, y: y)
 
                             // Line to next point
-                            if index < dailySummaries.count - 1 {
-                                let nextSummary = dailySummaries[index + 1]
-                                let nextX = CGFloat(index + 1) * (chartWidth / CGFloat(dailySummaries.count - 1))
-                                let nextY = chartHeight - (CGFloat(nextSummary.totalPointsEarned) / CGFloat(maxPoints)) * chartHeight
+                            if index < sortedByDate.count - 1 {
+                                let nextData = sortedByDate[index + 1]
+                                let nextTotal = nextData.learningSeconds + nextData.rewardSeconds
+                                let nextX = CGFloat(index + 1) * (chartWidth / CGFloat(sortedByDate.count - 1))
+                                let nextY = chartHeight - (CGFloat(nextTotal) / CGFloat(maxTime)) * chartHeight
 
                                 Path { path in
                                     path.move(to: CGPoint(x: x, y: y))
                                     path.addLine(to: CGPoint(x: nextX, y: nextY))
                                 }
-                                .stroke(AppTheme.sunnyYellow, lineWidth: 2)
+                                .stroke(AppTheme.vibrantTeal, lineWidth: 2)
                             }
                         }
                     }
@@ -220,7 +229,7 @@ private struct WeeklyTrendChart: View {
 }
 
 private struct CategoryBreakdownView: View {
-    let dailySummaries: [DailySummary]
+    let dailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)]
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -229,9 +238,9 @@ private struct CategoryBreakdownView: View {
                 .font(.headline)
                 .fontWeight(.medium)
 
-            if !dailySummaries.isEmpty {
-                let totalLearning = dailySummaries.reduce(0) { $0 + $1.totalLearningSeconds }
-                let totalReward = dailySummaries.reduce(0) { $0 + $1.totalRewardSeconds }
+            if !dailyTotals.isEmpty {
+                let totalLearning = dailyTotals.reduce(0) { $0 + $1.learningSeconds }
+                let totalReward = dailyTotals.reduce(0) { $0 + $1.rewardSeconds }
                 let totalTime = totalLearning + totalReward
 
                 if totalTime > 0 {
@@ -305,10 +314,7 @@ private struct StatBadge: View {
 struct HistoricalReportsView_Previews: PreviewProvider {
     static var previews: some View {
         let viewModel = ParentRemoteViewModel()
-        
-        // Note: In a real preview, we would need a proper Core Data context
-        // For now, we'll just show the view without mock data
-        
+
         return HistoricalReportsView(viewModel: viewModel)
             .padding()
     }

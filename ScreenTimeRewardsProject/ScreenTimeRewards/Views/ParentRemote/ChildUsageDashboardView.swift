@@ -125,7 +125,8 @@ struct ChildUsagePageView: View {
                 ChildLearningTabView(
                     apps: viewModel.childLearningApps,
                     fullConfigs: viewModel.childLearningAppsFullConfig,
-                    usageRecords: viewModel.usageRecords
+                    usageRecords: viewModel.usageRecords,
+                    historyByApp: viewModel.childDailyUsageByApp
                 )
                 .tag(1)
 
@@ -134,7 +135,8 @@ struct ChildUsagePageView: View {
                     apps: viewModel.childRewardApps,
                     fullConfigs: viewModel.childRewardAppsFullConfig,
                     usageRecords: viewModel.usageRecords,
-                    shieldStates: viewModel.childShieldStates
+                    shieldStates: viewModel.childShieldStates,
+                    historyByApp: viewModel.childDailyUsageByApp
                 )
                 .tag(2)
             }
@@ -375,6 +377,7 @@ private struct ChildLearningTabView: View {
     let apps: [AppConfiguration]
     let fullConfigs: [FullAppConfigDTO]
     let usageRecords: [UsageRecord]
+    let historyByApp: [String: [DailyUsageHistoryDTO]]
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -392,11 +395,21 @@ private struct ChildLearningTabView: View {
                     // Use full configs if available, otherwise fall back to basic
                     if !fullConfigs.isEmpty {
                         ForEach(fullConfigs) { config in
-                            FullAppConfigRow(
-                                config: config,
-                                usage: usageRecords.first { $0.logicalID == config.logicalID },
-                                categoryColor: AppTheme.vibrantTeal
-                            )
+                            NavigationLink {
+                                ParentAppDetailView(
+                                    config: config,
+                                    shieldState: nil,
+                                    appHistory: historyByApp[config.logicalID] ?? []
+                                )
+                            } label: {
+                                FullAppConfigRow(
+                                    config: config,
+                                    usage: usageRecords.first { $0.logicalID == config.logicalID },
+                                    categoryColor: AppTheme.vibrantTeal,
+                                    appHistory: historyByApp[config.logicalID] ?? []
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
                             .padding(.horizontal)
                         }
                     } else {
@@ -425,6 +438,7 @@ private struct ChildRewardsTabView: View {
     let fullConfigs: [FullAppConfigDTO]
     let usageRecords: [UsageRecord]
     let shieldStates: [String: ShieldStateDTO]
+    let historyByApp: [String: [DailyUsageHistoryDTO]]
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -442,12 +456,22 @@ private struct ChildRewardsTabView: View {
                     // Use full configs if available, otherwise fall back to basic
                     if !fullConfigs.isEmpty {
                         ForEach(fullConfigs) { config in
-                            FullAppConfigRow(
-                                config: config,
-                                usage: usageRecords.first { $0.logicalID == config.logicalID },
-                                categoryColor: AppTheme.playfulCoral,
-                                shieldState: shieldStates[config.logicalID]
-                            )
+                            NavigationLink {
+                                ParentAppDetailView(
+                                    config: config,
+                                    shieldState: shieldStates[config.logicalID],
+                                    appHistory: historyByApp[config.logicalID] ?? []
+                                )
+                            } label: {
+                                FullAppConfigRow(
+                                    config: config,
+                                    usage: usageRecords.first { $0.logicalID == config.logicalID },
+                                    categoryColor: AppTheme.playfulCoral,
+                                    shieldState: shieldStates[config.logicalID],
+                                    appHistory: historyByApp[config.logicalID] ?? []
+                                )
+                            }
+                            .buttonStyle(PlainButtonStyle())
                             .padding(.horizontal)
                         }
                     } else {
@@ -570,6 +594,7 @@ private struct FullAppConfigRow: View {
     let usage: UsageRecord?
     let categoryColor: Color
     var shieldState: ShieldStateDTO? = nil
+    var appHistory: [DailyUsageHistoryDTO] = []
     @Environment(\.colorScheme) var colorScheme
 
     var displayName: String {
@@ -585,162 +610,87 @@ private struct FullAppConfigRow: View {
         return TimeFormatting.formatSecondsCompact(TimeInterval(record.totalSeconds))
     }
 
+    /// Total time from last 7 days of history
+    var last7DaysTotal: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today)!
+
+        return appHistory
+            .filter { $0.date >= sevenDaysAgo }
+            .reduce(0) { $0 + $1.seconds }
+    }
+
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            // Main row with app info
-            HStack(spacing: 12) {
-                // App Icon placeholder with shield overlay
-                ZStack(alignment: .bottomTrailing) {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(categoryColor.opacity(0.2))
-                        .frame(width: 50, height: 50)
-                        .overlay(
-                            Image(systemName: config.category == "Learning" ? "book.fill" : "gamecontroller.fill")
-                                .foregroundColor(categoryColor)
-                        )
+        HStack(spacing: 12) {
+            // App Icon placeholder with shield overlay
+            ZStack(alignment: .bottomTrailing) {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(categoryColor.opacity(0.2))
+                    .frame(width: 50, height: 50)
+                    .overlay(
+                        Image(systemName: config.category == "Learning" ? "book.fill" : "gamecontroller.fill")
+                            .foregroundColor(categoryColor)
+                    )
 
-                    // Shield state indicator (for reward apps only)
+                // Shield state indicator (for reward apps only)
+                if let state = shieldState {
+                    Image(systemName: state.statusIcon)
+                        .font(.system(size: 12, weight: .bold))
+                        .foregroundColor(state.isUnlocked ? .green : .red)
+                        .padding(3)
+                        .background(Circle().fill(Color(UIColor.systemBackground)))
+                        .offset(x: 4, y: 4)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(spacing: 6) {
+                    Text(displayName)
+                        .font(.headline)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .lineLimit(1)
+
+                    // Inline shield status badge
                     if let state = shieldState {
-                        Image(systemName: state.statusIcon)
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(state.isUnlocked ? .green : .red)
-                            .padding(3)
-                            .background(Circle().fill(Color(UIColor.systemBackground)))
-                            .offset(x: 4, y: 4)
+                        Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
+                            .font(.system(size: 9, weight: .bold))
+                            .foregroundColor(.white)
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 2)
+                            .background(state.isUnlocked ? Color.green : Color.red)
+                            .cornerRadius(4)
                     }
                 }
 
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(displayName)
-                            .font(.headline)
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .lineLimit(1)
-
-                        // Inline shield status badge
-                        if let state = shieldState {
-                            Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
-                                .font(.system(size: 9, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(state.isUnlocked ? Color.green : Color.red)
-                                .cornerRadius(4)
-                        }
-                    }
-
-                    if usage != nil {
-                        Text("Last 7 days")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    } else {
-                        Text("No usage yet")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    }
+                if !appHistory.isEmpty || usage != nil {
+                    Text("Last 7 days")
+                        .font(.caption)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                } else {
+                    Text("No usage yet")
+                        .font(.caption)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
+            }
 
-                Spacer()
+            Spacer()
 
+            // Show historical total if available, otherwise fallback to session data
+            if !appHistory.isEmpty {
+                Text(TimeFormatting.formatSecondsCompact(TimeInterval(last7DaysTotal)))
+                    .font(.headline)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            } else {
                 Text(usageTime)
                     .font(.headline)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             }
 
-            // Schedule & limits info (if available)
-            if let schedule = config.scheduleConfig {
-                Divider()
-                    .padding(.vertical, 4)
-
-                HStack(spacing: 16) {
-                    // Time window
-                    if !schedule.todayTimeWindow.isFullDay {
-                        HStack(spacing: 4) {
-                            Image(systemName: "clock")
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                            Text(schedule.todayTimeWindow.displayString)
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                    }
-
-                    // Daily limit
-                    HStack(spacing: 4) {
-                        Image(systemName: "timer")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        Text(schedule.dailyLimits.displaySummary)
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    }
-
-                    Spacer()
-                }
-            }
-
-            // Linked learning apps (for reward apps) - show names and requirements
-            if !config.linkedLearningApps.isEmpty {
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 4) {
-                        Image(systemName: "lock.open.fill")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.vibrantTeal)
-
-                        Text("Unlock Requirements (\(config.unlockMode.displayName)):")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(AppTheme.vibrantTeal)
-
-                        Spacer()
-                    }
-
-                    // Show each linked app with its requirement
-                    ForEach(config.linkedLearningApps, id: \.logicalID) { linkedApp in
-                        HStack(spacing: 6) {
-                            Image(systemName: "book.fill")
-                                .font(.system(size: 10))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                            Text(linkedApp.displayName ?? "Learning App")
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-
-                            Text("•")
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                            Text("\(linkedApp.minutesRequired)min \(linkedApp.goalPeriod.displayName)")
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                            if linkedApp.rewardMinutesEarned != linkedApp.minutesRequired {
-                                Text("→ \(linkedApp.rewardMinutesEarned)min")
-                                    .font(.caption)
-                                    .foregroundColor(AppTheme.sunnyYellow)
-                            }
-
-                            Spacer()
-                        }
-                        .padding(.leading, 16)
-                    }
-                }
-            }
-
-            // Streak bonus (if enabled)
-            if let streak = config.streakSettings, streak.isEnabled {
-                HStack(spacing: 4) {
-                    Image(systemName: "flame.fill")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sunnyYellow)
-
-                    Text("Streak bonus: \(streak.bonusValue)\(streak.bonusType == .percentage ? "%" : " pts")")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.sunnyYellow)
-
-                    Spacer()
-                }
-            }
+            // Chevron indicator for navigation
+            Image(systemName: "chevron.right")
+                .font(.caption)
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
         }
         .padding()
         .background(AppTheme.card(for: colorScheme))

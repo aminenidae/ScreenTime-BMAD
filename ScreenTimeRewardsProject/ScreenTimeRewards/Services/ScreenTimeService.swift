@@ -1065,6 +1065,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Notify UI of usage updates
         notifyUsageChange()
 
+        // Trigger real-time CloudKit sync for usage data (throttled to 30s)
+        Task { @MainActor in
+            RealTimeSyncCoordinator.shared.triggerUsageDataSync()
+        }
+
         // Immediately refresh blocking states when usage is recorded
         Task { @MainActor in
             BlockingCoordinator.shared.refreshAllBlockingStates()
