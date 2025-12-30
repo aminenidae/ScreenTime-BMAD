@@ -94,6 +94,14 @@ struct SettingsTabView: View {
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                                 .padding(.horizontal, 4)
                         }
+
+                        #if DEBUG
+                        // Debug Section (only in DEBUG builds)
+                        settingsSection(title: "DEBUG") {
+                            debugDumpRecordsRow
+                            debugTriggerSyncRow
+                        }
+                        #endif
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -401,6 +409,78 @@ private extension SettingsTabView {
         }
         .buttonStyle(PlainButtonStyle())
     }
+
+    #if DEBUG
+    var debugDumpRecordsRow: some View {
+        Button(action: {
+            ScreenTimeService.shared.dumpUsageRecords()
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 20))
+                        .foregroundColor(.purple)
+                }
+
+                Text("Dump UsageRecords")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.purple.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var debugTriggerSyncRow: some View {
+        Button(action: {
+            Task {
+                await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+            }
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "icloud.and.arrow.up")
+                        .font(.system(size: 20))
+                        .foregroundColor(.orange)
+                }
+
+                Text("Trigger CloudKit Sync")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(Color.orange.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+    #endif
 }
 
 struct SettingsTabView_Previews: PreviewProvider {
