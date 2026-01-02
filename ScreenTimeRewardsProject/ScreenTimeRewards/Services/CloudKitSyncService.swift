@@ -35,6 +35,37 @@ class CloudKitSyncService: ObservableObject {
     private let persistenceController = PersistenceController.shared
     private let offlineQueue = OfflineQueueManager.shared
 
+    // MARK: - Parent Zone Info Helper
+
+    /// Holds zone info needed for syncing to parent's shared zone
+    struct ParentZoneInfo {
+        let zoneName: String
+        let zoneOwner: String
+        let rootRecordName: String
+    }
+
+    /// Gets zone info from multi-parent storage (new format)
+    /// Falls back to legacy single-parent keys for backward compatibility
+    private func getParentZoneInfo() -> ParentZoneInfo? {
+        // Try new multi-parent format first
+        let pairedParents = DevicePairingService.shared.getPairedParents()
+        if let firstParent = pairedParents.first,
+           let zoneName = firstParent.sharedZoneID,
+           let zoneOwner = firstParent.sharedZoneOwner,
+           let rootName = firstParent.rootRecordName {
+            return ParentZoneInfo(zoneName: zoneName, zoneOwner: zoneOwner, rootRecordName: rootName)
+        }
+
+        // Fallback to legacy single-parent keys
+        if let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
+           let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),
+           let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName") {
+            return ParentZoneInfo(zoneName: zoneName, zoneOwner: zoneOwner, rootRecordName: rootName)
+        }
+
+        return nil
+    }
+
     // MARK: - Device Registration
     // Test: Register device
     func registerDevice(mode: DeviceMode, childName: String? = nil, parentDeviceID: String? = nil) async throws -> RegisteredDevice {
@@ -1263,22 +1294,18 @@ class CloudKitSyncService: ObservableObject {
         let container = CKContainer(identifier: "iCloud.com.screentimerewards")
         let sharedDB = container.sharedCloudDatabase
 
-        // Get share context from UserDefaults (persisted during pairing - Task 6)
-        guard
-            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
-            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),  // 🔧 FIX: Get zone owner!
-            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
-        else {
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
             let error = NSError(domain: "UsageUpload", code: -1,
                               userInfo: [NSLocalizedDescriptionKey: "Missing share context - device may not be paired"])
             #if DEBUG
             print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
-            print("[CloudKitSyncService]   parentSharedZoneID: \(UserDefaults.standard.string(forKey: "parentSharedZoneID") ?? "nil")")
-            print("[CloudKitSyncService]   parentSharedZoneOwner: \(UserDefaults.standard.string(forKey: "parentSharedZoneOwner") ?? "nil")")
-            print("[CloudKitSyncService]   parentSharedRootRecordName: \(UserDefaults.standard.string(forKey: "parentSharedRootRecordName") ?? "nil")")
             #endif
             throw error
         }
+        let zoneName = zoneInfo.zoneName
+        let zoneOwner = zoneInfo.zoneOwner
+        let rootName = zoneInfo.rootRecordName
 
         #if DEBUG
         print("[CloudKitSyncService] Share context found:")
@@ -1469,20 +1496,16 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] Found \(configs.count) active AppConfigurations to sync")
         #endif
 
-        // Get share context (same as UsageRecords)
-        guard
-            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
-            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),
-            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
-        else {
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
             #if DEBUG
             print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
             #endif
             return
         }
 
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
-        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
+        let rootID = CKRecord.ID(recordName: zoneInfo.rootRecordName, zoneID: zoneID)
         let sharedDB = container.sharedCloudDatabase
 
         // Query ALL existing records for upsert (not filtered by deviceID to find old duplicates)
@@ -1737,18 +1760,15 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] 🗑️ Deleting AppConfiguration from CloudKit for logicalID: \(logicalID)")
         #endif
 
-        // Get share context for the child's zone
-        guard
-            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
-            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner")
-        else {
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
             #if DEBUG
             print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
             #endif
             return
         }
 
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
         let sharedDB = container.sharedCloudDatabase
 
         // Query for records with this logicalID
@@ -1819,20 +1839,16 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] Found \(shieldStates.states.count) shield states to sync")
         #endif
 
-        // Get share context
-        guard
-            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
-            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),
-            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
-        else {
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
             #if DEBUG
             print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
             #endif
             return
         }
 
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
-        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
+        let rootID = CKRecord.ID(recordName: zoneInfo.rootRecordName, zoneID: zoneID)
         let sharedDB = container.sharedCloudDatabase
 
         // Query existing shield state records for upsert
@@ -2636,20 +2652,16 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] Found \(allApps.count) apps with usage data")
         #endif
 
-        // Get share context
-        guard
-            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
-            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner"),
-            let rootName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
-        else {
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
             #if DEBUG
             print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
             #endif
             return
         }
 
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
-        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
+        let rootID = CKRecord.ID(recordName: zoneInfo.rootRecordName, zoneID: zoneID)
         let sharedDB = container.sharedCloudDatabase
 
         // Calculate date range
