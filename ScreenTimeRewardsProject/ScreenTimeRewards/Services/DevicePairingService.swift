@@ -156,17 +156,17 @@ class DevicePairingService: ObservableObject {
     func createMonitoringZoneForChild() async throws -> (zoneID: CKRecordZone.ID, share: CKShare) {
         let database = container.privateCloudDatabase
 
-        // 1. Clean up any orphaned zones from previous pairings
-        // This prevents zone accumulation when re-pairing the same device
+        // 1. Delete ALL old ChildMonitoring zones before creating new pairing
+        // This prevents zone accumulation from repeated pairings
         #if DEBUG
-        print("[DevicePairingService] Checking for orphaned zones before creating new pairing zone...")
+        print("[DevicePairingService] Deleting all old ChildMonitoring zones before creating new pairing...")
         #endif
 
         do {
-            let cleanedCount = try await cloudKitSync.cleanupOrphanedZones()
+            let cleanedCount = try await cloudKitSync.deleteAllChildMonitoringZones()
             #if DEBUG
             if cleanedCount > 0 {
-                print("[DevicePairingService] ✅ Cleaned up \(cleanedCount) orphaned zone(s)")
+                print("[DevicePairingService] ✅ Deleted \(cleanedCount) old zone(s)")
             }
             #endif
         } catch {

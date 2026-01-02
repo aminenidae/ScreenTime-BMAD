@@ -209,6 +209,39 @@ class CloudKitSyncService: ObservableObject {
         return deletedCount
     }
 
+    /// Delete ALL ChildMonitoring-* zones (use when creating fresh pairing)
+    /// This is more aggressive than cleanupOrphanedZones - it deletes zones even with records
+    func deleteAllChildMonitoringZones() async throws -> Int {
+        let database = container.privateCloudDatabase
+        let allZones = try await database.allRecordZones()
+        var deletedCount = 0
+
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Deleting ALL ChildMonitoring Zones =====")
+        #endif
+
+        for zone in allZones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            do {
+                try await cleanupZone(zone.zoneID, deleteZone: true)
+                deletedCount += 1
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Deleted zone: \(zone.zoneID.zoneName)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Failed to delete zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+                // Continue with other zones even if one fails
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Deleted \(deletedCount) ChildMonitoring zone(s)")
+        #endif
+
+        return deletedCount
+    }
+
     /// Unpair a child device from parent - deletes zone and all records
     /// Called from parent device to remove a child
     func unpairChildDevice(_ childDevice: RegisteredDevice) async throws {
