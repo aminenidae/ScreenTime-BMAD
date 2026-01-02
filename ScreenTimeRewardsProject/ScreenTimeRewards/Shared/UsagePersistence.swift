@@ -496,9 +496,41 @@ final class UsagePersistence {
     func deleteApp(logicalID: LogicalAppID) {
         cachedApps.removeValue(forKey: logicalID)
         persistApps()
-        
+
         #if DEBUG
         print("[UsagePersistence] 🗑️ Deleted app with logicalID: \(logicalID)")
+        #endif
+    }
+
+    /// Reconcile cached apps with a set of valid logicalIDs
+    /// Removes any entries that don't have a matching logicalID in the provided set
+    /// - Parameter validLogicalIDs: Set of logicalIDs that should be kept
+    func reconcileWithSelection(validLogicalIDs: Set<LogicalAppID>) {
+        let allLogicalIDs = Set(cachedApps.keys)
+        let staleLogicalIDs = allLogicalIDs.subtracting(validLogicalIDs)
+
+        guard !staleLogicalIDs.isEmpty else {
+            #if DEBUG
+            print("[UsagePersistence] 🧹 Reconciliation: no stale entries found")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[UsagePersistence] 🧹 Reconciliation: found \(staleLogicalIDs.count) stale entries to remove:")
+        for logicalID in staleLogicalIDs {
+            let displayName = cachedApps[logicalID]?.displayName ?? "Unknown"
+            print("[UsagePersistence]   - '\(displayName)' (logicalID: \(logicalID))")
+        }
+        #endif
+
+        for logicalID in staleLogicalIDs {
+            cachedApps.removeValue(forKey: logicalID)
+        }
+        persistApps()
+
+        #if DEBUG
+        print("[UsagePersistence] ✅ Reconciliation complete: removed \(staleLogicalIDs.count) stale entries, \(cachedApps.count) remaining")
         #endif
     }
 

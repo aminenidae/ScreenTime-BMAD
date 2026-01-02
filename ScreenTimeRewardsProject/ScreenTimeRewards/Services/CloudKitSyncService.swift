@@ -1332,30 +1332,52 @@ class CloudKitSyncService: ObservableObject {
         let context = persistenceController.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID  // Use consistent ID from registration
 
-        // IMPORTANT: First normalize ALL deviceIDs to fix any mismatched records
-        // This fixes a bug where re-pairing could cause some apps to have stale deviceIDs
-        let allConfigsFetch: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
-        let allConfigs = try context.fetch(allConfigsFetch)
-        var normalizedCount = 0
+        // Get the set of active logicalIDs from UsagePersistence
+        // Only these apps should be synced; others are orphans that should be deleted
+        let activeLogicalIDs = Set(ScreenTimeService.shared.usagePersistence.loadAllApps().keys)
+
+        #if DEBUG
+        print("[CloudKitSyncService] Active apps from UsagePersistence: \(activeLogicalIDs.count)")
+        #endif
+
+        // Fetch all AppConfigurations for this device
+        let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "deviceID == %@", deviceID)
+        let allConfigs = try context.fetch(fetchRequest)
+
+        // Separate active configs from orphans
+        var activeConfigs: [AppConfiguration] = []
+        var orphanConfigs: [AppConfiguration] = []
+
         for config in allConfigs {
-            if config.deviceID != deviceID {
-                config.deviceID = deviceID
-                config.lastModified = Date()
-                normalizedCount += 1
+            if let logicalID = config.logicalID, activeLogicalIDs.contains(logicalID) {
+                activeConfigs.append(config)
+            } else {
+                orphanConfigs.append(config)
             }
         }
-        if normalizedCount > 0 {
-            try context.save()
+
+        // Delete orphan configs from CoreData
+        if !orphanConfigs.isEmpty {
             #if DEBUG
-            print("[CloudKitSyncService] 🔄 Normalized deviceID for \(normalizedCount) AppConfigurations")
+            print("[CloudKitSyncService] 🗑️ Found \(orphanConfigs.count) orphan AppConfigurations to delete:")
+            for config in orphanConfigs {
+                print("[CloudKitSyncService]   - '\(config.displayName ?? "Unknown")' (logicalID: \(config.logicalID ?? "nil"))")
+            }
+            #endif
+
+            for config in orphanConfigs {
+                context.delete(config)
+            }
+            try context.save()
+
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Deleted \(orphanConfigs.count) orphan AppConfigurations from CoreData")
             #endif
         }
 
-        // Now fetch all AppConfigurations (all should have correct deviceID now)
-        let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "deviceID == %@", deviceID)
-
-        let configs = try context.fetch(fetchRequest)
+        // Use only active configs for sync
+        let configs = activeConfigs
         guard !configs.isEmpty else {
             #if DEBUG
             print("[CloudKitSyncService] No AppConfigurations to upload")
@@ -1364,7 +1386,7 @@ class CloudKitSyncService: ObservableObject {
         }
 
         #if DEBUG
-        print("[CloudKitSyncService] Found \(configs.count) AppConfigurations to sync")
+        print("[CloudKitSyncService] Found \(configs.count) active AppConfigurations to sync")
         #endif
 
         // Get share context (same as UsageRecords)
@@ -1386,97 +1408,128 @@ class CloudKitSyncService: ObservableObject {
         // Query ALL existing records for upsert (not filtered by deviceID to find old duplicates)
         var existingByLogicalID: [String: CKRecord] = [:]
         var duplicatesToDelete: [CKRecord.ID] = []
-        do {
-            // Query ALL AppConfiguration records in the zone, not just ones matching current deviceID
-            // This allows us to find and update old records that have stale deviceIDs
-            let predicate = NSPredicate(value: true)
-            let query = CKQuery(recordType: "CD_AppConfiguration", predicate: predicate)
-            let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
 
-            // PHASE 1: Collect all records and group by displayName for deduplication
-            var allRecords: [CKRecord] = []
-            var recordsByDisplayName: [String: [CKRecord]] = [:]
+        // Use CKFetchRecordZoneChangesOperation instead of CKQuery
+        // This doesn't rely on queryable field indexes and works even when CloudKit schema isn't synced
+        var allRecords: [CKRecord] = []
 
-            for (_, result) in matches {
-                if case .success(let record) = result {
+        let fetchConfig = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        fetchConfig.previousServerChangeToken = nil // Fetch all records from the beginning
+
+        let fetchOperation = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: fetchConfig])
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            fetchOperation.recordWasChangedBlock = { recordID, result in
+                if case .success(let record) = result,
+                   record.recordType == "CD_AppConfiguration" {
                     allRecords.append(record)
-                    if let displayName = record["CD_displayName"] as? String, !displayName.isEmpty {
-                        recordsByDisplayName[displayName, default: []].append(record)
-                    }
                 }
             }
+            fetchOperation.fetchRecordZoneChangesResultBlock = { result in
+                continuation.resume()
+            }
+            sharedDB.add(fetchOperation)
+        }
 
-            #if DEBUG
-            print("[CloudKitSyncService] Found \(allRecords.count) total AppConfiguration records in CloudKit")
-            #endif
+        #if DEBUG
+        print("[CloudKitSyncService] Fetched \(allRecords.count) AppConfiguration records from zone using zone changes")
+        #endif
 
-            // PHASE 2: For each displayName group, keep only the BEST record
-            // Best = has iconURL, or most recent lastModified
-            for (displayName, records) in recordsByDisplayName {
-                if records.count > 1 {
-                    // Sort: prefer records with iconURL, then by lastModified date
-                    let sorted = records.sorted { r1, r2 in
-                        let r1HasIcon = (r1["CD_iconURL"] as? String)?.isEmpty == false
-                        let r2HasIcon = (r2["CD_iconURL"] as? String)?.isEmpty == false
-                        if r1HasIcon != r2HasIcon {
-                            return r1HasIcon // Records with iconURL come first
-                        }
-                        let r1Date = r1["CD_lastModified"] as? Date ?? Date.distantPast
-                        let r2Date = r2["CD_lastModified"] as? Date ?? Date.distantPast
-                        return r1Date > r2Date // Newer records come first
+        // PHASE 1: Group records by displayName for deduplication
+        var recordsByDisplayName: [String: [CKRecord]] = [:]
+
+        for record in allRecords {
+            if let displayName = record["CD_displayName"] as? String, !displayName.isEmpty {
+                recordsByDisplayName[displayName, default: []].append(record)
+            }
+        }
+
+        // PHASE 2: For each displayName group, keep only the BEST record
+        // Best = has iconURL, or most recent lastModified
+        for (displayName, records) in recordsByDisplayName {
+            if records.count > 1 {
+                // Sort: prefer records with iconURL, then by lastModified date
+                let sorted = records.sorted { r1, r2 in
+                    let r1HasIcon = (r1["CD_iconURL"] as? String)?.isEmpty == false
+                    let r2HasIcon = (r2["CD_iconURL"] as? String)?.isEmpty == false
+                    if r1HasIcon != r2HasIcon {
+                        return r1HasIcon // Records with iconURL come first
                     }
+                    let r1Date = r1["CD_lastModified"] as? Date ?? Date.distantPast
+                    let r2Date = r2["CD_lastModified"] as? Date ?? Date.distantPast
+                    return r1Date > r2Date // Newer records come first
+                }
 
-                    // Keep the first (best), mark others for deletion
-                    let bestRecord = sorted[0]
-                    for record in sorted.dropFirst() {
-                        duplicatesToDelete.append(record.recordID)
-                    }
+                // Keep the first (best), mark others for deletion
+                let bestRecord = sorted[0]
+                for record in sorted.dropFirst() {
+                    duplicatesToDelete.append(record.recordID)
+                }
 
-                    // Use the best record's logicalID for mapping
-                    if let logicalID = bestRecord["CD_logicalID"] as? String {
-                        existingByLogicalID[logicalID] = bestRecord
-                    }
+                // Use the best record's logicalID for mapping
+                if let logicalID = bestRecord["CD_logicalID"] as? String {
+                    existingByLogicalID[logicalID] = bestRecord
+                }
 
-                    #if DEBUG
-                    print("[CloudKitSyncService] 🔄 Deduping '\(displayName)': keeping 1, deleting \(sorted.count - 1) duplicates")
-                    #endif
-                } else if let record = records.first,
-                          let logicalID = record["CD_logicalID"] as? String {
+                #if DEBUG
+                print("[CloudKitSyncService] 🔄 Deduping '\(displayName)': keeping 1, deleting \(sorted.count - 1) duplicates")
+                #endif
+            } else if let record = records.first,
+                      let logicalID = record["CD_logicalID"] as? String {
+                existingByLogicalID[logicalID] = record
+            }
+        }
+
+        // Also add records without displayName (shouldn't happen, but be safe)
+        for record in allRecords {
+            if let logicalID = record["CD_logicalID"] as? String,
+               existingByLogicalID[logicalID] == nil {
+                let displayName = record["CD_displayName"] as? String ?? ""
+                if displayName.isEmpty {
                     existingByLogicalID[logicalID] = record
                 }
             }
-
-            // Also add records without displayName (shouldn't happen, but be safe)
-            for record in allRecords {
-                if let logicalID = record["CD_logicalID"] as? String,
-                   existingByLogicalID[logicalID] == nil {
-                    let displayName = record["CD_displayName"] as? String ?? ""
-                    if displayName.isEmpty {
-                        existingByLogicalID[logicalID] = record
-                    }
-                }
-            }
-
-            #if DEBUG
-            print("[CloudKitSyncService] Found \(existingByLogicalID.count) unique AppConfigurations after deduplication")
-            if !duplicatesToDelete.isEmpty {
-                print("[CloudKitSyncService] 🗑️ Found \(duplicatesToDelete.count) duplicate records to delete")
-            }
-            #endif
-        } catch {
-            #if DEBUG
-            print("[CloudKitSyncService] ⚠️ Could not query existing AppConfigurations: \(error.localizedDescription)")
-            #endif
         }
 
+        // FIX: Detect orphan CloudKit records (deleted locally but still in CloudKit)
+        // Build set of current local logicalIDs
+        let localLogicalIDs = Set(configs.compactMap { $0.logicalID })
+
+        // Find CloudKit records with no matching local CoreData record
+        for (cloudLogicalID, record) in existingByLogicalID {
+            if !localLogicalIDs.contains(cloudLogicalID) {
+                duplicatesToDelete.append(record.recordID)
+                #if DEBUG
+                let name = record["CD_displayName"] as? String ?? "Unknown"
+                print("[CloudKitSyncService] 🗑️ Orphan found: '\(name)' (logicalID: \(cloudLogicalID)) - will delete from CloudKit")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Found \(existingByLogicalID.count) unique AppConfigurations after deduplication")
+        if !duplicatesToDelete.isEmpty {
+            print("[CloudKitSyncService] 🗑️ Found \(duplicatesToDelete.count) records to delete (duplicates + orphans)")
+        }
+        #endif
+
         var toSave: [CKRecord] = []
+        var alreadyAddedRecordIDs: Set<CKRecord.ID> = []  // Track added records to prevent duplicates
         var updatedCount = 0
         var createdCount = 0
 
         for config in configs {
             let rec: CKRecord
             if let existing = existingByLogicalID[config.logicalID ?? ""] {
+                // Check if we already added this CloudKit record (prevents "can't save same record twice" error)
+                if alreadyAddedRecordIDs.contains(existing.recordID) {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ Skipping duplicate CoreData record: \(config.displayName ?? "Unknown")")
+                    #endif
+                    continue
+                }
                 rec = existing
+                alreadyAddedRecordIDs.insert(existing.recordID)
                 updatedCount += 1
             } else {
                 let recID = CKRecord.ID(recordName: "AC-\(UUID().uuidString)", zoneID: zoneID)
@@ -1557,15 +1610,101 @@ class CloudKitSyncService: ObservableObject {
 
         if toSave.isEmpty && duplicatesToDelete.isEmpty { return }
 
-        // Save updated records and delete duplicates in one operation
-        let (savedRecords, _) = try await sharedDB.modifyRecords(saving: toSave, deleting: duplicatesToDelete)
+        // CloudKit has a limit of 400 items per request
+        // Batch deletes first, then save
+        let batchSize = 350  // Leave room for saves
+
+        // Delete in batches
+        if !duplicatesToDelete.isEmpty {
+            var deletedCount = 0
+            for batchStart in stride(from: 0, to: duplicatesToDelete.count, by: batchSize) {
+                let batchEnd = min(batchStart + batchSize, duplicatesToDelete.count)
+                let batch = Array(duplicatesToDelete[batchStart..<batchEnd])
+
+                let (_, _) = try await sharedDB.modifyRecords(saving: [], deleting: batch)
+                deletedCount += batch.count
+
+                #if DEBUG
+                print("[CloudKitSyncService] 🗑️ Deleted batch \(batchStart/batchSize + 1): \(batch.count) records (\(deletedCount)/\(duplicatesToDelete.count))")
+                #endif
+            }
+        }
+
+        // Save in batches
+        var savedCount = 0
+        if !toSave.isEmpty {
+            for batchStart in stride(from: 0, to: toSave.count, by: batchSize) {
+                let batchEnd = min(batchStart + batchSize, toSave.count)
+                let batch = Array(toSave[batchStart..<batchEnd])
+
+                let (savedRecords, _) = try await sharedDB.modifyRecords(saving: batch, deleting: [])
+                savedCount += savedRecords.count
+            }
+        }
 
         #if DEBUG
-        print("[CloudKitSyncService] ✅ Successfully uploaded \(savedRecords.count) full AppConfigurations to parent's zone")
+        print("[CloudKitSyncService] ✅ Successfully uploaded \(savedCount) full AppConfigurations to parent's zone")
         if !duplicatesToDelete.isEmpty {
-            print("[CloudKitSyncService] 🗑️ Deleted \(duplicatesToDelete.count) duplicate records")
+            print("[CloudKitSyncService] 🗑️ Deleted \(duplicatesToDelete.count) duplicate/orphan records total")
         }
         #endif
+    }
+
+    /// Delete an app configuration record directly from CloudKit by logicalID
+    /// Called when an app is removed from the child device to ensure it's deleted from CloudKit
+    func deleteAppConfigurationFromCloudKit(logicalID: String) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] 🗑️ Deleting AppConfiguration from CloudKit for logicalID: \(logicalID)")
+        #endif
+
+        // Get share context for the child's zone
+        guard
+            let zoneName = UserDefaults.standard.string(forKey: "parentSharedZoneID"),
+            let zoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner")
+        else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Missing share context - device may not be paired")
+            #endif
+            return
+        }
+
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        let sharedDB = container.sharedCloudDatabase
+
+        // Query for records with this logicalID
+        let predicate = NSPredicate(format: "CD_logicalID == %@", logicalID)
+        let query = CKQuery(recordType: "CD_AppConfiguration", predicate: predicate)
+
+        do {
+            let (results, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
+
+            var recordIDsToDelete: [CKRecord.ID] = []
+            for (_, result) in results {
+                if case .success(let record) = result {
+                    recordIDsToDelete.append(record.recordID)
+                    #if DEBUG
+                    let name = record["CD_displayName"] as? String ?? "Unknown"
+                    print("[CloudKitSyncService] 🗑️ Found CloudKit record to delete: '\(name)' (recordID: \(record.recordID.recordName))")
+                    #endif
+                }
+            }
+
+            if !recordIDsToDelete.isEmpty {
+                let (_, _) = try await sharedDB.modifyRecords(saving: [], deleting: recordIDsToDelete)
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Deleted \(recordIDsToDelete.count) CloudKit record(s) for logicalID: \(logicalID)")
+                #endif
+            } else {
+                #if DEBUG
+                print("[CloudKitSyncService] ℹ️ No CloudKit records found to delete for logicalID: \(logicalID)")
+                #endif
+            }
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Error querying/deleting CloudKit records: \(error.localizedDescription)")
+            #endif
+            throw error
+        }
     }
 
     // MARK: - Shield State Sync

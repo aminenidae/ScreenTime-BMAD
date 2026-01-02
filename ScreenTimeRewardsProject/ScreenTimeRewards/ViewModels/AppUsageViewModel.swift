@@ -750,6 +750,51 @@ class AppUsageViewModel: ObservableObject {
         merged.categoryTokens = masterSelection.categoryTokens
         merged.webDomainTokens = masterSelection.webDomainTokens
 
+        // FIX: Identify and delete apps that were removed via picker deselection
+        let previousTokens = masterSelection.applicationTokens
+        let removedTokens = previousTokens.subtracting(combinedTokens)
+
+        if !removedTokens.isEmpty {
+            #if DEBUG
+            print("[AppUsageViewModel] 🗑️ Detected \(removedTokens.count) apps removed via picker")
+            #endif
+
+            // Collect logicalIDs of removed apps for CloudKit deletion
+            var removedLogicalIDs: [String] = []
+
+            for token in removedTokens {
+                // Delete from UsagePersistence and CoreData
+                if let logicalID = service.getLogicalID(for: token) {
+                    #if DEBUG
+                    print("[AppUsageViewModel] 🗑️ Removing app via picker: \(logicalID)")
+                    #endif
+                    service.usagePersistence.deleteApp(logicalID: logicalID)
+                    service.deleteAppConfiguration(logicalID: logicalID)
+                    removedLogicalIDs.append(logicalID)
+                }
+                // Clean up local state
+                categoryAssignments.removeValue(forKey: token)
+                rewardPoints.removeValue(forKey: token)
+            }
+
+            // Delete from CloudKit directly for each removed app, then sync remaining apps
+            Task {
+                do {
+                    // First delete removed apps from CloudKit
+                    for logicalID in removedLogicalIDs {
+                        try await CloudKitSyncService.shared.deleteAppConfigurationFromCloudKit(logicalID: logicalID)
+                    }
+                    // Then sync remaining app configurations
+                    try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                    #if DEBUG
+                    print("[AppUsageViewModel] CloudKit sync completed after picker removal")
+                    #endif
+                } catch {
+                    print("[AppUsageViewModel] Error syncing picker removal to CloudKit: \(error)")
+                }
+            }
+        }
+
         masterSelection = merged
         // FIX: Don't set familySelection to the merged selection
         // Instead, keep familySelection as is (containing only the current context's apps)
@@ -768,7 +813,12 @@ class AppUsageViewModel: ObservableObject {
         // REHYDRATION FIX: Set familySelection = masterSelection after merge to ensure
         // everyday UI and future picker launches start from the full, consistent selection
         familySelection = masterSelection
-        
+
+        // RECONCILIATION: Clean up UsagePersistence to only contain apps in masterSelection
+        // This removes stale entries that accumulated from past deletions
+        let validLogicalIDs = Set(masterSelection.applicationTokens.compactMap { service.getLogicalID(for: $0) })
+        service.usagePersistence.reconcileWithSelection(validLogicalIDs: validLogicalIDs)
+
         // TASK L: Ensure sorted applications are updated after master selection change
         updateSortedApplications()
     }
@@ -1509,6 +1559,11 @@ func configureWithTestApplications() {
         let thresholds = thresholdMinutes.reduce(into: [AppUsage.AppCategory: DateComponents]()) { result, entry in
             result[entry.key] = DateComponents(minute: entry.value)
         }
+
+        // RECONCILIATION: Clean up UsagePersistence before configuring monitoring
+        // This ensures stale entries from past deletions are removed
+        let validLogicalIDs = Set(familySelection.applicationTokens.compactMap { service.getLogicalID(for: $0) })
+        service.usagePersistence.reconcileWithSelection(validLogicalIDs: validLogicalIDs)
 
         service.configureMonitoring(
             with: familySelection,
@@ -2496,12 +2551,31 @@ extension AppUsageViewModel {
             #if DEBUG
             print("[AppUsageViewModel] Resetting usage data for app: \(appName) (logicalID: \(logicalID))")
             #endif
-            
+
             // Remove from service's appUsages
             service.resetUsageData(for: logicalID)
-            
+
             // Delete the persisted data for this app instead of re-saving it
             service.usagePersistence.deleteApp(logicalID: logicalID)
+
+            // FIX: Also delete from CoreData so it gets removed from CloudKit
+            service.deleteAppConfiguration(logicalID: logicalID)
+
+            // Delete from CloudKit directly, then sync remaining apps
+            let deletedLogicalID = logicalID
+            Task {
+                do {
+                    // First delete this app from CloudKit
+                    try await CloudKitSyncService.shared.deleteAppConfigurationFromCloudKit(logicalID: deletedLogicalID)
+                    // Then sync remaining app configurations
+                    try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                    #if DEBUG
+                    print("[AppUsageViewModel] CloudKit deletion and sync completed after app removal")
+                    #endif
+                } catch {
+                    print("[AppUsageViewModel] Error syncing deletion to CloudKit: \(error)")
+                }
+            }
         }
         
         // 5. Update all selection sources to remove this token

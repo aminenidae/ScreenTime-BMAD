@@ -363,6 +363,26 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         if !restoredSelection.applications.isEmpty {
             self.familySelection = restoredSelection
 
+            // RECONCILIATION: Clean up UsagePersistence to match restored selection
+            // This removes stale entries that accumulated from past deletions
+            let validLogicalIDs = Set(restoredSelection.applicationTokens.compactMap { getLogicalID(for: $0) })
+            usagePersistence.reconcileWithSelection(validLogicalIDs: validLogicalIDs)
+
+            // CLOUDKIT RECONCILIATION: Purge stale records from CloudKit
+            // This triggers orphan detection and deletion in uploadAppConfigurationsToParent()
+            Task {
+                do {
+                    try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ CloudKit reconciliation complete")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[ScreenTimeService] ⚠️ CloudKit reconciliation failed: \(error)")
+                    #endif
+                }
+            }
+
             // Rebuild categoryAssignments and rewardPointsAssignments from loaded apps
             // We need to map tokens back to their categories/points
             // FIX: Use sorted applications to ensure consistent iteration order
@@ -3353,6 +3373,33 @@ extension ScreenTimeService {
             try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
         } catch {
             print("[ScreenTimeService] Error uploading AppConfiguration to CloudKit: \(error)")
+        }
+    }
+
+    /// Delete AppConfiguration entity from CoreData when an app is removed
+    /// The CloudKit sync will detect this and delete the record from the cloud
+    func deleteAppConfiguration(logicalID: String) {
+        let context = PersistenceController.shared.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "logicalID == %@ AND deviceID == %@", logicalID, deviceID)
+
+        do {
+            if let config = try context.fetch(fetchRequest).first {
+                let displayName = config.displayName ?? "Unknown"
+                context.delete(config)
+                try context.save()
+                #if DEBUG
+                print("[ScreenTimeService] 🗑️ Deleted AppConfiguration for '\(displayName)' (logicalID: \(logicalID))")
+                #endif
+            } else {
+                #if DEBUG
+                print("[ScreenTimeService] No AppConfiguration found to delete for logicalID: \(logicalID)")
+                #endif
+            }
+        } catch {
+            print("[ScreenTimeService] Error deleting AppConfiguration: \(error)")
         }
     }
 
