@@ -1216,8 +1216,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         todaySeconds: Int,
         todayPoints: Int
     ) {
-        // SAFEGUARD 1: Only create records if device is paired with parent
-        guard UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil else {
+        // SAFEGUARD 1: Only create records if device is paired with parent (supports multi-parent format)
+        guard !DevicePairingService.shared.getPairedParents().isEmpty else {
             return  // Not paired, skip record creation
         }
 
