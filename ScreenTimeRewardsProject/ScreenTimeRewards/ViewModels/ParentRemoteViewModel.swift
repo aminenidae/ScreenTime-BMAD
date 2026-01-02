@@ -369,6 +369,9 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Loaded \(linkedChildDevices.count) child devices")
             #endif
 
+            // Validate that each child's zone still exists
+            await validateChildPairings()
+
             // If no device is selected and we have devices, select the first one
             if selectedChildDevice == nil, let firstDevice = linkedChildDevices.first {
                 #if DEBUG
@@ -388,6 +391,44 @@ class ParentRemoteViewModel: ObservableObject {
         }
 
         isLoading = false
+    }
+
+    /// Validate that each child's zone still exists
+    /// Marks children as stale if their zone no longer exists
+    private func validateChildPairings() async {
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Validating Child Pairings =====")
+        #endif
+
+        for device in linkedChildDevices {
+            guard let zoneName = device.sharedZoneID,
+                  let zoneOwner = device.sharedZoneOwner else {
+                #if DEBUG
+                print("[ParentRemoteViewModel] ⚠️ Child \(device.deviceName ?? "unknown") has no zone info")
+                #endif
+                device.isStale = true
+                continue
+            }
+
+            let zoneExists = await cloudKitService.validateChildZone(zoneName: zoneName, ownerName: zoneOwner)
+
+            if !zoneExists {
+                #if DEBUG
+                print("[ParentRemoteViewModel] ❌ Zone \(zoneName) no longer exists for \(device.deviceName ?? "unknown")")
+                #endif
+                device.isStale = true
+            } else {
+                #if DEBUG
+                print("[ParentRemoteViewModel] ✅ Zone \(zoneName) exists for \(device.deviceName ?? "unknown")")
+                #endif
+                device.isStale = false
+            }
+        }
+
+        #if DEBUG
+        let staleCount = linkedChildDevices.filter { $0.isStale }.count
+        print("[ParentRemoteViewModel] Validation complete: \(staleCount) stale, \(linkedChildDevices.count - staleCount) valid")
+        #endif
     }
 
     /// Unpair (remove) a child device from this parent
@@ -461,9 +502,12 @@ class ParentRemoteViewModel: ObservableObject {
             let dateRange = DateInterval(start: startDate, end: endDate)
             
             // Use the new CloudKit-based method to fetch usage data directly from shared zones
+            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
             usageRecords = try await cloudKitService.fetchChildUsageDataFromCloudKit(
                 deviceID: device.deviceID ?? "",
-                dateRange: dateRange
+                dateRange: dateRange,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
             )
             
             // Aggregate records by category
@@ -518,7 +562,12 @@ class ParentRemoteViewModel: ObservableObject {
 
         do {
             // Fetch basic configurations (for backward compatibility)
-            let configs = try await cloudKitService.fetchChildAppConfigurations(deviceID: deviceID)
+            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
+            let configs = try await cloudKitService.fetchChildAppConfigurations(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
 
             #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(configs.count) app configurations from CloudKit")
@@ -555,7 +604,12 @@ class ParentRemoteViewModel: ObservableObject {
             let rewardFull = fullConfigs.filter { $0.category == "Reward" && $0.isEnabled }
 
             // Fetch shield states for reward apps
-            let shieldStates = try await cloudKitService.fetchChildShieldStates(deviceID: deviceID)
+            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
+            let shieldStates = try await cloudKitService.fetchChildShieldStates(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
 
             #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(shieldStates.count) shield states")
@@ -565,7 +619,13 @@ class ParentRemoteViewModel: ObservableObject {
             #endif
 
             // Fetch daily usage history (last 30 days)
-            let usageHistory = try await cloudKitService.fetchChildDailyUsageHistory(deviceID: deviceID, daysToFetch: 30)
+            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
+            let usageHistory = try await cloudKitService.fetchChildDailyUsageHistory(
+                deviceID: deviceID,
+                daysToFetch: 30,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
 
             #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(usageHistory.count) daily usage history records")

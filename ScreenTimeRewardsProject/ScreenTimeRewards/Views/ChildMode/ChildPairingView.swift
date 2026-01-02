@@ -1,5 +1,11 @@
 import SwiftUI
 
+/// Represents a paired parent device for display
+struct PairedParentInfo: Identifiable {
+    let id: String  // parentDeviceID
+    let deviceName: String
+}
+
 struct ChildPairingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
@@ -8,8 +14,8 @@ struct ChildPairingView: View {
     @State private var errorMessage: String?
     @State private var isPairing = false
     @State private var showSuccessAlert = false
-    @State private var pairedParents: [RegisteredDevice] = []
-    @State private var showingUnpairConfirmation: RegisteredDevice?
+    @State private var pairedParent: PairedParentInfo?
+    @State private var showingUnpairConfirmation = false
     @State private var showHelp = false
 
     var body: some View {
@@ -49,20 +55,12 @@ struct ChildPairingView: View {
         } message: {
             Text("Successfully paired with parent device!")
         }
-        .alert("Unpair Parent Device", isPresented: Binding(
-            get: { showingUnpairConfirmation != nil },
-            set: { if !$0 { showingUnpairConfirmation = nil } }
-        )) {
-            Button("Cancel", role: .cancel) {
-                showingUnpairConfirmation = nil
-            }
+        .alert("Unpair Parent Device", isPresented: $showingUnpairConfirmation) {
+            Button("Cancel", role: .cancel) { }
             Button("Unpair", role: .destructive) {
-                if let parent = showingUnpairConfirmation {
-                    Task {
-                        await unpairFromParent(parent)
-                    }
+                Task {
+                    await unpairFromParent()
                 }
-                showingUnpairConfirmation = nil
             }
         } message: {
             Text("Are you sure you want to unpair from this parent device? You will no longer be able to sync usage data with them.")
@@ -85,7 +83,7 @@ struct ChildPairingView: View {
             Text(errorMessage ?? "An error occurred while pairing.")
         }
         .onAppear {
-            Task { await loadPairedParents() }
+            loadPairedParent()
         }
     }
 }
@@ -132,21 +130,22 @@ private extension ChildPairingView {
                 .font(.system(size: 64))
                 .foregroundColor(AppTheme.vibrantTeal)
                 .padding(.top, 8)
-                
+
             VStack(spacing: 8) {
-                Text("Connect New Device")
+                Text(pairedParent == nil ? "Connect New Device" : "Add Another Parent")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                
+
                 Text("Ask your parent for their code to scan it with the camera.")
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .multilineTextAlignment(.center)
                     .frame(maxWidth: 280)
             }
-            
+
             Button {
-                if pairedParents.count < 2 {
+                // Currently only support 1 parent pairing
+                if pairedParent == nil {
                     showScanner = true
                 }
             } label: {
@@ -160,11 +159,11 @@ private extension ChildPairingView {
                 .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(pairedParents.count >= 2 ? Color.gray : AppTheme.vibrantTeal)
+                .background(pairedParent != nil ? Color.gray : AppTheme.vibrantTeal)
                 .cornerRadius(16)
                 .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
             }
-            .disabled(pairedParents.count >= 2)
+            .disabled(pairedParent != nil)
         }
         .padding(24)
         .background(
@@ -181,18 +180,14 @@ private extension ChildPairingView {
                 .tracking(1)
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                 .padding(.leading, 4)
-            
-            if pairedParents.isEmpty {
-                emptyState
+
+            if let parent = pairedParent {
+                ParentInfoListItem(
+                    parent: parent,
+                    onUnpair: { showingUnpairConfirmation = true }
+                )
             } else {
-                VStack(spacing: 12) {
-                    ForEach(pairedParents, id: \.deviceID) { parent in
-                        ParentListItem(
-                            parent: parent,
-                            onUnpair: { showingUnpairConfirmation = parent }
-                        )
-                    }
-                }
+                emptyState
             }
         }
     }
@@ -271,7 +266,7 @@ private extension ChildPairingView {
                 }
 
                 try await pairingService.acceptParentShareAndRegister(from: payload)
-                
+
                 // Trigger upload
                 Task {
                     await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
@@ -279,6 +274,8 @@ private extension ChildPairingView {
 
                 await MainActor.run {
                     self.isPairing = false
+                    // Reload paired parent to show in the list
+                    self.loadPairedParent()
                     self.showSuccessAlert = true
                 }
             } catch {
@@ -295,20 +292,33 @@ private extension ChildPairingView {
             }
         }
     }
-    
-    func loadPairedParents() async {
-        // Placeholder for loading logic
+
+    func loadPairedParent() {
+        // Load parent info from DevicePairingService
+        if let parentID = pairingService.getParentDeviceID() {
+            let parentName = pairingService.getParentDeviceName() ?? "Parent Device"
+            pairedParent = PairedParentInfo(id: parentID, deviceName: parentName)
+        } else {
+            pairedParent = nil
+        }
     }
-    
-    func unpairFromParent(_ parent: RegisteredDevice) async {
-        // Placeholder for unpairing logic
+
+    func unpairFromParent() async {
+        // Call the service to clear pairing data
+        pairingService.unpairDevice()
+
+        await MainActor.run {
+            // Clear the local state
+            pairedParent = nil
+        }
     }
 }
 
 // MARK: - List Item
 
-struct ParentListItem: View {
-    let parent: RegisteredDevice
+/// List item for displaying paired parent info (using PairedParentInfo)
+struct ParentInfoListItem: View {
+    let parent: PairedParentInfo
     let onUnpair: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -326,13 +336,13 @@ struct ParentListItem: View {
             }
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(parent.deviceName ?? "Unknown Parent")
+                Text(parent.deviceName)
                     .font(.system(size: 16, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(AppTheme.sunnyYellow)
+                        .fill(Color.green)
                         .frame(width: 8, height: 8)
 
                     Text("Connected")

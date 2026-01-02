@@ -73,6 +73,7 @@ class DevicePairingService: ObservableObject {
     struct PairingPayload: Codable {
         let shareURL: String
         let parentDeviceID: String
+        let parentDeviceName: String?  // Parent's device name for display
         let verificationToken: String
         let sharedZoneID: String?  // Make optional to maintain backward compatibility
         let commandsShareURL: String?  // Share URL for parent's command zone
@@ -238,6 +239,7 @@ class DevicePairingService: ObservableObject {
         let payload = PairingPayload(
             shareURL: share.url?.absoluteString ?? "local://screentimerewards.com/pair/\(sessionID)",
             parentDeviceID: DeviceModeManager.shared.deviceID,
+            parentDeviceName: DeviceModeManager.shared.deviceName,
             verificationToken: verificationToken,
             sharedZoneID: zoneID.zoneName,
             commandsShareURL: commandsShareURL,
@@ -370,6 +372,7 @@ class DevicePairingService: ObservableObject {
         let payload = PairingPayload(
             shareURL: "fallback://screentimerewards.com/pair",
             parentDeviceID: DeviceModeManager.shared.deviceID,
+            parentDeviceName: DeviceModeManager.shared.deviceName,
             verificationToken: UUID().uuidString,
             sharedZoneID: nil,
             commandsShareURL: nil,
@@ -542,8 +545,11 @@ class DevicePairingService: ObservableObject {
             }
         }
 
-        // 4. Save parent device ID and shared zone ID locally
+        // 4. Save parent device ID, name, and shared zone ID locally
         UserDefaults.standard.set(payload.parentDeviceID, forKey: "parentDeviceID")
+        if let parentName = payload.parentDeviceName {
+            UserDefaults.standard.set(parentName, forKey: "parentDeviceName")
+        }
         if let sharedZoneID = payload.sharedZoneID {
             UserDefaults.standard.set(sharedZoneID, forKey: "parentSharedZoneID")
         }
@@ -675,6 +681,11 @@ class DevicePairingService: ObservableObject {
         return UserDefaults.standard.string(forKey: "parentDeviceID")
     }
 
+    /// Get parent device name for display
+    func getParentDeviceName() -> String? {
+        return UserDefaults.standard.string(forKey: "parentDeviceName")
+    }
+
     /// Check if device is already paired
     func isPaired() -> Bool {
         return getParentDeviceID() != nil
@@ -692,8 +703,9 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] ===== Child Unpairing from Parent =====")
         #endif
 
-        // Clear parent device ID
+        // Clear parent device ID and name
         UserDefaults.standard.removeObject(forKey: "parentDeviceID")
+        UserDefaults.standard.removeObject(forKey: "parentDeviceName")
 
         // Clear zone/share info
         UserDefaults.standard.removeObject(forKey: "parentSharedZoneID")

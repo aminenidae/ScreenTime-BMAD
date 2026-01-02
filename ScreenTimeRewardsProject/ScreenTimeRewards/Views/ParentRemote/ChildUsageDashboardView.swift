@@ -108,10 +108,20 @@ struct ChildUsagePageView: View {
     let device: RegisteredDevice
     @ObservedObject var viewModel: ParentRemoteViewModel
     @State private var selectedTab = 0
+    @State private var showRemoveConfirmation = false
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.dismiss) var dismiss
 
     var body: some View {
         VStack(spacing: 0) {
+            // Stale device warning banner
+            if device.isStale {
+                StaleDeviceBanner(
+                    deviceName: device.deviceName ?? "Device",
+                    onRemove: { showRemoveConfirmation = true }
+                )
+            }
+
             // Tab Selector
             ChildTabSelector(selectedTab: $selectedTab)
 
@@ -153,6 +163,65 @@ struct ChildUsagePageView: View {
                 await viewModel.loadChildData(for: device)
             }
         }
+        .alert("Remove Device?", isPresented: $showRemoveConfirmation) {
+            Button("Cancel", role: .cancel) { }
+            Button("Remove", role: .destructive) {
+                Task {
+                    let success = await viewModel.unpairChildDevice(device)
+                    if success {
+                        dismiss()
+                    }
+                }
+            }
+        } message: {
+            Text("This will remove \(device.deviceName ?? "this device") from your Family Dashboard. The device appears to be disconnected.")
+        }
+    }
+}
+
+/// Warning banner shown when viewing a stale/disconnected device
+private struct StaleDeviceBanner: View {
+    let deviceName: String
+    let onRemove: () -> Void
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        HStack(spacing: 12) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(.orange)
+                .font(.title3)
+
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Device Disconnected")
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                Text("This device's data may be outdated")
+                    .font(.caption)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            }
+
+            Spacer()
+
+            Button("Remove") {
+                onRemove()
+            }
+            .font(.caption)
+            .foregroundColor(.white)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 6)
+            .background(Color.orange)
+            .cornerRadius(6)
+        }
+        .padding()
+        .background(Color.orange.opacity(0.15))
+        .overlay(
+            Rectangle()
+                .fill(Color.orange)
+                .frame(height: 3),
+            alignment: .top
+        )
     }
 }
 
