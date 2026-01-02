@@ -71,7 +71,7 @@ struct ScreenTimeRewardsApp: App {
                 // Sync app configurations to CloudKit for paired child devices
                 // This ensures existing apps sync to parent dashboard on app open
                 if modeManager.isChildDevice,
-                   UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil {
+                   !DevicePairingService.shared.getPairedParents().isEmpty {
                     Task {
                         // FIRST: Process any pending configuration commands from parent
                         // Must happen BEFORE uploading configs, otherwise we overwrite parent's changes!
