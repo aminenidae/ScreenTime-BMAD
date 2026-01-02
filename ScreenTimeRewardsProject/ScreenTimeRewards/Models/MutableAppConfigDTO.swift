@@ -19,6 +19,9 @@ struct MutableAppConfigDTO: Identifiable {
     /// Token hash for app identification (read-only)
     let tokenHash: String?
 
+    /// Icon URL from App Store (read-only from parent perspective)
+    let iconURL: String?
+
     // MARK: - Editable Basic Fields
 
     /// Category: "Learning" or "Reward"
@@ -68,6 +71,7 @@ struct MutableAppConfigDTO: Identifiable {
             deviceID: "",
             displayName: "Unknown",
             tokenHash: nil,
+            iconURL: nil,
             category: "Learning",
             pointsPerMinute: 1,
             isEnabled: false,
@@ -87,6 +91,7 @@ struct MutableAppConfigDTO: Identifiable {
         deviceID: String,
         displayName: String,
         tokenHash: String?,
+        iconURL: String?,
         category: String,
         pointsPerMinute: Int,
         isEnabled: Bool,
@@ -100,6 +105,7 @@ struct MutableAppConfigDTO: Identifiable {
         self.deviceID = deviceID
         self.displayName = displayName
         self.tokenHash = tokenHash
+        self.iconURL = iconURL
         self.category = category
         self.pointsPerMinute = pointsPerMinute
         self.isEnabled = isEnabled
@@ -122,6 +128,7 @@ struct MutableAppConfigDTO: Identifiable {
         self.deviceID = dto.deviceID
         self.displayName = dto.displayName
         self.tokenHash = dto.tokenHash
+        self.iconURL = dto.iconURL
 
         self.category = dto.category
         self.pointsPerMinute = dto.pointsPerMinute

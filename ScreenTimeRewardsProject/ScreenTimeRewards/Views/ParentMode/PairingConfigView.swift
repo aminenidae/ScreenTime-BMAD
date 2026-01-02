@@ -11,9 +11,11 @@ struct PairingConfigView: View {
         viewModel.usagePersistence
     }
     @State private var editedNames: [String: String] = [:]
+    @State private var editedIconURLs: [String: String] = [:]
     @State private var isSaving = false
     @State private var showSaveConfirmation = false
     @State private var focusedAppID: String?
+    @StateObject private var searchService = AppStoreSearchService.shared
 
     private var learningApps: [LearningAppSnapshot] {
         viewModel.learningSnapshots
@@ -281,27 +283,19 @@ struct PairingConfigView: View {
                 Spacer()
             }
 
-            // Text Field
-            TextField("Enter app name (e.g., Khan Academy)...", text: bindingForLearning(app))
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(AppTheme.inputBackground(for: colorScheme))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    focusedAppID == app.logicalID
-                                        ? AppTheme.vibrantTeal
-                                        : AppTheme.border(for: colorScheme),
-                                    lineWidth: focusedAppID == app.logicalID ? 2 : 1
-                                )
-                        )
-                )
-                .onTapGesture {
-                    focusedAppID = app.logicalID
+            // Autocomplete Text Field
+            AppNameAutocompleteField(
+                text: bindingForLearning(app),
+                placeholder: "Enter app name (e.g., Khan Academy)...",
+                isFocused: focusedAppID == app.logicalID,
+                accentColor: AppTheme.vibrantTeal,
+                onFocus: { focusedAppID = app.logicalID },
+                onSelectApp: { appInfo in
+                    editedNames[app.logicalID] = appInfo.trackName
+                    editedIconURLs[app.logicalID] = appInfo.artworkUrl100
+                    focusedAppID = nil
                 }
+            )
         }
         .padding(14)
         .background(
@@ -379,27 +373,19 @@ struct PairingConfigView: View {
                 Spacer()
             }
 
-            // Text Field
-            TextField("Enter app name (e.g., YouTube)...", text: bindingForReward(app))
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .padding(12)
-                .background(
-                    RoundedRectangle(cornerRadius: 10)
-                        .fill(AppTheme.inputBackground(for: colorScheme))
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 10)
-                                .stroke(
-                                    focusedAppID == app.logicalID
-                                        ? AppTheme.playfulCoral
-                                        : AppTheme.border(for: colorScheme),
-                                    lineWidth: focusedAppID == app.logicalID ? 2 : 1
-                                )
-                        )
-                )
-                .onTapGesture {
-                    focusedAppID = app.logicalID
+            // Autocomplete Text Field
+            AppNameAutocompleteField(
+                text: bindingForReward(app),
+                placeholder: "Enter app name (e.g., YouTube)...",
+                isFocused: focusedAppID == app.logicalID,
+                accentColor: AppTheme.playfulCoral,
+                onFocus: { focusedAppID = app.logicalID },
+                onSelectApp: { appInfo in
+                    editedNames[app.logicalID] = appInfo.trackName
+                    editedIconURLs[app.logicalID] = appInfo.artworkUrl100
+                    focusedAppID = nil
                 }
+            )
         }
         .padding(14)
         .background(
@@ -467,17 +453,29 @@ struct PairingConfigView: View {
         #if DEBUG
         print("[PairingConfigView] 🔍 getCurrentDisplayName(logicalID: \(logicalID))")
         #endif
-        
+
         if let persistedApp = usagePersistence.app(for: logicalID) {
             #if DEBUG
             print("[PairingConfigView] 🔍   Found persisted app: '\(persistedApp.displayName)'")
             #endif
             return persistedApp.displayName
         }
-        
+
         #if DEBUG
         print("[PairingConfigView] 🔍   No persisted app found")
         #endif
+        return nil
+    }
+
+    private func getExistingIconURL(for logicalID: String) -> String? {
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "logicalID == %@", logicalID)
+        fetchRequest.fetchLimit = 1
+
+        if let config = try? context.fetch(fetchRequest).first {
+            return config.iconURL
+        }
         return nil
     }
 
@@ -509,21 +507,21 @@ struct PairingConfigView: View {
         print("[PairingConfigView] 🔍 Learning apps count: \(learningApps.count)")
         print("[PairingConfigView] 🔍 Reward apps count: \(rewardApps.count)")
         #endif
-        
-        // Pre-populate editedNames with current values, but skip "Unknown App" entries
+
+        // Pre-populate editedNames and editedIconURLs with current values
         for app in learningApps {
             #if DEBUG
             print("[PairingConfigView] 🔍 Checking learning app - logicalID: \(app.logicalID)")
             print("[PairingConfigView] 🔍   Snapshot displayName: '\(app.displayName)'")
             #endif
-            
+
             if let displayName = getCurrentDisplayName(for: app.logicalID) {
                 #if DEBUG
                 print("[PairingConfigView] 🔍   Persisted displayName: '\(displayName)'")
                 print("[PairingConfigView] 🔍   isEmpty: \(displayName.isEmpty)")
                 print("[PairingConfigView] 🔍   hasPrefix('Unknown App'): \(displayName.hasPrefix("Unknown App"))")
                 #endif
-                
+
                 if !displayName.isEmpty && !displayName.hasPrefix("Unknown App") {
                     editedNames[app.logicalID] = displayName
                     #if DEBUG
@@ -539,21 +537,26 @@ struct PairingConfigView: View {
                 print("[PairingConfigView] ⚠️ No persisted app found for logicalID: \(app.logicalID)")
                 #endif
             }
+
+            // Also load existing iconURL to preserve it during subsequent saves
+            if let existingIconURL = getExistingIconURL(for: app.logicalID) {
+                editedIconURLs[app.logicalID] = existingIconURL
+            }
         }
-        
+
         for app in rewardApps {
             #if DEBUG
             print("[PairingConfigView] 🔍 Checking reward app - logicalID: \(app.logicalID)")
             print("[PairingConfigView] 🔍   Snapshot displayName: '\(app.displayName)'")
             #endif
-            
+
             if let displayName = getCurrentDisplayName(for: app.logicalID) {
                 #if DEBUG
                 print("[PairingConfigView] 🔍   Persisted displayName: '\(displayName)'")
                 print("[PairingConfigView] 🔍   isEmpty: \(displayName.isEmpty)")
                 print("[PairingConfigView] 🔍   hasPrefix('Unknown App'): \(displayName.hasPrefix("Unknown App"))")
                 #endif
-                
+
                 if !displayName.isEmpty && !displayName.hasPrefix("Unknown App") {
                     editedNames[app.logicalID] = displayName
                     #if DEBUG
@@ -569,11 +572,17 @@ struct PairingConfigView: View {
                 print("[PairingConfigView] ⚠️ No persisted app found for logicalID: \(app.logicalID)")
                 #endif
             }
+
+            // Also load existing iconURL to preserve it during subsequent saves
+            if let existingIconURL = getExistingIconURL(for: app.logicalID) {
+                editedIconURLs[app.logicalID] = existingIconURL
+            }
         }
-        
+
         #if DEBUG
         print("[PairingConfigView] 🔍 Final editedNames count: \(editedNames.count)")
         print("[PairingConfigView] 🔍 editedNames: \(editedNames)")
+        print("[PairingConfigView] 🔍 editedIconURLs count: \(editedIconURLs.count)")
         #endif
     }
 
@@ -739,13 +748,80 @@ struct PairingConfigView: View {
 
     /// Save app names to Core Data for automatic CloudKit sync
     private func saveToCloudKit() {
+        // First, lookup missing iconURLs asynchronously, then save
+        Task {
+            await lookupMissingIconURLs()
+            await MainActor.run {
+                performSaveToCloudKit()
+            }
+        }
+    }
+
+    /// Lookup iconURLs from App Store for apps that don't have them
+    private func lookupMissingIconURLs() async {
+        // Collect all logicalIDs that need lookup
+        let allLogicalIDs = learningApps.map { $0.logicalID } + rewardApps.map { $0.logicalID }
+
+        for logicalID in allLogicalIDs {
+            guard let name = editedNames[logicalID], !name.isEmpty else { continue }
+
+            // Skip if already has iconURL
+            if editedIconURLs[logicalID] != nil { continue }
+
+            // Also check if there's an existing iconURL in Core Data
+            if getExistingIconURL(for: logicalID) != nil { continue }
+
+            #if DEBUG
+            print("[PairingConfigView] 🔍 Looking up iconURL for: \(name)")
+            #endif
+
+            // Auto-lookup from App Store
+            do {
+                let results = try await AppStoreSearchService.shared.searchApps(query: name)
+                if let firstMatch = results.first {
+                    await MainActor.run {
+                        editedIconURLs[logicalID] = firstMatch.artworkUrl100
+                    }
+                    #if DEBUG
+                    print("[PairingConfigView]   ✅ Found iconURL: \(firstMatch.artworkUrl100)")
+                    #endif
+                }
+            } catch {
+                #if DEBUG
+                print("[PairingConfigView]   ⚠️ Failed to lookup: \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
+    /// Perform the actual save to Core Data and CloudKit
+    private func performSaveToCloudKit() {
         let context = PersistenceController.shared.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID
-        
+
         #if DEBUG
         print("[PairingConfigView] 💾 Saving app names to CloudKit...")
         #endif
-        
+
+        // IMPORTANT: Update ALL existing AppConfigurations to use the current deviceID
+        // This fixes a bug where apps saved with an old deviceID won't be found by the parent
+        let allConfigsFetch: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+        if let allConfigs = try? context.fetch(allConfigsFetch) {
+            var updatedCount = 0
+            for config in allConfigs {
+                if config.deviceID != deviceID {
+                    config.deviceID = deviceID
+                    config.lastModified = Date()
+                    updatedCount += 1
+                }
+            }
+            #if DEBUG
+            if updatedCount > 0 {
+                print("[PairingConfigView] 🔄 Updated deviceID for \(updatedCount) existing app configurations")
+            }
+            #endif
+        }
+
         // Save learning apps to CloudKit
         for app in learningApps {
             guard let newName = editedNames[app.logicalID], !newName.isEmpty else { continue }
@@ -770,10 +846,11 @@ struct PairingConfigView: View {
             }
             
             config.displayName = newName
+            config.iconURL = editedIconURLs[app.logicalID]
             config.lastModified = Date()
-            
+
             #if DEBUG
-            print("[PairingConfigView]   ✅ Saved learning app: \(newName) (\(app.logicalID))")
+            print("[PairingConfigView]   ✅ Saved learning app: \(newName) (\(app.logicalID)), iconURL: \(editedIconURLs[app.logicalID] ?? "none")")
             #endif
         }
         
@@ -801,10 +878,11 @@ struct PairingConfigView: View {
             }
             
             config.displayName = newName
+            config.iconURL = editedIconURLs[app.logicalID]
             config.lastModified = Date()
-            
+
             #if DEBUG
-            print("[PairingConfigView]   ✅ Saved reward app: \(newName) (\(app.logicalID))")
+            print("[PairingConfigView]   ✅ Saved reward app: \(newName) (\(app.logicalID)), iconURL: \(editedIconURLs[app.logicalID] ?? "none")")
             #endif
         }
         
@@ -812,13 +890,157 @@ struct PairingConfigView: View {
         do {
             try context.save()
             #if DEBUG
-            print("[PairingConfigView] 💾 Core Data saved successfully - CloudKit will sync within 60 seconds")
+            print("[PairingConfigView] 💾 Core Data saved successfully")
             #endif
+
+            // Immediately upload to parent's CloudKit zone (don't wait for NSPersistentCloudKitContainer)
+            Task {
+                do {
+                    try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                    #if DEBUG
+                    print("[PairingConfigView] ✅ Uploaded configurations to parent zone")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[PairingConfigView] ⚠️ Failed to upload to parent: \(error.localizedDescription)")
+                    #endif
+                }
+            }
         } catch {
             #if DEBUG
             print("[PairingConfigView] ❌ Error saving to Core Data: \(error)")
             #endif
         }
+    }
+}
+
+// MARK: - App Name Autocomplete Field
+
+/// A text field with autocomplete suggestions from the App Store
+struct AppNameAutocompleteField: View {
+    @Binding var text: String
+    let placeholder: String
+    let isFocused: Bool
+    let accentColor: Color
+    let onFocus: () -> Void
+    let onSelectApp: (AppStoreAppInfo) -> Void
+
+    @ObservedObject private var searchService = AppStoreSearchService.shared
+    @Environment(\.colorScheme) var colorScheme
+    @FocusState private var isTextFieldFocused: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            // Text input
+            HStack(spacing: 8) {
+                TextField(placeholder, text: $text)
+                    .font(.system(size: 15, weight: .medium))
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .focused($isTextFieldFocused)
+                    .onChange(of: text) { newValue in
+                        // Always search when text changes (debouncing happens in service)
+                        searchService.search(query: newValue)
+                    }
+                    .onChange(of: isTextFieldFocused) { focused in
+                        if focused {
+                            onFocus()
+                            // Trigger search with current text when focused
+                            if !text.isEmpty {
+                                searchService.search(query: text)
+                            }
+                        }
+                    }
+
+                if searchService.isSearching {
+                    ProgressView()
+                        .scaleEffect(0.8)
+                } else if !text.isEmpty {
+                    Button(action: {
+                        text = ""
+                        searchService.clearSearch()
+                    }) {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    }
+                }
+            }
+            .padding(12)
+            .background(
+                RoundedRectangle(cornerRadius: 10)
+                    .fill(AppTheme.inputBackground(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 10)
+                            .stroke(
+                                (isFocused || isTextFieldFocused) ? accentColor : AppTheme.border(for: colorScheme),
+                                lineWidth: (isFocused || isTextFieldFocused) ? 2 : 1
+                            )
+                    )
+            )
+
+            // Suggestions dropdown - shows when we have results
+            if !searchService.searchResults.isEmpty && isTextFieldFocused {
+                VStack(spacing: 0) {
+                    ForEach(Array(searchService.searchResults.prefix(5).enumerated()), id: \.element.id) { index, appInfo in
+                        Button(action: {
+                            text = appInfo.trackName
+                            onSelectApp(appInfo)
+                            searchService.clearSearch()
+                            isTextFieldFocused = false
+                        }) {
+                            HStack(spacing: 12) {
+                                // App icon
+                                AsyncImage(url: URL(string: appInfo.artworkUrl60)) { phase in
+                                    switch phase {
+                                    case .success(let image):
+                                        image
+                                            .resizable()
+                                            .aspectRatio(contentMode: .fit)
+                                    case .failure:
+                                        Image(systemName: "app.fill")
+                                            .foregroundColor(.gray)
+                                    case .empty:
+                                        ProgressView()
+                                            .scaleEffect(0.5)
+                                    @unknown default:
+                                        Color.gray.opacity(0.2)
+                                    }
+                                }
+                                .frame(width: 32, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                                // App name
+                                Text(appInfo.trackName)
+                                    .font(.system(size: 14, weight: .medium))
+                                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                    .lineLimit(1)
+
+                                Spacer()
+
+                                Image(systemName: "arrow.up.left")
+                                    .font(.system(size: 12))
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 10)
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(PlainButtonStyle())
+
+                        if index < min(4, searchService.searchResults.count - 1) {
+                            Divider()
+                                .padding(.leading, 56)
+                        }
+                    }
+                }
+                .background(
+                    RoundedRectangle(cornerRadius: 10)
+                        .fill(AppTheme.card(for: colorScheme))
+                        .shadow(color: Color.black.opacity(0.15), radius: 8, x: 0, y: 4)
+                )
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+        }
+        .animation(.easeInOut(duration: 0.2), value: searchService.searchResults.isEmpty)
     }
 }
 

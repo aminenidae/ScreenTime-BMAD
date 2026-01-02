@@ -702,15 +702,14 @@ private struct FullAppConfigRow: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // App Icon placeholder with shield overlay
+            // App Icon with shield overlay
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(categoryColor.opacity(0.2))
-                    .frame(width: 50, height: 50)
-                    .overlay(
-                        Image(systemName: config.category == "Learning" ? "book.fill" : "gamecontroller.fill")
-                            .foregroundColor(categoryColor)
-                    )
+                CachedAppIcon(
+                    iconURL: config.iconURL,
+                    identifier: config.logicalID,
+                    size: 50,
+                    fallbackSymbol: config.category == "Learning" ? "book.fill" : "gamecontroller.fill"
+                )
 
                 // Shield state indicator (for reward apps only)
                 if let state = shieldState {

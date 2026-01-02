@@ -423,13 +423,13 @@ class CloudKitSyncService: ObservableObject {
 
     func sendConfigurationToChild(deviceID: String, configuration: AppConfiguration) async throws {
         let context = persistenceController.container.viewContext
-        
+
         // Create a configuration command for the child device
         let command = ConfigurationCommand(context: context)
         command.commandID = UUID().uuidString
         command.targetDeviceID = deviceID
         command.commandType = "update_configuration"
-        
+
         // Serialize the configuration to JSON
         let configDict: [String: Any] = [
             "logicalID": configuration.logicalID ?? "",
@@ -440,14 +440,44 @@ class CloudKitSyncService: ObservableObject {
             "isEnabled": configuration.isEnabled,
             "blockingEnabled": configuration.blockingEnabled
         ]
-        
+
         command.payloadJSON = try JSONSerialization.data(withJSONObject: configDict).base64EncodedString()
         command.createdAt = Date()
         command.status = "pending"
-        
+
         try context.save()
-        
+
         print("[CloudKit] Configuration command sent to device: \(deviceID)")
+    }
+
+    /// Send configuration update from MutableAppConfigDTO (used by DTO-based parent views)
+    func sendConfigurationToChild(deviceID: String, mutableConfig: MutableAppConfigDTO) async throws {
+        let context = persistenceController.container.viewContext
+
+        // Create a configuration command for the child device
+        let command = ConfigurationCommand(context: context)
+        command.commandID = UUID().uuidString
+        command.targetDeviceID = deviceID
+        command.commandType = "update_configuration"
+
+        // Serialize the configuration to JSON
+        let configDict: [String: Any] = [
+            "logicalID": mutableConfig.logicalID,
+            "tokenHash": mutableConfig.tokenHash ?? "",
+            "displayName": mutableConfig.displayName,
+            "category": mutableConfig.category,
+            "pointsPerMinute": mutableConfig.pointsPerMinute,
+            "isEnabled": mutableConfig.isEnabled,
+            "blockingEnabled": mutableConfig.blockingEnabled
+        ]
+
+        command.payloadJSON = try JSONSerialization.data(withJSONObject: configDict).base64EncodedString()
+        command.createdAt = Date()
+        command.status = "pending"
+
+        try context.save()
+
+        print("[CloudKit] Configuration command (from DTO) sent to device: \(deviceID)")
     }
 
     func requestChildSync(deviceID: String) async throws {
@@ -1302,7 +1332,26 @@ class CloudKitSyncService: ObservableObject {
         let context = persistenceController.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID  // Use consistent ID from registration
 
-        // Fetch all AppConfigurations for this device
+        // IMPORTANT: First normalize ALL deviceIDs to fix any mismatched records
+        // This fixes a bug where re-pairing could cause some apps to have stale deviceIDs
+        let allConfigsFetch: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
+        let allConfigs = try context.fetch(allConfigsFetch)
+        var normalizedCount = 0
+        for config in allConfigs {
+            if config.deviceID != deviceID {
+                config.deviceID = deviceID
+                config.lastModified = Date()
+                normalizedCount += 1
+            }
+        }
+        if normalizedCount > 0 {
+            try context.save()
+            #if DEBUG
+            print("[CloudKitSyncService] 🔄 Normalized deviceID for \(normalizedCount) AppConfigurations")
+            #endif
+        }
+
+        // Now fetch all AppConfigurations (all should have correct deviceID now)
         let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
         fetchRequest.predicate = NSPredicate(format: "deviceID == %@", deviceID)
 
@@ -1334,20 +1383,85 @@ class CloudKitSyncService: ObservableObject {
         let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
         let sharedDB = container.sharedCloudDatabase
 
-        // Query existing records for upsert
+        // Query ALL existing records for upsert (not filtered by deviceID to find old duplicates)
         var existingByLogicalID: [String: CKRecord] = [:]
+        var duplicatesToDelete: [CKRecord.ID] = []
         do {
-            let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
+            // Query ALL AppConfiguration records in the zone, not just ones matching current deviceID
+            // This allows us to find and update old records that have stale deviceIDs
+            let predicate = NSPredicate(value: true)
             let query = CKQuery(recordType: "CD_AppConfiguration", predicate: predicate)
             let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
+
+            // PHASE 1: Collect all records and group by displayName for deduplication
+            var allRecords: [CKRecord] = []
+            var recordsByDisplayName: [String: [CKRecord]] = [:]
+
             for (_, result) in matches {
-                if case .success(let record) = result,
-                   let logicalID = record["CD_logicalID"] as? String {
+                if case .success(let record) = result {
+                    allRecords.append(record)
+                    if let displayName = record["CD_displayName"] as? String, !displayName.isEmpty {
+                        recordsByDisplayName[displayName, default: []].append(record)
+                    }
+                }
+            }
+
+            #if DEBUG
+            print("[CloudKitSyncService] Found \(allRecords.count) total AppConfiguration records in CloudKit")
+            #endif
+
+            // PHASE 2: For each displayName group, keep only the BEST record
+            // Best = has iconURL, or most recent lastModified
+            for (displayName, records) in recordsByDisplayName {
+                if records.count > 1 {
+                    // Sort: prefer records with iconURL, then by lastModified date
+                    let sorted = records.sorted { r1, r2 in
+                        let r1HasIcon = (r1["CD_iconURL"] as? String)?.isEmpty == false
+                        let r2HasIcon = (r2["CD_iconURL"] as? String)?.isEmpty == false
+                        if r1HasIcon != r2HasIcon {
+                            return r1HasIcon // Records with iconURL come first
+                        }
+                        let r1Date = r1["CD_lastModified"] as? Date ?? Date.distantPast
+                        let r2Date = r2["CD_lastModified"] as? Date ?? Date.distantPast
+                        return r1Date > r2Date // Newer records come first
+                    }
+
+                    // Keep the first (best), mark others for deletion
+                    let bestRecord = sorted[0]
+                    for record in sorted.dropFirst() {
+                        duplicatesToDelete.append(record.recordID)
+                    }
+
+                    // Use the best record's logicalID for mapping
+                    if let logicalID = bestRecord["CD_logicalID"] as? String {
+                        existingByLogicalID[logicalID] = bestRecord
+                    }
+
+                    #if DEBUG
+                    print("[CloudKitSyncService] 🔄 Deduping '\(displayName)': keeping 1, deleting \(sorted.count - 1) duplicates")
+                    #endif
+                } else if let record = records.first,
+                          let logicalID = record["CD_logicalID"] as? String {
                     existingByLogicalID[logicalID] = record
                 }
             }
+
+            // Also add records without displayName (shouldn't happen, but be safe)
+            for record in allRecords {
+                if let logicalID = record["CD_logicalID"] as? String,
+                   existingByLogicalID[logicalID] == nil {
+                    let displayName = record["CD_displayName"] as? String ?? ""
+                    if displayName.isEmpty {
+                        existingByLogicalID[logicalID] = record
+                    }
+                }
+            }
+
             #if DEBUG
-            print("[CloudKitSyncService] Found \(existingByLogicalID.count) existing AppConfigurations in CloudKit")
+            print("[CloudKitSyncService] Found \(existingByLogicalID.count) unique AppConfigurations after deduplication")
+            if !duplicatesToDelete.isEmpty {
+                print("[CloudKitSyncService] 🗑️ Found \(duplicatesToDelete.count) duplicate records to delete")
+            }
             #endif
         } catch {
             #if DEBUG
@@ -1375,6 +1489,7 @@ class CloudKitSyncService: ObservableObject {
             rec["CD_logicalID"] = config.logicalID as CKRecordValue?
             rec["CD_deviceID"] = config.deviceID as CKRecordValue?
             rec["CD_displayName"] = config.displayName as CKRecordValue?
+            rec["CD_iconURL"] = config.iconURL as CKRecordValue?
             rec["CD_category"] = config.category as CKRecordValue?
             rec["CD_pointsPerMinute"] = Int(config.pointsPerMinute) as CKRecordValue
             rec["CD_isEnabled"] = config.isEnabled as CKRecordValue
@@ -1440,12 +1555,16 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] Prepared \(toSave.count) AppConfigurations: \(createdCount) new, \(updatedCount) updates")
         #endif
 
-        if toSave.isEmpty { return }
+        if toSave.isEmpty && duplicatesToDelete.isEmpty { return }
 
-        let (savedRecords, _) = try await sharedDB.modifyRecords(saving: toSave, deleting: [])
+        // Save updated records and delete duplicates in one operation
+        let (savedRecords, _) = try await sharedDB.modifyRecords(saving: toSave, deleting: duplicatesToDelete)
 
         #if DEBUG
         print("[CloudKitSyncService] ✅ Successfully uploaded \(savedRecords.count) full AppConfigurations to parent's zone")
+        if !duplicatesToDelete.isEmpty {
+            print("[CloudKitSyncService] 🗑️ Deleted \(duplicatesToDelete.count) duplicate records")
+        }
         #endif
     }
 
@@ -1714,6 +1833,7 @@ class CloudKitSyncService: ObservableObject {
                         config.logicalID = r["CD_logicalID"] as? String
                         config.deviceID = r["CD_deviceID"] as? String
                         config.displayName = r["CD_displayName"] as? String
+                        config.iconURL = r["CD_iconURL"] as? String  // FIX: Read iconURL from CloudKit
                         config.category = r["CD_category"] as? String
                         config.pointsPerMinute = Int16(r["CD_pointsPerMinute"] as? Int ?? 1)
                         config.isEnabled = r["CD_isEnabled"] as? Bool ?? true
@@ -1723,13 +1843,16 @@ class CloudKitSyncService: ObservableObject {
                     }
                 }
 
+                // FIX: Deduplicate by displayName, keeping record with iconURL or newest
+                let dedupedResults = deduplicateAppConfigs(results)
+
                 #if DEBUG
-                print("[CloudKitSyncService] ✅ Zone-specific fetch returned \(results.count) configs")
-                for config in results {
-                    print("[CloudKitSyncService]   - \(config.displayName ?? "?") (\(config.category ?? "?"))")
+                print("[CloudKitSyncService] ✅ Zone-specific fetch returned \(dedupedResults.count) configs (after dedup from \(results.count))")
+                for config in dedupedResults {
+                    print("[CloudKitSyncService]   - \(config.displayName ?? "?") (\(config.category ?? "?")) iconURL: \(config.iconURL ?? "nil")")
                 }
                 #endif
-                return results
+                return dedupedResults
 
             } catch {
                 #if DEBUG
@@ -1773,6 +1896,7 @@ class CloudKitSyncService: ObservableObject {
                         config.logicalID = r["CD_logicalID"] as? String
                         config.deviceID = r["CD_deviceID"] as? String
                         config.displayName = r["CD_displayName"] as? String
+                        config.iconURL = r["CD_iconURL"] as? String  // FIX: Read iconURL from CloudKit
                         config.category = r["CD_category"] as? String
                         config.pointsPerMinute = Int16(r["CD_pointsPerMinute"] as? Int ?? 1)
                         config.isEnabled = r["CD_isEnabled"] as? Bool ?? true
@@ -1789,14 +1913,17 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
+        // FIX: Deduplicate by displayName, keeping record with iconURL or newest
+        let dedupedResults = deduplicateAppConfigs(results)
+
         #if DEBUG
-        print("[CloudKitSyncService] ✅ Fetched \(results.count) AppConfigurations for device \(deviceID)")
-        for config in results {
-            print("[CloudKitSyncService]   - \(config.displayName ?? "?") (\(config.category ?? "?"))")
+        print("[CloudKitSyncService] ✅ Fetched \(dedupedResults.count) AppConfigurations for device \(deviceID) (after dedup from \(results.count))")
+        for config in dedupedResults {
+            print("[CloudKitSyncService]   - \(config.displayName ?? "?") (\(config.category ?? "?")) iconURL: \(config.iconURL ?? "nil")")
         }
         #endif
 
-        return results
+        return dedupedResults
     }
 
     /// Fetch child's app configurations with full schedule/goals/streaks data
@@ -1841,11 +1968,16 @@ class CloudKitSyncService: ObservableObject {
                     }
                 }
 
-                // Zone-specific query successful - return directly (no dedup needed)
+                // FIX BUG 7: Deduplicate by displayName (same app may have multiple logicalIDs)
+                let dedupedResults = deduplicateFullAppConfigs(results)
+
                 #if DEBUG
-                print("[CloudKitSyncService] ✅ Zone-specific fetch returned \(results.count) configs")
+                print("[CloudKitSyncService] ✅ Zone-specific FullDTO fetch returned \(dedupedResults.count) configs (after dedup from \(results.count))")
+                for dto in dedupedResults {
+                    print("[CloudKitSyncService]   - \(dto.displayName) (\(dto.category)) iconURL: \(dto.iconURL ?? "nil")")
+                }
                 #endif
-                return results
+                return dedupedResults
 
             } catch {
                 #if DEBUG
@@ -1904,33 +2036,15 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        #if DEBUG
-        print("[CloudKitSyncService] ✅ Fetched \(results.count) full AppConfiguration DTOs (before dedup)")
-        #endif
+        // FIX BUG 7: Deduplicate by displayName (same app may have multiple logicalIDs)
+        // This also handles duplicates from old pairings in multiple zones
+        let dedupedResults = deduplicateFullAppConfigs(results)
 
-        // CRITICAL: Deduplicate by logicalID, keeping the most recent record
-        // Multiple zones may contain the same app from old pairings with stale data
-        var deduped: [String: FullAppConfigDTO] = [:]
-        for dto in results {
-            let key = dto.logicalID
-            if let existing = deduped[key] {
-                // Keep the one with the more recent lastModified date
-                let dtoDate = dto.lastModified ?? Date.distantPast
-                let existingDate = existing.lastModified ?? Date.distantPast
-                if dtoDate > existingDate {
-                    deduped[key] = dto
-                    #if DEBUG
-                    print("[CloudKitSyncService] [DEDUP] Replaced \(dto.displayName) - newer: \(dtoDate) vs \(existingDate)")
-                    #endif
-                }
-            } else {
-                deduped[key] = dto
-            }
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Fallback FullDTO fetch returned \(dedupedResults.count) configs (after dedup from \(results.count))")
+        for dto in dedupedResults {
+            print("[CloudKitSyncService]   - \(dto.displayName) (\(dto.category)) iconURL: \(dto.iconURL ?? "nil")")
         }
-
-        let dedupedResults = Array(deduped.values)
-        #if DEBUG
-        print("[CloudKitSyncService] ✅ After dedup: \(dedupedResults.count) unique AppConfiguration DTOs")
         #endif
 
         return dedupedResults
@@ -2118,6 +2232,91 @@ class CloudKitSyncService: ObservableObject {
         return results
     }
     // === END TASK 8 IMPLEMENTATION ===
+
+    // MARK: - Helper Methods
+
+    /// Deduplicate AppConfiguration array by displayName
+    /// Keeps the record with iconURL (preferred) or the newest record if multiple exist
+    private func deduplicateAppConfigs(_ configs: [AppConfiguration]) -> [AppConfiguration] {
+        var byDisplayName: [String: [AppConfiguration]] = [:]
+
+        for config in configs {
+            guard let displayName = config.displayName, !displayName.isEmpty else { continue }
+            byDisplayName[displayName, default: []].append(config)
+        }
+
+        var result: [AppConfiguration] = []
+
+        for (displayName, group) in byDisplayName {
+            if group.count == 1 {
+                result.append(group[0])
+            } else {
+                // Multiple records for same displayName - pick the best one
+                let sorted = group.sorted { c1, c2 in
+                    // Prefer record WITH iconURL
+                    let c1HasIcon = c1.iconURL?.isEmpty == false
+                    let c2HasIcon = c2.iconURL?.isEmpty == false
+                    if c1HasIcon != c2HasIcon {
+                        return c1HasIcon
+                    }
+                    // If both have/don't have icon, prefer newer
+                    let c1Date = c1.lastModified ?? Date.distantPast
+                    let c2Date = c2.lastModified ?? Date.distantPast
+                    return c1Date > c2Date
+                }
+                if let best = sorted.first {
+                    result.append(best)
+                    #if DEBUG
+                    print("[CloudKitSyncService] Dedup: Kept 1 of \(group.count) records for '\(displayName)' (has icon: \(best.iconURL != nil))")
+                    #endif
+                }
+            }
+        }
+
+        return result
+    }
+
+    /// Deduplicate FullAppConfigDTO array by displayName
+    /// Keeps the record with iconURL (preferred) or the newest record if multiple exist
+    private func deduplicateFullAppConfigs(_ configs: [FullAppConfigDTO]) -> [FullAppConfigDTO] {
+        var byDisplayName: [String: [FullAppConfigDTO]] = [:]
+
+        for config in configs {
+            let displayName = config.displayName
+            guard !displayName.isEmpty else { continue }
+            byDisplayName[displayName, default: []].append(config)
+        }
+
+        var result: [FullAppConfigDTO] = []
+
+        for (displayName, group) in byDisplayName {
+            if group.count == 1 {
+                result.append(group[0])
+            } else {
+                // Multiple records for same displayName - pick the best one
+                let sorted = group.sorted { c1, c2 in
+                    // Prefer record WITH iconURL
+                    let c1HasIcon = c1.iconURL?.isEmpty == false
+                    let c2HasIcon = c2.iconURL?.isEmpty == false
+                    if c1HasIcon != c2HasIcon {
+                        return c1HasIcon
+                    }
+                    // If both have/don't have icon, prefer newer
+                    let c1Date = c1.lastModified ?? Date.distantPast
+                    let c2Date = c2.lastModified ?? Date.distantPast
+                    return c1Date > c2Date
+                }
+                if let best = sorted.first {
+                    result.append(best)
+                    #if DEBUG
+                    print("[CloudKitSyncService] FullDTO Dedup: Kept 1 of \(group.count) records for '\(displayName)' (has icon: \(best.iconURL != nil))")
+                    #endif
+                }
+            }
+        }
+
+        return result
+    }
 
     // MARK: - Common Methods
     func handlePushNotification(userInfo: [AnyHashable: Any]) async {

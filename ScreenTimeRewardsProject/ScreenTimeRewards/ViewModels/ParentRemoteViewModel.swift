@@ -20,6 +20,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
     let blockingEnabled: Bool
     let tokenHash: String?
     let lastModified: Date?
+    let iconURL: String?
 
     // Full schedule configuration (decoded from JSON)
     var scheduleConfig: AppScheduleConfiguration?
@@ -46,6 +47,14 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         self.blockingEnabled = record["CD_blockingEnabled"] as? Bool ?? false
         self.tokenHash = record["CD_tokenHash"] as? String
         self.lastModified = record["CD_lastModified"] as? Date
+        self.iconURL = record["CD_iconURL"] as? String
+
+        #if DEBUG
+        print("[FullAppConfigDTO] Parsing record for: \(self.displayName)")
+        print("[FullAppConfigDTO]   iconURL from record: \(self.iconURL ?? "nil")")
+        // Print all record keys to see what fields are available
+        print("[FullAppConfigDTO]   Available keys: \(record.allKeys())")
+        #endif
 
         // Quick-access display fields
         self.dailyLimitSummary = record["CD_dailyLimitSummary"] as? String
@@ -104,6 +113,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             blockingEnabled: changes.blockingEnabled,
             tokenHash: tokenHash,
             lastModified: Date(),
+            iconURL: iconURL,
             scheduleConfig: changes.scheduleConfig,
             dailyLimitSummary: changes.scheduleConfig?.dailyLimits.displaySummary,
             timeWindowSummary: changes.scheduleConfig?.allowedTimeWindow.displayString,
@@ -125,6 +135,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         blockingEnabled: Bool,
         tokenHash: String?,
         lastModified: Date?,
+        iconURL: String?,
         scheduleConfig: AppScheduleConfiguration?,
         dailyLimitSummary: String?,
         timeWindowSummary: String?,
@@ -141,6 +152,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         self.blockingEnabled = blockingEnabled
         self.tokenHash = tokenHash
         self.lastModified = lastModified
+        self.iconURL = iconURL
         self.scheduleConfig = scheduleConfig
         self.dailyLimitSummary = dailyLimitSummary
         self.timeWindowSummary = timeWindowSummary
@@ -589,6 +601,7 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Fetched \(fullConfigs.count) full app configurations (DTOs)")
             for dto in fullConfigs {
                 print("[ParentRemoteViewModel]   App: \(dto.displayName) | Category: \(dto.category)")
+                print("[ParentRemoteViewModel]       iconURL: \(dto.iconURL ?? "nil")")
                 if let schedule = dto.scheduleConfig {
                     print("[ParentRemoteViewModel]       Daily Limit: \(schedule.dailyLimits.displaySummary)")
                     print("[ParentRemoteViewModel]       Time Window: \(schedule.todayTimeWindow.displayString)")
@@ -719,13 +732,33 @@ class ParentRemoteViewModel: ObservableObject {
     /// Send a configuration update to a child device
     func sendConfigurationUpdate(_ configuration: AppConfiguration) async {
         guard let selectedDevice = selectedChildDevice else { return }
-        
+
         do {
             try await cloudKitService.sendConfigurationToChild(
                 deviceID: selectedDevice.deviceID ?? "",
                 configuration: configuration
             )
-            
+
+            // Refresh configurations
+            await loadChildData(for: selectedDevice)
+        } catch let error as CKError {
+            handleCloudKitError(error)
+        } catch {
+            errorMessage = "Failed to send configuration: \(error.localizedDescription)"
+            print("[ParentRemoteViewModel] Error sending configuration: \(error)")
+        }
+    }
+
+    /// Send a configuration update from MutableAppConfigDTO (used by DTO-based views)
+    func sendConfigurationUpdate(_ mutableConfig: MutableAppConfigDTO) async {
+        guard let selectedDevice = selectedChildDevice else { return }
+
+        do {
+            try await cloudKitService.sendConfigurationToChild(
+                deviceID: selectedDevice.deviceID ?? "",
+                mutableConfig: mutableConfig
+            )
+
             // Refresh configurations
             await loadChildData(for: selectedDevice)
         } catch let error as CKError {

@@ -6,30 +6,34 @@ import ManagedSettings
 struct RemoteAppConfigurationView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     @State private var showingCategorySheet = false
-    @State private var selectedApp: AppConfiguration?
+    @State private var selectedApp: FullAppConfigDTO?
     @State private var tempCategory: AppUsage.AppCategory = .learning
     @State private var tempPoints: Int = 10
-    
+
+    /// Combined list of all app configurations from CloudKit
+    private var allAppConfigs: [FullAppConfigDTO] {
+        viewModel.childLearningAppsFullConfig + viewModel.childRewardAppsFullConfig
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Text("App Configuration")
                 .font(.headline)
-            
-            if viewModel.appConfigurations.isEmpty && !viewModel.isLoading {
+
+            if allAppConfigs.isEmpty && !viewModel.isLoading {
                 EmptyConfigurationView()
             } else {
                 AppConfigurationListView(
-                    configurations: viewModel.appConfigurations,
+                    configurations: allAppConfigs,
                     onEdit: { config in
                         selectedApp = config
-                        tempCategory = AppUsage.AppCategory(rawValue: config.category ?? "learning") ?? .learning
-                        tempPoints = Int(config.pointsPerMinute)
+                        tempCategory = AppUsage.AppCategory(rawValue: config.category) ?? .learning
+                        tempPoints = config.pointsPerMinute
                         showingCategorySheet = true
                     },
                     onToggleEnabled: { config in
                         // Toggle app enabled status
-                        let updatedConfig = config
-                        var mutableConfig = updatedConfig
+                        var mutableConfig = MutableAppConfigDTO(from: config)
                         mutableConfig.isEnabled = !config.isEnabled
                         Task {
                             await viewModel.sendConfigurationUpdate(mutableConfig)
@@ -37,8 +41,7 @@ struct RemoteAppConfigurationView: View {
                     },
                     onToggleBlocking: { config in
                         // Toggle app blocking
-                        let updatedConfig = config
-                        var mutableConfig = updatedConfig
+                        var mutableConfig = MutableAppConfigDTO(from: config)
                         mutableConfig.blockingEnabled = !config.blockingEnabled
                         Task {
                             await viewModel.sendConfigurationUpdate(mutableConfig)
@@ -52,15 +55,14 @@ struct RemoteAppConfigurationView: View {
         .cornerRadius(12)
         .sheet(isPresented: $showingCategorySheet) {
             if let app = selectedApp {
-                CategoryAssignmentSheet(
+                CategoryAssignmentSheetDTO(
                     appConfiguration: app,
                     category: $tempCategory,
                     points: $tempPoints,
                     onSave: { category, points in
-                        let updatedConfig = app
-                        var mutableConfig = updatedConfig
+                        var mutableConfig = MutableAppConfigDTO(from: app)
                         mutableConfig.category = category.rawValue
-                        mutableConfig.pointsPerMinute = Int16(points)
+                        mutableConfig.pointsPerMinute = points
                         Task {
                             await viewModel.sendConfigurationUpdate(mutableConfig)
                         }
@@ -112,10 +114,10 @@ private struct EmptyConfigurationView: View {
 }
 
 private struct AppConfigurationListView: View {
-    let configurations: [AppConfiguration]
-    let onEdit: (AppConfiguration) -> Void
-    let onToggleEnabled: (AppConfiguration) -> Void
-    let onToggleBlocking: (AppConfiguration) -> Void
+    let configurations: [FullAppConfigDTO]
+    let onEdit: (FullAppConfigDTO) -> Void
+    let onToggleEnabled: (FullAppConfigDTO) -> Void
+    let onToggleBlocking: (FullAppConfigDTO) -> Void
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
     var body: some View {
@@ -129,7 +131,7 @@ private struct AppConfigurationListView: View {
 
         LazyVGrid(columns: columns, spacing: 8) {
             ForEach(configurations, id: \.logicalID) { config in
-                AppConfigurationRow(
+                AppConfigurationRowDTO(
                     configuration: config,
                     onEdit: { onEdit(config) },
                     onToggleEnabled: { onToggleEnabled(config) },
@@ -149,7 +151,15 @@ private struct AppConfigurationRow: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
+            HStack(spacing: 12) {
+                // App icon
+                CachedAppIcon(
+                    iconURL: configuration.iconURL,
+                    identifier: configuration.logicalID ?? "unknown",
+                    size: 44,
+                    fallbackSymbol: (configuration.category ?? "learning").lowercased() == "learning" ? "book.fill" : "gamecontroller.fill"
+                )
+
                 VStack(alignment: .leading, spacing: 4) {
                     Text(configuration.displayName ?? "Unknown App")
                         .font(.subheadline)
@@ -211,7 +221,7 @@ private struct AppConfigurationRow: View {
 
 private struct CategoryTag: View {
     let category: String
-    
+
     var body: some View {
         Text(category.capitalized)
             .font(.caption)
@@ -222,7 +232,7 @@ private struct CategoryTag: View {
             .foregroundColor(categoryColor)
             .cornerRadius(6)
     }
-    
+
     private var categoryColor: Color {
         switch category.lowercased() {
         case "learning":
@@ -235,25 +245,107 @@ private struct CategoryTag: View {
     }
 }
 
-private struct CategoryAssignmentSheet: View {
-    let appConfiguration: AppConfiguration
+// MARK: - DTO-based Views (use CloudKit-fetched data with displayName/iconURL)
+
+private struct AppConfigurationRowDTO: View {
+    let configuration: FullAppConfigDTO
+    let onEdit: () -> Void
+    let onToggleEnabled: () -> Void
+    let onToggleBlocking: () -> Void
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: 12) {
+                // App icon from CloudKit
+                CachedAppIcon(
+                    iconURL: configuration.iconURL,
+                    identifier: configuration.logicalID,
+                    size: 44,
+                    fallbackSymbol: configuration.category.lowercased() == "learning" ? "book.fill" : "gamecontroller.fill"
+                )
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(configuration.displayName)
+                        .font(.subheadline)
+                        .fontWeight(.medium)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+
+                    HStack(spacing: 8) {
+                        CategoryTag(category: configuration.category)
+
+                        if configuration.pointsPerMinute > 0 {
+                            Text("\(configuration.pointsPerMinute) pts/min")
+                                .font(.caption)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.orange.opacity(0.2))
+                                .cornerRadius(6)
+                        }
+                    }
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+
+                Spacer(minLength: 8)
+
+                HStack(spacing: 12) {
+                    // Enabled toggle
+                    Toggle("", isOn: Binding(
+                        get: { configuration.isEnabled },
+                        set: { _ in onToggleEnabled() }
+                    ))
+                    .labelsHidden()
+                    .toggleStyle(SwitchToggleStyle(tint: .green))
+
+                    // Blocking toggle
+                    Button(action: onToggleBlocking) {
+                        Image(systemName: configuration.blockingEnabled ? "lock" : "lock.open")
+                            .foregroundColor(configuration.blockingEnabled ? .red : .green)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+
+                    // Edit button
+                    Button(action: onEdit) {
+                        Image(systemName: "pencil")
+                            .foregroundColor(.blue)
+                    }
+                    .buttonStyle(PlainButtonStyle())
+                }
+            }
+            .padding(12)
+        }
+        .background(
+            RoundedRectangle(cornerRadius: 8)
+                .fill(colorScheme == .dark ? Color(white: 0.2) : Color.white)
+                .shadow(color: Color.black.opacity(0.05), radius: 2, x: 0, y: 1)
+        )
+        .contentShape(Rectangle())
+    }
+}
+
+private struct CategoryAssignmentSheetDTO: View {
+    let appConfiguration: FullAppConfigDTO
     @Binding var category: AppUsage.AppCategory
     @Binding var points: Int
     let onSave: (AppUsage.AppCategory, Int) -> Void
     @Environment(\.presentationMode) var presentationMode
-    
+
     var body: some View {
         NavigationView {
             Form {
                 Section("App") {
-                    HStack {
-                        Text("Name")
-                        Spacer()
-                        Text(appConfiguration.displayName ?? "Unknown App")
-                            .foregroundColor(.secondary)
+                    HStack(spacing: 12) {
+                        CachedAppIcon(
+                            iconURL: appConfiguration.iconURL,
+                            identifier: appConfiguration.logicalID,
+                            size: 40,
+                            fallbackSymbol: "app.fill"
+                        )
+                        Text(appConfiguration.displayName)
                     }
                 }
-                
+
                 Section("Category") {
                     Picker("Category", selection: $category) {
                         Text("Learning").tag(AppUsage.AppCategory.learning)
@@ -261,7 +353,7 @@ private struct CategoryAssignmentSheet: View {
                     }
                     .pickerStyle(SegmentedPickerStyle())
                 }
-                
+
                 Section("Points per Minute") {
                     HStack {
                         Text("Points")
@@ -281,7 +373,68 @@ private struct CategoryAssignmentSheet: View {
                         presentationMode.wrappedValue.dismiss()
                     }
                 }
-                
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("Save") {
+                        onSave(category, points)
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                    .disabled(points <= 0)
+                }
+            }
+        }
+    }
+}
+
+// MARK: - Legacy CoreData-based Views (kept for backward compatibility)
+
+private struct CategoryAssignmentSheet: View {
+    let appConfiguration: AppConfiguration
+    @Binding var category: AppUsage.AppCategory
+    @Binding var points: Int
+    let onSave: (AppUsage.AppCategory, Int) -> Void
+    @Environment(\.presentationMode) var presentationMode
+
+    var body: some View {
+        NavigationView {
+            Form {
+                Section("App") {
+                    HStack {
+                        Text("Name")
+                        Spacer()
+                        Text(appConfiguration.displayName ?? "Unknown App")
+                            .foregroundColor(.secondary)
+                    }
+                }
+
+                Section("Category") {
+                    Picker("Category", selection: $category) {
+                        Text("Learning").tag(AppUsage.AppCategory.learning)
+                        Text("Reward").tag(AppUsage.AppCategory.reward)
+                    }
+                    .pickerStyle(SegmentedPickerStyle())
+                }
+
+                Section("Points per Minute") {
+                    HStack {
+                        Text("Points")
+                        Spacer()
+                        TextField("Points", value: $points, formatter: NumberFormatter())
+                            .keyboardType(.numberPad)
+                            .multilineTextAlignment(.trailing)
+                            .frame(width: 100)
+                    }
+                }
+            }
+            .navigationTitle("Configure App")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("Cancel") {
+                        presentationMode.wrappedValue.dismiss()
+                    }
+                }
+
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
                         onSave(category, points)
