@@ -308,72 +308,152 @@ class CloudKitSyncService: ObservableObject {
 
     // MARK: - Parent Device Methods
 
-    /// Fetch linked child devices from private database (including shared zones)
+    /// Fetch linked child devices from private database by querying each ChildMonitoring zone
     func fetchLinkedChildDevices() async throws -> [RegisteredDevice] {
         #if DEBUG
         print("[CloudKitSyncService] ===== Fetching Linked Child Devices (CloudKit Sharing) =====")
         print("[CloudKitSyncService] Parent Device ID: \(DeviceModeManager.shared.deviceID)")
         #endif
 
-        // Query parent's PRIVATE database (shared zones are stored there)
         let privateDatabase = container.privateCloudDatabase
         let parentDeviceID = DeviceModeManager.shared.deviceID
 
-        // Query for child devices across all shared zones
-        let predicate = NSPredicate(
-            format: "CD_deviceType == %@ AND CD_parentDeviceID == %@",
-            "child", parentDeviceID
-        )
-        let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
-        query.sortDescriptors = [NSSortDescriptor(key: "CD_registrationDate", ascending: false)]
-
-        #if DEBUG
-        print("[CloudKitSyncService] Querying private database for child devices...")
-        #endif
-
-        // Query all zones (including shared zones)
-        let (matchResults, _): ([(CKRecord.ID, Result<CKRecord, Error>)], CKQueryOperation.Cursor?)
+        // 1. Get all zones owned by this parent
+        let allZones: [CKRecordZone]
         do {
-            (matchResults, _) = try await privateDatabase.records(matching: query)
+            allZones = try await privateDatabase.allRecordZones()
             #if DEBUG
-            print("[CloudKitSyncService] ✅ Query completed successfully. Processing \(matchResults.count) results...")
+            print("[CloudKitSyncService] Found \(allZones.count) total zones")
             #endif
         } catch {
             #if DEBUG
-            print("[CloudKitSyncService] ❌ CRITICAL ERROR querying CloudKit:")
-            print("[CloudKitSyncService] Error type: \(type(of: error))")
-            print("[CloudKitSyncService] Error description: \(error.localizedDescription)")
-            print("[CloudKitSyncService] Full error: \(error)")
+            print("[CloudKitSyncService] ❌ Error fetching zones: \(error)")
             #endif
             throw error
         }
 
+        // 2. Filter to ChildMonitoring zones only
+        let childMonitoringZones = allZones.filter { $0.zoneID.zoneName.hasPrefix("ChildMonitoring-") }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Found \(childMonitoringZones.count) ChildMonitoring zones to query")
+        for zone in childMonitoringZones {
+            print("[CloudKitSyncService]   - \(zone.zoneID.zoneName)")
+        }
+        #endif
+
         var devices: [RegisteredDevice] = []
 
-        for (_, result) in matchResults {
-            switch result {
-            case .success(let record):
-                // Convert CKRecord to RegisteredDevice
-                let device = convertToRegisteredDevice(record)
-                devices.append(device)
-            case .failure(let error):
+        // 3. Fetch records from EACH ChildMonitoring zone using zone changes API
+        // (CKQuery fails because CD_RegisteredDevice fields are not marked QUERYABLE)
+        for zone in childMonitoringZones {
+            do {
                 #if DEBUG
-                print("[CloudKitSyncService] Error fetching record: \(error)")
+                print("[CloudKitSyncService] Fetching records from zone \(zone.zoneID.zoneName) using zone changes...")
                 #endif
+
+                // Use fetchRecordZoneChanges to get all records without needing queryable indexes
+                let zoneRecords = try await fetchAllRecordsInZone(zoneID: zone.zoneID, database: privateDatabase)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): fetched \(zoneRecords.count) total records")
+                #endif
+
+                // Filter for CD_RegisteredDevice records with matching criteria
+                for record in zoneRecords {
+                    // Only process CD_RegisteredDevice records
+                    guard record.recordType == "CD_RegisteredDevice" else { continue }
+
+                    let deviceType = record["CD_deviceType"] as? String
+                    let recordParentID = record["CD_parentDeviceID"] as? String
+
+                    #if DEBUG
+                    print("[CloudKitSyncService]   Record: \(record.recordID.recordName)")
+                    print("[CloudKitSyncService]     - deviceType: \(deviceType ?? "nil")")
+                    print("[CloudKitSyncService]     - parentDeviceID: \(recordParentID ?? "nil")")
+                    #endif
+
+                    // Match: deviceType == "child" AND parentDeviceID == our parent ID
+                    if deviceType == "child" && recordParentID == parentDeviceID {
+                        let device = convertToRegisteredDevice(record)
+                        device.sharedZoneID = zone.zoneID.zoneName
+                        device.sharedZoneOwner = zone.zoneID.ownerName
+                        devices.append(device)
+
+                        #if DEBUG
+                        print("[CloudKitSyncService]   ✅ Found matching child: \(device.deviceName ?? "unknown") (\(device.deviceID ?? "nil"))")
+                        #endif
+                    }
+                }
+            } catch let error as CKError where error.code == .zoneNotFound {
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): zone not found (deleted), skipping")
+                #endif
+                continue
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): error fetching - \(error.localizedDescription)")
+                #endif
+                continue
             }
         }
 
         #if DEBUG
-        print("[CloudKitSyncService] ✅ Found \(devices.count) child device(s) in shared zones")
-        for device in devices {
-            print("[CloudKitSyncService] Child device:")
-            print("  - Device ID: \(device.deviceID ?? "nil")")
-            print("  - Device Name: \(device.deviceName ?? "nil")")
-            print("  - Registration Date: \(device.registrationDate ?? Date())")
-        }
+        print("[CloudKitSyncService] ✅ Total: Found \(devices.count) child device(s) across all zones")
         #endif
 
         return devices
+    }
+
+    /// Fetch all records in a zone using CKFetchRecordZoneChangesOperation
+    /// This bypasses the need for QUERYABLE indexes on fields
+    private func fetchAllRecordsInZone(zoneID: CKRecordZone.ID, database: CKDatabase) async throws -> [CKRecord] {
+        return try await withCheckedThrowingContinuation { continuation in
+            var fetchedRecords: [CKRecord] = []
+
+            let config = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+            config.previousServerChangeToken = nil // Fetch all records from beginning
+
+            let operation = CKFetchRecordZoneChangesOperation(
+                recordZoneIDs: [zoneID],
+                configurationsByRecordZoneID: [zoneID: config]
+            )
+
+            operation.recordWasChangedBlock = { _, result in
+                switch result {
+                case .success(let record):
+                    fetchedRecords.append(record)
+                case .failure(let error):
+                    #if DEBUG
+                    print("[CloudKitSyncService] Record fetch error: \(error.localizedDescription)")
+                    #endif
+                }
+            }
+
+            operation.recordZoneFetchResultBlock = { _, result in
+                switch result {
+                case .success:
+                    #if DEBUG
+                    print("[CloudKitSyncService] Zone fetch completed successfully")
+                    #endif
+                case .failure(let error):
+                    #if DEBUG
+                    print("[CloudKitSyncService] Zone fetch failed: \(error.localizedDescription)")
+                    #endif
+                }
+            }
+
+            operation.fetchRecordZoneChangesResultBlock = { result in
+                switch result {
+                case .success:
+                    continuation.resume(returning: fetchedRecords)
+                case .failure(let error):
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            database.add(operation)
+        }
     }
 
     private func convertToRegisteredDevice(_ record: CKRecord) -> RegisteredDevice {

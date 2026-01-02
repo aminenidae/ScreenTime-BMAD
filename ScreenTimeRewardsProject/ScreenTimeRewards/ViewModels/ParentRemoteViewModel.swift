@@ -426,6 +426,56 @@ class ParentRemoteViewModel: ObservableObject {
         isLoading = false
     }
 
+    /// Load linked child devices with retry logic for CloudKit sync delays
+    /// Use this after a child pairs to poll until the child device appears
+    /// - Parameters:
+    ///   - maxAttempts: Maximum number of retry attempts (default: 5)
+    ///   - initialDelay: Initial delay between retries in seconds (default: 2.0)
+    ///   - previousCount: Number of devices before pairing (to detect new device)
+    func loadLinkedChildDevicesWithRetry(
+        maxAttempts: Int = 5,
+        initialDelay: TimeInterval = 2.0,
+        previousCount: Int = 0
+    ) async {
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Starting Retry Loop for Child Device Discovery =====")
+        print("[ParentRemoteViewModel] Max attempts: \(maxAttempts), Previous count: \(previousCount)")
+        #endif
+
+        for attempt in 1...maxAttempts {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Retry attempt \(attempt)/\(maxAttempts)...")
+            #endif
+
+            // Load child devices (this sets isLoading internally)
+            await loadLinkedChildDevices()
+
+            // Success: Found more devices than before
+            if linkedChildDevices.count > previousCount {
+                #if DEBUG
+                print("[ParentRemoteViewModel] ✅ Found new child device! Count: \(linkedChildDevices.count)")
+                #endif
+                return
+            }
+
+            // Don't wait after the last attempt
+            if attempt < maxAttempts {
+                // Exponential backoff: 2s, 4s, 8s, 16s (capped at 30s)
+                let delay = min(initialDelay * pow(2.0, Double(attempt - 1)), 30.0)
+
+                #if DEBUG
+                print("[ParentRemoteViewModel] No new device found. Waiting \(delay)s before retry...")
+                #endif
+
+                try? await Task.sleep(nanoseconds: UInt64(delay * 1_000_000_000))
+            }
+        }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] ⚠️ Max retries reached. Child device may take longer to sync.")
+        #endif
+    }
+
     /// Validate that each child's zone still exists
     /// Marks children as stale if their zone no longer exists
     private func validateChildPairings() async {

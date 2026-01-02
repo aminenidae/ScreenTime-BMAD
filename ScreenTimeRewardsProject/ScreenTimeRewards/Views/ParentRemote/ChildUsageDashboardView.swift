@@ -6,15 +6,18 @@ import CoreData
 struct ChildUsageDashboardView: View {
     let devices: [RegisteredDevice]
     let selectedDeviceID: String?
+    /// When true, the view is embedded directly (single-device mode) rather than pushed via NavigationLink
+    let isEmbedded: Bool
 
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var currentIndex: Int = 0
     @Environment(\.colorScheme) var colorScheme
-    
-    init(devices: [RegisteredDevice], selectedDeviceID: String?) {
+
+    init(devices: [RegisteredDevice], selectedDeviceID: String?, isEmbedded: Bool = false) {
         self.devices = devices
         self.selectedDeviceID = selectedDeviceID
-        
+        self.isEmbedded = isEmbedded
+
         // Find initial index based on selected device
         if let id = selectedDeviceID,
            let index = devices.firstIndex(where: { $0.deviceID == id }) {
@@ -41,40 +44,43 @@ struct ChildUsageDashboardView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide page dots, use custom navigation
         }
-        .navigationTitle(currentDevice?.deviceName ?? "Device")
+        .navigationTitle(isEmbedded ? "" : (currentDevice?.deviceName ?? "Device"))
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            ToolbarItem(placement: .principal) {
-                // Custom navigation header showing current device
-                HStack(spacing: 12) {
-                    Button(action: {
-                        withAnimation {
-                            currentIndex = max(0, currentIndex - 1)
+            // Only show device navigation controls when not embedded (multi-device mode)
+            if !isEmbedded {
+                ToolbarItem(placement: .principal) {
+                    // Custom navigation header showing current device
+                    HStack(spacing: 12) {
+                        Button(action: {
+                            withAnimation {
+                                currentIndex = max(0, currentIndex - 1)
+                            }
+                        }) {
+                            Image(systemName: "chevron.left")
+                                .foregroundColor(currentIndex > 0 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
                         }
-                    }) {
-                        Image(systemName: "chevron.left")
-                            .foregroundColor(currentIndex > 0 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
-                    }
-                    .disabled(currentIndex == 0)
+                        .disabled(currentIndex == 0)
 
-                    VStack(spacing: 2) {
-                        Text(currentDevice?.deviceName ?? "Device")
-                            .font(.headline)
+                        VStack(spacing: 2) {
+                            Text(currentDevice?.deviceName ?? "Device")
+                                .font(.headline)
 
-                        Text("\(currentIndex + 1) of \(devices.count)")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    }
-
-                    Button(action: {
-                        withAnimation {
-                            currentIndex = min(devices.count - 1, currentIndex + 1)
+                            Text("\(currentIndex + 1) of \(devices.count)")
+                                .font(.caption)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         }
-                    }) {
-                        Image(systemName: "chevron.right")
-                            .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
+
+                        Button(action: {
+                            withAnimation {
+                                currentIndex = min(devices.count - 1, currentIndex + 1)
+                            }
+                        }) {
+                            Image(systemName: "chevron.right")
+                                .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
+                        }
+                        .disabled(currentIndex >= devices.count - 1)
                     }
-                    .disabled(currentIndex >= devices.count - 1)
                 }
             }
 

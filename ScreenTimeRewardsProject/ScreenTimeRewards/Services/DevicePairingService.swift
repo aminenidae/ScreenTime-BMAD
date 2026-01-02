@@ -545,22 +545,27 @@ class DevicePairingService: ObservableObject {
             }
         }
 
-        // 4. Save parent device ID, name, and shared zone ID locally
-        UserDefaults.standard.set(payload.parentDeviceID, forKey: "parentDeviceID")
-        if let parentName = payload.parentDeviceName {
-            UserDefaults.standard.set(parentName, forKey: "parentDeviceName")
-        }
-        if let sharedZoneID = payload.sharedZoneID {
-            UserDefaults.standard.set(sharedZoneID, forKey: "parentSharedZoneID")
-        }
-
-        // Persist share context for sync (root record name needed for parent reference)
+        // 4. Save parent device info using new multi-parent storage
         let rootID = metadata.rootRecordID
         let zoneID = metadata.rootRecordID.zoneID
+        let commandsZoneID = UserDefaults.standard.string(forKey: "parentCommandsZoneID")
 
-        UserDefaults.standard.set(rootID.recordName, forKey: "parentSharedRootRecordName")
-        UserDefaults.standard.set(zoneID.zoneName, forKey: "parentSharedZoneID")
-        UserDefaults.standard.set(zoneID.ownerName, forKey: "parentSharedZoneOwner")
+        let newParent = PairedParentInfo(
+            id: payload.parentDeviceID,
+            deviceName: payload.parentDeviceName ?? "Parent Device",
+            sharedZoneID: zoneID.zoneName,
+            sharedZoneOwner: zoneID.ownerName,
+            rootRecordName: rootID.recordName,
+            commandsZoneID: commandsZoneID,
+            pairedDate: Date()
+        )
+
+        addPairedParent(newParent)
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Saved parent: \(newParent.deviceName)")
+        print("[DevicePairingService] Zone: \(zoneID.zoneName), Owner: \(zoneID.ownerName)")
+        #endif
 
         #if DEBUG
         print("[DevicePairingService] 🔵 Registering child in parent's shared zone...")
@@ -578,24 +583,10 @@ class DevicePairingService: ObservableObject {
         #endif
     }
 
-    // Get count of parent devices child is currently paired with
+    // Get count of parent devices child is currently paired with (uses local storage)
     private func getParentPairingCount() async throws -> Int {
-        let container = CKContainer(identifier: "iCloud.com.screentimerewards")
-        let sharedDatabase = container.sharedCloudDatabase
-
-        // Query all shared zones this child device has access to
-        let query = CKQuery(
-            recordType: "CD_SharedZoneRoot",
-            predicate: NSPredicate(value: true)
-        )
-
-        do {
-            let (results, _) = try await sharedDatabase.records(matching: query)
-            return results.count
-        } catch {
-            // If we can't determine, allow the pairing (fail open)
-            return 0
-        }
+        // Use local storage count - faster and more reliable than CloudKit query
+        return getPairedParentCount()
     }
 
     /// Register child device in parent's shared zone
@@ -676,59 +667,207 @@ class DevicePairingService: ObservableObject {
         }
     }
 
-    /// Get parent device ID for child device
-    func getParentDeviceID() -> String? {
-        return UserDefaults.standard.string(forKey: "parentDeviceID")
+    // MARK: - Multi-Parent Storage (New)
+
+    /// Key for storing array of paired parents
+    private let pairedParentsKey = "pairedParents"
+
+    /// Get all paired parent devices
+    func getPairedParents() -> [PairedParentInfo] {
+        // First, try to load from new multi-parent storage
+        if let data = UserDefaults.standard.data(forKey: pairedParentsKey),
+           let parents = try? JSONDecoder().decode([PairedParentInfo].self, from: data) {
+            return parents
+        }
+
+        // Fall back to legacy single-parent storage (migration)
+        if let parentID = UserDefaults.standard.string(forKey: "parentDeviceID") {
+            let parentName = UserDefaults.standard.string(forKey: "parentDeviceName") ?? "Parent Device"
+            let sharedZoneID = UserDefaults.standard.string(forKey: "parentSharedZoneID")
+            let sharedZoneOwner = UserDefaults.standard.string(forKey: "parentSharedZoneOwner")
+            let rootRecordName = UserDefaults.standard.string(forKey: "parentSharedRootRecordName")
+            let commandsZoneID = UserDefaults.standard.string(forKey: "parentCommandsZoneID")
+
+            let legacyParent = PairedParentInfo(
+                id: parentID,
+                deviceName: parentName,
+                sharedZoneID: sharedZoneID,
+                sharedZoneOwner: sharedZoneOwner,
+                rootRecordName: rootRecordName,
+                commandsZoneID: commandsZoneID,
+                pairedDate: Date()
+            )
+
+            // Migrate to new storage format
+            savePairedParents([legacyParent])
+            clearLegacyParentStorage()
+
+            return [legacyParent]
+        }
+
+        return []
     }
 
-    /// Get parent device name for display
-    func getParentDeviceName() -> String? {
-        return UserDefaults.standard.string(forKey: "parentDeviceName")
+    /// Save paired parents to storage
+    private func savePairedParents(_ parents: [PairedParentInfo]) {
+        if let data = try? JSONEncoder().encode(parents) {
+            UserDefaults.standard.set(data, forKey: pairedParentsKey)
+        }
     }
 
-    /// Check if device is already paired
-    func isPaired() -> Bool {
-        return getParentDeviceID() != nil
-    }
+    /// Add a new paired parent
+    func addPairedParent(_ parent: PairedParentInfo) {
+        var parents = getPairedParents()
 
-    /// Get all pairing info for display/debugging
-    func getPairingInfo() -> [String: Any]? {
-        return UserDefaults.standard.dictionary(forKey: "childPairingInfo")
-    }
+        // Don't add duplicates
+        if parents.contains(where: { $0.id == parent.id }) {
+            #if DEBUG
+            print("[DevicePairingService] Parent \(parent.id) already paired, skipping")
+            #endif
+            return
+        }
 
-    /// Unpair child device from parent - clears all pairing data
-    /// Call this on the child device to disconnect from parent
-    func unpairDevice() {
+        parents.append(parent)
+        savePairedParents(parents)
+
         #if DEBUG
-        print("[DevicePairingService] ===== Child Unpairing from Parent =====")
+        print("[DevicePairingService] ✅ Added parent: \(parent.deviceName) (\(parent.id))")
+        print("[DevicePairingService] Total paired parents: \(parents.count)")
+        #endif
+    }
+
+    /// Remove a paired parent and clean up CloudKit record
+    func removePairedParent(_ parent: PairedParentInfo) async {
+        // 1. Delete from CloudKit first (best effort)
+        do {
+            try await unregisterFromParentZone(parent: parent)
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ CloudKit cleanup failed: \(error.localizedDescription)")
+            #endif
+            // Continue with local removal even if CloudKit fails
+        }
+
+        // 2. Remove from local storage
+        var parents = getPairedParents()
+        parents.removeAll { $0.id == parent.id }
+        savePairedParents(parents)
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Removed parent: \(parent.deviceName) (\(parent.id))")
+        print("[DevicePairingService] Remaining paired parents: \(parents.count)")
+        #endif
+    }
+
+    /// Unregister child device from parent's shared zone
+    private func unregisterFromParentZone(parent: PairedParentInfo) async throws {
+        guard let zoneName = parent.sharedZoneID,
+              let zoneOwner = parent.sharedZoneOwner else {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ No zone info for parent, skipping CloudKit cleanup")
+            #endif
+            return
+        }
+
+        let sharedDatabase = container.sharedCloudDatabase
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+
+        // Same record ID pattern used during registration
+        let deviceRecordID = CKRecord.ID(
+            recordName: "device-\(DeviceModeManager.shared.deviceID)",
+            zoneID: zoneID
+        )
+
+        #if DEBUG
+        print("[DevicePairingService] 🗑️ Deleting device record from parent's zone: \(zoneName)")
         #endif
 
-        // Clear parent device ID and name
+        try await sharedDatabase.deleteRecord(withID: deviceRecordID)
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Deleted device record from parent's zone")
+        #endif
+    }
+
+    /// Get count of paired parents
+    func getPairedParentCount() -> Int {
+        return getPairedParents().count
+    }
+
+    /// Clear legacy single-parent storage keys
+    private func clearLegacyParentStorage() {
         UserDefaults.standard.removeObject(forKey: "parentDeviceID")
         UserDefaults.standard.removeObject(forKey: "parentDeviceName")
-
-        // Clear zone/share info
         UserDefaults.standard.removeObject(forKey: "parentSharedZoneID")
         UserDefaults.standard.removeObject(forKey: "parentSharedZoneOwner")
         UserDefaults.standard.removeObject(forKey: "parentSharedRootRecordName")
         UserDefaults.standard.removeObject(forKey: "parentCommandsZoneID")
-
-        // Clear pairing info
         UserDefaults.standard.removeObject(forKey: "childPairingInfo")
 
-        // Note: We don't reset the device mode - child can re-pair with a different parent
-        // and doesn't need to go through mode selection again
+        #if DEBUG
+        print("[DevicePairingService] Cleared legacy single-parent storage")
+        #endif
+    }
+
+    // MARK: - Legacy Single-Parent Methods (Backward Compatibility)
+
+    /// Get parent device ID for child device (legacy - returns first parent)
+    func getParentDeviceID() -> String? {
+        return getPairedParents().first?.id
+    }
+
+    /// Get parent device name for display (legacy - returns first parent)
+    func getParentDeviceName() -> String? {
+        return getPairedParents().first?.deviceName
+    }
+
+    /// Check if device is already paired (with at least one parent)
+    func isPaired() -> Bool {
+        return !getPairedParents().isEmpty
+    }
+
+    /// Get all pairing info for display/debugging
+    func getPairingInfo() -> [String: Any]? {
+        let parents = getPairedParents()
+        guard !parents.isEmpty else { return nil }
+
+        return [
+            "pairedParentCount": parents.count,
+            "parents": parents.map { [
+                "id": $0.id,
+                "deviceName": $0.deviceName,
+                "pairedDate": $0.pairedDate
+            ]}
+        ]
+    }
+
+    /// Unpair child device from ALL parents - clears all pairing data
+    /// Call this on the child device to disconnect from all parents
+    func unpairDevice() {
+        #if DEBUG
+        print("[DevicePairingService] ===== Child Unpairing from ALL Parents =====")
+        #endif
+
+        // Clear new multi-parent storage
+        UserDefaults.standard.removeObject(forKey: pairedParentsKey)
+
+        // Clear legacy storage (in case migration didn't happen)
+        clearLegacyParentStorage()
 
         #if DEBUG
         print("[DevicePairingService] ✅ All pairing data cleared")
         #endif
     }
 
-    /// Check if child has valid pairing with zone info
+    /// Check if child has valid pairing with zone info (with at least one parent)
     func hasValidPairing() -> Bool {
-        guard let _ = getParentDeviceID() else { return false }
-        guard let _ = UserDefaults.standard.string(forKey: "parentSharedZoneID") else { return false }
-        return true
+        let parents = getPairedParents()
+        return parents.contains { $0.sharedZoneID != nil }
+    }
+
+    /// Get parent info for a specific parent ID
+    func getParentInfo(deviceID: String) -> PairedParentInfo? {
+        return getPairedParents().first { $0.id == deviceID }
     }
 
 }

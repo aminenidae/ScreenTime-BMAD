@@ -1,9 +1,36 @@
 import SwiftUI
 
-/// Represents a paired parent device for display
-struct PairedParentInfo: Identifiable {
+/// Represents a paired parent device for display and storage
+struct PairedParentInfo: Identifiable, Codable, Equatable {
     let id: String  // parentDeviceID
     let deviceName: String
+    let sharedZoneID: String?
+    let sharedZoneOwner: String?
+    let rootRecordName: String?
+    let commandsZoneID: String?
+    let pairedDate: Date
+
+    /// Create from basic info (for backward compatibility)
+    init(id: String, deviceName: String) {
+        self.id = id
+        self.deviceName = deviceName
+        self.sharedZoneID = nil
+        self.sharedZoneOwner = nil
+        self.rootRecordName = nil
+        self.commandsZoneID = nil
+        self.pairedDate = Date()
+    }
+
+    /// Full initializer with all zone info
+    init(id: String, deviceName: String, sharedZoneID: String?, sharedZoneOwner: String?, rootRecordName: String?, commandsZoneID: String?, pairedDate: Date) {
+        self.id = id
+        self.deviceName = deviceName
+        self.sharedZoneID = sharedZoneID
+        self.sharedZoneOwner = sharedZoneOwner
+        self.rootRecordName = rootRecordName
+        self.commandsZoneID = commandsZoneID
+        self.pairedDate = pairedDate
+    }
 }
 
 struct ChildPairingView: View {
@@ -14,9 +41,13 @@ struct ChildPairingView: View {
     @State private var errorMessage: String?
     @State private var isPairing = false
     @State private var showSuccessAlert = false
-    @State private var pairedParent: PairedParentInfo?
+    @State private var pairedParents: [PairedParentInfo] = []
+    @State private var parentToUnpair: PairedParentInfo?
     @State private var showingUnpairConfirmation = false
     @State private var showHelp = false
+
+    /// Maximum number of parent devices allowed
+    private let maxParentDevices = 2
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -56,14 +87,22 @@ struct ChildPairingView: View {
             Text("Successfully paired with parent device!")
         }
         .alert("Unpair Parent Device", isPresented: $showingUnpairConfirmation) {
-            Button("Cancel", role: .cancel) { }
+            Button("Cancel", role: .cancel) {
+                parentToUnpair = nil
+            }
             Button("Unpair", role: .destructive) {
-                Task {
-                    await unpairFromParent()
+                if let parent = parentToUnpair {
+                    Task {
+                        await unpairFromParent(parent)
+                    }
                 }
             }
         } message: {
-            Text("Are you sure you want to unpair from this parent device? You will no longer be able to sync usage data with them.")
+            if let parent = parentToUnpair {
+                Text("Are you sure you want to unpair from \(parent.deviceName)? You will no longer be able to sync usage data with them.")
+            } else {
+                Text("Are you sure you want to unpair from this parent device?")
+            }
         }
         .alert("Help", isPresented: $showHelp) {
             Button("OK") { showHelp = false }
@@ -83,7 +122,7 @@ struct ChildPairingView: View {
             Text(errorMessage ?? "An error occurred while pairing.")
         }
         .onAppear {
-            loadPairedParent()
+            loadPairedParents()
         }
     }
 }
@@ -124,19 +163,24 @@ private extension ChildPairingView {
         .background(AppTheme.background(for: colorScheme))
     }
 
+    /// Whether the user can add another parent device
+    var canAddParent: Bool {
+        pairedParents.count < maxParentDevices
+    }
+
     var scanCard: some View {
         VStack(spacing: 20) {
             Image(systemName: "qrcode.viewfinder")
                 .font(.system(size: 64))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(canAddParent ? AppTheme.vibrantTeal : .gray)
                 .padding(.top, 8)
 
             VStack(spacing: 8) {
-                Text(pairedParent == nil ? "Connect New Device" : "Add Another Parent")
+                Text(pairedParents.isEmpty ? "Connect Parent Device" : "Add Another Parent")
                     .font(.system(size: 20, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                Text("Ask your parent for their code to scan it with the camera.")
+                Text(scanCardSubtitle)
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                     .multilineTextAlignment(.center)
@@ -144,8 +188,7 @@ private extension ChildPairingView {
             }
 
             Button {
-                // Currently only support 1 parent pairing
-                if pairedParent == nil {
+                if canAddParent {
                     showScanner = true
                 }
             } label: {
@@ -159,11 +202,11 @@ private extension ChildPairingView {
                 .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
                 .frame(height: 56)
-                .background(pairedParent != nil ? Color.gray : AppTheme.vibrantTeal)
+                .background(canAddParent ? AppTheme.vibrantTeal : Color.gray)
                 .cornerRadius(16)
-                .shadow(color: AppTheme.vibrantTeal.opacity(0.3), radius: 8, x: 0, y: 4)
+                .shadow(color: (canAddParent ? AppTheme.vibrantTeal : Color.gray).opacity(0.3), radius: 8, x: 0, y: 4)
             }
-            .disabled(pairedParent != nil)
+            .disabled(!canAddParent)
         }
         .padding(24)
         .background(
@@ -173,21 +216,44 @@ private extension ChildPairingView {
         )
     }
 
+    var scanCardSubtitle: String {
+        if pairedParents.count >= maxParentDevices {
+            return "Maximum of \(maxParentDevices) parent devices reached."
+        } else if pairedParents.isEmpty {
+            return "Ask your parent for their code to scan it with the camera."
+        } else {
+            return "You can connect up to \(maxParentDevices) parent devices."
+        }
+    }
+
     var connectedParentsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            Text("CONNECTED GROWN-UPS")
-                .font(.system(size: 12, weight: .bold))
-                .tracking(1)
-                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                .padding(.leading, 4)
+            HStack {
+                Text("CONNECTED GROWN-UPS")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
 
-            if let parent = pairedParent {
-                ParentInfoListItem(
-                    parent: parent,
-                    onUnpair: { showingUnpairConfirmation = true }
-                )
-            } else {
+                Spacer()
+
+                Text("\(pairedParents.count)/\(maxParentDevices)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(.horizontal, 4)
+
+            if pairedParents.isEmpty {
                 emptyState
+            } else {
+                ForEach(pairedParents) { parent in
+                    ParentInfoListItem(
+                        parent: parent,
+                        onUnpair: {
+                            parentToUnpair = parent
+                            showingUnpairConfirmation = true
+                        }
+                    )
+                }
             }
         }
     }
@@ -265,6 +331,12 @@ private extension ChildPairingView {
                                 userInfo: [NSLocalizedDescriptionKey: "Invalid QR code format"])
                 }
 
+                // Check if already paired with this parent
+                if pairedParents.contains(where: { $0.id == payload.parentDeviceID }) {
+                    throw NSError(domain: "PairingError", code: -2,
+                                userInfo: [NSLocalizedDescriptionKey: "Already paired with this parent device"])
+                }
+
                 try await pairingService.acceptParentShareAndRegister(from: payload)
 
                 // Trigger upload
@@ -274,8 +346,8 @@ private extension ChildPairingView {
 
                 await MainActor.run {
                     self.isPairing = false
-                    // Reload paired parent to show in the list
-                    self.loadPairedParent()
+                    // Reload paired parents to show in the list
+                    self.loadPairedParents()
                     self.showSuccessAlert = true
                 }
             } catch {
@@ -285,6 +357,8 @@ private extension ChildPairingView {
                     // Show specific error for same-account pairing
                     if case PairingError.sameAccountPairing = error {
                         self.errorMessage = error.localizedDescription
+                    } else if case PairingError.maxParentsReached = error {
+                        self.errorMessage = error.localizedDescription
                     } else {
                         self.errorMessage = "Failed to pair: \(error.localizedDescription)"
                     }
@@ -293,23 +367,19 @@ private extension ChildPairingView {
         }
     }
 
-    func loadPairedParent() {
-        // Load parent info from DevicePairingService
-        if let parentID = pairingService.getParentDeviceID() {
-            let parentName = pairingService.getParentDeviceName() ?? "Parent Device"
-            pairedParent = PairedParentInfo(id: parentID, deviceName: parentName)
-        } else {
-            pairedParent = nil
-        }
+    func loadPairedParents() {
+        // Load all paired parents from DevicePairingService
+        pairedParents = pairingService.getPairedParents()
     }
 
-    func unpairFromParent() async {
-        // Call the service to clear pairing data
-        pairingService.unpairDevice()
+    func unpairFromParent(_ parent: PairedParentInfo) async {
+        // Call the service to remove parent (includes CloudKit cleanup)
+        await pairingService.removePairedParent(parent)
 
         await MainActor.run {
-            // Clear the local state
-            pairedParent = nil
+            // Remove from local state
+            pairedParents.removeAll { $0.id == parent.id }
+            parentToUnpair = nil
         }
     }
 }
@@ -356,10 +426,17 @@ struct ParentInfoListItem: View {
             Button {
                 onUnpair()
             } label: {
-                Image(systemName: "link.badge.minus")
-                    .font(.system(size: 20))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.errorRed.opacity(0.15))
+                        .frame(width: 40, height: 40)
+                    Image(systemName: "xmark.circle.fill")
+                        .font(.system(size: 24))
+                        .foregroundColor(AppTheme.errorRed)
+                }
+                .frame(width: 44, height: 44)
             }
+            .buttonStyle(.plain)
         }
         .padding(16)
         .background(
