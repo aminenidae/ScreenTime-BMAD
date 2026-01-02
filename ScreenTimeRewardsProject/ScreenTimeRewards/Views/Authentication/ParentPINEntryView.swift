@@ -37,6 +37,7 @@ struct ParentPINEntryView: View {
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .frame(width: 44, height: 44)
                     }
+                    .accessibilityLabel("Go back")
                     Spacer()
                 }
                 .padding(.horizontal, 16)

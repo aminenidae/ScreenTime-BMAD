@@ -448,7 +448,6 @@ class AppUsageViewModel: ObservableObject {
         
         // Clear the processed data
         sharedDefaults.removeObject(forKey: "rewardUsageData")
-        sharedDefaults.synchronize()
     }
 
     /// Load category assignments from App Group storage
@@ -1929,8 +1928,6 @@ func configureWithTestApplications() {
 
             // Also persist total consumed points
             defaults.set(totalConsumedPoints, forKey: "totalConsumedPoints")
-
-            defaults.synchronize()
 
             #if DEBUG
             print("[AppUsageViewModel] 💾 Persisted \(appsArray.count) unlocked apps")

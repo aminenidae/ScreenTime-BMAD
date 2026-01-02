@@ -83,7 +83,6 @@ class ShieldDataService {
         do {
             let encoded = try JSONEncoder().encode(data)
             defaults.set(encoded, forKey: shieldDataKey)
-            defaults.synchronize()
             print("✅ ShieldDataService: Updated shield data - \(data.currentMinutes)/\(data.targetMinutes) min")
         } catch {
             print("❌ ShieldDataService: Failed to encode shield data: \(error)")
@@ -93,7 +92,6 @@ class ShieldDataService {
     /// Clears shield data (e.g., when no active challenges)
     func clearShieldData() {
         sharedDefaults?.removeObject(forKey: shieldDataKey)
-        sharedDefaults?.synchronize()
     }
 
     // MARK: - Shield Extension Methods (Read)

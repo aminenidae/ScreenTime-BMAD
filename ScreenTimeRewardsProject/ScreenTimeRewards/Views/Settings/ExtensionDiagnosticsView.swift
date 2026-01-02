@@ -621,6 +621,5 @@ private enum ExtensionErrorLogReader {
     static func clear() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         defaults.removeObject(forKey: logKey)
-        defaults.synchronize()
     }
 }

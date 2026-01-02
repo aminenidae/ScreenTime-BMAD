@@ -76,7 +76,6 @@ struct TotalActivityReport: DeviceActivityReportScene {
         print("[ReportExtension] 📦 Snapshot content: \(snapshot)")
 
         defaults.set(snapshot, forKey: "report_snapshot")
-        defaults.synchronize()
 
         NSLog("[ReportExtension] ✅ Wrote snapshot with \(report.appUsageMap.count) apps at \(report.timestamp)")
         print("[ReportExtension] ✅ Wrote snapshot with \(report.appUsageMap.count) apps at \(report.timestamp)")

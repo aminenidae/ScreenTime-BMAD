@@ -37,7 +37,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let trimmedLines = Array(lines.suffix(499)) // Keep last 499 to add 1 more (500 total)
         log = (trimmedLines + [entry]).joined(separator: "\n")
         defaults.set(log, forKey: "extension_debug_log")
-        defaults.synchronize() // Ensure log is persisted before extension terminates
     }
 
     // MARK: - Lifecycle
@@ -46,7 +45,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(true, forKey: "extension_initialized_flag")
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_initialized")
-            defaults.synchronize()
         }
     }
 
@@ -139,7 +137,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
         defaults.set(now, forKey: "rearm_\(appID)_time")
-        defaults.synchronize()
 
         // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
         checkAndUpdateShields(defaults: defaults)
@@ -361,7 +358,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Signal re-arm request
         defaults.set(true, forKey: "rearm_\(mapping.appID)_requested")
         defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
-        defaults.synchronize()
 
         // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
         checkAndUpdateShields(defaults: defaults)
@@ -463,7 +459,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_heartbeat")
             let memoryMB = getMemoryUsageMB()
             defaults.set(memoryMB, forKey: "extension_memory_mb")
-            defaults.synchronize()
         }
     }
 
@@ -524,7 +519,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let nextSeq = currentSeq + 1
         defaults.set(nextSeq, forKey: "darwin_notification_seq_sent")
         defaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_sent")
-        defaults.synchronize()
 
         // Post the Darwin notification
         CFNotificationCenterPostNotification(
@@ -607,8 +601,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Also update a global "last unlock" timestamp so main app knows something changed
         defaults.set(now.timeIntervalSince1970, forKey: "ext_last_unlock_timestamp")
-
-        defaults.synchronize()
     }
 
     // MARK: - Unified Shield Blocking (when reward time expires)
@@ -734,8 +726,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Update global "last block" timestamp so main app knows something changed
         defaults.set(now.timeIntervalSince1970, forKey: "ext_last_block_timestamp")
-
-        defaults.synchronize()
     }
 }
 

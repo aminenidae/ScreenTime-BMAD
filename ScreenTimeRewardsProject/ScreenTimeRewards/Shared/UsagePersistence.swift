@@ -487,7 +487,6 @@ final class UsagePersistence {
 
         if mutated {
             persistApps()
-            userDefaults?.synchronize()  // Ensure extension keys are written
             print("[UsagePersistence] 💾 FORCE RESET complete - all apps reset to 0")
         }
     }
@@ -539,14 +538,12 @@ final class UsagePersistence {
         guard let defaults = userDefaults,
               let encoded = try? JSONEncoder().encode(cachedApps) else { return }
         defaults.set(encoded, forKey: persistedAppsKey)
-        defaults.synchronize()
     }
 
     private func persistMappings() {
         guard let defaults = userDefaults,
               let encoded = try? JSONEncoder().encode(cachedTokenMappings) else { return }
         defaults.set(encoded, forKey: tokenMappingsKey)
-        defaults.synchronize()
     }
 
     private static func decodeApps(from defaults: UserDefaults?, key: String) -> [LogicalAppID: PersistedApp] {

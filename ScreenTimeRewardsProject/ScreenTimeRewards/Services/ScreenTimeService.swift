@@ -219,7 +219,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Try to encode using Codable first
         if let encoded = try? JSONEncoder().encode(selection) {
             sharedDefaults.set(encoded, forKey: "familySelection_persistent")
-            sharedDefaults.synchronize()
 
             #if DEBUG
             print("[ScreenTimeService] ✅ Persisted FamilyActivitySelection to disk (Codable)")
@@ -246,7 +245,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         if !archivedTokens.isEmpty,
            let encoded = try? JSONEncoder().encode(archivedTokens) {
             sharedDefaults.set(encoded, forKey: "familySelection_tokens_persistent")
-            sharedDefaults.synchronize()
 
             #if DEBUG
             print("[ScreenTimeService] ✅ Persisted \(archivedTokens.count) application tokens to disk")
@@ -947,7 +945,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
             sharedDefaults.set(data, forKey: "eventMappings")
-            sharedDefaults.synchronize()
 
             #if DEBUG
             print("[ScreenTimeService] 💾 Saved \(mappings.count) event mappings for extension (JSON + primitive keys)")
@@ -1031,8 +1028,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let newReceivedSeq = receivedSeq + 1
             sharedDefaults.set(newReceivedSeq, forKey: "darwin_notification_seq_received")
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "darwin_notification_last_received")
-            sharedDefaults.synchronize()
-            
+
             print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
         default:
@@ -1059,8 +1055,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 clearRearmFlag(for: logicalID, defaults: defaults)
             }
         }
-
-        defaults.synchronize()
 
         // Notify UI of usage updates
         notifyUsageChange()
@@ -1345,7 +1339,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     // Persist monitoring state for auto-restart on app launch
                     if let sharedDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
                         sharedDefaults.set(true, forKey: "wasMonitoringActive")
-                        sharedDefaults.synchronize()
                         print("[ScreenTimeService] 💾 Persisted monitoring state: ACTIVE")
                     }
 
@@ -1381,7 +1374,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Persist monitoring state so we don't auto-restart on next launch
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             sharedDefaults.set(false, forKey: "wasMonitoringActive")
-            sharedDefaults.synchronize()
             #if DEBUG
             print("[ScreenTimeService] 💾 Persisted monitoring state: INACTIVE")
             #endif
@@ -1417,7 +1409,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         sharedDefaults.set(0, forKey: "darwin_notification_seq_received")
         sharedDefaults.removeObject(forKey: "darwin_notification_last_sent")
         sharedDefaults.removeObject(forKey: "darwin_notification_last_received")
-        sharedDefaults.synchronize()
 
         #if DEBUG
         print("[ScreenTimeService] 🔄 Reset Darwin notification diagnostic counters")
@@ -1551,9 +1542,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
-        // Force flush from disk to catch any pending writes
-        defaults.synchronize()
-
         print("[ScreenTimeService] ⏰ Background sync triggered")
 
         // Read extension data
@@ -1584,9 +1572,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[DiagnosticPolling] ❌ Cannot access App Group!")
             return
         }
-
-        // Force read from disk
-        defaults.synchronize()
 
         let timestamp = DateFormatter.localizedString(from: Date(), dateStyle: .none, timeStyle: .medium)
         print("\n[DiagnosticPolling] ━━━ Poll #\(diagnosticPollCount) @ \(timestamp) ━━━")
@@ -1751,7 +1736,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(Date().timeIntervalSince1970, forKey: "report_request_timestamp")
-            defaults.synchronize()
         }
 
         NotificationCenter.default.post(name: Self.reportRefreshRequestedNotification, object: nil)
@@ -1920,10 +1904,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] 🔄 refreshFromExtension: Reading extension data...")
         #endif
 
-        // CRITICAL: Force flush from disk before reading
-        // Extension writes may not be visible in memory cache yet
-        defaults.synchronize()
-
         readExtensionUsageData(defaults: defaults)
         notifyUsageChange()
 
@@ -2015,7 +1995,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Extension uses this to skip catch-up events within 10 seconds of restart
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
-            sharedDefaults.synchronize()
             #if DEBUG
             print("[ScreenTimeService] 🕐 Set monitoring_restart_timestamp for catch-up detection")
             #endif
@@ -2584,8 +2563,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         "timestamp": Date().timeIntervalSince1970
                     ]
                     sharedDefaults.set(rewardUsageData, forKey: "rewardUsageData")
-                    sharedDefaults.synchronize()
-                    
+
                     #if DEBUG
                     print("[ScreenTimeService] 📝 Stored reward usage data for \(application.displayName)")
                     #endif
@@ -3255,7 +3233,6 @@ func configureWithTestApplications() {
         let container = ExtensionShieldConfigs(goalConfigs: configs, lastUpdated: Date())
         if let data = try? JSONEncoder().encode(container) {
             defaults.set(data, forKey: ExtensionShieldConfigs.userDefaultsKey)
-            defaults.synchronize()
             #if DEBUG
             print("[ScreenTimeService] ✅ Synced \(configs.count) goal configs to extension")
             for config in configs {

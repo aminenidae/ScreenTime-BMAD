@@ -75,6 +75,7 @@ struct LearningTabView: View {
                                         .fill(primaryTextColor.opacity(0.1))
                                 )
                         }
+                        .accessibilityLabel("Go back")
 
                         Spacer()
 

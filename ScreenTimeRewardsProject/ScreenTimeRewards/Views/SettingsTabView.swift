@@ -36,6 +36,7 @@ struct SettingsTabView: View {
                                         .fill(AppTheme.vibrantTeal.opacity(0.1))
                                 )
                         }
+                        .accessibilityLabel("Go back")
 
                         Spacer()
 

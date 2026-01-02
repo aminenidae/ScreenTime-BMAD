@@ -17,6 +17,10 @@ class StreakService: ObservableObject {
     init() {
         setupMidnightTimer()
     }
+
+    deinit {
+        midnightTimer?.invalidate()
+    }
     
     // MARK: - Bonus Management
     
