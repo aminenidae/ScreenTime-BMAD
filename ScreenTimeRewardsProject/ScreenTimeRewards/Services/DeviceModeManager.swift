@@ -5,28 +5,48 @@
 
 import Foundation
 import Combine
+import Security
 
 @MainActor
 class DeviceModeManager: ObservableObject {
     static let shared = DeviceModeManager()
-    
+
     @Published private(set) var currentMode: DeviceMode?
     @Published private(set) var deviceID: String
     @Published private(set) var deviceName: String
-    
+
     private let userDefaults = UserDefaults.standard
     private let deviceModeKey = "deviceMode"
     private let deviceIDKey = "deviceID"
     private let deviceNameKey = "deviceName"
-    
+
+    // Keychain constants for persistent deviceID
+    private let keychainService = "com.screentimerewards"
+    private let keychainDeviceIDKey = "deviceID"
+
     private init() {
-        // Load or generate device ID first
-        if let existingID = userDefaults.string(forKey: deviceIDKey) {
+        // Load or generate device ID - Keychain persists across reinstalls
+        // Priority: Keychain > UserDefaults (migration) > Generate new
+        if let keychainID = Self.loadFromKeychain(service: "com.screentimerewards", key: "deviceID") {
+            self.deviceID = keychainID
+            #if DEBUG
+            print("[DeviceModeManager] Loaded deviceID from Keychain: \(keychainID)")
+            #endif
+        } else if let existingID = userDefaults.string(forKey: deviceIDKey) {
+            // Migrate from UserDefaults to Keychain
             self.deviceID = existingID
+            Self.saveToKeychain(value: existingID, service: "com.screentimerewards", key: "deviceID")
+            #if DEBUG
+            print("[DeviceModeManager] Migrated deviceID to Keychain: \(existingID)")
+            #endif
         } else {
             let newID = UUID().uuidString
+            Self.saveToKeychain(value: newID, service: "com.screentimerewards", key: "deviceID")
             userDefaults.set(newID, forKey: deviceIDKey)
             self.deviceID = newID
+            #if DEBUG
+            print("[DeviceModeManager] Generated new deviceID and saved to Keychain: \(newID)")
+            #endif
         }
         
         // Load or generate device name
@@ -79,5 +99,68 @@ class DeviceModeManager: ObservableObject {
     
     var needsDeviceSelection: Bool {
         currentMode == nil
+    }
+
+    // MARK: - Keychain Helpers
+
+    /// Save a string value to Keychain (persists across app reinstalls)
+    private static func saveToKeychain(value: String, service: String, key: String) {
+        let data = value.data(using: .utf8)!
+
+        // Delete any existing item first
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new item
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+
+        #if DEBUG
+        if status != errSecSuccess {
+            print("[DeviceModeManager] Keychain save failed with status: \(status)")
+        }
+        #endif
+    }
+
+    /// Load a string value from Keychain
+    private static func loadFromKeychain(service: String, key: String) -> String? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let string = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        return string
+    }
+
+    /// Delete a value from Keychain
+    private static func deleteFromKeychain(service: String, key: String) {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: service,
+            kSecAttrAccount as String: key
+        ]
+        SecItemDelete(query as CFDictionary)
     }
 }

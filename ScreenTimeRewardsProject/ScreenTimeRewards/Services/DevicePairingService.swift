@@ -152,17 +152,38 @@ class DevicePairingService: ObservableObject {
     }
 
     /// Create monitoring zone with share for cross-account pairing
+    /// Now checks for existing zones and cleans them up to prevent zone accumulation
     func createMonitoringZoneForChild() async throws -> (zoneID: CKRecordZone.ID, share: CKShare) {
         let database = container.privateCloudDatabase
 
-        // 1. Create unique zone for this pairing session
+        // 1. Clean up any orphaned zones from previous pairings
+        // This prevents zone accumulation when re-pairing the same device
+        #if DEBUG
+        print("[DevicePairingService] Checking for orphaned zones before creating new pairing zone...")
+        #endif
+
+        do {
+            let cleanedCount = try await cloudKitSync.cleanupOrphanedZones()
+            #if DEBUG
+            if cleanedCount > 0 {
+                print("[DevicePairingService] ✅ Cleaned up \(cleanedCount) orphaned zone(s)")
+            }
+            #endif
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Zone cleanup failed (non-critical): \(error.localizedDescription)")
+            #endif
+            // Continue with pairing even if cleanup fails
+        }
+
+        // 2. Create unique zone for this pairing session
         let zoneID = CKRecordZone.ID(zoneName: "ChildMonitoring-\(UUID().uuidString)")
         let zone = CKRecordZone(zoneID: zoneID)
 
-        // 2. Save the zone
+        // 3. Save the zone
         let savedZone = try await database.save(zone)
 
-        // 3. Create root record for sharing
+        // 4. Create root record for sharing
         let rootRecordID = CKRecord.ID(recordName: "MonitoringSession-\(UUID().uuidString)", zoneID: savedZone.zoneID)
         let rootRecord = CKRecord(recordType: "MonitoringSession", recordID: rootRecordID)
         rootRecord["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
@@ -659,10 +680,44 @@ class DevicePairingService: ObservableObject {
         return getParentDeviceID() != nil
     }
 
-    /// Unpair device
+    /// Get all pairing info for display/debugging
+    func getPairingInfo() -> [String: Any]? {
+        return UserDefaults.standard.dictionary(forKey: "childPairingInfo")
+    }
+
+    /// Unpair child device from parent - clears all pairing data
+    /// Call this on the child device to disconnect from parent
     func unpairDevice() {
+        #if DEBUG
+        print("[DevicePairingService] ===== Child Unpairing from Parent =====")
+        #endif
+
+        // Clear parent device ID
         UserDefaults.standard.removeObject(forKey: "parentDeviceID")
-        // Additional cleanup as needed
+
+        // Clear zone/share info
+        UserDefaults.standard.removeObject(forKey: "parentSharedZoneID")
+        UserDefaults.standard.removeObject(forKey: "parentSharedZoneOwner")
+        UserDefaults.standard.removeObject(forKey: "parentSharedRootRecordName")
+        UserDefaults.standard.removeObject(forKey: "parentCommandsZoneID")
+
+        // Clear pairing info
+        UserDefaults.standard.removeObject(forKey: "childPairingInfo")
+
+        // Note: We don't reset the device mode - child can re-pair with a different parent
+        // and doesn't need to go through mode selection again
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ All pairing data cleared")
+        #endif
+    }
+
+    /// Check if child has valid pairing with zone info
+    func hasValidPairing() -> Bool {
+        guard let _ = getParentDeviceID() else { return false }
+        guard let _ = UserDefaults.standard.string(forKey: "parentSharedZoneID") else { return false }
+        return true
     }
 
 }
+

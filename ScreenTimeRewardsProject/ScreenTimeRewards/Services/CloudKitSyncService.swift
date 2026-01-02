@@ -82,6 +82,176 @@ class CloudKitSyncService: ObservableObject {
         return try context.fetch(fetchRequest)
     }
 
+    // MARK: - Zone Management
+
+    /// Find existing ChildMonitoring zones for a specific child device
+    /// Returns zones that contain records for this deviceID
+    func findExistingZonesForChild(deviceID: String) async throws -> [(zone: CKRecordZone, hasRecords: Bool)] {
+        let database = container.privateCloudDatabase
+        let allZones = try await database.allRecordZones()
+
+        var matchingZones: [(zone: CKRecordZone, hasRecords: Bool)] = []
+
+        for zone in allZones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            // Check if this zone has records for the specified deviceID
+            let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
+            let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+
+            do {
+                let (matches, _) = try await database.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 1)
+                let hasRecords = !matches.isEmpty
+                matchingZones.append((zone: zone, hasRecords: hasRecords))
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): hasRecords=\(hasRecords) for device \(deviceID)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] Error checking zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        return matchingZones
+    }
+
+    /// Delete all records in a zone and optionally delete the zone itself
+    func cleanupZone(_ zoneID: CKRecordZone.ID, deleteZone: Bool = true) async throws {
+        let database = container.privateCloudDatabase
+
+        #if DEBUG
+        print("[CloudKitSyncService] Cleaning up zone: \(zoneID.zoneName)")
+        #endif
+
+        // First, delete all records in the zone
+        let recordTypes = ["CD_RegisteredDevice", "CD_AppConfiguration", "CD_UsageRecord", "MonitoringSession"]
+
+        for recordType in recordTypes {
+            do {
+                let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
+                let (matches, _) = try await database.records(matching: query, inZoneWith: zoneID)
+
+                let recordIDsToDelete = matches.compactMap { (recordID, result) -> CKRecord.ID? in
+                    if case .success(_) = result { return recordID }
+                    return nil
+                }
+
+                if !recordIDsToDelete.isEmpty {
+                    let (_, deleteResults) = try await database.modifyRecords(saving: [], deleting: recordIDsToDelete)
+                    #if DEBUG
+                    print("[CloudKitSyncService] Deleted \(recordIDsToDelete.count) \(recordType) records")
+                    #endif
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] Error deleting \(recordType) records: \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        // Delete the zone itself if requested
+        if deleteZone {
+            do {
+                try await database.deleteRecordZone(withID: zoneID)
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Zone deleted: \(zoneID.zoneName)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] Error deleting zone: \(error.localizedDescription)")
+                #endif
+                throw error
+            }
+        }
+    }
+
+    /// Get all ChildMonitoring zones (for diagnostic/cleanup purposes)
+    func getAllChildMonitoringZones() async throws -> [CKRecordZone] {
+        let database = container.privateCloudDatabase
+        let allZones = try await database.allRecordZones()
+        return allZones.filter { $0.zoneID.zoneName.hasPrefix("ChildMonitoring-") }
+    }
+
+    /// Delete orphaned zones that have no active child devices
+    func cleanupOrphanedZones() async throws -> Int {
+        let database = container.privateCloudDatabase
+        let allZones = try await database.allRecordZones()
+        var deletedCount = 0
+
+        for zone in allZones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            // Check if this zone has any registered devices
+            let predicate = NSPredicate(value: true)
+            let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+
+            do {
+                let (matches, _) = try await database.records(matching: query, inZoneWith: zone.zoneID, resultsLimit: 1)
+
+                if matches.isEmpty {
+                    // No devices in this zone - it's orphaned
+                    #if DEBUG
+                    print("[CloudKitSyncService] Found orphaned zone (no devices): \(zone.zoneID.zoneName)")
+                    #endif
+
+                    try await cleanupZone(zone.zoneID, deleteZone: true)
+                    deletedCount += 1
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] Error checking zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Cleaned up \(deletedCount) orphaned zones")
+        #endif
+
+        return deletedCount
+    }
+
+    /// Unpair a child device from parent - deletes zone and all records
+    /// Called from parent device to remove a child
+    func unpairChildDevice(_ childDevice: RegisteredDevice) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Unpairing Child Device =====")
+        print("[CloudKitSyncService] Child Device ID: \(childDevice.deviceID ?? "unknown")")
+        print("[CloudKitSyncService] Zone: \(childDevice.sharedZoneID ?? "unknown")")
+        #endif
+
+        // 1. If we have zone info, delete that specific zone
+        if let zoneName = childDevice.sharedZoneID,
+           let zoneOwner = childDevice.sharedZoneOwner {
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+
+            #if DEBUG
+            print("[CloudKitSyncService] Deleting zone: \(zoneName)")
+            #endif
+
+            try await cleanupZone(zoneID, deleteZone: true)
+
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Zone deleted successfully")
+            #endif
+        } else if let deviceID = childDevice.deviceID {
+            // Fallback: Find zones containing this device and clean them up
+            #if DEBUG
+            print("[CloudKitSyncService] No zone info, searching for zones with device \(deviceID)")
+            #endif
+
+            let matchingZones = try await findExistingZonesForChild(deviceID: deviceID)
+            for (zone, hasRecords) in matchingZones where hasRecords {
+                try await cleanupZone(zone.zoneID, deleteZone: true)
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Cleaned up zone: \(zone.zoneID.zoneName)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Child device unpaired successfully")
+        #endif
+    }
+
     // MARK: - Parent Device Methods
 
     /// Fetch linked child devices from private database (including shared zones)

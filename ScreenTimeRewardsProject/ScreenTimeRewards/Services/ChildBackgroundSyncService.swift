@@ -83,11 +83,20 @@ class ChildBackgroundSyncService {
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling usage upload task")
         #endif
-        
+
+        // Check if still paired with parent before syncing
+        guard DevicePairingService.shared.hasValidPairing() else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⏭️ Skipping upload - no valid pairing")
+            #endif
+            task.setTaskCompleted(success: true) // Complete without error since unpaired is expected state
+            return
+        }
+
         task.expirationHandler = {
             task.setTaskCompleted(success: false)
         }
-        
+
         Task {
             do {
                 // Upload usage records to parent's shared zone (Task 7)
@@ -118,11 +127,20 @@ class ChildBackgroundSyncService {
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling config check task")
         #endif
-        
+
+        // Check if still paired with parent before syncing
+        guard DevicePairingService.shared.hasValidPairing() else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⏭️ Skipping config check - no valid pairing")
+            #endif
+            task.setTaskCompleted(success: true) // Complete without error since unpaired is expected state
+            return
+        }
+
         task.expirationHandler = {
             task.setTaskCompleted(success: false)
         }
-        
+
         Task {
             do {
                 // Check for configuration updates

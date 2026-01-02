@@ -389,7 +389,63 @@ class ParentRemoteViewModel: ObservableObject {
 
         isLoading = false
     }
-    
+
+    /// Unpair (remove) a child device from this parent
+    /// Deletes the CloudKit zone and all associated data
+    func unpairChildDevice(_ device: RegisteredDevice) async -> Bool {
+        guard let deviceID = device.deviceID else {
+            errorMessage = "Cannot unpair: Device ID is missing"
+            return false
+        }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Unpairing Child Device =====")
+        print("[ParentRemoteViewModel] Device: \(device.deviceName ?? deviceID)")
+        #endif
+
+        isLoading = true
+        errorMessage = nil
+
+        do {
+            // Delete the CloudKit zone and all records
+            try await cloudKitService.unpairChildDevice(device)
+
+            // Remove from local list
+            linkedChildDevices.removeAll { $0.deviceID == deviceID }
+
+            // If this was the selected device, clear selection
+            if selectedChildDevice?.deviceID == deviceID {
+                selectedChildDevice = linkedChildDevices.first
+                if let newSelected = selectedChildDevice {
+                    await loadChildData(for: newSelected)
+                } else {
+                    // No more children - clear all data
+                    usageRecords = []
+                    appConfigurations = []
+                    childLearningApps = []
+                    childRewardApps = []
+                    childLearningAppsFullConfig = []
+                    childRewardAppsFullConfig = []
+                }
+            }
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] ✅ Child device unpaired successfully")
+            #endif
+
+            isLoading = false
+            return true
+
+        } catch {
+            #if DEBUG
+            print("[ParentRemoteViewModel] ❌ Failed to unpair child: \(error)")
+            #endif
+            errorMessage = "Failed to remove child device: \(error.localizedDescription)"
+            isLoading = false
+            return false
+        }
+    }
+
     /// Load usage data and configurations for a specific child device
     func loadChildData(for device: RegisteredDevice) async {
         isLoading = true
