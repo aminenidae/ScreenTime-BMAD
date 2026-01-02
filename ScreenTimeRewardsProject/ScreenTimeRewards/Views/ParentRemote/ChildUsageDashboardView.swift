@@ -289,21 +289,10 @@ private struct ChildHomeTabView: View {
     let device: RegisteredDevice
     @Environment(\.colorScheme) var colorScheme
 
+    /// Today's usage from daily history (accurate per-day data, not aggregated totals)
     var todayUsage: (learningTime: Int, rewardTime: Int) {
-        let calendar = Calendar.current
-        let todayRecords = viewModel.usageRecords.filter {
-            calendar.isDateInToday($0.sessionStart ?? Date())
-        }
-
-        let learningTime = todayRecords
-            .filter { $0.category == "Learning" }
-            .reduce(0) { $0 + Int($1.totalSeconds) }
-
-        let rewardTime = todayRecords
-            .filter { $0.category == "Reward" }
-            .reduce(0) { $0 + Int($1.totalSeconds) }
-
-        return (learningTime, rewardTime)
+        let totals = viewModel.todayTotals
+        return (totals.learningSeconds, totals.rewardSeconds)
     }
 
     var body: some View {

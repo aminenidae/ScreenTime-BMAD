@@ -296,6 +296,27 @@ class ParentRemoteViewModel: ObservableObject {
             .sorted { $0.date > $1.date }
     }
 
+    /// Today's usage totals from daily history (accurate per-day data)
+    var todayTotals: (learningSeconds: Int, rewardSeconds: Int) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        var learning = 0
+        var reward = 0
+
+        for record in childDailyUsageHistory {
+            if calendar.isDate(record.date, inSameDayAs: today) {
+                if record.category == "Learning" {
+                    learning += record.seconds
+                } else if record.category == "Reward" {
+                    reward += record.seconds
+                }
+            }
+        }
+
+        return (learning, reward)
+    }
+
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
     private var cancellables = Set<AnyCancellable>()
