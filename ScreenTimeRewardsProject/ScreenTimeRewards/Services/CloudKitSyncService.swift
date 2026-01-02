@@ -2580,30 +2580,122 @@ class CloudKitSyncService: ObservableObject {
         let dateFormatter = DateFormatter()
         dateFormatter.dateFormat = "yyyy-MM-dd"
 
-        // Query existing history records for upsert
-        var existingByKey: [String: CKRecord] = [:]
-        do {
-            let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
-            let query = CKQuery(recordType: "CD_DailyUsageHistory", predicate: predicate)
-            let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zoneID)
-            for (_, result) in matches {
+        // Use CKFetchRecordZoneChangesOperation to fetch ALL existing history records
+        // This doesn't rely on queryable field indexes
+        var allExistingRecords: [CKRecord] = []
+
+        let fetchConfig = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        fetchConfig.previousServerChangeToken = nil // Fetch all records
+
+        let fetchOperation = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: fetchConfig])
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            fetchOperation.recordWasChangedBlock = { recordID, result in
                 if case .success(let record) = result,
-                   let logicalID = record["CD_logicalID"] as? String,
-                   let date = record["CD_date"] as? Date {
-                    let key = "\(logicalID)-\(dateFormatter.string(from: date))"
-                    existingByKey[key] = record
+                   record.recordType == "CD_DailyUsageHistory" {
+                    allExistingRecords.append(record)
                 }
             }
+            fetchOperation.fetchRecordZoneChangesResultBlock = { _ in
+                continuation.resume()
+            }
+            sharedDB.add(fetchOperation)
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Fetched \(allExistingRecords.count) DailyUsageHistory records from zone")
+        #endif
+
+        // Build lookup by key and detect duplicates
+        var existingByKey: [String: CKRecord] = [:]
+        var duplicatesToDelete: [CKRecord.ID] = []
+        var recordsByKey: [String: [CKRecord]] = [:]
+
+        // Get valid logicalIDs from current apps
+        let validLogicalIDs = Set(allApps.keys)
+
+        for record in allExistingRecords {
+            guard let logicalID = record["CD_logicalID"] as? String,
+                  let date = record["CD_date"] as? Date else { continue }
+
+            let key = "\(logicalID)-\(dateFormatter.string(from: date))"
+            recordsByKey[key, default: []].append(record)
+        }
+
+        // Deduplicate and detect orphans
+        for (key, records) in recordsByKey {
+            // Extract logicalID from key
+            let logicalID = String(key.split(separator: "-").first ?? "")
+
+            // Check if this logicalID is still valid (app still tracked)
+            if !validLogicalIDs.contains(logicalID) {
+                // Orphan - app no longer tracked, delete all records for this logicalID
+                for record in records {
+                    duplicatesToDelete.append(record.recordID)
+                }
+                #if DEBUG
+                let displayName = records.first?["CD_displayName"] as? String ?? "Unknown"
+                print("[CloudKitSyncService] 🗑️ Orphan history found: '\(displayName)' (logicalID: \(logicalID)) - \(records.count) records")
+                #endif
+                continue
+            }
+
+            if records.count > 1 {
+                // Multiple records for same key - keep the one with highest seconds
+                let sorted = records.sorted { r1, r2 in
+                    let s1 = r1["CD_seconds"] as? Int ?? 0
+                    let s2 = r2["CD_seconds"] as? Int ?? 0
+                    return s1 > s2
+                }
+                existingByKey[key] = sorted[0]
+                for record in sorted.dropFirst() {
+                    duplicatesToDelete.append(record.recordID)
+                }
+                #if DEBUG
+                let displayName = sorted[0]["CD_displayName"] as? String ?? "Unknown"
+                print("[CloudKitSyncService] 🔄 Deduping history '\(displayName)': keeping 1, deleting \(sorted.count - 1)")
+                #endif
+            } else if let record = records.first {
+                existingByKey[key] = record
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Found \(existingByKey.count) existing history records after dedup")
+        if !duplicatesToDelete.isEmpty {
+            print("[CloudKitSyncService] 🗑️ Found \(duplicatesToDelete.count) stale history records to delete")
+        }
+        #endif
+
+        // Delete orphans and duplicates in batches
+        if !duplicatesToDelete.isEmpty {
+            let deleteBatchSize = 350
+            var deletedTotal = 0
+
+            for batchStart in stride(from: 0, to: duplicatesToDelete.count, by: deleteBatchSize) {
+                let batchEnd = min(batchStart + deleteBatchSize, duplicatesToDelete.count)
+                let batch = Array(duplicatesToDelete[batchStart..<batchEnd])
+
+                do {
+                    let (_, deletedIDs) = try await sharedDB.modifyRecords(saving: [], deleting: batch)
+                    deletedTotal += deletedIDs.count
+                    #if DEBUG
+                    print("[CloudKitSyncService] Deleted batch \(batchStart/deleteBatchSize + 1): \(deletedIDs.count) history records")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ Error deleting history batch: \(error)")
+                    #endif
+                }
+            }
+
             #if DEBUG
-            print("[CloudKitSyncService] Found \(existingByKey.count) existing history records in CloudKit")
-            #endif
-        } catch {
-            #if DEBUG
-            print("[CloudKitSyncService] ⚠️ Could not query existing history records: \(error.localizedDescription)")
+            print("[CloudKitSyncService] ✅ Deleted \(deletedTotal) stale history records total")
             #endif
         }
 
         var toSave: [CKRecord] = []
+        var alreadyAddedKeys: Set<String> = [] // Track to prevent duplicates
         var updatedCount = 0
         var createdCount = 0
 
@@ -2615,6 +2707,10 @@ class CloudKitSyncService: ObservableObject {
             for summary in app.dailyHistory where summary.date >= cutoffDate {
                 let dateStr = dateFormatter.string(from: summary.date)
                 let key = "\(logicalID)-\(dateStr)"
+
+                // Skip if already added (prevents duplicate record error)
+                guard !alreadyAddedKeys.contains(key) else { continue }
+                alreadyAddedKeys.insert(key)
 
                 let rec: CKRecord
                 if let existing = existingByKey[key] {
@@ -2643,6 +2739,10 @@ class CloudKitSyncService: ObservableObject {
             if app.todaySeconds > 0 {
                 let dateStr = dateFormatter.string(from: today)
                 let key = "\(logicalID)-\(dateStr)"
+
+                // Skip if already added from dailyHistory
+                guard !alreadyAddedKeys.contains(key) else { continue }
+                alreadyAddedKeys.insert(key)
 
                 let rec: CKRecord
                 if let existing = existingByKey[key] {
