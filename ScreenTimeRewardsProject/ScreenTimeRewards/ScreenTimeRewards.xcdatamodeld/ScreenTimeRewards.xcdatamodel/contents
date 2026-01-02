@@ -182,6 +182,8 @@
         <attribute name="lastSyncDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="parentDeviceID" optional="YES" attributeType="String"/>
         <attribute name="registrationDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="sharedZoneID" optional="YES" attributeType="String"/>
+        <attribute name="sharedZoneOwner" optional="YES" attributeType="String"/>
         <attribute name="subscriptionTier" optional="YES" attributeType="String" defaultValueString="free"/>
         <fetchIndex name="byDeviceID">
             <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>

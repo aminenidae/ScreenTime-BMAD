@@ -165,6 +165,10 @@ class CloudKitSyncService: ObservableObject {
         device.registrationDate = record["CD_registrationDate"] as? Date
         if let active = record["CD_isActive"] as? Int { device.isActive = active != 0 } else { device.isActive = false }
 
+        // Extract zone info from the CKRecord for zone-specific queries
+        device.sharedZoneID = record.recordID.zoneID.zoneName
+        device.sharedZoneOwner = record.recordID.zoneID.ownerName
+
         return device
     }
 
@@ -1474,19 +1478,64 @@ class CloudKitSyncService: ObservableObject {
 
     /// Fetch child's app configurations with full schedule/goals/streaks data
     /// Returns FullAppConfigDTO objects that include decoded JSON fields
-    func fetchChildAppConfigurationsFullDTO(deviceID: String) async throws -> [FullAppConfigDTO] {
+    func fetchChildAppConfigurationsFullDTO(deviceID: String, zoneID: String? = nil, zoneOwner: String? = nil) async throws -> [FullAppConfigDTO] {
         #if DEBUG
         print("[CloudKitSyncService] ===== Fetching Full App Configurations (DTO) =====")
         print("[CloudKitSyncService] Device ID: \(deviceID)")
+        if let zoneID = zoneID {
+            print("[CloudKitSyncService] Zone-specific query: \(zoneID)")
+        }
         #endif
 
         let db = container.privateCloudDatabase
         var results: [FullAppConfigDTO] = []
 
-        // Enumerate all zones - shared zones appear in parent's private database
+        // If zone info provided, query ONLY that specific zone (optimization)
+        if let zoneName = zoneID, let ownerName = zoneOwner {
+            let specificZoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+
+            #if DEBUG
+            print("[CloudKitSyncService] Using zone-specific fetch: \(zoneName)")
+            #endif
+
+            do {
+                let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
+                let query = CKQuery(recordType: "CD_AppConfiguration", predicate: predicate)
+                let (matches, _) = try await db.records(matching: query, inZoneWith: specificZoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zoneName): found \(matches.count) app config records")
+                #endif
+
+                for (_, res) in matches {
+                    if case .success(let record) = res {
+                        let dto = FullAppConfigDTO(from: record)
+                        results.append(dto)
+
+                        #if DEBUG
+                        print("[CloudKitSyncService]   - \(dto.displayName) (\(dto.category))")
+                        #endif
+                    }
+                }
+
+                // Zone-specific query successful - return directly (no dedup needed)
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Zone-specific fetch returned \(results.count) configs")
+                #endif
+                return results
+
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Zone-specific fetch failed, falling back to all zones: \(error.localizedDescription)")
+                #endif
+                // Fall through to all-zone search
+            }
+        }
+
+        // Fallback: Enumerate all zones - shared zones appear in parent's private database
         let zones = try await db.allRecordZones()
         #if DEBUG
-        print("[CloudKitSyncService] Found \(zones.count) zones to search")
+        print("[CloudKitSyncService] Falling back to all-zone search. Found \(zones.count) zones")
         #endif
 
         for zone in zones {

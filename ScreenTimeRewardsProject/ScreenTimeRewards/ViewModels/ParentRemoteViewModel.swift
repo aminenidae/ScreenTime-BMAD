@@ -455,6 +455,9 @@ class ParentRemoteViewModel: ObservableObject {
         #if DEBUG
         print("[ParentRemoteViewModel] ===== Loading Child App Configurations =====")
         print("[ParentRemoteViewModel] Device ID: \(deviceID)")
+        if let zoneID = device.sharedZoneID {
+            print("[ParentRemoteViewModel] Zone-specific fetch: \(zoneID)")
+        }
         #endif
 
         do {
@@ -470,7 +473,12 @@ class ParentRemoteViewModel: ObservableObject {
             let reward = configs.filter { $0.category == "Reward" && $0.isEnabled }
 
             // Also fetch full DTOs with schedule/goals/streaks
-            let fullConfigs = try await cloudKitService.fetchChildAppConfigurationsFullDTO(deviceID: deviceID)
+            // Use zone-specific query if zone info available (optimization)
+            let fullConfigs = try await cloudKitService.fetchChildAppConfigurationsFullDTO(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
 
             #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(fullConfigs.count) full app configurations (DTOs)")
