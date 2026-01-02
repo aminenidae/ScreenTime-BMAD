@@ -481,7 +481,8 @@ private struct ChildLearningTabView: View {
                             AppConfigRow(
                                 app: app,
                                 usage: usageRecords.first { $0.logicalID == app.logicalID },
-                                categoryColor: AppTheme.vibrantTeal
+                                categoryColor: AppTheme.vibrantTeal,
+                                appHistory: historyByApp[app.logicalID ?? ""] ?? []
                             )
                             .padding(.horizontal)
                         }
@@ -547,7 +548,8 @@ private struct ChildRewardsTabView: View {
                             AppConfigRow(
                                 app: app,
                                 usage: usageRecords.first { $0.logicalID == app.logicalID },
-                                categoryColor: AppTheme.playfulCoral
+                                categoryColor: AppTheme.playfulCoral,
+                                appHistory: historyByApp[app.logicalID ?? ""] ?? []
                             )
                             .padding(.horizontal)
                         }
@@ -599,6 +601,7 @@ private struct AppConfigRow: View {
     let app: AppConfiguration
     let usage: UsageRecord?
     let categoryColor: Color
+    var appHistory: [DailyUsageHistoryDTO] = []
     @Environment(\.colorScheme) var colorScheme
 
     var displayName: String {
@@ -610,7 +613,19 @@ private struct AppConfigRow: View {
         return "Privacy Protected \(category) App #\(appNumber)"
     }
 
+    /// Today's usage from daily history
+    var todayTotal: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        return appHistory
+            .filter { calendar.isDate($0.date, inSameDayAs: today) }
+            .reduce(0) { $0 + $1.seconds }
+    }
+
     var usageTime: String {
+        if !appHistory.isEmpty {
+            return TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal))
+        }
         guard let record = usage else { return "0m" }
         return TimeFormatting.formatSecondsCompact(TimeInterval(record.totalSeconds))
     }
@@ -632,8 +647,8 @@ private struct AppConfigRow: View {
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .lineLimit(1)
 
-                if usage != nil {
-                    Text("Last 7 days")
+                if !appHistory.isEmpty || usage != nil {
+                    Text("Today's Usage")
                         .font(.caption)
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 } else {
@@ -678,14 +693,12 @@ private struct FullAppConfigRow: View {
         return TimeFormatting.formatSecondsCompact(TimeInterval(record.totalSeconds))
     }
 
-    /// Total time from last 7 days of history
-    var last7DaysTotal: Int {
+    /// Today's usage from daily history
+    var todayTotal: Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let sevenDaysAgo = calendar.date(byAdding: .day, value: -7, to: today)!
-
         return appHistory
-            .filter { $0.date >= sevenDaysAgo }
+            .filter { calendar.isDate($0.date, inSameDayAs: today) }
             .reduce(0) { $0 + $1.seconds }
     }
 
@@ -731,7 +744,7 @@ private struct FullAppConfigRow: View {
                 }
 
                 if !appHistory.isEmpty || usage != nil {
-                    Text("Last 7 days")
+                    Text("Today's Usage")
                         .font(.caption)
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 } else {
@@ -743,9 +756,9 @@ private struct FullAppConfigRow: View {
 
             Spacer()
 
-            // Show historical total if available, otherwise fallback to session data
+            // Show today's usage if available, otherwise fallback to session data
             if !appHistory.isEmpty {
-                Text(TimeFormatting.formatSecondsCompact(TimeInterval(last7DaysTotal)))
+                Text(TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal)))
                     .font(.headline)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
             } else {
