@@ -2804,8 +2804,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] Triggering immediate usage upload to parent...")
             #endif
 
-            // Check if device is paired with a parent
-            if UserDefaults.standard.string(forKey: "parentDeviceID") != nil {
+            // Check if device is paired with a parent (supports multi-parent format)
+            if !DevicePairingService.shared.getPairedParents().isEmpty {
                 let childSyncService = ChildBackgroundSyncService.shared
                 await childSyncService.triggerImmediateUsageUpload()
             } else {

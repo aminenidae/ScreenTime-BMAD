@@ -324,8 +324,9 @@ class ChildBackgroundSyncService {
         print("[ChildBackgroundSyncService] ===== Uploading Usage Records To Parent =====")
         #endif
         
-        // Check if device is paired with a parent
-        guard UserDefaults.standard.string(forKey: "parentDeviceID") != nil else {
+        // Check if device is paired with a parent (supports multi-parent format)
+        let pairedParents = DevicePairingService.shared.getPairedParents()
+        guard !pairedParents.isEmpty else {
             #if DEBUG
             print("[ChildBackgroundSyncService] Device not paired with parent, skipping upload")
             #endif
