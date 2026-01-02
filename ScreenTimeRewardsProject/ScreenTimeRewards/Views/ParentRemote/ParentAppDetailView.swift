@@ -6,10 +6,22 @@ struct ParentAppDetailView: View {
     let config: FullAppConfigDTO
     var shieldState: ShieldStateDTO?
     var appHistory: [DailyUsageHistoryDTO]
+    var childLearningApps: [FullAppConfigDTO] = []  // For linked apps picker
+    var onConfigUpdated: ((FullAppConfigDTO) -> Void)?  // Callback to update ViewModel
 
     @State private var selectedTimeRange: TimeRange = .week
+    @State private var isEditSheetPresented = false
+    @State private var editingConfig: MutableAppConfigDTO?
+    @State private var syncStatus: ConfigSyncStatus = .idle
+    @State private var showingSyncAlert = false
+    @State private var syncAlertMessage = ""
+
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
+
+    enum ConfigSyncStatus {
+        case idle, sending, success, failed
+    }
 
     enum TimeRange: String, CaseIterable {
         case week = "7 Days"
@@ -90,6 +102,80 @@ struct ParentAppDetailView: View {
         .background(AppTheme.background(for: colorScheme))
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .navigationBarTrailing) {
+                Button {
+                    editingConfig = MutableAppConfigDTO(from: config)
+                    isEditSheetPresented = true
+                } label: {
+                    HStack(spacing: 4) {
+                        Image(systemName: "pencil")
+                        Text("Edit")
+                    }
+                    .foregroundColor(categoryColor)
+                }
+            }
+        }
+        .sheet(isPresented: $isEditSheetPresented) {
+            ParentAppEditSheet(
+                config: $editingConfig,
+                childLearningApps: childLearningApps.filter { $0.category == "Learning" },
+                onSave: { updatedConfig in
+                    Task {
+                        await sendConfigUpdate(updatedConfig)
+                    }
+                },
+                onCancel: {
+                    isEditSheetPresented = false
+                    editingConfig = nil
+                }
+            )
+        }
+        .alert(syncStatus == .success ? "Changes Sent" : "Sync Error", isPresented: $showingSyncAlert) {
+            Button("OK") {
+                if syncStatus == .success {
+                    isEditSheetPresented = false
+                    editingConfig = nil
+                }
+            }
+        } message: {
+            Text(syncAlertMessage)
+        }
+    }
+
+    // MARK: - Edit Actions
+
+    private func sendConfigUpdate(_ updatedConfig: MutableAppConfigDTO) async {
+        syncStatus = .sending
+
+        let payload = FullConfigUpdatePayload(
+            from: updatedConfig,
+            parentDeviceID: DeviceModeManager.shared.deviceID
+        )
+
+        do {
+            // Send command directly to CloudKit shared zone (not via Core Data)
+            try await CloudKitSyncService.shared.sendConfigCommandToSharedZone(
+                deviceID: updatedConfig.deviceID,
+                payload: payload
+            )
+
+            await MainActor.run {
+                syncStatus = .success
+                syncAlertMessage = "Changes have been sent to the child's device. They will apply when the device syncs."
+                showingSyncAlert = true
+
+                // Optimistic update: update ViewModel immediately
+                let updatedFullConfig = config.applying(changes: updatedConfig)
+                onConfigUpdated?(updatedFullConfig)
+            }
+        } catch {
+            await MainActor.run {
+                syncStatus = .failed
+                syncAlertMessage = "Failed to send changes: \(error.localizedDescription)"
+                showingSyncAlert = true
+            }
+        }
     }
 
     // MARK: - Header Section

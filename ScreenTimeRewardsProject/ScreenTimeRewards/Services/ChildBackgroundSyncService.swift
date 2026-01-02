@@ -150,16 +150,32 @@ class ChildBackgroundSyncService {
         #if DEBUG
         print("[ChildBackgroundSyncService] Checking for configuration updates")
         #endif
-        
+
+        // 1. Process any pending full config commands from parent
+        do {
+            let processedCount = try await ChildConfigCommandProcessor.shared.processPendingCommands()
+            #if DEBUG
+            if processedCount > 0 {
+                print("[ChildBackgroundSyncService] Processed \(processedCount) parent config command(s)")
+            }
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] Error processing parent commands: \(error)")
+            #endif
+            // Continue even if command processing fails - don't block other updates
+        }
+
+        // 2. Download and apply basic configuration updates (legacy path)
         do {
             let configurations = try await cloudKitService.downloadParentConfiguration()
-            
+
             // Apply configurations
             let screenTimeService = ScreenTimeService.shared
             for config in configurations {
                 screenTimeService.applyCloudKitConfiguration(config)
             }
-            
+
             #if DEBUG
             print("[ChildBackgroundSyncService] Applied \(configurations.count) configuration updates")
             #endif

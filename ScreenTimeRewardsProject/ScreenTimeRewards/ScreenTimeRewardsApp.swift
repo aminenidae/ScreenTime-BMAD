@@ -73,11 +73,22 @@ struct ScreenTimeRewardsApp: App {
                 if modeManager.isChildDevice,
                    UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil {
                     Task {
-                        // First, backfill AppConfiguration entities from existing persisted apps
+                        // FIRST: Process any pending configuration commands from parent
+                        // Must happen BEFORE uploading configs, otherwise we overwrite parent's changes!
+                        do {
+                            let commandCount = try await ChildConfigCommandProcessor.shared.processPendingCommands()
+                            if commandCount > 0 {
+                                print("[ScreenTimeRewardsApp] ✅ Processed \(commandCount) config command(s) from parent")
+                            }
+                        } catch {
+                            print("[ScreenTimeRewardsApp] ⚠️ Failed to process config commands: \(error.localizedDescription)")
+                        }
+
+                        // THEN: Backfill AppConfiguration entities from existing persisted apps
                         // This handles apps configured before this sync feature was added
                         await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
 
-                        // Then upload app configurations to CloudKit
+                        // Upload app configurations to CloudKit (now includes any parent changes)
                         do {
                             try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
                             print("[ScreenTimeRewardsApp] ✅ Synced app configurations to parent")

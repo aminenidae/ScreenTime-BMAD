@@ -75,10 +75,81 @@ class DevicePairingService: ObservableObject {
         let parentDeviceID: String
         let verificationToken: String
         let sharedZoneID: String?  // Make optional to maintain backward compatibility
+        let commandsShareURL: String?  // Share URL for parent's command zone
         let timestamp: Date
     }
 
     private init() {}
+
+    /// Create parent commands zone with share for sending commands to children
+    /// This zone is owned by parent and shared with all children
+    func createParentCommandsZone() async throws -> (zoneID: CKRecordZone.ID, share: CKShare) {
+        let database = container.privateCloudDatabase
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+
+        // Zone name is deterministic based on parent device ID
+        let zoneName = "ParentCommands-\(parentDeviceID)"
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+
+        // Check if zone already exists
+        let existingZones = try await database.allRecordZones()
+        if let existing = existingZones.first(where: { $0.zoneID.zoneName == zoneName }) {
+            // Zone exists, try to find existing share
+            #if DEBUG
+            print("[DevicePairingService] ParentCommands zone already exists: \(zoneName)")
+            #endif
+
+            // Query for existing share root record
+            let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: existing.zoneID)
+            do {
+                let rootRecord = try await database.record(for: rootRecordID)
+                // Try to fetch the share for this record
+                if let shareRef = rootRecord.share {
+                    let share = try await database.record(for: shareRef.recordID) as! CKShare
+                    return (zoneID: existing.zoneID, share: share)
+                }
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Existing zone but no share, will create new share")
+                #endif
+            }
+        }
+
+        // Create new zone
+        let zone = CKRecordZone(zoneID: zoneID)
+        let savedZone = try await database.save(zone)
+
+        #if DEBUG
+        print("[DevicePairingService] Created ParentCommands zone: \(savedZone.zoneID.zoneName)")
+        #endif
+
+        // Create root record for sharing
+        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: savedZone.zoneID)
+        let rootRecord = CKRecord(recordType: "CommandsRoot", recordID: rootRecordID)
+        rootRecord["parentDeviceID"] = parentDeviceID as CKRecordValue
+        rootRecord["createdAt"] = Date() as CKRecordValue
+
+        // Create share with readWrite permission
+        let share = CKShare(rootRecord: rootRecord)
+        share[CKShare.SystemFieldKey.title] = "Parent Commands" as CKRecordValue
+        share.publicPermission = .readWrite
+
+        // Save root record and share together
+        let (saveResults, _) = try await database.modifyRecords(saving: [rootRecord, share], deleting: [])
+
+        // Extract saved share
+        var savedShare = share
+        if let result = saveResults[share.recordID], case .success(let record) = result, let s = record as? CKShare {
+            savedShare = s
+        }
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ ParentCommands zone shared")
+        print("[DevicePairingService] Share URL: \(savedShare.url?.absoluteString ?? "nil")")
+        #endif
+
+        return (zoneID: savedZone.zoneID, share: savedShare)
+    }
 
     /// Create monitoring zone with share for cross-account pairing
     func createMonitoringZoneForChild() async throws -> (zoneID: CKRecordZone.ID, share: CKShare) {
@@ -134,11 +205,21 @@ class DevicePairingService: ObservableObject {
 
     /// Generate QR code for pairing with session ID and token
     func generatePairingQRCode(sessionID: String, verificationToken: String, share: CKShare, zoneID: CKRecordZone.ID) -> CIImage? {
+        // Read the commands share URL from the stored session data
+        var commandsShareURL: String? = nil
+        if let sessionData = UserDefaults.standard.dictionary(forKey: "pairingSession_\(sessionID)") {
+            commandsShareURL = sessionData["commandsShareURL"] as? String
+            if commandsShareURL?.isEmpty == true {
+                commandsShareURL = nil
+            }
+        }
+
         let payload = PairingPayload(
             shareURL: share.url?.absoluteString ?? "local://screentimerewards.com/pair/\(sessionID)",
             parentDeviceID: DeviceModeManager.shared.deviceID,
             verificationToken: verificationToken,
             sharedZoneID: zoneID.zoneName,
+            commandsShareURL: commandsShareURL,
             timestamp: Date()
         )
 
@@ -209,6 +290,26 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] Share URL: \(share.url?.absoluteString ?? "nil")")
         #endif
 
+        // Also create/get the parent commands zone for sending commands to children
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Creating ParentCommands zone for remote control...")
+        #endif
+
+        var commandsShareURL: String? = nil
+        do {
+            let (_, commandsShare) = try await createParentCommandsZone()
+            commandsShareURL = commandsShare.url?.absoluteString
+            #if DEBUG
+            print("[DevicePairingService] ✅ ParentCommands zone ready")
+            print("[DevicePairingService] Commands Share URL: \(commandsShareURL ?? "nil")")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
+            #endif
+            // Non-critical - pairing can still proceed, commands may need manual sharing later
+        }
+
         // Store session locally with expiration
         let sessionData: [String: Any] = [
             "sessionID": sessionID,
@@ -217,6 +318,7 @@ class DevicePairingService: ObservableObject {
             "parentDeviceName": DeviceModeManager.shared.deviceName,
             "sharedZoneID": zoneID.zoneName,
             "shareURL": share.url?.absoluteString ?? "",
+            "commandsShareURL": commandsShareURL ?? "",
             "createdAt": Date(),
             "expiresAt": Date().addingTimeInterval(600) // 10 minutes
         ]
@@ -249,6 +351,7 @@ class DevicePairingService: ObservableObject {
             parentDeviceID: DeviceModeManager.shared.deviceID,
             verificationToken: UUID().uuidString,
             sharedZoneID: nil,
+            commandsShareURL: nil,
             timestamp: Date()
         )
 
@@ -384,6 +487,39 @@ class DevicePairingService: ObservableObject {
 
         // 3. Accept the share
         try await container.accept(metadata)
+
+        // 3b. Also accept the commands share if provided (for receiving parent commands)
+        if let commandsShareURLString = payload.commandsShareURL,
+           let commandsShareURL = URL(string: commandsShareURLString) {
+            #if DEBUG
+            print("[DevicePairingService] 🔵 Also accepting parent commands share...")
+            #endif
+
+            do {
+                let commandsMetadata = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKShare.Metadata, Error>) in
+                    container.fetchShareMetadata(with: commandsShareURL) { metadata, error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let metadata = metadata {
+                            continuation.resume(returning: metadata)
+                        } else {
+                            continuation.resume(throwing: NSError(domain: "PairingError", code: -1,
+                                                                userInfo: [NSLocalizedDescriptionKey: "Unable to fetch commands share metadata."]))
+                        }
+                    }
+                }
+                try await container.accept(commandsMetadata)
+                UserDefaults.standard.set(commandsMetadata.rootRecordID.zoneID.zoneName, forKey: "parentCommandsZoneID")
+                #if DEBUG
+                print("[DevicePairingService] ✅ Parent commands share accepted")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Failed to accept commands share (non-critical): \(error.localizedDescription)")
+                #endif
+                // Non-critical - can be accepted later when receiving first command
+            }
+        }
 
         // 4. Save parent device ID and shared zone ID locally
         UserDefaults.standard.set(payload.parentDeviceID, forKey: "parentDeviceID")

@@ -234,6 +234,246 @@ Displays app with full config:
 
 ---
 
+---
+
+## CRITICAL BUG: Parent-to-Child Command Sync Failure
+
+**Date Diagnosed:** January 1, 2025
+**Status:** FIXED (Implementation Complete)
+**Severity:** Critical - Commands from parent device are not reaching child device
+
+---
+
+### Problem Statement
+
+When a parent modifies app configuration from the Parent Remote dashboard, the changes appear to save successfully but **never reach the child device**. The `ConfigurationCommand` records are not being persisted to CloudKit.
+
+---
+
+### Symptoms
+
+1. Parent changes app config (e.g., toggles learning/reward category)
+2. Logs show: `✅ Command saved to shared zone: ChildMonitoring-*`
+3. Child device never receives the command
+4. CloudKit Dashboard shows **zero** `ConfigurationCommand` records in the shared zone
+5. Child logs show: `Field 'recordName' is not marked queryable` when trying to fetch commands
+
+---
+
+### Root Cause Analysis
+
+#### Investigation Steps
+
+1. **Verified CloudKit schema** - `ConfigurationCommand` record type exists with all required fields (13 fields)
+2. **Checked zone existence** - `ChildMonitoring-*` zone exists as a shared zone
+3. **Verified zone ownership** - Zone shows `__defaultOwner__` indicating it's in the owner's private database
+4. **Confirmed no records** - Both `ConfigurationCommand` and `CD_ConfigurationCommand` have zero records in the zone
+
+#### The Architectural Flaw
+
+The current code attempts an **impossible operation**:
+
+```
+CURRENT (BROKEN) FLOW:
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. Child creates ChildMonitoring-* zone in CHILD's private DB      │
+│  2. Child shares zone WITH parent (gives parent READ access)        │
+│  3. Parent tries to WRITE command to child's zone                   │
+│  4. Parent calls: container.privateCloudDatabase.save(record)       │
+│     └─> This saves to PARENT's private DB, not child's!            │
+│  5. Save "succeeds" locally but record goes nowhere useful          │
+│  6. Child polls their own zone - finds nothing                      │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+**Key insight:** When parent calls `container.privateCloudDatabase`, they access THEIR OWN private database. They cannot write records into a zone that lives in the CHILD's private database, even if that zone is shared with them.
+
+**CloudKit sharing provides READ access, not WRITE access to another user's zone.**
+
+#### Code Location
+
+`CloudKitSyncService.swift` line 282-343:
+```swift
+func sendConfigCommandToSharedZone(deviceID: String, payload: FullConfigUpdatePayload) async throws {
+    let db = container.privateCloudDatabase  // ← Parent's private DB
+    // ... finds child's zone ...
+    let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
+    try await db.save(record)  // ← Saves to parent's DB, not child's zone!
+}
+```
+
+---
+
+### Fix Plan: Parent-Owned Command Zone (Option A)
+
+#### Concept
+
+Instead of parent trying to write to child's zone, we flip the model:
+
+```
+FIXED FLOW:
+┌─────────────────────────────────────────────────────────────────────┐
+│  1. Parent creates ParentCommands-* zone in PARENT's private DB     │
+│  2. Parent shares zone WITH child (gives child READ access)         │
+│  3. Parent writes commands to THEIR OWN zone (always succeeds)      │
+│  4. Child polls parent's shared zone (in child's sharedCloudDB)     │
+│  5. Child finds and executes commands                               │
+│  6. Child marks command as executed (or parent polls for status)    │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Implementation Steps
+
+##### Step 1: Create Parent Command Zone Infrastructure
+
+Create a dedicated zone for parent commands:
+- Zone name format: `ParentCommands-{parentDeviceID}`
+- Created when parent first registers or sends a command
+- Shared with child devices via CKShare
+
+##### Step 2: Modify Parent Save Logic
+
+Update `sendConfigCommandToSharedZone()` to:
+1. Create/ensure `ParentCommands-*` zone exists in parent's private DB
+2. Save `ConfigurationCommand` record to parent's own zone
+3. Ensure zone is shared with target child
+
+##### Step 3: Modify Child Fetch Logic
+
+Update `fetchPendingCommandsFromSharedZone()` to:
+1. Check `sharedCloudDatabase` for zones shared BY parent
+2. Look for `ParentCommands-*` zones
+3. Query for `ConfigurationCommand` records where `targetDeviceID == myDeviceID`
+
+##### Step 4: Handle Command Execution Status
+
+Options for marking commands as executed:
+- **Option A:** Child creates a separate `CommandStatus` record in their own zone (parent polls)
+- **Option B:** Child uses a callback mechanism (more complex)
+- **Option C:** Parent polls for command acknowledgment with timeout
+
+#### Files to Modify
+
+| File | Changes |
+|------|---------|
+| `CloudKitSyncService.swift` | Add zone creation, modify save/fetch logic |
+| `ChildConfigCommandProcessor.swift` | Update to fetch from shared DB |
+| `ParentRemoteViewModel.swift` | Minor updates for new zone structure |
+
+#### CloudKit Schema Changes
+
+No new record types needed. Existing `ConfigurationCommand` schema works.
+
+May need to ensure zone sharing is set up correctly with `CKShare`.
+
+---
+
+### Alternative Approaches Considered
+
+#### Option B: Use Core Data for Commands
+
+- Save `ConfigurationCommand` through Core Data (creates `CD_ConfigurationCommand`)
+- Let NSPersistentCloudKitContainer handle sync
+- **Problem:** Core Data syncs to user's own zone, not cross-user. Would require complex sharing setup.
+
+#### Option C: Public Database
+
+- Use CloudKit public database for commands
+- **Problem:** Security concerns, quota limitations, not appropriate for private user data
+
+---
+
+### Testing Plan
+
+1. Parent device sends command → verify record appears in CloudKit Dashboard
+2. Child device fetches commands → verify command is received
+3. Child executes command → verify app config updates
+4. Verify command status sync back to parent
+
+---
+
+### Implementation (Completed January 1, 2025)
+
+#### Changes Made
+
+**1. CloudKitSyncService.swift**
+
+Added parent command zone infrastructure:
+- `parentCommandsZonePrefix = "ParentCommands-"` - zone naming constant
+- `getOrCreateParentCommandsZone()` - creates/retrieves parent's command zone
+- `shareParentCommandsZoneWithChild()` - utility to share zone with child
+- Updated `sendConfigCommandToSharedZone()` - now saves to parent's own zone
+- Updated `fetchPendingCommandsFromSharedZone()` - child now checks `ParentCommands-*` zones first
+
+**2. DevicePairingService.swift**
+
+Integrated command zone sharing into pairing flow:
+- Added `commandsShareURL` field to `PairingPayload` struct
+- Added `createParentCommandsZone()` - creates zone with CKShare during pairing
+- Updated `createPairingSession()` - also creates ParentCommands zone
+- Updated `generatePairingQRCode()` - includes commands share URL
+- Updated `acceptParentShareAndRegister()` - child now accepts both shares
+
+#### New CloudKit Architecture
+
+```
+FIXED FLOW:
+┌─────────────────────────────────────────────────────────────────────┐
+│  DURING PAIRING:                                                     │
+│  1. Parent creates ChildMonitoring-{UUID} zone (existing)           │
+│  2. Parent creates ParentCommands-{parentDeviceID} zone (NEW)       │
+│  3. Both zones are shared with child via QR code                    │
+│  4. Child accepts both shares                                       │
+│                                                                      │
+│  WHEN SENDING COMMANDS:                                              │
+│  5. Parent saves ConfigurationCommand to ParentCommands zone        │
+│     - CRITICAL: Must set record.parent = CommandsRoot reference     │
+│     - Without parent reference, record won't be shared with child   │
+│  6. Child polls sharedCloudDatabase for ParentCommands-* zones      │
+│  7. Child finds and executes pending commands                       │
+│  8. Child marks commands as executed in shared zone                 │
+└─────────────────────────────────────────────────────────────────────┘
+```
+
+#### Backward Compatibility
+
+- Existing paired devices will need to re-pair to get the commands zone share
+- The child fetch logic still checks `ChildMonitoring-*` zones as fallback
+- New pairings automatically include both zone shares
+
+#### CloudKit Schema Requirements
+
+Ensure these record types exist in CloudKit schema:
+- `ConfigurationCommand` - for command records (already exists)
+- `CommandsRoot` - for sharing root record (NEW - will be auto-created)
+
+#### Critical Implementation Note: Parent Reference Required
+
+**Bug Fixed (January 1, 2025):** ConfigurationCommand records must have a `parent` reference to the CommandsRoot record.
+
+In CloudKit sharing, records must be linked to the share hierarchy to be visible to shared participants:
+
+```swift
+// In sendConfigCommandToSharedZone():
+let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: zoneID)
+record.parent = CKRecord.Reference(recordID: rootRecordID, action: .none)
+```
+
+Without this reference:
+- Record saves to parent's zone ✅
+- Parent can read/verify the record ✅
+- But child's sharedCloudDatabase won't include the record ❌
+
+This is the CloudKit share hierarchy:
+```
+CKShare (publicPermission = .readWrite)
+    └── CommandsRoot-{parentDeviceID}  ← Root record linked to CKShare
+            └── ConfigurationCommand   ← Must have parent reference!
+            └── ConfigurationCommand
+```
+
+---
+
 ## Related Documentation
 
 - [USAGERECORD_SYNC_FIX.md](./USAGERECORD_SYNC_FIX.md) - UsageRecord CloudKit sync

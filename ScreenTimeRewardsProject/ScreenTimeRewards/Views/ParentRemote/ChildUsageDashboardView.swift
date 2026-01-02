@@ -126,7 +126,8 @@ struct ChildUsagePageView: View {
                     apps: viewModel.childLearningApps,
                     fullConfigs: viewModel.childLearningAppsFullConfig,
                     usageRecords: viewModel.usageRecords,
-                    historyByApp: viewModel.childDailyUsageByApp
+                    historyByApp: viewModel.childDailyUsageByApp,
+                    onConfigUpdated: { viewModel.updateAppConfig($0) }
                 )
                 .tag(1)
 
@@ -136,7 +137,9 @@ struct ChildUsagePageView: View {
                     fullConfigs: viewModel.childRewardAppsFullConfig,
                     usageRecords: viewModel.usageRecords,
                     shieldStates: viewModel.childShieldStates,
-                    historyByApp: viewModel.childDailyUsageByApp
+                    historyByApp: viewModel.childDailyUsageByApp,
+                    childLearningApps: viewModel.childLearningAppsFullConfig,
+                    onConfigUpdated: { viewModel.updateAppConfig($0) }
                 )
                 .tag(2)
             }
@@ -378,6 +381,7 @@ private struct ChildLearningTabView: View {
     let fullConfigs: [FullAppConfigDTO]
     let usageRecords: [UsageRecord]
     let historyByApp: [String: [DailyUsageHistoryDTO]]
+    var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -399,7 +403,9 @@ private struct ChildLearningTabView: View {
                                 ParentAppDetailView(
                                     config: config,
                                     shieldState: nil,
-                                    appHistory: historyByApp[config.logicalID] ?? []
+                                    appHistory: historyByApp[config.logicalID] ?? [],
+                                    childLearningApps: fullConfigs,
+                                    onConfigUpdated: onConfigUpdated
                                 )
                             } label: {
                                 FullAppConfigRow(
@@ -439,6 +445,8 @@ private struct ChildRewardsTabView: View {
     let usageRecords: [UsageRecord]
     let shieldStates: [String: ShieldStateDTO]
     let historyByApp: [String: [DailyUsageHistoryDTO]]
+    let childLearningApps: [FullAppConfigDTO]  // For linked apps in edit sheet
+    var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -460,7 +468,9 @@ private struct ChildRewardsTabView: View {
                                 ParentAppDetailView(
                                     config: config,
                                     shieldState: shieldStates[config.logicalID],
-                                    appHistory: historyByApp[config.logicalID] ?? []
+                                    appHistory: historyByApp[config.logicalID] ?? [],
+                                    childLearningApps: childLearningApps,
+                                    onConfigUpdated: onConfigUpdated
                                 )
                             } label: {
                                 FullAppConfigRow(

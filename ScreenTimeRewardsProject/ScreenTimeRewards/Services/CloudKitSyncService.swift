@@ -14,6 +14,23 @@ class CloudKitSyncService: ObservableObject {
         case idle, syncing, success, error
     }
 
+    enum CloudKitSyncError: LocalizedError {
+        case zoneNotFound(deviceID: String)
+        case commandEncodingFailed
+        case recordNotFound
+
+        var errorDescription: String? {
+            switch self {
+            case .zoneNotFound(let deviceID):
+                return "Could not find shared zone for device: \(deviceID)"
+            case .commandEncodingFailed:
+                return "Failed to encode command payload"
+            case .recordNotFound:
+                return "Record not found in CloudKit"
+            }
+        }
+    }
+
     private let container = CKContainer(identifier: "iCloud.com.screentimerewards")
     private let persistenceController = PersistenceController.shared
     private let offlineQueue = OfflineQueueManager.shared
@@ -220,6 +237,651 @@ class CloudKitSyncService: ObservableObject {
         try context.save()
         
         print("[CloudKit] Sync request sent to device: \(deviceID)")
+    }
+
+    /// Send a full configuration update command to a child device.
+    /// This includes all editable fields: schedule, daily limits, time windows,
+    /// linked learning apps, unlock mode, and streak settings.
+    ///
+    /// - Parameters:
+    ///   - deviceID: The target child device ID
+    ///   - payload: The full configuration payload from parent
+    func sendFullConfigurationCommand(deviceID: String, payload: FullConfigUpdatePayload) async throws {
+        let context = persistenceController.container.viewContext
+
+        let command = ConfigurationCommand(context: context)
+        command.commandID = payload.commandID
+        command.targetDeviceID = deviceID
+        command.commandType = "update_full_config"
+        command.payloadJSON = try payload.toBase64String()
+        command.createdAt = Date()
+        command.status = "pending"
+
+        try context.save()
+
+        #if DEBUG
+        print("[CloudKit] ===== Full Config Command Sent =====")
+        print("[CloudKit] Command ID: \(payload.commandID)")
+        print("[CloudKit] Target Device: \(deviceID)")
+        print("[CloudKit] App: \(payload.logicalID)")
+        print("[CloudKit] Category: \(payload.category)")
+        print("[CloudKit] Points/min: \(payload.pointsPerMinute)")
+        print("[CloudKit] Enabled: \(payload.isEnabled)")
+        print("[CloudKit] Blocking: \(payload.blockingEnabled)")
+        print("[CloudKit] Linked apps: \(payload.linkedLearningApps.count)")
+        print("[CloudKit] Unlock mode: \(payload.unlockMode.rawValue)")
+        print("[CloudKit] Has schedule: \(payload.scheduleConfig != nil)")
+        print("[CloudKit] Has streak: \(payload.streakSettings != nil)")
+        #endif
+    }
+
+    // MARK: - Parent Command Zone Infrastructure
+
+    /// Zone name prefix for parent commands - separate from Core Data managed zones
+    private static let parentCommandsZonePrefix = "ParentCommands-"
+
+    /// Check CloudKit account status and log details
+    private func checkAndLogCloudKitAccountStatus() async -> CKAccountStatus {
+        do {
+            let status = try await container.accountStatus()
+            #if DEBUG
+            let statusString: String
+            switch status {
+            case .available:
+                statusString = "✅ available"
+            case .noAccount:
+                statusString = "❌ noAccount - User not signed into iCloud"
+            case .restricted:
+                statusString = "⚠️ restricted - Parental controls or MDM"
+            case .couldNotDetermine:
+                statusString = "⚠️ couldNotDetermine"
+            case .temporarilyUnavailable:
+                statusString = "⚠️ temporarilyUnavailable"
+            @unknown default:
+                statusString = "❓ unknown status: \(status.rawValue)"
+            }
+            print("[CloudKitSyncService] 🔍 Account Status: \(statusString)")
+            #endif
+            return status
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Failed to check account status: \(error)")
+            #endif
+            return .couldNotDetermine
+        }
+    }
+
+    /// Get or create the parent's command zone
+    /// This zone is owned by the parent and shared with child devices
+    private func getOrCreateParentCommandsZone() async throws -> CKRecordZone.ID {
+        let db = container.privateCloudDatabase
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        let zoneName = Self.parentCommandsZonePrefix + parentDeviceID
+
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Zone Creation Diagnostics =====")
+        print("[CloudKitSyncService] Looking for parent commands zone: \(zoneName)")
+        print("[CloudKitSyncService] Container ID: \(container.containerIdentifier ?? "nil")")
+        #endif
+
+        // Check account status first
+        let accountStatus = await checkAndLogCloudKitAccountStatus()
+        guard accountStatus == .available else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ CloudKit account not available, cannot create zone")
+            #endif
+            throw CloudKitSyncError.zoneNotFound(deviceID: parentDeviceID)
+        }
+
+        // Check if zone already exists
+        #if DEBUG
+        print("[CloudKitSyncService] 🔍 Fetching all zones from privateCloudDatabase...")
+        #endif
+
+        let existingZones = try await db.allRecordZones()
+
+        #if DEBUG
+        print("[CloudKitSyncService] 🔍 Found \(existingZones.count) zones:")
+        for zone in existingZones {
+            print("[CloudKitSyncService]   - \(zone.zoneID.zoneName) (owner: \(zone.zoneID.ownerName))")
+        }
+        #endif
+
+        if let existing = existingZones.first(where: { $0.zoneID.zoneName == zoneName }) {
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Found existing parent commands zone")
+            #endif
+            return existing.zoneID
+        }
+
+        // Create new zone using explicit CKModifyRecordZonesOperation for better control
+        #if DEBUG
+        print("[CloudKitSyncService] 🔨 Creating new parent commands zone...")
+        #endif
+
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        let zone = CKRecordZone(zoneID: zoneID)
+
+        // Use CKModifyRecordZonesOperation for explicit server sync with high QoS
+        let savedZoneID = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKRecordZone.ID, Error>) in
+            let operation = CKModifyRecordZonesOperation(recordZonesToSave: [zone], recordZoneIDsToDelete: nil)
+            operation.qualityOfService = .userInitiated
+
+            operation.modifyRecordZonesResultBlock = { result in
+                switch result {
+                case .success:
+                    #if DEBUG
+                    print("[CloudKitSyncService] ✅ CKModifyRecordZonesOperation completed successfully")
+                    #endif
+                    continuation.resume(returning: zoneID)
+                case .failure(let error):
+                    #if DEBUG
+                    print("[CloudKitSyncService] ❌ CKModifyRecordZonesOperation failed: \(error)")
+                    if let ckError = error as? CKError {
+                        print("[CloudKitSyncService] CKError code: \(ckError.code.rawValue) - \(ckError.code)")
+                        if let partialErrors = ckError.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error] {
+                            for (key, partialError) in partialErrors {
+                                print("[CloudKitSyncService]   Partial error for \(key): \(partialError)")
+                            }
+                        }
+                        if let retryAfter = ckError.userInfo[CKErrorRetryAfterKey] as? TimeInterval {
+                            print("[CloudKitSyncService]   Retry after: \(retryAfter) seconds")
+                        }
+                    }
+                    #endif
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            db.add(operation)
+        }
+
+        // VERIFICATION: Immediately fetch zones again to confirm zone was actually created on server
+        #if DEBUG
+        print("[CloudKitSyncService] 🔍 Verifying zone was created on server...")
+        #endif
+
+        // Small delay to allow server propagation
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+        let verifyZones = try await db.allRecordZones()
+        let verified = verifyZones.contains(where: { $0.zoneID.zoneName == zoneName })
+
+        #if DEBUG
+        if verified {
+            print("[CloudKitSyncService] ✅ VERIFIED: Zone exists on server after creation")
+        } else {
+            print("[CloudKitSyncService] ⚠️ WARNING: Zone NOT found on server after creation!")
+            print("[CloudKitSyncService] ⚠️ This may indicate local caching without server sync")
+            print("[CloudKitSyncService] Zones after verification: \(verifyZones.map { $0.zoneID.zoneName })")
+        }
+        #endif
+
+        return savedZoneID
+    }
+
+    /// Share the parent commands zone with a specific child device
+    /// Call this after pairing to ensure child can read commands
+    func shareParentCommandsZoneWithChild(childShareURL: URL) async throws {
+        let db = container.privateCloudDatabase
+        let zoneID = try await getOrCreateParentCommandsZone()
+
+        #if DEBUG
+        print("[CloudKitSyncService] Sharing parent commands zone with child...")
+        print("[CloudKitSyncService] Zone: \(zoneID.zoneName)")
+        #endif
+
+        // Create a root record for sharing (required by CKShare)
+        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(DeviceModeManager.shared.deviceID)", zoneID: zoneID)
+
+        // Check if root record already exists
+        do {
+            _ = try await db.record(for: rootRecordID)
+            #if DEBUG
+            print("[CloudKitSyncService] Root record already exists, zone already shareable")
+            #endif
+            return
+        } catch let error as CKError where error.code == .unknownItem {
+            // Record doesn't exist, we'll create it
+        }
+
+        let rootRecord = CKRecord(recordType: "CommandsRoot", recordID: rootRecordID)
+        rootRecord["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
+        rootRecord["createdAt"] = Date() as CKRecordValue
+
+        // Create share with readWrite permission so child can mark commands as executed
+        let share = CKShare(rootRecord: rootRecord)
+        share[CKShare.SystemFieldKey.title] = "Parent Commands" as CKRecordValue
+        share.publicPermission = .readWrite
+
+        // Save root record and share together
+        let (saveResults, _) = try await db.modifyRecords(saving: [rootRecord, share], deleting: [])
+
+        for (recordID, result) in saveResults {
+            switch result {
+            case .success(let record):
+                if let savedShare = record as? CKShare {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ✅ Parent commands zone shared")
+                    print("[CloudKitSyncService] Share URL: \(savedShare.url?.absoluteString ?? "nil")")
+                    #endif
+                }
+            case .failure(let error):
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error saving \(recordID): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
+    // MARK: - Parent → Child Configuration Commands (Parent-Owned Zone)
+
+    /// Send a configuration command to the parent's own zone (which is shared with child)
+    /// This is the correct approach: parent writes to their own zone, child reads from sharedCloudDatabase
+    func sendConfigCommandToSharedZone(deviceID: String, payload: FullConfigUpdatePayload) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Sending Config Command to Parent's Zone =====")
+        print("[CloudKitSyncService] Target Device: \(deviceID)")
+        print("[CloudKitSyncService] Command ID: \(payload.commandID)")
+        #endif
+
+        // Check account status first
+        let accountStatus = await checkAndLogCloudKitAccountStatus()
+        guard accountStatus == .available else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ CloudKit account not available, cannot send command")
+            #endif
+            throw CloudKitSyncError.zoneNotFound(deviceID: deviceID)
+        }
+
+        // Get or create the parent's command zone
+        let db = container.privateCloudDatabase
+        let zoneID = try await getOrCreateParentCommandsZone()
+
+        #if DEBUG
+        print("[CloudKitSyncService] Using zone: \(zoneID.zoneName)")
+        #endif
+
+        // Create CKRecord for the command
+        let recordID = CKRecord.ID(recordName: "ConfigCmd-\(payload.commandID)", zoneID: zoneID)
+        let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
+
+        // CRITICAL: Link record to the share's root record so it's visible to child
+        // Without this parent reference, the record won't be shared with the child device!
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: zoneID)
+        record.parent = CKRecord.Reference(recordID: rootRecordID, action: .none)
+
+        #if DEBUG
+        print("[CloudKitSyncService] Setting parent reference to: \(rootRecordID.recordName)")
+        #endif
+
+        record["commandID"] = payload.commandID as CKRecordValue
+        record["targetDeviceID"] = deviceID as CKRecordValue
+        record["commandType"] = "update_full_config" as CKRecordValue
+        record["payloadJSON"] = try payload.toBase64String() as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        record["status"] = "pending" as CKRecordValue
+        record["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
+
+        // Use explicit CKModifyRecordsOperation for better server sync control
+        let savedRecordName = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+            operation.qualityOfService = .userInitiated
+            operation.savePolicy = .changedKeys
+
+            // CRITICAL: Add per-record callback to catch individual record errors
+            operation.perRecordSaveBlock = { recordID, result in
+                #if DEBUG
+                switch result {
+                case .success(let savedRecord):
+                    print("[CloudKitSyncService] [PER-RECORD] ✅ Record saved: \(recordID.recordName)")
+                    print("[CloudKitSyncService] [PER-RECORD]   Type: \(savedRecord.recordType)")
+                case .failure(let error):
+                    print("[CloudKitSyncService] [PER-RECORD] ❌ Record FAILED: \(recordID.recordName)")
+                    print("[CloudKitSyncService] [PER-RECORD]   Error: \(error.localizedDescription)")
+                    if let ckError = error as? CKError {
+                        print("[CloudKitSyncService] [PER-RECORD]   CKError code: \(ckError.code.rawValue) - \(ckError.code)")
+                        // Check for specific errors
+                        switch ckError.code {
+                        case .serverRecordChanged:
+                            print("[CloudKitSyncService] [PER-RECORD]   ⚠️ Server record changed (conflict)")
+                        case .unknownItem:
+                            print("[CloudKitSyncService] [PER-RECORD]   ⚠️ Unknown item (zone doesn't exist on server?)")
+                        case .invalidArguments:
+                            print("[CloudKitSyncService] [PER-RECORD]   ⚠️ Invalid arguments")
+                        case .permissionFailure:
+                            print("[CloudKitSyncService] [PER-RECORD]   ⚠️ PERMISSION FAILURE - security roles blocking write!")
+                        case .zoneNotFound:
+                            print("[CloudKitSyncService] [PER-RECORD]   ⚠️ Zone not found on server")
+                        default:
+                            break
+                        }
+                    }
+                }
+                #endif
+            }
+
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    #if DEBUG
+                    print("[CloudKitSyncService] ✅ CKModifyRecordsOperation completed successfully")
+                    #endif
+                    continuation.resume(returning: recordID.recordName)
+                case .failure(let error):
+                    #if DEBUG
+                    print("[CloudKitSyncService] ❌ CKModifyRecordsOperation failed: \(error)")
+                    if let ckError = error as? CKError {
+                        print("[CloudKitSyncService] CKError code: \(ckError.code.rawValue) - \(ckError.code)")
+                        if let partialErrors = ckError.userInfo[CKPartialErrorsByItemIDKey] as? [AnyHashable: Error] {
+                            for (key, partialError) in partialErrors {
+                                print("[CloudKitSyncService]   Partial error for \(key): \(partialError)")
+                            }
+                        }
+                        if let retryAfter = ckError.userInfo[CKErrorRetryAfterKey] as? TimeInterval {
+                            print("[CloudKitSyncService]   Retry after: \(retryAfter) seconds")
+                        }
+                        // Check for specific error codes
+                        switch ckError.code {
+                        case .networkUnavailable:
+                            print("[CloudKitSyncService] ⚠️ Network unavailable - record cached locally only")
+                        case .networkFailure:
+                            print("[CloudKitSyncService] ⚠️ Network failure - record cached locally only")
+                        case .serverResponseLost:
+                            print("[CloudKitSyncService] ⚠️ Server response lost")
+                        case .zoneNotFound:
+                            print("[CloudKitSyncService] ⚠️ Zone not found on server!")
+                        default:
+                            break
+                        }
+                    }
+                    #endif
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            db.add(operation)
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Command saved to parent's zone: \(zoneID.zoneName)")
+        print("[CloudKitSyncService] Record ID: \(savedRecordName)")
+        print("[CloudKitSyncService] App: \(payload.logicalID)")
+        print("[CloudKitSyncService] Linked apps: \(payload.linkedLearningApps.count)")
+        #endif
+
+        // VERIFICATION: Immediately fetch the record to confirm it exists on server
+        #if DEBUG
+        print("[CloudKitSyncService] 🔍 Verifying record was saved on server...")
+        #endif
+
+        // Small delay to allow server propagation
+        try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
+
+        do {
+            let fetchedRecord = try await db.record(for: recordID)
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ VERIFIED: Record exists on server")
+            print("[CloudKitSyncService]   Record type: \(fetchedRecord.recordType)")
+            print("[CloudKitSyncService]   commandID: \(fetchedRecord["commandID"] as? String ?? "nil")")
+            #endif
+        } catch let error as CKError where error.code == .unknownItem {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ WARNING: Record NOT found on server after save!")
+            print("[CloudKitSyncService] ⚠️ This indicates the save was cached locally but not synced")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Verification fetch failed: \(error)")
+            #endif
+        }
+    }
+
+    /// Fetch pending commands from the shared zone (child side)
+    /// This is called by the child device to get commands from the parent
+    ///
+    /// The parent saves commands to their own ParentCommands-* zone and shares it with child.
+    /// Child reads from sharedCloudDatabase where the ParentCommands-* zone appears.
+    func fetchPendingCommandsFromSharedZone() async throws -> [CKRecord] {
+        let myDeviceID = DeviceModeManager.shared.deviceID
+
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Pending Commands from Shared Zone =====")
+        print("[CloudKitSyncService] My Device ID: \(myDeviceID)")
+        #endif
+
+        var commands: [CKRecord] = []
+
+        // PRIMARY: Check sharedCloudDatabase for ParentCommands-* zones (parent's command zone shared with us)
+        let sharedDB = container.sharedCloudDatabase
+        let sharedZones = try await sharedDB.allRecordZones()
+
+        #if DEBUG
+        print("[CloudKitSyncService] Shared DB zones: \(sharedZones.map { $0.zoneID.zoneName })")
+        #endif
+
+        // First, look for ParentCommands-* zones (new architecture)
+        for zone in sharedZones where zone.zoneID.zoneName.hasPrefix(Self.parentCommandsZonePrefix) {
+            #if DEBUG
+            print("[CloudKitSyncService] Checking parent commands zone: \(zone.zoneID.zoneName)")
+            #endif
+
+            do {
+                // DIAGNOSTIC: First query ALL ConfigurationCommand records (no filter)
+                // This helps determine if records exist but the predicate filter doesn't match
+                #if DEBUG
+                let debugQuery = CKQuery(recordType: "ConfigurationCommand", predicate: NSPredicate(value: true))
+                do {
+                    let (allRecords, _) = try await sharedDB.records(matching: debugQuery, inZoneWith: zone.zoneID, resultsLimit: 100)
+                    print("[CloudKitSyncService] [DIAG] ParentCommands zone \(zone.zoneID.zoneName): \(allRecords.count) total ConfigurationCommand record(s)")
+                    if !allRecords.isEmpty {
+                        for (recordID, result) in allRecords {
+                            if case .success(let record) = result {
+                                let cmdID = record["commandID"] as? String ?? "?"
+                                let targetID = record["targetDeviceID"] as? String ?? "?"
+                                let status = record["status"] as? String ?? "?"
+                                print("[CloudKitSyncService] [DIAG]   Record: \(cmdID) -> target:\(targetID) status:\(status)")
+                            } else if case .failure(let error) = result {
+                                print("[CloudKitSyncService] [DIAG]   Failed to fetch \(recordID): \(error.localizedDescription)")
+                            }
+                        }
+                    }
+                } catch {
+                    print("[CloudKitSyncService] [DIAG] Error querying all records: \(error.localizedDescription)")
+                }
+                #endif
+
+                // Query for pending commands targeting this device
+                let predicate = NSPredicate(
+                    format: "targetDeviceID == %@ AND status == %@",
+                    myDeviceID,
+                    "pending"
+                )
+                let query = CKQuery(recordType: "ConfigurationCommand", predicate: predicate)
+                query.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+
+                let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName) (ParentCommands): \(matches.count) pending command(s)")
+                #endif
+
+                for (_, result) in matches {
+                    if case .success(let record) = result {
+                        commands.append(record)
+                        #if DEBUG
+                        let cmdID = record["commandID"] as? String ?? "?"
+                        print("[CloudKitSyncService] ✅ Found pending command from parent: \(cmdID)")
+                        #endif
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error querying ParentCommands zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        // FALLBACK: Also check ChildMonitoring-* zones for backward compatibility
+        for zone in sharedZones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            do {
+                // DIAGNOSTIC: First, try to fetch ALL ConfigurationCommand records (no filter)
+                // This helps determine if the record exists but query filtering fails due to missing indexes
+                #if DEBUG
+                let debugQuery = CKQuery(recordType: "ConfigurationCommand", predicate: NSPredicate(value: true))
+                do {
+                    let (allRecords, _) = try await sharedDB.records(matching: debugQuery, inZoneWith: zone.zoneID, resultsLimit: 100)
+                    if !allRecords.isEmpty {
+                        print("[CloudKitSyncService] [DIAG] Zone \(zone.zoneID.zoneName): \(allRecords.count) total ConfigurationCommand record(s)")
+                        for (_, result) in allRecords {
+                            if case .success(let record) = result {
+                                let cmdID = record["commandID"] as? String ?? "?"
+                                let targetID = record["targetDeviceID"] as? String ?? "?"
+                                let status = record["status"] as? String ?? "?"
+                                print("[CloudKitSyncService] [DIAG]   - \(cmdID): target=\(targetID), status=\(status)")
+                            }
+                        }
+                    }
+                } catch {
+                    print("[CloudKitSyncService] [DIAG] Error fetching all commands: \(error.localizedDescription)")
+                }
+                #endif
+
+                // Now try the filtered query
+                let predicate = NSPredicate(
+                    format: "targetDeviceID == %@ AND status == %@",
+                    myDeviceID,
+                    "pending"
+                )
+                let query = CKQuery(recordType: "ConfigurationCommand", predicate: predicate)
+                query.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+
+                let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName) (shared): \(matches.count) result(s)")
+                #endif
+
+                for (_, result) in matches {
+                    if case .success(let record) = result {
+                        commands.append(record)
+                        #if DEBUG
+                        let cmdID = record["commandID"] as? String ?? "?"
+                        print("[CloudKitSyncService] Found pending command: \(cmdID)")
+                        #endif
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error querying shared zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        // Also check privateCloudDatabase (zones we own - parent may have saved there)
+        let privateDB = container.privateCloudDatabase
+        let privateZones = try await privateDB.allRecordZones()
+
+        #if DEBUG
+        print("[CloudKitSyncService] Private DB zones: \(privateZones.map { $0.zoneID.zoneName })")
+        #endif
+
+        for zone in privateZones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            do {
+                let predicate = NSPredicate(
+                    format: "targetDeviceID == %@ AND status == %@",
+                    myDeviceID,
+                    "pending"
+                )
+                let query = CKQuery(recordType: "ConfigurationCommand", predicate: predicate)
+                query.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+
+                let (matches, _) = try await privateDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName) (private): \(matches.count) result(s)")
+                #endif
+
+                for (_, result) in matches {
+                    if case .success(let record) = result {
+                        // Avoid duplicates if somehow in both DBs
+                        let cmdID = record["commandID"] as? String ?? ""
+                        if !commands.contains(where: { ($0["commandID"] as? String) == cmdID }) {
+                            commands.append(record)
+                            #if DEBUG
+                            print("[CloudKitSyncService] Found pending command (private): \(cmdID)")
+                            #endif
+                        }
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error querying private zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Found \(commands.count) pending command(s)")
+        #endif
+
+        return commands
+    }
+
+    /// Mark a configuration command as executed in CloudKit shared zone
+    func markCommandExecutedInSharedZone(_ record: CKRecord) async throws {
+        let sharedDB = container.sharedCloudDatabase
+
+        record["status"] = "executed" as CKRecordValue
+        record["executedAt"] = Date() as CKRecordValue
+
+        try await sharedDB.save(record)
+
+        #if DEBUG
+        let cmdID = record["commandID"] as? String ?? "?"
+        print("[CloudKitSyncService] ✅ Command marked executed in shared zone: \(cmdID)")
+        #endif
+    }
+
+    // MARK: - Legacy Core Data Command Methods (Deprecated)
+
+    /// Mark a configuration command as executed
+    func markConfigurationCommandExecuted(_ commandID: String) async throws {
+        let context = persistenceController.container.viewContext
+        let fetchRequest: NSFetchRequest<ConfigurationCommand> = ConfigurationCommand.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "commandID == %@", commandID)
+
+        let commands = try context.fetch(fetchRequest)
+        guard let command = commands.first else {
+            #if DEBUG
+            print("[CloudKit] Command not found for marking executed: \(commandID)")
+            #endif
+            return
+        }
+
+        command.status = "executed"
+        command.executedAt = Date()
+
+        try context.save()
+
+        #if DEBUG
+        print("[CloudKit] Command marked as executed: \(commandID)")
+        #endif
+    }
+
+    /// Fetch pending configuration commands for this device (child side)
+    func fetchPendingCommands() async throws -> [ConfigurationCommand] {
+        let context = persistenceController.container.viewContext
+        let fetchRequest: NSFetchRequest<ConfigurationCommand> = ConfigurationCommand.fetchRequest()
+        fetchRequest.predicate = NSPredicate(
+            format: "targetDeviceID == %@ AND status == %@",
+            DeviceModeManager.shared.deviceID,
+            "pending"
+        )
+        fetchRequest.sortDescriptors = [NSSortDescriptor(key: "createdAt", ascending: true)]
+
+        return try context.fetch(fetchRequest)
     }
 
     // MARK: - Child Device Methods
@@ -871,25 +1533,37 @@ class CloudKitSyncService: ObservableObject {
         }
 
         #if DEBUG
-        print("[CloudKitSyncService] ✅ Fetched \(results.count) full AppConfiguration DTOs")
+        print("[CloudKitSyncService] ✅ Fetched \(results.count) full AppConfiguration DTOs (before dedup)")
         #endif
 
-        return results
+        // CRITICAL: Deduplicate by logicalID, keeping the most recent record
+        // Multiple zones may contain the same app from old pairings with stale data
+        var deduped: [String: FullAppConfigDTO] = [:]
+        for dto in results {
+            let key = dto.logicalID
+            if let existing = deduped[key] {
+                // Keep the one with the more recent lastModified date
+                let dtoDate = dto.lastModified ?? Date.distantPast
+                let existingDate = existing.lastModified ?? Date.distantPast
+                if dtoDate > existingDate {
+                    deduped[key] = dto
+                    #if DEBUG
+                    print("[CloudKitSyncService] [DEDUP] Replaced \(dto.displayName) - newer: \(dtoDate) vs \(existingDate)")
+                    #endif
+                }
+            } else {
+                deduped[key] = dto
+            }
+        }
+
+        let dedupedResults = Array(deduped.values)
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ After dedup: \(dedupedResults.count) unique AppConfiguration DTOs")
+        #endif
+
+        return dedupedResults
     }
     // === END APP CONFIGURATION SYNC ===
-
-    func markConfigurationCommandExecuted(_ commandID: String) async throws {
-        let context = persistenceController.container.viewContext
-        let fetchRequest: NSFetchRequest<ConfigurationCommand> = ConfigurationCommand.fetchRequest()
-        fetchRequest.predicate = NSPredicate(format: "commandID == %@", commandID)
-        
-        if let command = try context.fetch(fetchRequest).first {
-            command.executedAt = Date()
-            command.status = "executed"
-            try context.save()
-            print("[CloudKit] Command marked as executed: \(commandID)")
-        }
-    }
 
     // === TASK 8 IMPLEMENTATION ===
     /// Fetch child usage data from parent's shared zones using CloudKit

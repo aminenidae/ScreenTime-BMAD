@@ -91,6 +91,63 @@ struct FullAppConfigDTO: Identifiable, Hashable {
     static func == (lhs: FullAppConfigDTO, rhs: FullAppConfigDTO) -> Bool {
         lhs.logicalID == rhs.logicalID
     }
+
+    /// Create a new FullAppConfigDTO with changes from MutableAppConfigDTO applied
+    func applying(changes: MutableAppConfigDTO) -> FullAppConfigDTO {
+        let updated = FullAppConfigDTO(
+            logicalID: logicalID,
+            deviceID: deviceID,
+            displayName: displayName,
+            category: changes.category,
+            pointsPerMinute: changes.pointsPerMinute,
+            isEnabled: changes.isEnabled,
+            blockingEnabled: changes.blockingEnabled,
+            tokenHash: tokenHash,
+            lastModified: Date(),
+            scheduleConfig: changes.scheduleConfig,
+            dailyLimitSummary: changes.scheduleConfig?.dailyLimits.displaySummary,
+            timeWindowSummary: changes.scheduleConfig?.allowedTimeWindow.displayString,
+            linkedLearningApps: changes.linkedLearningApps,
+            unlockMode: changes.unlockMode,
+            streakSettings: changes.streakSettings
+        )
+        return updated
+    }
+
+    /// Direct initializer for creating updated copies
+    init(
+        logicalID: String,
+        deviceID: String,
+        displayName: String,
+        category: String,
+        pointsPerMinute: Int,
+        isEnabled: Bool,
+        blockingEnabled: Bool,
+        tokenHash: String?,
+        lastModified: Date?,
+        scheduleConfig: AppScheduleConfiguration?,
+        dailyLimitSummary: String?,
+        timeWindowSummary: String?,
+        linkedLearningApps: [LinkedLearningApp],
+        unlockMode: UnlockMode,
+        streakSettings: AppStreakSettings?
+    ) {
+        self.logicalID = logicalID
+        self.deviceID = deviceID
+        self.displayName = displayName
+        self.category = category
+        self.pointsPerMinute = pointsPerMinute
+        self.isEnabled = isEnabled
+        self.blockingEnabled = blockingEnabled
+        self.tokenHash = tokenHash
+        self.lastModified = lastModified
+        self.scheduleConfig = scheduleConfig
+        self.dailyLimitSummary = dailyLimitSummary
+        self.timeWindowSummary = timeWindowSummary
+        self.linkedLearningApps = linkedLearningApps
+        self.unlockMode = unlockMode
+        self.streakSettings = streakSettings
+    }
 }
 
 // MARK: - Shield State DTO
@@ -231,6 +288,11 @@ class ParentRemoteViewModel: ObservableObject {
     private let offlineQueue = OfflineQueueManager.shared
     private var cancellables = Set<AnyCancellable>()
 
+    // Track apps with pending parent edits to prevent CloudKit auto-refresh from overwriting them
+    // Maps logicalID → timestamp when edit was made
+    private var pendingConfigUpdates: [String: Date] = [:]
+    private let pendingUpdateTimeout: TimeInterval = 60  // Protect edits for 60 seconds
+
     init() {
         setupCloudKitNotifications()
         Task {
@@ -240,6 +302,36 @@ class ParentRemoteViewModel: ObservableObject {
 
     deinit {
         cancellables.removeAll()
+    }
+
+    // MARK: - Optimistic Update for Parent Edit
+
+    /// Update a config in the local arrays after successful parent edit
+    /// This provides immediate UI feedback while waiting for CloudKit sync
+    func updateAppConfig(_ config: FullAppConfigDTO) {
+        // Mark as pending to protect from CloudKit auto-refresh overwriting
+        pendingConfigUpdates[config.logicalID] = Date()
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] Marked \(config.displayName) as pending (protected from CloudKit overwrite)")
+        #endif
+
+        if config.category == "Learning" {
+            if let index = childLearningAppsFullConfig.firstIndex(where: { $0.logicalID == config.logicalID }) {
+                childLearningAppsFullConfig[index] = config
+                #if DEBUG
+                print("[ParentRemoteViewModel] Updated learning app config: \(config.displayName)")
+                #endif
+            }
+        } else {
+            if let index = childRewardAppsFullConfig.firstIndex(where: { $0.logicalID == config.logicalID }) {
+                childRewardAppsFullConfig[index] = config
+                #if DEBUG
+                print("[ParentRemoteViewModel] Updated reward app config: \(config.displayName)")
+                print("[ParentRemoteViewModel] Linked apps count: \(config.linkedLearningApps.count)")
+                #endif
+            }
+        }
     }
 
     /// Setup CloudKit notifications to auto-refresh when data syncs
@@ -423,14 +515,67 @@ class ParentRemoteViewModel: ObservableObject {
                 self.childLearningApps = learning
                 self.childRewardApps = reward
 
-                // Full DTOs with schedule/goals/streaks
-                self.childLearningAppsFullConfig = learningFull
-                self.childRewardAppsFullConfig = rewardFull
+                // Clean up expired pending updates
+                let now = Date()
+                self.pendingConfigUpdates = self.pendingConfigUpdates.filter {
+                    now.timeIntervalSince($0.value) < self.pendingUpdateTimeout
+                }
 
-                // Shield states for reward apps
+                // Get IDs of apps with pending edits (protected from overwrite)
+                let pendingIDs = Set(self.pendingConfigUpdates.keys)
+
+                #if DEBUG
+                if !pendingIDs.isEmpty {
+                    print("[ParentRemoteViewModel] Protecting \(pendingIDs.count) pending edit(s) from CloudKit overwrite")
+                }
+                #endif
+
+                // Check if CloudKit data matches our pending edits (auto-clear if caught up)
+                for cloudConfig in rewardFull {
+                    if self.pendingConfigUpdates[cloudConfig.logicalID] != nil,
+                       let localConfig = self.childRewardAppsFullConfig.first(where: { $0.logicalID == cloudConfig.logicalID }) {
+                        // Compare linked apps count to see if CloudKit caught up
+                        if cloudConfig.linkedLearningApps.count == localConfig.linkedLearningApps.count {
+                            self.pendingConfigUpdates.removeValue(forKey: cloudConfig.logicalID)
+                            #if DEBUG
+                            print("[ParentRemoteViewModel] CloudKit caught up for \(cloudConfig.displayName), clearing pending status")
+                            #endif
+                        }
+                    }
+                }
+                for cloudConfig in learningFull {
+                    if self.pendingConfigUpdates[cloudConfig.logicalID] != nil,
+                       let localConfig = self.childLearningAppsFullConfig.first(where: { $0.logicalID == cloudConfig.logicalID }) {
+                        // Compare key fields to see if CloudKit caught up
+                        if cloudConfig.pointsPerMinute == localConfig.pointsPerMinute &&
+                           cloudConfig.isEnabled == localConfig.isEnabled {
+                            self.pendingConfigUpdates.removeValue(forKey: cloudConfig.logicalID)
+                            #if DEBUG
+                            print("[ParentRemoteViewModel] CloudKit caught up for \(cloudConfig.displayName), clearing pending status")
+                            #endif
+                        }
+                    }
+                }
+
+                // Refresh pending IDs after auto-clear
+                let refreshedPendingIDs = Set(self.pendingConfigUpdates.keys)
+
+                // Filter out pending apps from CloudKit results (don't overwrite them)
+                let safeLearningFull = learningFull.filter { !refreshedPendingIDs.contains($0.logicalID) }
+                let safeRewardFull = rewardFull.filter { !refreshedPendingIDs.contains($0.logicalID) }
+
+                // Preserve pending optimistic updates
+                let pendingLearning = self.childLearningAppsFullConfig.filter { refreshedPendingIDs.contains($0.logicalID) }
+                let pendingReward = self.childRewardAppsFullConfig.filter { refreshedPendingIDs.contains($0.logicalID) }
+
+                // Merge: CloudKit data for non-pending apps + preserved pending edits
+                self.childLearningAppsFullConfig = safeLearningFull + pendingLearning
+                self.childRewardAppsFullConfig = safeRewardFull + pendingReward
+
+                // Shield states for reward apps (always refresh - not affected by pending edits)
                 self.childShieldStates = shieldStates
 
-                // Daily usage history
+                // Daily usage history (always refresh - not affected by pending edits)
                 self.childDailyUsageHistory = usageHistory
                 self.childDailyUsageByApp = historyByApp
             }
