@@ -2995,4 +2995,99 @@ class CloudKitSyncService: ObservableObject {
 
         return results
     }
+
+    // MARK: - Child Streak Records
+
+    /// Fetch streak records for a child device from CloudKit
+    /// Used by parent device to display child's streak progress
+    func fetchChildStreakRecords(deviceID: String, zoneID: String? = nil, zoneOwner: String? = nil) async throws -> [StreakRecordDTO] {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Child Streak Records =====")
+        print("[CloudKitSyncService] Device ID: \(deviceID)")
+        if let zoneID = zoneID {
+            print("[CloudKitSyncService] Zone-specific query: \(zoneID)")
+        }
+        #endif
+
+        let db = container.privateCloudDatabase
+        var results: [StreakRecordDTO] = []
+
+        // If zone info provided, query ONLY that specific zone
+        if let zoneName = zoneID, let ownerName = zoneOwner {
+            let specificZoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+
+            #if DEBUG
+            print("[CloudKitSyncService] Using zone-specific fetch for streaks: \(zoneName)")
+            #endif
+
+            do {
+                let predicate = NSPredicate(format: "CD_childDeviceID == %@", deviceID)
+                let query = CKQuery(recordType: "CD_StreakRecord", predicate: predicate)
+                let (matches, _) = try await db.records(matching: query, inZoneWith: specificZoneID)
+
+                #if DEBUG
+                print("[CloudKitSyncService] Zone \(zoneName): found \(matches.count) streak records")
+                #endif
+
+                for (_, res) in matches {
+                    if case .success(let record) = res {
+                        let dto = StreakRecordDTO(from: record)
+                        results.append(dto)
+
+                        #if DEBUG
+                        print("[CloudKitSyncService]   - App \(dto.appLogicalID): current=\(dto.currentStreak), longest=\(dto.longestStreak)")
+                        #endif
+                    }
+                }
+
+                #if DEBUG
+                print("[CloudKitSyncService] ✅ Zone-specific fetch returned \(results.count) streak records")
+                #endif
+
+                return results
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error fetching streaks from zone \(zoneName): \(error.localizedDescription)")
+                #endif
+                throw error
+            }
+        }
+
+        // Fallback: search all shared zones
+        #if DEBUG
+        print("[CloudKitSyncService] Searching all shared zones for streak records...")
+        #endif
+
+        let zones = try await db.allRecordZones()
+        for zone in zones {
+            guard zone.zoneID.zoneName.hasPrefix("share-") else { continue }
+
+            do {
+                let predicate = NSPredicate(format: "CD_childDeviceID == %@", deviceID)
+                let query = CKQuery(recordType: "CD_StreakRecord", predicate: predicate)
+                let (matches, _) = try await db.records(matching: query, inZoneWith: zone.zoneID)
+
+                for (_, res) in matches {
+                    if case .success(let record) = res {
+                        let dto = StreakRecordDTO(from: record)
+                        results.append(dto)
+
+                        #if DEBUG
+                        print("[CloudKitSyncService]   - App \(dto.appLogicalID): current=\(dto.currentStreak), longest=\(dto.longestStreak)")
+                        #endif
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error querying zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Fetched \(results.count) streak records")
+        #endif
+
+        return results
+    }
 }

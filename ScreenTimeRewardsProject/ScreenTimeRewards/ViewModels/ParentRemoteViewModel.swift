@@ -246,6 +246,58 @@ struct DailyUsageHistoryDTO: Identifiable {
     }
 }
 
+// MARK: - Streak Record DTO
+
+/// Data transfer object for streak records from CloudKit
+/// Contains per-app streak data for a child device
+struct StreakRecordDTO: Identifiable {
+    var id: String { streakID }
+
+    let streakID: String
+    let childDeviceID: String
+    let appLogicalID: String
+    let streakType: String
+    let currentStreak: Int
+    let longestStreak: Int
+    let lastActivityDate: Date?
+    let syncTimestamp: Date?
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.streakID = record["CD_streakID"] as? String ?? UUID().uuidString
+        self.childDeviceID = record["CD_childDeviceID"] as? String ?? ""
+        self.appLogicalID = record["CD_appLogicalID"] as? String ?? ""
+        self.streakType = record["CD_streakType"] as? String ?? "daily"
+        self.currentStreak = record["CD_currentStreak"] as? Int ?? 0
+        self.longestStreak = record["CD_longestStreak"] as? Int ?? 0
+        self.lastActivityDate = record["CD_lastActivityDate"] as? Date
+        self.syncTimestamp = record.modificationDate
+    }
+
+    /// Whether the streak is at risk (no activity today yet)
+    var isAtRisk: Bool {
+        guard let lastDate = lastActivityDate else { return false }
+        return !Calendar.current.isDateInToday(lastDate) && currentStreak > 0
+    }
+}
+
+/// Aggregate streak summary for a child device
+struct ChildStreakSummary {
+    let deviceID: String
+    let maxCurrentStreak: Int
+    let maxLongestStreak: Int
+    let anyAtRisk: Bool
+    let streakRecords: [StreakRecordDTO]
+
+    init(deviceID: String, records: [StreakRecordDTO]) {
+        self.deviceID = deviceID
+        self.streakRecords = records
+        self.maxCurrentStreak = records.map { $0.currentStreak }.max() ?? 0
+        self.maxLongestStreak = records.map { $0.longestStreak }.max() ?? 0
+        self.anyAtRisk = records.contains { $0.isAtRisk }
+    }
+}
+
 @MainActor
 class ParentRemoteViewModel: ObservableObject {
     @Published var linkedChildDevices: [RegisteredDevice] = []
@@ -274,6 +326,10 @@ class ParentRemoteViewModel: ObservableObject {
     // Daily usage history (synced from CloudKit)
     @Published var childDailyUsageHistory: [DailyUsageHistoryDTO] = []
     @Published var childDailyUsageByApp: [String: [DailyUsageHistoryDTO]] = [:]  // Grouped by logicalID
+
+    // Streak data for child devices
+    @Published var childStreakSummary: ChildStreakSummary?
+    @Published var childStreakRecords: [StreakRecordDTO] = []
 
     /// Aggregated daily totals from per-app history
     /// Returns array of (date, learningSeconds, rewardSeconds) sorted by date descending
@@ -620,6 +676,9 @@ class ParentRemoteViewModel: ObservableObject {
 
             // Also load child app configurations from CloudKit
             await loadChildAppConfigurations(for: device)
+
+            // Load child streak records from CloudKit
+            await loadChildStreakRecords(for: device)
         } catch let error as CKError {
             handleCloudKitError(error)
         } catch {
@@ -797,6 +856,50 @@ class ParentRemoteViewModel: ObservableObject {
             #endif
         } catch {
             print("[ParentRemoteViewModel] Error loading child app configurations: \(error)")
+        }
+    }
+
+    /// Load child's streak records from CloudKit
+    /// Fetches streak data for the child device and creates aggregate summary
+    func loadChildStreakRecords(for device: RegisteredDevice) async {
+        guard let deviceID = device.deviceID else { return }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Loading Child Streak Records =====")
+        print("[ParentRemoteViewModel] Device ID: \(deviceID)")
+        #endif
+
+        do {
+            // Fetch streak records from CloudKit
+            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
+            let streakRecords = try await cloudKitService.fetchChildStreakRecords(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Fetched \(streakRecords.count) streak records")
+            for record in streakRecords {
+                print("[ParentRemoteViewModel]   App: \(record.appLogicalID) | Current: \(record.currentStreak) | Longest: \(record.longestStreak) | At Risk: \(record.isAtRisk)")
+            }
+            #endif
+
+            // Create aggregate summary
+            let summary = ChildStreakSummary(deviceID: deviceID, records: streakRecords)
+
+            await MainActor.run {
+                self.childStreakRecords = streakRecords
+                self.childStreakSummary = summary
+            }
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Streak summary: max current=\(summary.maxCurrentStreak), max longest=\(summary.maxLongestStreak), at risk=\(summary.anyAtRisk)")
+            print("[ParentRemoteViewModel] ===== End Loading Child Streak Records =====")
+            #endif
+        } catch {
+            print("[ParentRemoteViewModel] Error loading child streak records: \(error)")
+            // Don't set error message - streaks are supplementary data, not critical
         }
     }
 

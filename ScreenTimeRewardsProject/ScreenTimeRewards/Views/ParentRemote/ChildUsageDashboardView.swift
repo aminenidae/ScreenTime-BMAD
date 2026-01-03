@@ -288,27 +288,37 @@ private struct ChildTabButton: View {
     }
 }
 
-// MARK: - Home Tab
+// MARK: - Home Tab (Unified Dashboard)
 
 private struct ChildHomeTabView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     let device: RegisteredDevice
+    @StateObject private var dataAdapter: RemoteDashboardDataAdapter
     @Environment(\.colorScheme) var colorScheme
 
-    /// Today's usage from daily history (accurate per-day data, not aggregated totals)
-    var todayUsage: (learningTime: Int, rewardTime: Int) {
-        let totals = viewModel.todayTotals
-        return (totals.learningSeconds, totals.rewardSeconds)
+    init(viewModel: ParentRemoteViewModel, device: RegisteredDevice) {
+        self.viewModel = viewModel
+        self.device = device
+        _dataAdapter = StateObject(wrappedValue: RemoteDashboardDataAdapter(viewModel: viewModel))
     }
 
     var body: some View {
         ScrollView {
-            VStack(spacing: 20) {
-                // Today's Summary
-                TodaySummaryCards(
-                    learningTime: todayUsage.learningTime,
-                    rewardTime: todayUsage.rewardTime
+            VStack(spacing: 16) {
+                // Section 1: Usage Overview (with drill-down)
+                UsageOverviewSection(dataProvider: dataAdapter)
+
+                // Section 2: Time Bank
+                TimeBankCard(
+                    earnedMinutes: dataAdapter.earnedMinutes + dataAdapter.streakBonusMinutes,
+                    usedMinutes: dataAdapter.usedMinutes
                 )
+
+                // Section 3: Streaks Summary
+                StreaksSummarySection(dataProvider: dataAdapter)
+
+                // Section 4: Daily/Weekly Trends Chart
+                RemoteDailyUsageChartCard(dataProvider: dataAdapter)
 
                 // App Configuration Summary
                 AppConfigSummary(
@@ -316,31 +326,130 @@ private struct ChildHomeTabView: View {
                     rewardCount: viewModel.childRewardApps.count
                 )
 
-                // Category Summaries (existing)
-                if !viewModel.categorySummaries.isEmpty {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text("Usage by Category")
-                            .font(.headline)
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .padding(.horizontal)
-
-                        ForEach(viewModel.categorySummaries) { summary in
-                            NavigationLink(destination: CategoryDetailView(summary: summary)) {
-                                CategoryUsageCard(summary: summary)
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal)
-                        }
-                    }
-                }
-
                 // Historical Reports (existing)
                 HistoricalReportsView(viewModel: viewModel)
                     .padding(.horizontal)
 
                 Spacer(minLength: 40)
             }
-            .padding(.vertical)
+            .padding(.horizontal, 16)
+            .padding(.top, 16)
+        }
+    }
+}
+
+// MARK: - Remote Daily Usage Chart Card
+
+/// Chart card for remote context using DashboardDataProvider
+private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View {
+    @ObservedObject var dataProvider: Provider
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Daily Trends")
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+            if dataProvider.dailyTotals.isEmpty {
+                Text("No usage data available yet")
+                    .font(.subheadline)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .frame(maxWidth: .infinity, alignment: .center)
+                    .padding(.vertical, 20)
+            } else {
+                // Simple bar chart showing last 7 days
+                HStack(alignment: .bottom, spacing: 8) {
+                    ForEach(last7Days, id: \.date) { day in
+                        DailyBar(
+                            date: day.date,
+                            learningMinutes: day.learningMinutes,
+                            rewardMinutes: day.rewardMinutes,
+                            maxMinutes: maxDailyMinutes
+                        )
+                    }
+                }
+                .frame(height: 120)
+                .padding(.vertical, 8)
+
+                // Legend
+                HStack(spacing: 20) {
+                    LegendItem(color: AppTheme.vibrantTeal, label: "Learning")
+                    LegendItem(color: AppTheme.playfulCoral, label: "Rewards")
+                }
+                .font(.caption)
+            }
+        }
+        .padding()
+        .background(AppTheme.card(for: colorScheme))
+        .cornerRadius(16)
+    }
+
+    private var last7Days: [DailyUsageTotals] {
+        let sorted = dataProvider.dailyTotals.sorted { $0.date < $1.date }
+        return Array(sorted.suffix(7))
+    }
+
+    private var maxDailyMinutes: Int {
+        let max = last7Days.map { $0.learningMinutes + $0.rewardMinutes }.max() ?? 1
+        return Swift.max(max, 1) // Avoid division by zero
+    }
+}
+
+private struct DailyBar: View {
+    let date: Date
+    let learningMinutes: Int
+    let rewardMinutes: Int
+    let maxMinutes: Int
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        VStack(spacing: 4) {
+            // Stacked bars
+            VStack(spacing: 0) {
+                // Reward portion (top)
+                Rectangle()
+                    .fill(AppTheme.playfulCoral)
+                    .frame(height: barHeight(for: rewardMinutes))
+
+                // Learning portion (bottom)
+                Rectangle()
+                    .fill(AppTheme.vibrantTeal)
+                    .frame(height: barHeight(for: learningMinutes))
+            }
+            .cornerRadius(4)
+            .frame(maxHeight: .infinity, alignment: .bottom)
+
+            // Day label
+            Text(dayLabel)
+                .font(.system(size: 10))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func barHeight(for minutes: Int) -> CGFloat {
+        guard maxMinutes > 0 else { return 0 }
+        return CGFloat(minutes) / CGFloat(maxMinutes) * 80 // Max bar height
+    }
+
+    private var dayLabel: String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "E"
+        return formatter.string(from: date).prefix(1).uppercased()
+    }
+}
+
+private struct LegendItem: View {
+    let color: Color
+    let label: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 8, height: 8)
+            Text(label)
         }
     }
 }
