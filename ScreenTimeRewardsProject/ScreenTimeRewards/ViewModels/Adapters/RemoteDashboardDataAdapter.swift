@@ -22,6 +22,11 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
         // Forward objectWillChange from underlying view model
         viewModel.objectWillChange
             .sink { [weak self] _ in
+                #if DEBUG
+                print("[RemoteDashboardDataAdapter] 🔔 viewModel.objectWillChange received")
+                print("[RemoteDashboardDataAdapter]   childLearningAppsFullConfig.count: \(self?.viewModel.childLearningAppsFullConfig.count ?? -1)")
+                print("[RemoteDashboardDataAdapter]   childRewardAppsFullConfig.count: \(self?.viewModel.childRewardAppsFullConfig.count ?? -1)")
+                #endif
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
@@ -38,59 +43,53 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     }
 
     var learningAppDetails: [AppUsageDetail] {
-        // Get today's usage per app from daily history
         let calendar = Calendar.current
+
+        // Get today's usage grouped by logicalID
         let todayRecords = viewModel.childDailyUsageHistory.filter {
             $0.category == "Learning" && calendar.isDateInToday($0.date)
         }
+        let usageByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
 
-        // Group by logicalID to avoid duplicates
-        let groupedByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
-
-        return groupedByApp.map { logicalID, records in
+        // Map ALL configured learning apps, using today's usage where available
+        return viewModel.childLearningAppsFullConfig.map { config in
+            let records = usageByApp[config.logicalID] ?? []
             let totalSeconds = records.reduce(0) { $0 + $1.seconds }
-            let displayName = records.first?.displayName ?? "Unknown"
-
-            // Find matching full config for additional details
-            let config = viewModel.childLearningAppsFullConfig.first { $0.logicalID == logicalID }
 
             return AppUsageDetail(
-                id: logicalID,
-                displayName: displayName,
+                id: config.logicalID,
+                displayName: config.displayName,
                 category: .learning,
                 todaySeconds: totalSeconds,
-                iconURL: config?.iconURL,
-                pointsPerMinute: config?.pointsPerMinute ?? 1,
-                earnedPoints: (totalSeconds / 60) * (config?.pointsPerMinute ?? 1)
+                iconURL: config.iconURL,
+                pointsPerMinute: config.pointsPerMinute,
+                earnedPoints: (totalSeconds / 60) * config.pointsPerMinute
             )
         }.sorted { $0.todaySeconds > $1.todaySeconds }
     }
 
     var rewardAppDetails: [AppUsageDetail] {
-        // Get today's usage per app from daily history
         let calendar = Calendar.current
+
+        // Get today's usage grouped by logicalID
         let todayRecords = viewModel.childDailyUsageHistory.filter {
             $0.category == "Reward" && calendar.isDateInToday($0.date)
         }
+        let usageByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
 
-        // Group by logicalID to avoid duplicates
-        let groupedByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
-
-        return groupedByApp.map { logicalID, records in
+        // Map ALL configured reward apps, using today's usage where available
+        return viewModel.childRewardAppsFullConfig.map { config in
+            let records = usageByApp[config.logicalID] ?? []
             let totalSeconds = records.reduce(0) { $0 + $1.seconds }
-            let displayName = records.first?.displayName ?? "Unknown"
-
-            // Find matching full config for additional details
-            let config = viewModel.childRewardAppsFullConfig.first { $0.logicalID == logicalID }
 
             return AppUsageDetail(
-                id: logicalID,
-                displayName: displayName,
+                id: config.logicalID,
+                displayName: config.displayName,
                 category: .reward,
                 todaySeconds: totalSeconds,
-                iconURL: config?.iconURL,
-                pointsPerMinute: config?.pointsPerMinute ?? 1,
-                earnedPoints: (totalSeconds / 60) * (config?.pointsPerMinute ?? 1)
+                iconURL: config.iconURL,
+                pointsPerMinute: config.pointsPerMinute,
+                earnedPoints: (totalSeconds / 60) * config.pointsPerMinute
             )
         }.sorted { $0.todaySeconds > $1.todaySeconds }
     }

@@ -7,8 +7,8 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
     @ObservedObject var dataProvider: Provider
 
     @Environment(\.colorScheme) var colorScheme
-    @State private var selectedCategory: AppUsageDetail.AppCategory?
-    @State private var showDetailSheet = false
+    /// Single state variable for sheet - setting it triggers the sheet to present
+    @State private var sheetCategory: AppUsageDetail.AppCategory?
 
     /// Check if we're in local context with access to snapshots
     private var localAdapter: LocalDashboardDataAdapter? {
@@ -46,8 +46,14 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
                     color: AppTheme.vibrantTeal,
                     appCount: dataProvider.learningAppDetails.count
                 ) {
-                    selectedCategory = .learning
-                    showDetailSheet = true
+                    #if DEBUG
+                    print("[UsageOverviewSection] 📱 LEARNING card tapped")
+                    print("[UsageOverviewSection]   isLocal: \(localAdapter != nil)")
+                    print("[UsageOverviewSection]   learningAppDetails.count: \(dataProvider.learningAppDetails.count)")
+                    print("[UsageOverviewSection]   rewardAppDetails.count: \(dataProvider.rewardAppDetails.count)")
+                    print("[UsageOverviewSection]   isLoading: \(dataProvider.isLoading)")
+                    #endif
+                    sheetCategory = .learning  // Single state change triggers sheet
                 }
 
                 // Reward Time Card - Tappable
@@ -58,8 +64,14 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
                     color: AppTheme.playfulCoral,
                     appCount: dataProvider.rewardAppDetails.count
                 ) {
-                    selectedCategory = .reward
-                    showDetailSheet = true
+                    #if DEBUG
+                    print("[UsageOverviewSection] 🎮 REWARD card tapped")
+                    print("[UsageOverviewSection]   isLocal: \(localAdapter != nil)")
+                    print("[UsageOverviewSection]   learningAppDetails.count: \(dataProvider.learningAppDetails.count)")
+                    print("[UsageOverviewSection]   rewardAppDetails.count: \(dataProvider.rewardAppDetails.count)")
+                    print("[UsageOverviewSection]   isLoading: \(dataProvider.isLoading)")
+                    #endif
+                    sheetCategory = .reward  // Single state change triggers sheet
                 }
             }
         }
@@ -72,24 +84,38 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
                         .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
                 )
         )
-        .sheet(isPresented: $showDetailSheet) {
-            if let category = selectedCategory {
-                // Use local sheet with tokens for child device, remote sheet with URLs for parent device
-                if let adapter = localAdapter {
-                    // Child device: Use LocalAppUsageDetailSheet with actual app icons via tokens
-                    LocalAppUsageDetailSheet(
-                        category: category == .learning
-                            ? .learning(adapter.learningSnapshots)
-                            : .reward(adapter.rewardSnapshots)
-                    )
-                } else {
-                    // Parent device: Use AppUsageDetailSheet with CachedAppIcon
-                    AppUsageDetailSheet(
-                        category: category,
-                        apps: category == .learning
-                            ? dataProvider.learningAppDetails
-                            : dataProvider.rewardAppDetails
-                    )
+        .sheet(item: $sheetCategory) { category in
+            // category is guaranteed non-nil here - passed directly from the item binding
+            // Use local sheet with tokens for child device, remote sheet with URLs for parent device
+            if let adapter = localAdapter {
+                // Child device: Use LocalAppUsageDetailSheet with actual app icons via tokens
+                // Pass the adapter so the sheet observes data changes
+                LocalAppUsageDetailSheet(
+                    category: category == .learning ? .learning : .reward,
+                    dataAdapter: adapter
+                )
+                .onAppear {
+                    #if DEBUG
+                    print("[UsageOverviewSection] 📋 LocalAppUsageDetailSheet appeared")
+                    print("[UsageOverviewSection]   category: \(category)")
+                    print("[UsageOverviewSection]   learningSnapshots.count: \(adapter.learningSnapshots.count)")
+                    print("[UsageOverviewSection]   rewardSnapshots.count: \(adapter.rewardSnapshots.count)")
+                    #endif
+                }
+            } else {
+                // Parent device: Use AppUsageDetailSheet with CachedAppIcon
+                // Pass the data provider so the sheet observes data changes
+                AppUsageDetailSheet(
+                    category: category,
+                    dataProvider: dataProvider
+                )
+                .onAppear {
+                    #if DEBUG
+                    print("[UsageOverviewSection] 📋 AppUsageDetailSheet appeared")
+                    print("[UsageOverviewSection]   category: \(category)")
+                    print("[UsageOverviewSection]   learningAppDetails.count: \(dataProvider.learningAppDetails.count)")
+                    print("[UsageOverviewSection]   rewardAppDetails.count: \(dataProvider.rewardAppDetails.count)")
+                    #endif
                 }
             }
         }

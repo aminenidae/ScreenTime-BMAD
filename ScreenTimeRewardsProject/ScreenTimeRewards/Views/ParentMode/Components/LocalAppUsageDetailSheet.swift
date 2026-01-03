@@ -4,41 +4,39 @@ import ManagedSettings
 
 /// Sheet showing detailed per-app usage for a category on the child device.
 /// Uses FamilyControls Label with ApplicationToken for actual app icons.
+/// Observes the data adapter to update when data becomes available.
 struct LocalAppUsageDetailSheet: View {
-    enum Category {
-        case learning([LearningAppSnapshot])
-        case reward([RewardAppSnapshot])
+    enum CategoryType {
+        case learning
+        case reward
 
-        var isLearning: Bool {
-            if case .learning = self { return true }
-            return false
-        }
-
-        var displayName: String {
-            isLearning ? "Learning" : "Reward"
-        }
-
-        var appCount: Int {
-            switch self {
-            case .learning(let apps): return apps.count
-            case .reward(let apps): return apps.count
-            }
-        }
-
-        var totalSeconds: Int {
-            switch self {
-            case .learning(let apps):
-                return apps.reduce(0) { $0 + Int($1.totalSeconds) }
-            case .reward(let apps):
-                return apps.reduce(0) { $0 + Int($1.totalSeconds) }
-            }
-        }
+        var isLearning: Bool { self == .learning }
+        var displayName: String { isLearning ? "Learning" : "Reward" }
     }
 
-    let category: Category
+    let category: CategoryType
+    @ObservedObject var dataAdapter: LocalDashboardDataAdapter
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
+
+    private var learningSnapshots: [LearningAppSnapshot] {
+        dataAdapter.learningSnapshots
+    }
+
+    private var rewardSnapshots: [RewardAppSnapshot] {
+        dataAdapter.rewardSnapshots
+    }
+
+    private var appCount: Int {
+        category.isLearning ? learningSnapshots.count : rewardSnapshots.count
+    }
+
+    private var totalSeconds: Int {
+        category.isLearning
+            ? learningSnapshots.reduce(0) { $0 + Int($1.totalSeconds) }
+            : rewardSnapshots.reduce(0) { $0 + Int($1.totalSeconds) }
+    }
 
     private var categoryColor: Color {
         category.isLearning ? AppTheme.vibrantTeal : AppTheme.playfulCoral
@@ -49,10 +47,16 @@ struct LocalAppUsageDetailSheet: View {
     }
 
     private var totalMinutes: Int {
-        category.totalSeconds / 60
+        totalSeconds / 60
     }
 
     var body: some View {
+        let _ = {
+            #if DEBUG
+            print("[LocalAppUsageDetailSheet] 🔄 body evaluated - appCount: \(appCount), category: \(category)")
+            #endif
+        }()
+
         NavigationView {
             ZStack {
                 AppTheme.background(for: colorScheme)
@@ -64,7 +68,7 @@ struct LocalAppUsageDetailSheet: View {
                         summaryHeader
 
                         // App list
-                        if category.appCount == 0 {
+                        if appCount == 0 {
                             emptyState
                         } else {
                             appsList
@@ -88,6 +92,19 @@ struct LocalAppUsageDetailSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .id(appCount)  // Force re-render when app count changes
+        .onAppear {
+            #if DEBUG
+            print("[LocalAppUsageDetailSheet] ✅ onAppear - appCount: \(appCount)")
+            print("[LocalAppUsageDetailSheet]   learningSnapshots: \(learningSnapshots.count)")
+            print("[LocalAppUsageDetailSheet]   rewardSnapshots: \(rewardSnapshots.count)")
+            #endif
+        }
+        .onChange(of: appCount) { newCount in
+            #if DEBUG
+            print("[LocalAppUsageDetailSheet] 🔔 appCount changed to: \(newCount)")
+            #endif
+        }
     }
 
     // MARK: - Summary Header
@@ -118,7 +135,7 @@ struct LocalAppUsageDetailSheet: View {
                         .padding(.bottom, 4)
                 }
 
-                Text("\(category.appCount) app\(category.appCount == 1 ? "" : "s") tracked")
+                Text("\(appCount) app\(appCount == 1 ? "" : "s") tracked")
                     .font(.caption)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
@@ -136,25 +153,24 @@ struct LocalAppUsageDetailSheet: View {
 
     private var appsList: some View {
         VStack(spacing: 12) {
-            switch category {
-            case .learning(let snapshots):
-                ForEach(sortedLearningApps(snapshots)) { snapshot in
+            if category.isLearning {
+                ForEach(sortedLearningApps) { snapshot in
                     LearningAppRow(snapshot: snapshot, categoryColor: categoryColor)
                 }
-            case .reward(let snapshots):
-                ForEach(sortedRewardApps(snapshots)) { snapshot in
+            } else {
+                ForEach(sortedRewardApps) { snapshot in
                     RewardAppRow(snapshot: snapshot, categoryColor: categoryColor)
                 }
             }
         }
     }
 
-    private func sortedLearningApps(_ apps: [LearningAppSnapshot]) -> [LearningAppSnapshot] {
-        apps.sorted { $0.totalSeconds > $1.totalSeconds }
+    private var sortedLearningApps: [LearningAppSnapshot] {
+        learningSnapshots.sorted { $0.totalSeconds > $1.totalSeconds }
     }
 
-    private func sortedRewardApps(_ apps: [RewardAppSnapshot]) -> [RewardAppSnapshot] {
-        apps.sorted { $0.totalSeconds > $1.totalSeconds }
+    private var sortedRewardApps: [RewardAppSnapshot] {
+        rewardSnapshots.sorted { $0.totalSeconds > $1.totalSeconds }
     }
 
     // MARK: - Empty State

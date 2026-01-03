@@ -33,6 +33,11 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
         // Forward objectWillChange from underlying view model
         viewModel.objectWillChange
             .sink { [weak self] _ in
+                #if DEBUG
+                print("[LocalDashboardDataAdapter] 🔔 viewModel.objectWillChange received")
+                print("[LocalDashboardDataAdapter]   learningSnapshots.count: \(self?.viewModel.learningSnapshots.count ?? -1)")
+                print("[LocalDashboardDataAdapter]   rewardSnapshots.count: \(self?.viewModel.rewardSnapshots.count ?? -1)")
+                #endif
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)

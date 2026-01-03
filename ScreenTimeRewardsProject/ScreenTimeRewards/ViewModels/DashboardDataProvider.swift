@@ -92,9 +92,11 @@ struct AppUsageDetail: Identifiable {
     let pointsPerMinute: Int
     let earnedPoints: Int
 
-    enum AppCategory: String {
+    enum AppCategory: String, Identifiable {
         case learning = "Learning"
         case reward = "Reward"
+
+        var id: String { rawValue }
     }
 }
 

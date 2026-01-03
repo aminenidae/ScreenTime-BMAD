@@ -1,13 +1,21 @@
 import SwiftUI
+import Combine
 
 /// Sheet showing detailed per-app usage for a category (Learning or Reward).
 /// Displayed when tapping the usage overview cards.
-struct AppUsageDetailSheet: View {
+/// Observes the data provider to update when data becomes available.
+struct AppUsageDetailSheet<Provider: DashboardDataProvider>: View {
     let category: AppUsageDetail.AppCategory
-    let apps: [AppUsageDetail]
+    @ObservedObject var dataProvider: Provider
 
     @Environment(\.dismiss) var dismiss
     @Environment(\.colorScheme) var colorScheme
+
+    private var apps: [AppUsageDetail] {
+        category == .learning
+            ? dataProvider.learningAppDetails
+            : dataProvider.rewardAppDetails
+    }
 
     private var categoryColor: Color {
         category == .learning ? AppTheme.vibrantTeal : AppTheme.playfulCoral
@@ -26,6 +34,12 @@ struct AppUsageDetailSheet: View {
     }
 
     var body: some View {
+        let _ = {
+            #if DEBUG
+            print("[AppUsageDetailSheet] 🔄 body evaluated - apps.count: \(apps.count), category: \(category)")
+            #endif
+        }()
+
         NavigationView {
             ZStack {
                 AppTheme.background(for: colorScheme)
@@ -61,6 +75,20 @@ struct AppUsageDetailSheet: View {
         }
         .presentationDetents([.medium, .large])
         .presentationDragIndicator(.visible)
+        .id(apps.count)  // Force re-render when apps count changes
+        .onAppear {
+            #if DEBUG
+            print("[AppUsageDetailSheet] ✅ onAppear - apps.count: \(apps.count)")
+            for (index, app) in apps.enumerated() {
+                print("[AppUsageDetailSheet]   [\(index)] \(app.displayName): \(app.todaySeconds)s")
+            }
+            #endif
+        }
+        .onChange(of: apps.count) { newCount in
+            #if DEBUG
+            print("[AppUsageDetailSheet] 🔔 apps.count changed to: \(newCount)")
+            #endif
+        }
     }
 
     // MARK: - Summary Header
@@ -217,17 +245,49 @@ private struct AppUsageDetailRow: View {
 #Preview("Learning Apps") {
     AppUsageDetailSheet(
         category: .learning,
-        apps: [
-            AppUsageDetail(id: "1", displayName: "Duolingo", category: .learning, todaySeconds: 1800, iconURL: nil, pointsPerMinute: 2, earnedPoints: 60),
-            AppUsageDetail(id: "2", displayName: "Khan Academy", category: .learning, todaySeconds: 1200, iconURL: nil, pointsPerMinute: 3, earnedPoints: 60),
-            AppUsageDetail(id: "3", displayName: "Brilliant", category: .learning, todaySeconds: 600, iconURL: nil, pointsPerMinute: 2, earnedPoints: 20)
-        ]
+        dataProvider: PreviewSheetDataProvider(
+            learningApps: [
+                AppUsageDetail(id: "1", displayName: "Duolingo", category: .learning, todaySeconds: 1800, iconURL: nil, pointsPerMinute: 2, earnedPoints: 60),
+                AppUsageDetail(id: "2", displayName: "Khan Academy", category: .learning, todaySeconds: 1200, iconURL: nil, pointsPerMinute: 3, earnedPoints: 60),
+                AppUsageDetail(id: "3", displayName: "Brilliant", category: .learning, todaySeconds: 600, iconURL: nil, pointsPerMinute: 2, earnedPoints: 20)
+            ],
+            rewardApps: []
+        )
     )
 }
 
 #Preview("Empty State") {
     AppUsageDetailSheet(
         category: .reward,
-        apps: []
+        dataProvider: PreviewSheetDataProvider(learningApps: [], rewardApps: [])
     )
+}
+
+// MARK: - Preview Helper
+
+@MainActor
+private final class PreviewSheetDataProvider: DashboardDataProvider {
+    @Published var learningTimeSeconds: Int = 0
+    @Published var rewardTimeSeconds: Int = 0
+    @Published var learningAppDetails: [AppUsageDetail]
+    @Published var rewardAppDetails: [AppUsageDetail]
+    @Published var earnedMinutes: Int = 0
+    @Published var usedMinutes: Int = 0
+    @Published var streakBonusMinutes: Int = 0
+    @Published var currentStreak: Int = 0
+    @Published var longestStreak: Int = 0
+    @Published var isStreakAtRisk: Bool = false
+    @Published var streakProgress: Double = 0
+    @Published var milestoneCycleDays: Int = 7
+    @Published var potentialBonusMinutes: Int = 10
+    @Published var dailyTotals: [DailyUsageTotals] = []
+    @Published var isRemoteContext: Bool = false
+    @Published var isLoading: Bool = false
+
+    init(learningApps: [AppUsageDetail], rewardApps: [AppUsageDetail]) {
+        self.learningAppDetails = learningApps
+        self.rewardAppDetails = rewardApps
+    }
+
+    func refresh() async {}
 }
