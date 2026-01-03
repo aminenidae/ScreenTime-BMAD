@@ -426,17 +426,18 @@ class ParentRemoteViewModel: ObservableObject {
     /// Setup CloudKit notifications to auto-refresh when data syncs
     private func setupCloudKitNotifications() {
         NotificationCenter.default.publisher(for: NSPersistentCloudKitContainer.eventChangedNotification)
-            .sink { [weak self] notification in
-                guard let self = self,
-                      let event = notification.userInfo?["event"] as? NSPersistentCloudKitContainer.Event else {
-                    return
-                }
-
-                // Auto-refresh when import completes successfully
-                if event.type == .import && event.succeeded {
-                    Task { @MainActor in
-                        await self.loadLinkedChildDevices()
-                    }
+            .compactMap { notification -> NSPersistentCloudKitContainer.Event? in
+                notification.userInfo?["event"] as? NSPersistentCloudKitContainer.Event
+            }
+            .filter { $0.type == .import && $0.succeeded }
+            .debounce(for: .seconds(2), scheduler: DispatchQueue.main)  // Wait 2 seconds for sync to settle
+            .sink { [weak self] _ in
+                guard let self = self else { return }
+                #if DEBUG
+                print("[ParentRemoteViewModel] CloudKit import settled - refreshing child devices")
+                #endif
+                Task { @MainActor in
+                    await self.loadLinkedChildDevices()
                 }
             }
             .store(in: &cancellables)

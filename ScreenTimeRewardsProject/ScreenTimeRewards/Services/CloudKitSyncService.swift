@@ -374,6 +374,7 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         var devices: [RegisteredDevice] = []
+        var zoneRecordCounts: [String: Int] = [:]  // Track record counts per zone for deduplication
 
         // 3. Fetch records from EACH ChildMonitoring zone using zone changes API
         // (CKQuery fails because CD_RegisteredDevice fields are not marked QUERYABLE)
@@ -385,6 +386,9 @@ class CloudKitSyncService: ObservableObject {
 
                 // Use fetchRecordZoneChanges to get all records without needing queryable indexes
                 let zoneRecords = try await fetchAllRecordsInZone(zoneID: zone.zoneID, database: privateDatabase)
+
+                // Track record count for this zone (used for deduplication - more records = more active)
+                zoneRecordCounts[zone.zoneID.zoneName] = zoneRecords.count
 
                 #if DEBUG
                 print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): fetched \(zoneRecords.count) total records")
@@ -409,11 +413,31 @@ class CloudKitSyncService: ObservableObject {
                         let device = convertToRegisteredDevice(record)
                         device.sharedZoneID = zone.zoneID.zoneName
                         device.sharedZoneOwner = zone.zoneID.ownerName
-                        devices.append(device)
 
-                        #if DEBUG
-                        print("[CloudKitSyncService]   ✅ Found matching child: \(device.deviceName ?? "unknown") (\(device.deviceID ?? "nil"))")
-                        #endif
+                        // Deduplicate by deviceID - keep device from zone with MORE records (more active)
+                        if let deviceID = device.deviceID,
+                           let existingIndex = devices.firstIndex(where: { $0.deviceID == deviceID }) {
+                            let existingDevice = devices[existingIndex]
+                            let existingZoneCount = zoneRecordCounts[existingDevice.sharedZoneID ?? ""] ?? 0
+                            let newZoneCount = zoneRecords.count
+
+                            if newZoneCount > existingZoneCount {
+                                devices[existingIndex] = device
+                                #if DEBUG
+                                print("[CloudKitSyncService]   🔄 Replaced with more active zone: \(device.childName ?? deviceID)")
+                                print("[CloudKitSyncService]      \(zone.zoneID.zoneName) (\(newZoneCount) records) > \(existingDevice.sharedZoneID ?? "?") (\(existingZoneCount) records)")
+                                #endif
+                            } else {
+                                #if DEBUG
+                                print("[CloudKitSyncService]   ⚠️ Skipping less active zone: \(device.childName ?? deviceID) from \(zone.zoneID.zoneName) (\(newZoneCount) records)")
+                                #endif
+                            }
+                        } else {
+                            devices.append(device)
+                            #if DEBUG
+                            print("[CloudKitSyncService]   ✅ Found matching child: \(device.deviceName ?? "unknown") (\(device.deviceID ?? "nil"))")
+                            #endif
+                        }
                     }
                 }
             } catch let error as CKError where error.code == .zoneNotFound {
@@ -498,7 +522,11 @@ class CloudKitSyncService: ObservableObject {
         device.deviceType = record["CD_deviceType"] as? String
         device.parentDeviceID = record["CD_parentDeviceID"] as? String
         device.registrationDate = record["CD_registrationDate"] as? Date
+        device.childName = record["CD_childName"] as? String
         if let active = record["CD_isActive"] as? Int { device.isActive = active != 0 } else { device.isActive = false }
+
+        // Capture modification date for deduplication (prefer most recent zone)
+        device.lastSyncDate = record.modificationDate
 
         // Extract zone info from the CKRecord for zone-specific queries
         device.sharedZoneID = record.recordID.zoneID.zoneName
