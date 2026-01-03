@@ -2912,6 +2912,73 @@ class CloudKitSyncService: ObservableObject {
         #if DEBUG
         print("[CloudKitSyncService] ✅ Successfully uploaded \(savedTotal) daily usage history records to parent's zone")
         #endif
+
+        // Upload daily snapshot with pre-calculated totals
+        await uploadDailySnapshotToParent(
+            deviceID: deviceID,
+            date: today,
+            allApps: allApps,
+            zoneID: zoneID,
+            rootID: rootID,
+            sharedDB: sharedDB
+        )
+    }
+
+    /// Upload daily snapshot with totals to parent's shared zone
+    private func uploadDailySnapshotToParent(
+        deviceID: String,
+        date: Date,
+        allApps: [String: UsagePersistence.PersistedApp],
+        zoneID: CKRecordZone.ID,
+        rootID: CKRecord.ID,
+        sharedDB: CKDatabase
+    ) async {
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let dateStr = dateFormatter.string(from: date)
+
+        // Calculate totals from app data
+        var totalLearningSeconds = 0
+        var totalRewardSeconds = 0
+        var rewardLogicalIDs: [String] = []
+
+        for (logicalID, app) in allApps {
+            if app.category == "Learning" {
+                totalLearningSeconds += app.todaySeconds
+            } else if app.category == "Reward" {
+                totalRewardSeconds += app.todaySeconds
+                rewardLogicalIDs.append(logicalID)
+            }
+        }
+
+        // Get earned minutes from BlockingCoordinator using logicalIDs
+        let totalEarnedMinutes = BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: rewardLogicalIDs)
+
+        #if DEBUG
+        print("[CloudKitSyncService] 📊 Daily Snapshot: learning=\(totalLearningSeconds)s, reward=\(totalRewardSeconds)s, earned=\(totalEarnedMinutes)m")
+        #endif
+
+        // Create or update snapshot record
+        let snapshotID = CKRecord.ID(recordName: "DS-\(deviceID)-\(dateStr)", zoneID: zoneID)
+        let snapshot = CKRecord(recordType: "CD_DailySnapshot", recordID: snapshotID)
+        snapshot.parent = CKRecord.Reference(recordID: rootID, action: .none)
+        snapshot["CD_deviceID"] = deviceID as CKRecordValue
+        snapshot["CD_date"] = date as CKRecordValue
+        snapshot["CD_totalEarnedMinutes"] = totalEarnedMinutes as CKRecordValue
+        snapshot["CD_totalLearningSeconds"] = totalLearningSeconds as CKRecordValue
+        snapshot["CD_totalRewardSeconds"] = totalRewardSeconds as CKRecordValue
+        snapshot["CD_syncTimestamp"] = Date() as CKRecordValue
+
+        do {
+            let (saved, _) = try await sharedDB.modifyRecords(saving: [snapshot], deleting: [])
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Daily snapshot uploaded: \(saved.count) record")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Failed to upload daily snapshot: \(error.localizedDescription)")
+            #endif
+        }
     }
 
     /// Fetch child's daily usage history from CloudKit shared zones
@@ -3022,6 +3089,93 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         return results
+    }
+
+    /// Fetch child's daily snapshot (today's totals) from CloudKit shared zones
+    /// Returns the most recent DailySnapshotDTO with pre-calculated earnedMinutes
+    func fetchChildDailySnapshot(deviceID: String, zoneID: String? = nil, zoneOwner: String? = nil) async throws -> DailySnapshotDTO? {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Child Daily Snapshot =====")
+        print("[CloudKitSyncService] Device ID: \(deviceID)")
+        #endif
+
+        let db = container.privateCloudDatabase
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // If zone info provided, query only that specific zone
+        if let zoneName = zoneID, let ownerName = zoneOwner {
+            let specificZoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
+
+            do {
+                let predicate = NSPredicate(
+                    format: "CD_deviceID == %@ AND CD_date >= %@",
+                    deviceID, today as NSDate
+                )
+                let query = CKQuery(recordType: "CD_DailySnapshot", predicate: predicate)
+                query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: false)]
+
+                let (matches, _) = try await db.records(
+                    matching: query,
+                    inZoneWith: specificZoneID,
+                    desiredKeys: nil,
+                    resultsLimit: 1
+                )
+
+                for (_, res) in matches {
+                    if case .success(let record) = res {
+                        let dto = DailySnapshotDTO(from: record)
+                        #if DEBUG
+                        print("[CloudKitSyncService] ✅ Fetched daily snapshot: earned=\(dto.totalEarnedMinutes)m, learning=\(dto.totalLearningSeconds)s")
+                        #endif
+                        return dto
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error fetching snapshot from zone \(zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        } else {
+            // Query all shared zones
+            let zones = try await db.allRecordZones()
+            for zone in zones {
+                do {
+                    let predicate = NSPredicate(
+                        format: "CD_deviceID == %@ AND CD_date >= %@",
+                        deviceID, today as NSDate
+                    )
+                    let query = CKQuery(recordType: "CD_DailySnapshot", predicate: predicate)
+                    query.sortDescriptors = [NSSortDescriptor(key: "CD_date", ascending: false)]
+
+                    let (matches, _) = try await db.records(
+                        matching: query,
+                        inZoneWith: zone.zoneID,
+                        desiredKeys: nil,
+                        resultsLimit: 1
+                    )
+
+                    for (_, res) in matches {
+                        if case .success(let record) = res {
+                            let dto = DailySnapshotDTO(from: record)
+                            #if DEBUG
+                            print("[CloudKitSyncService] ✅ Fetched daily snapshot: earned=\(dto.totalEarnedMinutes)m, learning=\(dto.totalLearningSeconds)s")
+                            #endif
+                            return dto
+                        }
+                    }
+                } catch {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ Error querying snapshot in zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                    #endif
+                }
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] No daily snapshot found for today")
+        #endif
+        return nil
     }
 
     // MARK: - Child Streak Records

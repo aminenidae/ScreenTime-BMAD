@@ -139,6 +139,32 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
         AppStreakSettings.defaultSettings.bonusValue
     }
 
+    var perAppStreaks: [PerAppStreakInfo] {
+        var results: [PerAppStreakInfo] = []
+
+        for snapshot in viewModel.rewardSnapshots {
+            guard let config = AppScheduleService.shared.getSchedule(for: snapshot.logicalID),
+                  let settings = config.streakSettings,
+                  settings.isEnabled else { continue }
+
+            let record = streakService.streakRecords[snapshot.logicalID]
+            let current = Int(record?.currentStreak ?? 0)
+            let cycleDays = settings.streakCycleDays
+            let nextMilestone = ((current / cycleDays) + 1) * cycleDays
+
+            results.append(PerAppStreakInfo(
+                appLogicalID: snapshot.logicalID,
+                appName: snapshot.displayName,
+                iconURL: nil,
+                token: snapshot.token,  // Pass token for local context icon display
+                currentStreak: current,
+                daysToNextMilestone: nextMilestone - current,
+                isAtRisk: record?.isAtRisk ?? false
+            ))
+        }
+        return results
+    }
+
     // MARK: - Trends
 
     var dailyTotals: [DailyUsageTotals] {

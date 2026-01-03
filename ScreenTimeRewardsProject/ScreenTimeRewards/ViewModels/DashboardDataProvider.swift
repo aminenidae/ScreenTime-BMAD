@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import ManagedSettings
 
 // MARK: - Dashboard Data Provider Protocol
 
@@ -37,10 +38,10 @@ protocol DashboardDataProvider: ObservableObject {
 
     // MARK: - Streaks Summary (Section 3)
 
-    /// Current consecutive days with goal completion
+    /// Current consecutive days with goal completion (aggregate)
     var currentStreak: Int { get }
 
-    /// All-time longest streak
+    /// All-time longest streak (aggregate)
     var longestStreak: Int { get }
 
     /// Whether the current streak is at risk (no activity today yet)
@@ -54,6 +55,9 @@ protocol DashboardDataProvider: ObservableObject {
 
     /// Potential bonus minutes for reaching next milestone
     var potentialBonusMinutes: Int { get }
+
+    /// Per-app streak data for apps with streak enabled
+    var perAppStreaks: [PerAppStreakInfo] { get }
 
     // MARK: - Daily/Weekly Trends (Section 4)
 
@@ -81,6 +85,19 @@ protocol DashboardDataProvider: ObservableObject {
 }
 
 // MARK: - Supporting Data Structures
+
+/// Per-app streak information for display in streak card
+struct PerAppStreakInfo: Identifiable {
+    var id: String { appLogicalID }
+
+    let appLogicalID: String
+    let appName: String
+    let iconURL: String?
+    let token: ApplicationToken?  // For local context (child device) icon display
+    let currentStreak: Int
+    let daysToNextMilestone: Int
+    let isAtRisk: Bool
+}
 
 /// Unified app usage detail for drill-down views
 struct AppUsageDetail: Identifiable {
@@ -125,4 +142,7 @@ extension DashboardDataProvider {
 
     /// Default: no error
     var errorMessage: String? { nil }
+
+    /// Default: empty per-app streaks (override in adapters)
+    var perAppStreaks: [PerAppStreakInfo] { [] }
 }

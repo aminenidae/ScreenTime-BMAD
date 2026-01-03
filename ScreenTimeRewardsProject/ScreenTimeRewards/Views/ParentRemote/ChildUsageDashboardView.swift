@@ -320,16 +320,6 @@ private struct ChildHomeTabView: View {
                 // Section 4: Daily/Weekly Trends Chart
                 RemoteDailyUsageChartCard(dataProvider: dataAdapter)
 
-                // App Configuration Summary
-                AppConfigSummary(
-                    learningCount: viewModel.childLearningApps.count,
-                    rewardCount: viewModel.childRewardApps.count
-                )
-
-                // Historical Reports (existing)
-                HistoricalReportsView(viewModel: viewModel)
-                    .padding(.horizontal)
-
                 Spacer(minLength: 40)
             }
             .padding(.horizontal, 16)

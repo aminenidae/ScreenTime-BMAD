@@ -1,34 +1,19 @@
 import SwiftUI
 import Combine
 
-/// Wrapper that displays ChildAppStreakCard using DashboardDataProvider data.
-/// Shows aggregate streak information across all apps.
+/// Wrapper that displays per-app streak information using DashboardDataProvider data.
+/// Shows streak progress for each reward app with streaks enabled.
 struct StreaksSummarySection<Provider: DashboardDataProvider>: View {
     @ObservedObject var dataProvider: Provider
 
     var body: some View {
-        // Only show if there's streak data (currentStreak > 0 or longestStreak > 0)
-        if dataProvider.currentStreak > 0 || dataProvider.longestStreak > 0 {
-            ChildAppStreakCard(
-                currentStreak: dataProvider.currentStreak,
-                longestStreak: dataProvider.longestStreak,
-                nextMilestone: nextMilestone,
-                progress: dataProvider.streakProgress,
-                milestoneCycleDays: dataProvider.milestoneCycleDays,
-                isAtRisk: dataProvider.isStreakAtRisk,
-                potentialBonus: dataProvider.potentialBonusMinutes
-            )
+        // Show per-app streaks if any apps have streaks enabled
+        if !dataProvider.perAppStreaks.isEmpty {
+            PerAppStreakCard(streaks: dataProvider.perAppStreaks)
         } else {
-            // Empty state when no streaks yet
+            // Empty state when no streak-enabled apps
             noStreaksCard
         }
-    }
-
-    private var nextMilestone: Int? {
-        let cycle = dataProvider.milestoneCycleDays
-        let current = dataProvider.currentStreak
-        let next = ((current / cycle) + 1) * cycle
-        return next
     }
 
     @Environment(\.colorScheme) private var colorScheme
@@ -58,7 +43,7 @@ struct StreaksSummarySection<Provider: DashboardDataProvider>: View {
                         .font(.headline)
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text("Complete learning goals daily to build a streak and earn bonus minutes")
+                    Text("Enable streaks on reward apps to track daily progress")
                         .font(.caption)
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .lineLimit(2)
@@ -80,20 +65,18 @@ struct StreaksSummarySection<Provider: DashboardDataProvider>: View {
 
 // MARK: - Preview
 
-#Preview("Active Streak") {
-    StreaksSummarySection(dataProvider: PreviewStreakProvider(current: 5, longest: 12, progress: 0.7))
+#Preview("Per-App Streaks") {
+    StreaksSummarySection(dataProvider: PreviewStreakProvider(streaks: [
+        PerAppStreakInfo(appLogicalID: "1", appName: "YouTube", iconURL: nil, token: nil, currentStreak: 5, daysToNextMilestone: 2, isAtRisk: false),
+        PerAppStreakInfo(appLogicalID: "2", appName: "Roblox", iconURL: nil, token: nil, currentStreak: 3, daysToNextMilestone: 4, isAtRisk: true),
+        PerAppStreakInfo(appLogicalID: "3", appName: "Minecraft", iconURL: nil, token: nil, currentStreak: 12, daysToNextMilestone: 2, isAtRisk: false)
+    ]))
         .padding()
         .background(AppTheme.background(for: .light))
 }
 
-#Preview("No Streak") {
-    StreaksSummarySection(dataProvider: PreviewStreakProvider(current: 0, longest: 0, progress: 0))
-        .padding()
-        .background(AppTheme.background(for: .light))
-}
-
-#Preview("At Risk") {
-    StreaksSummarySection(dataProvider: PreviewStreakProvider(current: 6, longest: 6, progress: 0.86, atRisk: true))
+#Preview("No Streak-Enabled Apps") {
+    StreaksSummarySection(dataProvider: PreviewStreakProvider(streaks: []))
         .padding()
         .background(AppTheme.background(for: .light))
 }
@@ -102,16 +85,10 @@ struct StreaksSummarySection<Provider: DashboardDataProvider>: View {
 
 @MainActor
 private final class PreviewStreakProvider: DashboardDataProvider {
-    @Published var currentStreak: Int
-    @Published var longestStreak: Int
-    @Published var streakProgress: Double
-    @Published var isStreakAtRisk: Bool
+    @Published var perAppStreaks: [PerAppStreakInfo]
 
-    init(current: Int, longest: Int, progress: Double, atRisk: Bool = false) {
-        self.currentStreak = current
-        self.longestStreak = longest
-        self.streakProgress = progress
-        self.isStreakAtRisk = atRisk
+    init(streaks: [PerAppStreakInfo]) {
+        self.perAppStreaks = streaks
     }
 
     @Published var learningTimeSeconds: Int = 0
@@ -121,6 +98,10 @@ private final class PreviewStreakProvider: DashboardDataProvider {
     @Published var earnedMinutes: Int = 0
     @Published var usedMinutes: Int = 0
     @Published var streakBonusMinutes: Int = 0
+    @Published var currentStreak: Int = 0
+    @Published var longestStreak: Int = 0
+    @Published var isStreakAtRisk: Bool = false
+    @Published var streakProgress: Double = 0
     @Published var milestoneCycleDays: Int = 7
     @Published var potentialBonusMinutes: Int = 10
     @Published var dailyTotals: [DailyUsageTotals] = []

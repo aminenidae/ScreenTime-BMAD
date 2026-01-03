@@ -246,6 +246,31 @@ struct DailyUsageHistoryDTO: Identifiable {
     }
 }
 
+// MARK: - Daily Snapshot DTO
+
+/// Data transfer object for daily totals snapshot from CloudKit
+/// Contains pre-calculated earnedMinutes from BlockingCoordinator
+struct DailySnapshotDTO: Identifiable {
+    var id: String { "\(deviceID)-\(date.timeIntervalSince1970)" }
+
+    let deviceID: String
+    let date: Date
+    let totalEarnedMinutes: Int
+    let totalLearningSeconds: Int
+    let totalRewardSeconds: Int
+    let syncTimestamp: Date?
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.deviceID = record["CD_deviceID"] as? String ?? ""
+        self.date = record["CD_date"] as? Date ?? Date()
+        self.totalEarnedMinutes = record["CD_totalEarnedMinutes"] as? Int ?? 0
+        self.totalLearningSeconds = record["CD_totalLearningSeconds"] as? Int ?? 0
+        self.totalRewardSeconds = record["CD_totalRewardSeconds"] as? Int ?? 0
+        self.syncTimestamp = record["CD_syncTimestamp"] as? Date
+    }
+}
+
 // MARK: - Streak Record DTO
 
 /// Data transfer object for streak records from CloudKit
@@ -330,6 +355,9 @@ class ParentRemoteViewModel: ObservableObject {
     // Streak data for child devices
     @Published var childStreakSummary: ChildStreakSummary?
     @Published var childStreakRecords: [StreakRecordDTO] = []
+
+    // Daily snapshot with pre-calculated earnedMinutes (synced from CloudKit)
+    @Published var childDailySnapshot: DailySnapshotDTO?
 
     /// Aggregated daily totals from per-app history
     /// Returns array of (date, learningSeconds, rewardSeconds) sorted by date descending
@@ -775,6 +803,21 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Fetched \(usageHistory.count) daily usage history records")
             #endif
 
+            // Fetch daily snapshot with pre-calculated earnedMinutes
+            let snapshot = try await cloudKitService.fetchChildDailySnapshot(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+
+            #if DEBUG
+            if let snapshot = snapshot {
+                print("[ParentRemoteViewModel] Fetched daily snapshot: earned=\(snapshot.totalEarnedMinutes)m")
+            } else {
+                print("[ParentRemoteViewModel] No daily snapshot available")
+            }
+            #endif
+
             // Group history by app logicalID
             let historyByApp = Dictionary(grouping: usageHistory) { $0.logicalID }
 
@@ -846,6 +889,9 @@ class ParentRemoteViewModel: ObservableObject {
                 // Daily usage history (always refresh - not affected by pending edits)
                 self.childDailyUsageHistory = usageHistory
                 self.childDailyUsageByApp = historyByApp
+
+                // Daily snapshot with pre-calculated earnedMinutes
+                self.childDailySnapshot = snapshot
             }
 
             #if DEBUG

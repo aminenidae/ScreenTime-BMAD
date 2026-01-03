@@ -169,6 +169,23 @@ class BlockingCoordinator: ObservableObject {
         return total
     }
 
+    /// Get the reward minutes earned for a specific reward app using its logicalID
+    /// Used by CloudKit sync when tokens are not available
+    func getEarnedRewardMinutes(for logicalID: String) -> Int {
+        let learningCheck = checkLearningGoal(logicalID: logicalID)
+        return learningCheck.rewardMinutesEarned
+    }
+
+    /// Get total earned reward minutes across reward apps by logicalID
+    /// Used by CloudKit sync when tokens are not available
+    func getTotalEarnedRewardMinutes(for logicalIDs: [String]) -> Int {
+        var total = 0
+        for logicalID in logicalIDs {
+            total += getEarnedRewardMinutes(for: logicalID)
+        }
+        return total
+    }
+
     // MARK: - Condition Checks
 
     private struct DowntimeCheckResult {

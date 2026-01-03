@@ -97,23 +97,9 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     // MARK: - Time Bank
 
     var earnedMinutes: Int {
-        // Calculate from learning time and points per minute
-        // For remote context, sum earned points from learning apps
-        let calendar = Calendar.current
-        let todayLearningRecords = viewModel.childDailyUsageHistory.filter {
-            $0.category == "Learning" && calendar.isDateInToday($0.date)
-        }
-
-        var totalEarnedMinutes = 0
-
-        for record in todayLearningRecords {
-            let config = viewModel.childLearningAppsFullConfig.first { $0.logicalID == record.logicalID }
-            let pointsPerMinute = config?.pointsPerMinute ?? 1
-            let minutes = record.seconds / 60
-            totalEarnedMinutes += minutes * pointsPerMinute
-        }
-
-        return totalEarnedMinutes
+        // Use pre-calculated value from synced daily snapshot (includes threshold logic)
+        // Falls back to 0 if snapshot not yet synced
+        viewModel.childDailySnapshot?.totalEarnedMinutes ?? 0
     }
 
     var usedMinutes: Int {
@@ -160,6 +146,30 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
 
     var potentialBonusMinutes: Int {
         AppStreakSettings.defaultSettings.bonusValue
+    }
+
+    var perAppStreaks: [PerAppStreakInfo] {
+        var results: [PerAppStreakInfo] = []
+
+        for config in viewModel.childRewardAppsFullConfig {
+            guard let settings = config.streakSettings, settings.isEnabled else { continue }
+
+            let streakRecord = viewModel.childStreakRecords.first { $0.appLogicalID == config.logicalID }
+            let current = streakRecord?.currentStreak ?? 0
+            let cycleDays = settings.streakCycleDays
+            let nextMilestone = ((current / cycleDays) + 1) * cycleDays
+
+            results.append(PerAppStreakInfo(
+                appLogicalID: config.logicalID,
+                appName: config.displayName,
+                iconURL: config.iconURL,
+                token: nil,  // Remote context uses URL-based icons
+                currentStreak: current,
+                daysToNextMilestone: nextMilestone - current,
+                isAtRisk: streakRecord?.isAtRisk ?? false
+            ))
+        }
+        return results
     }
 
     // MARK: - Trends

@@ -198,26 +198,10 @@ private struct AppUsageDetailRow: View {
                 fallbackSymbol: app.category == .learning ? "book.fill" : "gamecontroller.fill"
             )
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(displayName)
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .lineLimit(1)
-
-                HStack(spacing: 8) {
-                    // Points badge
-                    if app.earnedPoints > 0 {
-                        Label("\(app.earnedPoints) pts", systemImage: "star.fill")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
-
-                    // Points per minute
-                    Text("\(app.pointsPerMinute) pts/min")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                }
-            }
+            Text(displayName)
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .lineLimit(1)
 
             Spacer()
 
