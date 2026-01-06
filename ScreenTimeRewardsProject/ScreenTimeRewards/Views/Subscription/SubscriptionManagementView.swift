@@ -5,6 +5,9 @@ struct SubscriptionManagementView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var showPaywall = false
+    @State private var isRestoring = false
+    @State private var restoreError: String?
+    @State private var showRestoreAlert = false
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -41,6 +44,11 @@ struct SubscriptionManagementView: View {
         }
         .sheet(isPresented: $showPaywall) {
             SubscriptionPaywallView()
+        }
+        .alert("Restore Failed", isPresented: $showRestoreAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(restoreError ?? "Unable to restore purchases. Please try again later.")
         }
     }
 }
@@ -267,19 +275,38 @@ private extension SubscriptionManagementView {
                 .background(AppTheme.brandedText(for: colorScheme).opacity(0.1))
             
             Button {
-                Task { try? await subscriptionManager.restorePurchases() }
+                Task {
+                    isRestoring = true
+                    do {
+                        try await subscriptionManager.restorePurchases()
+                        restoreError = nil
+                    } catch {
+                        restoreError = error.localizedDescription
+                        showRestoreAlert = true
+                        #if DEBUG
+                        print("[SubscriptionManagementView] Restore failed: \(error)")
+                        #endif
+                    }
+                    isRestoring = false
+                }
             } label: {
                 HStack {
-                    Text("Restore Purchases")
+                    Text(isRestoring ? "Restoring..." : "Restore Purchases")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     Spacer()
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 14))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                    if isRestoring {
+                        ProgressView()
+                            .scaleEffect(0.8)
+                    } else {
+                        Image(systemName: "arrow.clockwise")
+                            .font(.system(size: 14))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                    }
                 }
                 .padding(16)
             }
+            .disabled(isRestoring)
         }
         .background(
             RoundedRectangle(cornerRadius: 16)

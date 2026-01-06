@@ -180,15 +180,26 @@ class HourlyUsageDiagnosticData: ObservableObject {
     @Published private var rewardRejectedCount: Int = 0
 
     private var isTracking = false
+    private var thresholdObserver: NSObjectProtocol?
+    private var rejectedObserver: NSObjectProtocol?
 
     private init() {}
+
+    deinit {
+        if let observer = thresholdObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+        if let observer = rejectedObserver {
+            NotificationCenter.default.removeObserver(observer)
+        }
+    }
 
     func startTracking() {
         guard !isTracking else { return }
         isTracking = true
 
-        // Subscribe to Screen Time notifications
-        NotificationCenter.default.addObserver(
+        // Subscribe to Screen Time notifications - store references for cleanup
+        thresholdObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("ScreenTimeThresholdFired"),
             object: nil,
             queue: .main
@@ -196,7 +207,7 @@ class HourlyUsageDiagnosticData: ObservableObject {
             self?.handleThresholdFired(notification)
         }
 
-        NotificationCenter.default.addObserver(
+        rejectedObserver = NotificationCenter.default.addObserver(
             forName: NSNotification.Name("ScreenTimeEventRejected"),
             object: nil,
             queue: .main

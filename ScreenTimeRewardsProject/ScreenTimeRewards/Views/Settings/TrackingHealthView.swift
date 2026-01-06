@@ -1,3 +1,4 @@
+#if DEBUG
 import SwiftUI
 import UIKit
 
@@ -190,3 +191,4 @@ struct TrackingHealthView: View {
         return report
     }
 }
+#endif

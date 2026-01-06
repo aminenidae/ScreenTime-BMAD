@@ -2,6 +2,9 @@ import UIKit
 import CloudKit
 import UserNotifications
 import BackgroundTasks
+#if canImport(FirebaseCore)
+import FirebaseCore
+#endif
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var midnightResetObserver: NSObjectProtocol?
@@ -11,6 +14,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         _ application: UIApplication,
         didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?
     ) -> Bool {
+        // Configure Firebase Analytics
+        #if canImport(FirebaseCore)
+        FirebaseApp.configure()
+        #endif
+
         // Set up notification center delegate
         UNUserNotificationCenter.current().delegate = self
         
@@ -258,7 +266,22 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         didReceive response: UNNotificationResponse,
         withCompletionHandler completionHandler: @escaping () -> Void
     ) {
-        // Handle notification tap
+        // Handle notification tap and actions
+        let userInfo = response.notification.request.content.userInfo
+        let actionIdentifier = response.actionIdentifier
+
+        #if DEBUG
+        print("[AppDelegate] Notification action: \(actionIdentifier)")
+        print("[AppDelegate] Notification userInfo: \(userInfo)")
+        #endif
+
+        Task { @MainActor in
+            DeepLinkManager.shared.handleNotificationAction(
+                actionIdentifier: actionIdentifier,
+                userInfo: userInfo
+            )
+        }
+
         completionHandler()
     }
 }

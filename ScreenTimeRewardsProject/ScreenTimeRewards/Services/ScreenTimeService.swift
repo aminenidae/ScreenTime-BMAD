@@ -194,11 +194,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Set up BlockingCoordinator with reference to this service
         BlockingCoordinator.shared.setScreenTimeService(self)
 
+        // Restore web restrictions (blocked websites, browsers) from persistence
+        restoreWebRestrictions()
+
+        // Apply adult content filter if this is a child device (always-on)
+        applyAdultContentFilterIfNeeded()
+
         // ALWAYS print this - not wrapped in DEBUG - to diagnose tracking issues
         print("=" + String(repeating: "=", count: 50))
         print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
         print("[ScreenTimeService] appUsages count: \(appUsages.count)")
         print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
+        print("[ScreenTimeService] adultContentFilter: \(isAdultContentFilterEnabled ? "ENABLED" : "disabled")")
         print("=" + String(repeating: "=", count: 50))
     }
 
@@ -1327,6 +1334,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
                 await MainActor.run {
                     self?.authorizationGranted = true
+
+                    // Enable adult content filter immediately after authorization (always-on for child devices)
+                    self?.applyAdultContentFilterIfNeeded()
+
                     completion(.success(()))
                 }
             } catch {
@@ -1977,6 +1988,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
+    #if DEBUG
     /// Returns a basic extension health snapshot (placeholder values until full telemetry is wired).
     func getExtensionHealthStatus() -> ExtensionHealthStatus {
         let now = Date()
@@ -1988,7 +2000,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func detectUsageGaps() -> [UsageGap] {
         return []
     }
-    
+    #endif
+
     private func scheduleActivity() throws {
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
@@ -2084,6 +2097,377 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Track apps that should always be accessible (learning apps)
     private var alwaysAccessible: Set<ApplicationToken> = []
+
+    // MARK: - Web Content Restrictions
+
+    // Track blocked web domains
+    private var blockedWebDomains: Set<WebDomainToken> = []
+
+    // Track blocked browser bundle IDs
+    private var blockedBrowserBundleIDs: Set<String> = []
+
+    // Known browser bundle IDs for blocking
+    static let knownBrowserBundleIDs: [String: String] = [
+        "com.apple.mobilesafari": "Safari",
+        "com.google.chrome.ios": "Chrome",
+        "org.mozilla.ios.Firefox": "Firefox",
+        "com.microsoft.msedge": "Edge",
+        "com.duckduckgo.mobile.ios": "DuckDuckGo",
+        "com.brave.ios.browser": "Brave",
+        "com.opera.gx": "Opera"
+    ]
+
+    /// Enable Apple's built-in adult content filter (always-on for child devices)
+    /// This blocks adult websites automatically using Apple's content detection
+    /// Side effect: Disables private/incognito browsing in Safari
+    func enableAdultContentFilter() {
+        #if !targetEnvironment(simulator)
+        managedSettingsStore.webContent.blockedByFilter = .auto(except: [])
+
+        #if DEBUG
+        print("[ScreenTimeService] 🛡️ Adult content filter ENABLED")
+        print("[ScreenTimeService] ℹ️ Side effect: Private/incognito browsing disabled in Safari")
+        #endif
+        #else
+        #if DEBUG
+        print("[ScreenTimeService] 🛡️ Adult content filter (simulated - not available on Simulator)")
+        #endif
+        #endif
+    }
+
+    /// Check if adult content filter is currently enabled
+    var isAdultContentFilterEnabled: Bool {
+        #if targetEnvironment(simulator)
+        return false
+        #else
+        return managedSettingsStore.webContent.blockedByFilter != nil
+        #endif
+    }
+
+    /// Apply adult content filter on app launch if in child mode
+    /// Called from init and should be called on app launch
+    func applyAdultContentFilterIfNeeded() {
+        // Only apply for child devices
+        guard DeviceModeManager.shared.isChildDevice else {
+            #if DEBUG
+            print("[ScreenTimeService] ⏭️ Skipping adult content filter (not child device)")
+            #endif
+            return
+        }
+
+        enableAdultContentFilter()
+    }
+
+    // MARK: - Website Blocking
+
+    /// Block specific websites by shielding their web domains
+    func blockWebDomains(tokens: Set<WebDomainToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🌐 Blocking \(tokens.count) web domains")
+        #endif
+
+        blockedWebDomains.formUnion(tokens)
+
+        #if !targetEnvironment(simulator)
+        managedSettingsStore.shield.webDomains = blockedWebDomains
+        #endif
+
+        // Persist blocked domains
+        persistBlockedWebDomains()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Web domain shields applied: \(blockedWebDomains.count) total")
+        #endif
+    }
+
+    /// Unblock specific websites
+    func unblockWebDomains(tokens: Set<WebDomainToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔓 Unblocking \(tokens.count) web domains")
+        #endif
+
+        blockedWebDomains.subtract(tokens)
+
+        #if !targetEnvironment(simulator)
+        managedSettingsStore.shield.webDomains = blockedWebDomains.isEmpty ? nil : blockedWebDomains
+        #endif
+
+        // Persist blocked domains
+        persistBlockedWebDomains()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Web domains unblocked. Remaining: \(blockedWebDomains.count)")
+        #endif
+    }
+
+    /// Sync web domain shields with a complete set (replaces existing)
+    func syncWebDomainShields(currentBlockedDomains: Set<WebDomainToken>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔄 Syncing web domain shields")
+        print("[ScreenTimeService] Previous: \(blockedWebDomains.count), New: \(currentBlockedDomains.count)")
+        #endif
+
+        blockedWebDomains = currentBlockedDomains
+
+        #if !targetEnvironment(simulator)
+        managedSettingsStore.shield.webDomains = currentBlockedDomains.isEmpty ? nil : currentBlockedDomains
+        #endif
+
+        // Persist blocked domains
+        persistBlockedWebDomains()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Web domain shields synced: \(blockedWebDomains.count) total")
+        #endif
+    }
+
+    /// Get currently blocked web domains
+    var currentlyBlockedWebDomains: Set<WebDomainToken> {
+        return blockedWebDomains
+    }
+
+    // MARK: - Browser Blocking
+
+    /// Block browsers by their bundle IDs
+    func blockBrowsers(bundleIDs: Set<String>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🚫 Blocking \(bundleIDs.count) browsers")
+        for bundleID in bundleIDs {
+            let name = Self.knownBrowserBundleIDs[bundleID] ?? bundleID
+            print("[ScreenTimeService]   - \(name)")
+        }
+        #endif
+
+        blockedBrowserBundleIDs.formUnion(bundleIDs)
+
+        #if !targetEnvironment(simulator)
+        let browsers = blockedBrowserBundleIDs.compactMap { Application(bundleIdentifier: $0) }
+        managedSettingsStore.application.blockedApplications = Set(browsers)
+        #endif
+
+        // Persist blocked browsers
+        persistBlockedBrowsers()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Browser blocking applied: \(blockedBrowserBundleIDs.count) browsers")
+        #endif
+    }
+
+    /// Unblock browsers by their bundle IDs
+    func unblockBrowsers(bundleIDs: Set<String>) {
+        #if DEBUG
+        print("[ScreenTimeService] 🔓 Unblocking \(bundleIDs.count) browsers")
+        #endif
+
+        blockedBrowserBundleIDs.subtract(bundleIDs)
+
+        #if !targetEnvironment(simulator)
+        if blockedBrowserBundleIDs.isEmpty {
+            managedSettingsStore.application.blockedApplications = nil
+        } else {
+            let browsers = blockedBrowserBundleIDs.compactMap { Application(bundleIdentifier: $0) }
+            managedSettingsStore.application.blockedApplications = Set(browsers)
+        }
+        #endif
+
+        // Persist blocked browsers
+        persistBlockedBrowsers()
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ Browsers unblocked. Remaining: \(blockedBrowserBundleIDs.count)")
+        #endif
+    }
+
+    /// Block all known browsers
+    func blockAllBrowsers() {
+        let allBrowserIDs = Set(Self.knownBrowserBundleIDs.keys)
+        blockBrowsers(bundleIDs: allBrowserIDs)
+    }
+
+    /// Unblock all browsers
+    func unblockAllBrowsers() {
+        let allBrowserIDs = Set(Self.knownBrowserBundleIDs.keys)
+        unblockBrowsers(bundleIDs: allBrowserIDs)
+    }
+
+    /// Check if browsers are currently blocked
+    var areBrowsersBlocked: Bool {
+        return !blockedBrowserBundleIDs.isEmpty
+    }
+
+    /// Get currently blocked browser bundle IDs
+    var currentlyBlockedBrowsers: Set<String> {
+        return blockedBrowserBundleIDs
+    }
+
+    // MARK: - Web Restrictions Persistence
+
+    private func persistBlockedWebDomains() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        // Serialize web domain tokens to Data array
+        let tokenDataArray = blockedWebDomains.compactMap { token -> Data? in
+            try? JSONEncoder().encode(token)
+        }
+
+        sharedDefaults.set(tokenDataArray, forKey: "blockedWebDomainTokens")
+
+        #if DEBUG
+        print("[ScreenTimeService] 💾 Persisted \(tokenDataArray.count) blocked web domains")
+        #endif
+    }
+
+    private func persistBlockedBrowsers() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        sharedDefaults.set(Array(blockedBrowserBundleIDs), forKey: "blockedBrowserBundleIDs")
+
+        #if DEBUG
+        print("[ScreenTimeService] 💾 Persisted \(blockedBrowserBundleIDs.count) blocked browsers")
+        #endif
+    }
+
+    /// Restore web restrictions from persistence (called on app launch)
+    func restoreWebRestrictions() {
+        guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        // Restore blocked web domains
+        if let tokenDataArray = sharedDefaults.array(forKey: "blockedWebDomainTokens") as? [Data] {
+            blockedWebDomains = Set(tokenDataArray.compactMap { data -> WebDomainToken? in
+                try? JSONDecoder().decode(WebDomainToken.self, from: data)
+            })
+
+            #if !targetEnvironment(simulator)
+            if !blockedWebDomains.isEmpty {
+                managedSettingsStore.shield.webDomains = blockedWebDomains
+            }
+            #endif
+
+            #if DEBUG
+            print("[ScreenTimeService] 📂 Restored \(blockedWebDomains.count) blocked web domains")
+            #endif
+        }
+
+        // Restore blocked browsers
+        if let browserIDs = sharedDefaults.array(forKey: "blockedBrowserBundleIDs") as? [String] {
+            blockedBrowserBundleIDs = Set(browserIDs)
+
+            #if !targetEnvironment(simulator)
+            if !blockedBrowserBundleIDs.isEmpty {
+                let browsers = blockedBrowserBundleIDs.compactMap { Application(bundleIdentifier: $0) }
+                managedSettingsStore.application.blockedApplications = Set(browsers)
+            }
+            #endif
+
+            #if DEBUG
+            print("[ScreenTimeService] 📂 Restored \(blockedBrowserBundleIDs.count) blocked browsers")
+            #endif
+        }
+    }
+
+    /// Clear all web restrictions
+    func clearAllWebRestrictions() {
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Clearing all web restrictions...")
+        #endif
+
+        blockedWebDomains.removeAll()
+        blockedBrowserBundleIDs.removeAll()
+
+        #if !targetEnvironment(simulator)
+        managedSettingsStore.shield.webDomains = nil
+        managedSettingsStore.application.blockedApplications = nil
+        managedSettingsStore.webContent.blockedByFilter = nil
+        #endif
+
+        // Clear persistence
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            sharedDefaults.removeObject(forKey: "blockedWebDomainTokens")
+            sharedDefaults.removeObject(forKey: "blockedBrowserBundleIDs")
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] ✅ All web restrictions cleared")
+        #endif
+    }
+
+    // MARK: - Web Restrictions CloudKit Sync
+
+    /// Sync current web restrictions to all paired child devices via CloudKit
+    /// Called when browser blocking or website blocking changes on parent device
+    func syncWebRestrictionsToChildren() async {
+        // Only parent devices should sync restrictions
+        guard DeviceModeManager.shared.isParentDevice else {
+            #if DEBUG
+            print("[ScreenTimeService] ⚠️ Not a parent device, skipping web restriction sync")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 📤 Syncing web restrictions to children...")
+        print("[ScreenTimeService]   Blocked websites: \(blockedWebDomains.count)")
+        print("[ScreenTimeService]   Blocked browsers: \(blockedBrowserBundleIDs.count)")
+        #endif
+
+        do {
+            // Fetch all paired child devices
+            let childDevices = try await CloudKitSyncService.shared.fetchLinkedChildDevices()
+
+            guard !childDevices.isEmpty else {
+                #if DEBUG
+                print("[ScreenTimeService] No paired child devices, skipping sync")
+                #endif
+                return
+            }
+
+            #if DEBUG
+            print("[ScreenTimeService] Found \(childDevices.count) paired child device(s)")
+            #endif
+
+            // Create payload from current state
+            let payload = WebRestrictionPayload.fromCurrentState(
+                parentDeviceID: DeviceModeManager.shared.deviceID,
+                targetDeviceID: "", // Will be set per-device
+                screenTimeService: self
+            )
+
+            // Send to each child device
+            for child in childDevices {
+                guard let childDeviceID = child.deviceID else { continue }
+
+                let childPayload = WebRestrictionPayload(
+                    parentDeviceID: payload.parentDeviceID,
+                    targetDeviceID: childDeviceID,
+                    blockedWebDomainTokens: payload.blockedWebDomainTokens,
+                    blockedBrowserBundleIDs: payload.blockedBrowserBundleIDs
+                )
+
+                do {
+                    try await CloudKitSyncService.shared.sendWebRestrictionCommand(
+                        deviceID: childDeviceID,
+                        payload: childPayload
+                    )
+
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Web restrictions sent to child: \(childDeviceID)")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[ScreenTimeService] ❌ Failed to send web restrictions to \(childDeviceID): \(error)")
+                    #endif
+                }
+            }
+
+            #if DEBUG
+            print("[ScreenTimeService] 📤 Web restriction sync complete")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ScreenTimeService] ❌ Failed to fetch child devices: \(error)")
+            #endif
+        }
+    }
 
     /// Block reward apps (shield them)
     func blockRewardApps(tokens: Set<ApplicationToken>) {

@@ -29,7 +29,9 @@ class AppIconCacheService {
         }
 
         // Check disk cache
-        let filePath = iconFilePath(for: safeIdentifier)
+        guard let filePath = iconFilePath(for: safeIdentifier) else {
+            return nil
+        }
         if fileManager.fileExists(atPath: filePath.path) {
             if let image = UIImage(contentsOfFile: filePath.path) {
                 // Add to memory cache
@@ -106,7 +108,9 @@ class AppIconCacheService {
             return true
         }
 
-        let filePath = iconFilePath(for: safeIdentifier)
+        guard let filePath = iconFilePath(for: safeIdentifier) else {
+            return false
+        }
         return fileManager.fileExists(atPath: filePath.path)
     }
 
@@ -119,8 +123,9 @@ class AppIconCacheService {
         memoryCache.removeValue(forKey: safeIdentifier)
 
         // Remove from disk
-        let filePath = iconFilePath(for: safeIdentifier)
-        try? fileManager.removeItem(at: filePath)
+        if let filePath = iconFilePath(for: safeIdentifier) {
+            try? fileManager.removeItem(at: filePath)
+        }
     }
 
     /// Clear all cached icons
@@ -171,15 +176,17 @@ class AppIconCacheService {
         }
     }
 
-    private func iconFilePath(for identifier: String) -> URL {
+    private func iconFilePath(for identifier: String) -> URL? {
         guard let cacheDirectory = cacheDirectory else {
-            fatalError("Cache directory not available")
+            return nil
         }
         return cacheDirectory.appendingPathComponent("\(identifier).png")
     }
 
     private func saveIconToDisk(data: Data, identifier: String) throws {
-        let filePath = iconFilePath(for: identifier)
+        guard let filePath = iconFilePath(for: identifier) else {
+            throw IconCacheError.saveFailed
+        }
         try data.write(to: filePath)
     }
 

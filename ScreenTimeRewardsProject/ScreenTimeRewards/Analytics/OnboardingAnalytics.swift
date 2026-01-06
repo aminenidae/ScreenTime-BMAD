@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FirebaseAnalytics)
+import FirebaseAnalytics
+#endif
 
 /// Analytics events for child onboarding flow tracking
 enum OnboardingEvent: String {
@@ -37,11 +40,14 @@ class OnboardingAnalytics {
 
     /// Track an onboarding event
     func track(_ event: OnboardingEvent, parameters: [String: Any] = [:]) {
-        // TODO: Integrate with your analytics provider (e.g., Firebase, Mixpanel, etc.)
-        print("📊 Analytics: \(event.rawValue) | \(parameters)")
+        #if canImport(FirebaseAnalytics)
+        // Send to Firebase Analytics
+        Analytics.logEvent(event.rawValue, parameters: parameters)
+        #endif
 
         #if DEBUG
-        // In debug mode, log detailed info
+        // In debug mode, log to console
+        print("📊 Analytics: \(event.rawValue) | \(parameters)")
         logEvent(event, parameters: parameters)
         #endif
     }

@@ -6,6 +6,7 @@
 //  Updated for Option D: Authorization at Launch + PIN for Access
 //
 
+#if DEBUG
 import SwiftUI
 
 struct DebugAuthView: View {
@@ -128,3 +129,4 @@ struct DebugAuthView_Previews: PreviewProvider {
         DebugAuthView()
     }
 }
+#endif
