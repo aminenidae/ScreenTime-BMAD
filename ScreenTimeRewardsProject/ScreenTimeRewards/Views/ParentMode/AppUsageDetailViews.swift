@@ -61,6 +61,11 @@ struct LearningAppDetailView: View {
                             )
                         }
 
+                        // Schedule Section (if configured)
+                        if let config = scheduleService.getSchedule(for: snapshot.logicalID) {
+                            learningScheduleSection(config: config)
+                        }
+
                         Spacer(minLength: 100)
                     }
                     .padding(AppTheme.Spacing.large)
@@ -131,7 +136,7 @@ struct LearningAppDetailView: View {
                     Text("CONFIGURE")
                         .font(.system(size: 18, weight: .bold))
                         .tracking(1)
-                        .textCase(.uppercase) // Added textCase for consistency
+                        .textCase(.uppercase)
                 }
                 .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
@@ -146,6 +151,71 @@ struct LearningAppDetailView: View {
             .padding(.bottom, AppTheme.Spacing.regular)
             .background(AppTheme.background(for: colorScheme))
         }
+    }
+
+    // MARK: - Schedule Section
+
+    private func learningScheduleSection(config: AppScheduleConfiguration) -> some View {
+        VStack(spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("SCHEDULE")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                Spacer()
+            }
+
+            VStack(spacing: 12) {
+                // Time Window
+                HStack {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                        .frame(width: 24)
+                    Text("Allowed Time")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    Spacer()
+                    Text(config.todayTimeWindow.isFullDay ? "ALL DAY" : config.todayTimeWindow.displayString.uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                }
+
+                Rectangle()
+                    .fill(AppTheme.border(for: colorScheme))
+                    .frame(height: 1)
+
+                // Daily Limit
+                HStack {
+                    Image(systemName: "timer")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                        .frame(width: 24)
+                    Text("Daily Limit")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    Spacer()
+                    Text(config.dailyLimits.displaySummary.uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
+        )
     }
 
     private func loadUsageData() {
@@ -194,12 +264,12 @@ struct RewardAppDetailView: View {
                         if let config = scheduleService.getSchedule(for: snapshot.logicalID),
                            config.streakSettings?.isEnabled == true,
                            let settings = config.streakSettings {
-                            
+
                             let service = StreakService.shared
                             let record = service.streakRecords[snapshot.logicalID]
                             let current = Int(record?.currentStreak ?? 0)
                             let longest = Int(record?.longestStreak ?? 0)
-                            
+
                             AppStreakCard(
                                 currentStreak: current,
                                 longestStreak: longest,
@@ -220,6 +290,17 @@ struct RewardAppDetailView: View {
                                 dailyHistory: history,
                                 accentColor: AppTheme.playfulCoral
                             )
+                        }
+
+                        // Schedule Section (if configured)
+                        if let config = scheduleService.getSchedule(for: snapshot.logicalID) {
+                            scheduleSection(config: config)
+                        }
+
+                        // Unlock Requirements (if linked apps exist)
+                        if let config = scheduleService.getSchedule(for: snapshot.logicalID),
+                           !config.linkedLearningApps.isEmpty {
+                            unlockRequirementsSection(config: config)
                         }
 
                         Spacer(minLength: 100)
@@ -291,7 +372,7 @@ struct RewardAppDetailView: View {
                     Text("CONFIGURE")
                         .font(.system(size: 18, weight: .bold))
                         .tracking(1)
-                        .textCase(.uppercase) // Added textCase for consistency
+                        .textCase(.uppercase)
                 }
                 .foregroundColor(AppTheme.lightCream)
                 .frame(maxWidth: .infinity)
@@ -306,6 +387,149 @@ struct RewardAppDetailView: View {
             .padding(.bottom, AppTheme.Spacing.regular)
             .background(AppTheme.background(for: colorScheme))
         }
+    }
+
+    // MARK: - Schedule Section
+
+    private func scheduleSection(config: AppScheduleConfiguration) -> some View {
+        VStack(spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.playfulCoral)
+
+                Text("SCHEDULE")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                Spacer()
+            }
+
+            VStack(spacing: 12) {
+                // Time Window
+                HStack {
+                    Image(systemName: "clock.fill")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.playfulCoral)
+                        .frame(width: 24)
+                    Text("Allowed Time")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    Spacer()
+                    Text(config.todayTimeWindow.isFullDay ? "ALL DAY" : config.todayTimeWindow.displayString.uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                }
+
+                Rectangle()
+                    .fill(AppTheme.border(for: colorScheme))
+                    .frame(height: 1)
+
+                // Daily Limit
+                HStack {
+                    Image(systemName: "timer")
+                        .font(.system(size: 14))
+                        .foregroundColor(AppTheme.playfulCoral)
+                        .frame(width: 24)
+                    Text("Daily Limit")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    Spacer()
+                    Text(config.dailyLimits.displaySummary.uppercased())
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(AppTheme.playfulCoral.opacity(0.1), lineWidth: 1)
+        )
+    }
+
+    // MARK: - Unlock Requirements Section
+
+    private func unlockRequirementsSection(config: AppScheduleConfiguration) -> some View {
+        VStack(spacing: 12) {
+            // Header
+            HStack {
+                Image(systemName: "lock.open.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("UNLOCK REQUIREMENTS")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                Spacer()
+
+                // Unlock mode badge
+                Text(config.unlockMode == .all ? "ALL" : "ANY")
+                    .font(.system(size: 10, weight: .bold))
+                    .foregroundColor(.white)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(config.unlockMode == .all ? Color.orange : AppTheme.vibrantTeal)
+                    .cornerRadius(8)
+            }
+
+            VStack(spacing: 8) {
+                ForEach(config.linkedLearningApps, id: \.logicalID) { linkedApp in
+                    HStack(spacing: 12) {
+                        // App icon - find from learning snapshots
+                        if let learningSnapshot = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID }) {
+                            Label(learningSnapshot.token)
+                                .labelStyle(.iconOnly)
+                                .frame(width: 32, height: 32)
+                                .clipShape(RoundedRectangle(cornerRadius: 8))
+                        } else {
+                            ZStack {
+                                RoundedRectangle(cornerRadius: 8)
+                                    .fill(AppTheme.vibrantTeal.opacity(0.15))
+                                    .frame(width: 32, height: 32)
+
+                                Image(systemName: "book.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundColor(AppTheme.vibrantTeal)
+                            }
+                        }
+
+                        Text(linkedApp.displayName ?? "Learning App")
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                            .lineLimit(1)
+
+                        Spacer()
+
+                        Text("\(linkedApp.minutesRequired) MIN")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(AppTheme.vibrantTeal.opacity(0.15))
+                            .cornerRadius(6)
+                    }
+                    .padding(.vertical, 4)
+                }
+            }
+        }
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
+        .overlay(
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
+        )
     }
 
     private func loadUsageData() {

@@ -62,15 +62,24 @@ struct ParentLinkedAppsPicker: View {
         return VStack(alignment: .leading, spacing: 8) {
             // Main row with checkbox
             HStack(spacing: 12) {
-                // Generic app icon (parent doesn't have access to actual app icons)
-                ZStack {
-                    RoundedRectangle(cornerRadius: 8)
-                        .fill(AppTheme.vibrantTeal.opacity(0.15))
-                        .frame(width: 36, height: 36)
+                // App icon - use CachedAppIcon if URL exists, otherwise styled fallback
+                if let iconURL = app.iconURL, !iconURL.isEmpty {
+                    CachedAppIcon(
+                        iconURL: iconURL,
+                        identifier: app.logicalID,
+                        size: 36,
+                        fallbackSymbol: "book.fill"
+                    )
+                } else {
+                    ZStack {
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(AppTheme.vibrantTeal.opacity(0.15))
+                            .frame(width: 36, height: 36)
 
-                    Image(systemName: "book.fill")
-                        .font(.system(size: 16))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        Image(systemName: "book.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
                 }
 
                 // App name
@@ -84,7 +93,7 @@ struct ParentLinkedAppsPicker: View {
                     if isSelected, let linked = linkedApp {
                         Text(linked.displayString)
                             .font(.caption)
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
                 }
 
@@ -149,7 +158,7 @@ struct ParentLinkedAppsPicker: View {
                         Image(systemName: "chevron.up.chevron.down")
                             .font(.system(size: 10))
                     }
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.horizontal, 10)
                     .padding(.vertical, 6)
                     .background(

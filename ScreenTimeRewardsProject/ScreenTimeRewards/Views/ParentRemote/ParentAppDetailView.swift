@@ -9,7 +9,7 @@ struct ParentAppDetailView: View {
     var childLearningApps: [FullAppConfigDTO] = []  // For linked apps picker
     var onConfigUpdated: ((FullAppConfigDTO) -> Void)?  // Callback to update ViewModel
 
-    @State private var selectedTimeRange: TimeRange = .week
+    @State private var selectedTimeRange: TimeRange = .daily
     @State private var isEditSheetPresented = false
     @State private var editingConfig: MutableAppConfigDTO?
     @State private var syncStatus: ConfigSyncStatus = .idle
@@ -24,13 +24,15 @@ struct ParentAppDetailView: View {
     }
 
     enum TimeRange: String, CaseIterable {
-        case week = "7 Days"
-        case month = "30 Days"
+        case daily = "7 DAYS"
+        case weekly = "4 WEEKS"
+        case monthly = "6 MONTHS"
 
         var days: Int {
             switch self {
-            case .week: return 7
-            case .month: return 30
+            case .daily: return 7
+            case .weekly: return 28
+            case .monthly: return 180
             }
         }
     }
@@ -69,53 +71,45 @@ struct ParentAppDetailView: View {
     // MARK: - Body
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 20) {
-                // Header
-                headerSection
+        ZStack(alignment: .bottom) {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Header
+                    headerSection
 
-                // Usage Summary
-                usageSummaryCard
+                    // Streak Bonus (if enabled) - right below header
+                    if let streak = config.streakSettings, streak.isEnabled {
+                        streakBonusSection(streak)
+                    }
 
-                // Usage Chart
-                usageChartSection
+                    // Usage Summary
+                    usageSummaryCard
 
-                // Schedule (if configured)
-                if config.scheduleConfig != nil {
-                    scheduleSection
+                    // Usage Chart
+                    usageChartSection
+
+                    // Schedule (if configured)
+                    if config.scheduleConfig != nil {
+                        scheduleSection
+                    }
+
+                    // Unlock Requirements (Reward apps only)
+                    if config.category == "Reward" && !config.linkedLearningApps.isEmpty {
+                        unlockRequirementsSection
+                    }
+
+                    // Bottom padding for FAB
+                    Color.clear.frame(height: 80)
                 }
-
-                // Unlock Requirements (Reward apps only)
-                if config.category == "Reward" && !config.linkedLearningApps.isEmpty {
-                    unlockRequirementsSection
-                }
-
-                // Streak Bonus (if enabled)
-                if let streak = config.streakSettings, streak.isEnabled {
-                    streakBonusSection(streak)
-                }
-
-                Spacer(minLength: 40)
+                .padding()
             }
-            .padding()
+
+            // Floating Configure Button
+            configureButton
         }
         .background(AppTheme.background(for: colorScheme))
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .navigationBarTrailing) {
-                Button {
-                    editingConfig = MutableAppConfigDTO(from: config)
-                    isEditSheetPresented = true
-                } label: {
-                    HStack(spacing: 4) {
-                        Image(systemName: "pencil")
-                        Text("Edit")
-                    }
-                    .foregroundColor(categoryColor)
-                }
-            }
-        }
         .sheet(isPresented: $isEditSheetPresented) {
             ParentAppEditSheet(
                 config: $editingConfig,
@@ -140,6 +134,46 @@ struct ParentAppDetailView: View {
             }
         } message: {
             Text(syncAlertMessage)
+        }
+    }
+
+    // MARK: - Floating Configure Button
+    private var configureButton: some View {
+        VStack(spacing: 0) {
+            // Gradient overlay for smooth transition
+            LinearGradient(
+                gradient: Gradient(colors: [
+                    AppTheme.background(for: colorScheme).opacity(0),
+                    AppTheme.background(for: colorScheme)
+                ]),
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: 40)
+
+            Button(action: {
+                editingConfig = MutableAppConfigDTO(from: config)
+                isEditSheetPresented = true
+            }) {
+                HStack(spacing: 8) {
+                    Image(systemName: "gearshape.fill")
+                        .font(.system(size: 16))
+                    Text("CONFIGURE")
+                        .font(.system(size: 14, weight: .bold))
+                        .tracking(1)
+                }
+                .foregroundColor(AppTheme.lightCream)
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(categoryColor)
+                )
+                .shadow(color: categoryColor.opacity(0.3), radius: 8, x: 0, y: 4)
+            }
+            .padding(.horizontal, 16)
+            .padding(.bottom, 16)
+            .background(AppTheme.background(for: colorScheme))
         }
     }
 
@@ -178,143 +212,193 @@ struct ParentAppDetailView: View {
         }
     }
 
-    // MARK: - Header Section
+    // MARK: - Header Section (matches AppDetailHeaderView style)
 
     private var headerSection: some View {
-        VStack(spacing: 16) {
-            // Large App Icon
+        HStack(spacing: AppTheme.Spacing.regular) {
+            // App icon using CachedAppIcon
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(categoryColor.opacity(0.2))
-                    .frame(width: 80, height: 80)
-                    .overlay(
-                        Image(systemName: config.category == "Learning" ? "book.fill" : "gamecontroller.fill")
-                            .font(.system(size: 36))
-                            .foregroundColor(categoryColor)
+                // Icon with background for visibility
+                ZStack {
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                        .fill(categoryColor.opacity(0.15))
+                        .frame(width: 56, height: 56)
+
+                    CachedAppIcon(
+                        iconURL: config.iconURL,
+                        identifier: config.logicalID,
+                        size: 56,
+                        fallbackSymbol: config.category == "Learning" ? "book.fill" : "gamecontroller.fill"
                     )
+                }
 
                 // Shield state indicator
                 if let state = shieldState {
                     Image(systemName: state.statusIcon)
-                        .font(.system(size: 16, weight: .bold))
+                        .font(.system(size: 12, weight: .bold))
                         .foregroundColor(state.isUnlocked ? .green : .red)
-                        .padding(6)
+                        .padding(3)
                         .background(Circle().fill(Color(UIColor.systemBackground)))
-                        .offset(x: 6, y: 6)
+                        .offset(x: 4, y: 4)
                 }
             }
 
-            // App Name
-            Text(displayName)
-                .font(.title2)
-                .fontWeight(.bold)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .multilineTextAlignment(.center)
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.tiny) {
+                // App name
+                Text(displayName)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .lineLimit(1)
+                    .textCase(.uppercase)
 
-            // Category Badge + Status
-            HStack(spacing: 12) {
-                // Category Badge
-                Text(config.category)
-                    .font(.caption)
-                    .fontWeight(.semibold)
-                    .foregroundColor(.white)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
-                    .background(categoryColor)
-                    .cornerRadius(12)
+                // Category badge
+                HStack(spacing: AppTheme.Spacing.tiny) {
+                    Image(systemName: config.category == "Learning" ? "book.fill" : "gift.fill")
+                        .font(.system(size: 10))
 
-                // Status Badge (for reward apps)
-                if let state = shieldState {
-                    Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
-                        .font(.caption)
-                        .fontWeight(.bold)
-                        .foregroundColor(.white)
-                        .padding(.horizontal, 12)
-                        .padding(.vertical, 6)
-                        .background(state.isUnlocked ? Color.green : Color.red)
-                        .cornerRadius(12)
+                    Text(config.category == "Learning" ? "LEARNING" : "REWARD")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1)
+                        .textCase(.uppercase)
+
+                    // Status Badge (for reward apps)
+                    if let state = shieldState {
+                        Text("•")
+                            .font(.system(size: 10))
+                        Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
+                            .font(.system(size: 10, weight: .bold))
+                            .foregroundColor(state.isUnlocked ? .green : .red)
+                    }
                 }
+                .foregroundColor(config.category == "Learning" ? AppTheme.brandedText(for: colorScheme) : categoryColor)
+                .padding(.horizontal, AppTheme.Spacing.regular)
+                .padding(.vertical, AppTheme.Spacing.tiny)
+                .background(
+                    Capsule()
+                        .fill(categoryColor.opacity(0.15))
+                )
             }
+
+            Spacer()
         }
-        .padding(.vertical)
+        .padding(AppTheme.Spacing.regular)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.border(for: colorScheme), lineWidth: 1)
+                )
+        )
     }
 
     // MARK: - Usage Summary Card
 
     private var usageSummaryCard: some View {
         VStack(spacing: 12) {
-            Text("Usage Summary")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Header
+            HStack {
+                Image(systemName: "chart.bar.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(categoryColor)
+
+                Text("USAGE SUMMARY")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                Spacer()
+            }
 
             HStack(spacing: 20) {
                 // Last N Days
                 VStack(spacing: 4) {
                     Text(TimeFormatting.formatSeconds(totalSeconds))
-                        .font(.title2)
-                        .fontWeight(.bold)
+                        .font(.system(size: 24, weight: .bold))
                         .foregroundColor(categoryColor)
-                    Text("Last \(selectedTimeRange.days) days")
-                        .font(.caption)
+                    Text("LAST \(selectedTimeRange.days) DAYS")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
                 .frame(maxWidth: .infinity)
 
-                Divider()
-                    .frame(height: 40)
+                Rectangle()
+                    .fill(AppTheme.border(for: colorScheme))
+                    .frame(width: 1, height: 40)
 
                 // Today
                 VStack(spacing: 4) {
                     Text(TimeFormatting.formatSeconds(todaySeconds))
-                        .font(.title2)
-                        .fontWeight(.bold)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    Text("Today")
-                        .font(.caption)
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    Text("TODAY")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
                 .frame(maxWidth: .infinity)
             }
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(AppTheme.CornerRadius.medium)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(categoryColor.opacity(0.1), lineWidth: 1)
         )
     }
 
-    // MARK: - Usage Chart Section
+    // MARK: - Usage Chart Section (matches AppUsageChart style)
 
     private var usageChartSection: some View {
-        VStack(spacing: 12) {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.regular) {
             HStack {
-                Text("Usage History")
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Text("USAGE HISTORY")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .textCase(.uppercase)
 
                 Spacer()
 
-                Picker("Time Range", selection: $selectedTimeRange) {
-                    ForEach(TimeRange.allCases, id: \.self) { range in
-                        Text(range.rawValue).tag(range)
+                Menu {
+                    Picker("PERIOD", selection: $selectedTimeRange) {
+                        ForEach(TimeRange.allCases, id: \.self) { period in
+                            Text(period.rawValue).tag(period)
+                                .textCase(.uppercase)
+                        }
                     }
+                } label: {
+                    HStack(spacing: AppTheme.Spacing.tiny) {
+                        Text(selectedTimeRange.rawValue.uppercased())
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(0.5)
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
+                    }
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                    .padding(.horizontal, AppTheme.Spacing.regular)
+                    .padding(.vertical, AppTheme.Spacing.tiny)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
+                            .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
+                    )
                 }
-                .pickerStyle(SegmentedPickerStyle())
-                .frame(width: 150)
             }
 
             if filteredHistory.isEmpty {
-                VStack(spacing: 8) {
-                    Image(systemName: "chart.bar")
-                        .font(.largeTitle)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    Text("No usage data")
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                VStack(spacing: AppTheme.Spacing.regular) {
+                    Image(systemName: "chart.bar.xaxis")
+                        .font(.system(size: 32))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
+
+                    Text("NO USAGE DATA YET")
+                        .font(.system(size: 13, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                        .textCase(.uppercase)
                 }
-                .frame(height: 150)
+                .frame(height: 180)
                 .frame(maxWidth: .infinity)
             } else {
                 UsageBarChart(
@@ -322,15 +406,17 @@ struct ParentAppDetailView: View {
                     categoryColor: categoryColor,
                     colorScheme: colorScheme
                 )
-                .frame(height: 150)
+                .frame(height: 180)
             }
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(AppTheme.CornerRadius.medium)
-        .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+        .padding(AppTheme.Spacing.regular)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.border(for: colorScheme), lineWidth: 1)
+                )
         )
     }
 
@@ -338,134 +424,239 @@ struct ParentAppDetailView: View {
 
     private var scheduleSection: some View {
         VStack(spacing: 12) {
-            Text("Schedule")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .frame(maxWidth: .infinity, alignment: .leading)
+            // Header
+            HStack {
+                Image(systemName: "calendar.badge.clock")
+                    .font(.system(size: 16))
+                    .foregroundColor(categoryColor)
+
+                Text("SCHEDULE")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                Spacer()
+            }
 
             if let schedule = config.scheduleConfig {
-                VStack(spacing: 8) {
+                VStack(spacing: 12) {
                     // Time Window
                     HStack {
-                        Image(systemName: "clock")
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 14))
                             .foregroundColor(categoryColor)
+                            .frame(width: 24)
                         Text("Allowed Time")
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         Spacer()
-                        Text(schedule.todayTimeWindow.isFullDay ? "All Day" : schedule.todayTimeWindow.displayString)
-                            .fontWeight(.medium)
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        Text(schedule.todayTimeWindow.isFullDay ? "ALL DAY" : schedule.todayTimeWindow.displayString.uppercased())
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
 
-                    Divider()
+                    Rectangle()
+                        .fill(AppTheme.border(for: colorScheme))
+                        .frame(height: 1)
 
                     // Daily Limit
                     HStack {
                         Image(systemName: "timer")
+                            .font(.system(size: 14))
                             .foregroundColor(categoryColor)
+                            .frame(width: 24)
                         Text("Daily Limit")
+                            .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         Spacer()
-                        Text(schedule.dailyLimits.displaySummary)
-                            .fontWeight(.medium)
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        Text(schedule.dailyLimits.displaySummary.uppercased())
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
                 }
             }
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(AppTheme.CornerRadius.medium)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(categoryColor.opacity(0.1), lineWidth: 1)
         )
     }
 
     // MARK: - Unlock Requirements Section
 
+    /// Get icon URL for a linked learning app by looking it up in childLearningApps
+    private func iconURLForLinkedApp(_ logicalID: String) -> String? {
+        childLearningApps.first { $0.logicalID == logicalID }?.iconURL
+    }
+
     private var unlockRequirementsSection: some View {
         VStack(spacing: 12) {
+            // Header
             HStack {
-                Text("Unlock Requirements")
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                Image(systemName: "lock.open.fill")
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                Text("UNLOCK REQUIREMENTS")
+                    .font(.system(size: 12, weight: .bold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                 Spacer()
 
                 // Unlock mode badge
-                Text(config.unlockMode == .all ? "Complete ALL" : "Complete ANY")
-                    .font(.caption)
-                    .fontWeight(.medium)
+                Text(config.unlockMode == .all ? "ALL" : "ANY")
+                    .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
-                    .background(config.unlockMode == .all ? Color.orange : Color.blue)
+                    .background(config.unlockMode == .all ? Color.orange : AppTheme.vibrantTeal)
                     .cornerRadius(8)
             }
 
             VStack(spacing: 8) {
                 ForEach(config.linkedLearningApps, id: \.logicalID) { linkedApp in
-                    HStack {
-                        Image(systemName: "book.fill")
-                            .foregroundColor(AppTheme.vibrantTeal)
-                            .frame(width: 24)
+                    HStack(spacing: 12) {
+                        // App icon - look up from childLearningApps
+                        ZStack {
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(AppTheme.vibrantTeal.opacity(0.15))
+                                .frame(width: 32, height: 32)
+
+                            CachedAppIcon(
+                                iconURL: iconURLForLinkedApp(linkedApp.logicalID),
+                                identifier: linkedApp.logicalID,
+                                size: 32,
+                                fallbackSymbol: "book.fill"
+                            )
+                        }
 
                         Text(linkedApp.displayName ?? "Learning App")
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .font(.system(size: 14, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                            .lineLimit(1)
 
                         Spacer()
 
-                        Text("\(linkedApp.minutesRequired) min/day")
-                            .font(.subheadline)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        Text("\(linkedApp.minutesRequired) MIN")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(AppTheme.vibrantTeal.opacity(0.15))
+                            .cornerRadius(6)
                     }
                     .padding(.vertical, 4)
                 }
             }
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(AppTheme.CornerRadius.medium)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
         )
     }
 
-    // MARK: - Streak Bonus Section
+    // MARK: - Streak Bonus Section (matches AppStreakCard style)
 
     private func streakBonusSection(_ streak: AppStreakSettings) -> some View {
         VStack(spacing: 12) {
-            Text("Streak Bonus")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .frame(maxWidth: .infinity, alignment: .leading)
-
+            // Header
             HStack {
                 Image(systemName: "flame.fill")
-                    .foregroundColor(.orange)
-                    .font(.title2)
+                    .font(.system(size: 16))
+                    .foregroundColor(AppTheme.sunnyYellow)
+
+                Text("STREAK SETTINGS")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .tracking(1)
+
+                Spacer()
+
+                // Bonus badge
+                HStack(spacing: 4) {
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                    Text(streak.bonusType == .percentage ? "+\(streak.bonusValue)%" : "+\(streak.bonusValue)M")
+                        .font(.system(size: 10, weight: .bold))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                }
+                .padding(.horizontal, 6)
+                .padding(.vertical, 2)
+                .background(AppTheme.sunnyYellow.opacity(0.15))
+                .clipShape(Capsule())
+            }
+
+            // Streak cycle info
+            HStack(alignment: .center, spacing: 16) {
+                // Flame icon with ring
+                ZStack {
+                    Circle()
+                        .stroke(AppTheme.sunnyYellow.opacity(0.2), lineWidth: 4)
+                        .frame(width: 60, height: 60)
+
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                }
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(streak.bonusType == .percentage ? "\(streak.bonusValue)% bonus" : "\(streak.bonusValue) min bonus")
-                        .fontWeight(.semibold)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    Text("\(streak.streakCycleDays)")
+                        .font(.system(size: 36, weight: .bold, design: .rounded))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                    +
+                    Text(" DAY CYCLE")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
-                    Text("Earned for maintaining daily streaks")
-                        .font(.caption)
+                    Text("Earn bonus after \(streak.streakCycleDays) consecutive days")
+                        .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
 
                 Spacer()
             }
+
+            // Milestone dots preview
+            HStack(spacing: 6) {
+                ForEach(0..<min(streak.streakCycleDays, 7), id: \.self) { index in
+                    Circle()
+                        .fill(AppTheme.vibrantTeal.opacity(0.2))
+                        .frame(height: 10)
+                        .overlay(
+                            Circle()
+                                .stroke(AppTheme.vibrantTeal, lineWidth: 1)
+                                .opacity(0.3)
+                        )
+                        .frame(maxWidth: .infinity)
+                }
+                if streak.streakCycleDays > 7 {
+                    Text("...")
+                        .font(.system(size: 10, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+            }
+            .frame(height: 10)
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(AppTheme.CornerRadius.medium)
+        .padding(16)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+        )
         .overlay(
-            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
+            RoundedRectangle(cornerRadius: 16)
+                .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
         )
     }
 }

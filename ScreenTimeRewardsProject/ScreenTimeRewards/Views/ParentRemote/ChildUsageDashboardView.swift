@@ -58,7 +58,7 @@ struct ChildUsageDashboardView: View {
                             }
                         }) {
                             Image(systemName: "chevron.left")
-                                .foregroundColor(currentIndex > 0 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
+                                .foregroundColor(currentIndex > 0 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
                         }
                         .disabled(currentIndex == 0)
 
@@ -77,7 +77,7 @@ struct ChildUsageDashboardView: View {
                             }
                         }) {
                             Image(systemName: "chevron.right")
-                                .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
+                                .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
                         }
                         .disabled(currentIndex >= devices.count - 1)
                     }
@@ -93,7 +93,7 @@ struct ChildUsageDashboardView: View {
                     }
                 }) {
                     Image(systemName: "arrow.clockwise")
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
             }
         }
@@ -278,7 +278,7 @@ private struct ChildTabButton: View {
                 Text(title)
                     .font(.caption)
             }
-            .foregroundColor(isSelected ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme))
+            .foregroundColor(isSelected ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
             .frame(maxWidth: .infinity)
             .padding(.vertical, 8)
             .background(isSelected ? AppTheme.vibrantTeal.opacity(0.1) : Color.clear)
@@ -453,7 +453,7 @@ private struct TodaySummaryCards: View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Today's Activity")
                 .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .foregroundColor(AppTheme.lightCream)
                 .padding(.horizontal)
 
             HStack(spacing: 12) {
@@ -514,7 +514,7 @@ private struct AppConfigSummary: View {
         HStack(spacing: 16) {
             HStack(spacing: 8) {
                 Image(systemName: "book.fill")
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 Text("\(learningCount) learning apps")
                     .font(.subheadline)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
@@ -546,58 +546,169 @@ private struct ChildLearningTabView: View {
     let historyByApp: [String: [DailyUsageHistoryDTO]]
     var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
+    // Total learning time today
+    private var dailyGoalMinutes: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var total = 0
+        for config in fullConfigs {
+            let history = historyByApp[config.logicalID] ?? []
+            total += history
+                .filter { calendar.isDate($0.date, inSameDayAs: today) }
+                .reduce(0) { $0 + $1.seconds }
+        }
+        return total / 60
+    }
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal
+    }
+
+    private var secondaryTextColor: Color {
+        primaryTextColor.opacity(0.7)
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                if fullConfigs.isEmpty && apps.isEmpty {
-                    EmptyAppListView(category: "Learning")
-                } else {
-                    Text("\(fullConfigs.isEmpty ? apps.count : fullConfigs.count) Learning Apps")
-                        .font(.headline)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
+        ZStack {
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
-                    // Use full configs if available, otherwise fall back to basic
-                    if !fullConfigs.isEmpty {
-                        ForEach(fullConfigs) { config in
-                            NavigationLink {
-                                ParentAppDetailView(
-                                    config: config,
-                                    shieldState: nil,
-                                    appHistory: historyByApp[config.logicalID] ?? [],
-                                    childLearningApps: fullConfigs,
-                                    onConfigUpdated: onConfigUpdated
-                                )
-                            } label: {
-                                FullAppConfigRow(
-                                    config: config,
-                                    usage: usageRecords.first { $0.logicalID == config.logicalID },
-                                    categoryColor: AppTheme.vibrantTeal,
-                                    appHistory: historyByApp[config.logicalID] ?? []
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal)
-                        }
-                    } else {
-                        ForEach(apps, id: \.logicalID) { app in
-                            AppConfigRow(
-                                app: app,
-                                usage: usageRecords.first { $0.logicalID == app.logicalID },
-                                categoryColor: AppTheme.vibrantTeal,
-                                appHistory: historyByApp[app.logicalID ?? ""] ?? []
-                            )
-                            .padding(.horizontal)
-                        }
-                    }
+            VStack(spacing: 0) {
+                // Header
+                VStack(spacing: 0) {
+                    Text("LEARNING APPS")
+                        .font(.system(size: 18, weight: .bold))
+                        .tracking(2)
+                        .foregroundColor(primaryTextColor)
+                        .padding(.vertical, 12)
+
+                    Rectangle()
+                        .fill(primaryTextColor.opacity(0.15))
+                        .frame(height: 1)
                 }
 
-                Spacer(minLength: 40)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Summary Card
+                        summaryCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+
+                        if fullConfigs.isEmpty && apps.isEmpty {
+                            EmptyAppListView(category: "Learning")
+                        } else {
+                            // Section Header
+                            HStack(spacing: 8) {
+                                Image(systemName: "books.vertical.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(primaryTextColor)
+
+                                Text("LEARNING APPS")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .tracking(1.5)
+                                    .foregroundColor(primaryTextColor)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 24)
+                            .padding(.bottom, 8)
+
+                            // App Grid
+                            let columns = horizontalSizeClass == .regular ? [
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)
+                            ] : [
+                                GridItem(.flexible())
+                            ]
+
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                if !fullConfigs.isEmpty {
+                                    ForEach(fullConfigs) { config in
+                                        NavigationLink {
+                                            ParentAppDetailView(
+                                                config: config,
+                                                shieldState: nil,
+                                                appHistory: historyByApp[config.logicalID] ?? [],
+                                                childLearningApps: fullConfigs,
+                                                onConfigUpdated: onConfigUpdated
+                                            )
+                                        } label: {
+                                            FullAppConfigRow(
+                                                config: config,
+                                                usage: usageRecords.first { $0.logicalID == config.logicalID },
+                                                categoryColor: AppTheme.vibrantTeal,
+                                                appHistory: historyByApp[config.logicalID] ?? []
+                                            )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                    }
+                                } else {
+                                    ForEach(apps, id: \.logicalID) { app in
+                                        AppConfigRow(
+                                            app: app,
+                                            usage: usageRecords.first { $0.logicalID == app.logicalID },
+                                            categoryColor: AppTheme.vibrantTeal,
+                                            appHistory: historyByApp[app.logicalID ?? ""] ?? []
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+
+                        Spacer(minLength: 40)
+                    }
+                }
             }
-            .padding(.vertical)
         }
+    }
+
+    // MARK: - Summary Card
+    private var summaryCard: some View {
+        HStack(spacing: 16) {
+            // Icon with background
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(primaryTextColor.opacity(0.15))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "book.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(primaryTextColor)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DAILY GOAL")
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(1.5)
+                    .foregroundColor(secondaryTextColor)
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(dailyGoalMinutes)")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(primaryTextColor)
+
+                    Text("MINUTES")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
+                        .padding(.bottom, 4)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.border(for: colorScheme), lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -612,59 +723,194 @@ private struct ChildRewardsTabView: View {
     let childLearningApps: [FullAppConfigDTO]  // For linked apps in edit sheet
     var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
+    private var primaryTextColor: Color {
+        colorScheme == .dark ? AppTheme.lightCream : AppTheme.playfulCoral
+    }
+
+    private var secondaryTextColor: Color {
+        primaryTextColor.opacity(0.7)
+    }
+
+    // Total reward time today
+    private var rewardMinutes: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var total = 0
+        for config in fullConfigs {
+            let history = historyByApp[config.logicalID] ?? []
+            total += history
+                .filter { calendar.isDate($0.date, inSameDayAs: today) }
+                .reduce(0) { $0 + $1.seconds }
+        }
+        return total / 60
+    }
+
+    // Available minutes from learning (simplified - could be enhanced with actual learning data)
+    private var availableMinutes: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        var total = 0
+        for config in childLearningApps {
+            let history = historyByApp[config.logicalID] ?? []
+            total += history
+                .filter { calendar.isDate($0.date, inSameDayAs: today) }
+                .reduce(0) { $0 + $1.seconds }
+        }
+        return total / 60
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(spacing: 16) {
-                if fullConfigs.isEmpty && apps.isEmpty {
-                    EmptyAppListView(category: "Reward")
-                } else {
-                    Text("\(fullConfigs.isEmpty ? apps.count : fullConfigs.count) Reward Apps")
-                        .font(.headline)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.horizontal)
+        ZStack {
+            AppTheme.background(for: colorScheme)
+                .ignoresSafeArea()
 
-                    // Use full configs if available, otherwise fall back to basic
-                    if !fullConfigs.isEmpty {
-                        ForEach(fullConfigs) { config in
-                            NavigationLink {
-                                ParentAppDetailView(
-                                    config: config,
-                                    shieldState: shieldStates[config.logicalID],
-                                    appHistory: historyByApp[config.logicalID] ?? [],
-                                    childLearningApps: childLearningApps,
-                                    onConfigUpdated: onConfigUpdated
-                                )
-                            } label: {
-                                FullAppConfigRow(
-                                    config: config,
-                                    usage: usageRecords.first { $0.logicalID == config.logicalID },
-                                    categoryColor: AppTheme.playfulCoral,
-                                    shieldState: shieldStates[config.logicalID],
-                                    appHistory: historyByApp[config.logicalID] ?? []
-                                )
-                            }
-                            .buttonStyle(PlainButtonStyle())
-                            .padding(.horizontal)
-                        }
-                    } else {
-                        ForEach(apps, id: \.logicalID) { app in
-                            AppConfigRow(
-                                app: app,
-                                usage: usageRecords.first { $0.logicalID == app.logicalID },
-                                categoryColor: AppTheme.playfulCoral,
-                                appHistory: historyByApp[app.logicalID ?? ""] ?? []
-                            )
-                            .padding(.horizontal)
-                        }
-                    }
+            VStack(spacing: 0) {
+                // Header
+                VStack(spacing: 0) {
+                    Text("REWARD APPS")
+                        .font(.system(size: 18, weight: .bold))
+                        .tracking(2)
+                        .foregroundColor(primaryTextColor)
+                        .padding(.vertical, 12)
+
+                    Rectangle()
+                        .fill(primaryTextColor.opacity(0.15))
+                        .frame(height: 1)
                 }
 
-                Spacer(minLength: 40)
+                ScrollView {
+                    VStack(spacing: 0) {
+                        // Summary Card
+                        summaryCard
+                            .padding(.horizontal, 16)
+                            .padding(.top, 16)
+
+                        if fullConfigs.isEmpty && apps.isEmpty {
+                            EmptyAppListView(category: "Reward")
+                        } else {
+                            // Section Header
+                            HStack(spacing: 8) {
+                                Image(systemName: "gamecontroller.fill")
+                                    .font(.system(size: 18))
+                                    .foregroundColor(AppTheme.playfulCoral)
+
+                                Text("YOUR REWARDS")
+                                    .font(.system(size: 14, weight: .semibold))
+                                    .tracking(1.5)
+                                    .foregroundColor(primaryTextColor)
+                            }
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 16)
+                            .padding(.top, 24)
+                            .padding(.bottom, 8)
+
+                            // App Grid
+                            let columns = horizontalSizeClass == .regular ? [
+                                GridItem(.flexible(), spacing: 12),
+                                GridItem(.flexible(), spacing: 12)
+                            ] : [
+                                GridItem(.flexible())
+                            ]
+
+                            LazyVGrid(columns: columns, spacing: 12) {
+                                if !fullConfigs.isEmpty {
+                                    ForEach(fullConfigs) { config in
+                                        NavigationLink {
+                                            ParentAppDetailView(
+                                                config: config,
+                                                shieldState: shieldStates[config.logicalID],
+                                                appHistory: historyByApp[config.logicalID] ?? [],
+                                                childLearningApps: childLearningApps,
+                                                onConfigUpdated: onConfigUpdated
+                                            )
+                                        } label: {
+                                            FullAppConfigRow(
+                                                config: config,
+                                                usage: usageRecords.first { $0.logicalID == config.logicalID },
+                                                categoryColor: AppTheme.playfulCoral,
+                                                shieldState: shieldStates[config.logicalID],
+                                                appHistory: historyByApp[config.logicalID] ?? []
+                                            )
+                                        }
+                                        .buttonStyle(PlainButtonStyle())
+                                    }
+                                } else {
+                                    ForEach(apps, id: \.logicalID) { app in
+                                        AppConfigRow(
+                                            app: app,
+                                            usage: usageRecords.first { $0.logicalID == app.logicalID },
+                                            categoryColor: AppTheme.playfulCoral,
+                                            appHistory: historyByApp[app.logicalID ?? ""] ?? []
+                                        )
+                                    }
+                                }
+                            }
+                            .padding(.horizontal, 16)
+                        }
+
+                        Spacer(minLength: 40)
+                    }
+                }
             }
-            .padding(.vertical)
         }
+    }
+
+    // MARK: - Summary Card
+    private var summaryCard: some View {
+        HStack(spacing: 16) {
+            // Icon with background
+            ZStack {
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.playfulCoral.opacity(0.15))
+                    .frame(width: 56, height: 56)
+
+                Image(systemName: "gift.fill")
+                    .font(.system(size: 26))
+                    .foregroundColor(AppTheme.playfulCoral)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text("DAILY USAGE TIME")
+                    .font(.system(size: 12, weight: .medium))
+                    .tracking(1.5)
+                    .foregroundColor(secondaryTextColor)
+
+                HStack(alignment: .bottom, spacing: 8) {
+                    Text("\(rewardMinutes)")
+                        .font(.system(size: 32, weight: .bold))
+                        .foregroundColor(primaryTextColor)
+
+                    Text("MINUTES")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(secondaryTextColor)
+                        .padding(.bottom, 4)
+                }
+
+                HStack(spacing: 4) {
+                    Image(systemName: "clock.badge.checkmark.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppTheme.sunnyYellow)
+
+                    Text("\(availableMinutes) MINUTES AVAILABLE")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                }
+            }
+
+            Spacer()
+        }
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(colorScheme == .dark ? Color.white.opacity(0.1) : AppTheme.playfulCoral.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 }
 
@@ -784,6 +1030,20 @@ private struct FullAppConfigRow: View {
     var shieldState: ShieldStateDTO? = nil
     var appHistory: [DailyUsageHistoryDTO] = []
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+
+    // Match child device icon sizes (34 * 1.35 = ~46 for iPhone)
+    private var iconSize: CGFloat {
+        horizontalSizeClass == .regular ? 40 : 46
+    }
+
+    private var primaryTextColor: Color {
+        AppTheme.brandedText(for: colorScheme)
+    }
+
+    private var secondaryTextColor: Color {
+        categoryColor.opacity(0.8)
+    }
 
     var displayName: String {
         if !config.displayName.isEmpty && !config.displayName.hasPrefix("Unknown") {
@@ -808,78 +1068,90 @@ private struct FullAppConfigRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 12) {
-            // App Icon with shield overlay
-            ZStack(alignment: .bottomTrailing) {
-                CachedAppIcon(
-                    iconURL: config.iconURL,
-                    identifier: config.logicalID,
-                    size: 50,
-                    fallbackSymbol: config.category == "Learning" ? "book.fill" : "gamecontroller.fill"
-                )
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .center, spacing: 12) {
+                // App Icon with shield overlay
+                ZStack(alignment: .bottomTrailing) {
+                    // Icon container with background for visibility
+                    ZStack {
+                        // Background for fallback icon visibility
+                        RoundedRectangle(cornerRadius: iconSize * 0.22)
+                            .fill(categoryColor.opacity(0.15))
+                            .frame(width: iconSize, height: iconSize)
 
-                // Shield state indicator (for reward apps only)
-                if let state = shieldState {
-                    Image(systemName: state.statusIcon)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(state.isUnlocked ? .green : .red)
-                        .padding(3)
-                        .background(Circle().fill(Color(UIColor.systemBackground)))
-                        .offset(x: 4, y: 4)
-                }
-            }
+                        CachedAppIcon(
+                            iconURL: config.iconURL,
+                            identifier: config.logicalID,
+                            size: iconSize,
+                            fallbackSymbol: config.category == "Learning" ? "book.fill" : "gamecontroller.fill"
+                        )
+                    }
 
-            VStack(alignment: .leading, spacing: 4) {
-                HStack(spacing: 6) {
-                    Text(displayName)
-                        .font(.headline)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .lineLimit(1)
-
-                    // Inline shield status badge
+                    // Shield state indicator (for reward apps only)
                     if let state = shieldState {
-                        Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
-                            .font(.system(size: 9, weight: .bold))
-                            .foregroundColor(.white)
-                            .padding(.horizontal, 6)
-                            .padding(.vertical, 2)
-                            .background(state.isUnlocked ? Color.green : Color.red)
-                            .cornerRadius(4)
+                        Image(systemName: state.statusIcon)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(state.isUnlocked ? .green : .red)
+                            .padding(3)
+                            .background(Circle().fill(Color(UIColor.systemBackground)))
+                            .offset(x: 4, y: 4)
                     }
                 }
 
-                if !appHistory.isEmpty || usage != nil {
-                    Text("Today's Usage")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                } else {
-                    Text("No usage yet")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) {
+                        Text(displayName)
+                            .font(.system(size: 14, weight: .semibold))
+                            .foregroundColor(primaryTextColor)
+                            .lineLimit(1)
+
+                        // Inline shield status badge
+                        if let state = shieldState {
+                            Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
+                                .font(.system(size: 9, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(state.isUnlocked ? Color.green : Color.red)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    // Usage time with clock icon
+                    HStack(spacing: 4) {
+                        Image(systemName: "clock.fill")
+                            .font(.system(size: 10))
+                            .foregroundColor(secondaryTextColor)
+
+                        if !appHistory.isEmpty {
+                            Text(TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal)))
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(categoryColor)
+                        } else {
+                            Text(usageTime)
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(categoryColor)
+                        }
+                    }
                 }
+
+                Spacer()
+
+                // Chevron indicator for navigation
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(primaryTextColor.opacity(0.5))
             }
-
-            Spacer()
-
-            // Show today's usage if available, otherwise fallback to session data
-            if !appHistory.isEmpty {
-                Text(TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal)))
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-            } else {
-                Text(usageTime)
-                    .font(.headline)
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-            }
-
-            // Chevron indicator for navigation
-            Image(systemName: "chevron.right")
-                .font(.caption)
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+            .padding(14)
         }
-        .padding()
-        .background(AppTheme.card(for: colorScheme))
-        .cornerRadius(12)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(categoryColor.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 }
 

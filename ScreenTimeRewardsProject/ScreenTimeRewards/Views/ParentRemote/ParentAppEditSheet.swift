@@ -1,8 +1,7 @@
 import SwiftUI
 
 /// Sheet for parent to edit a child's app configuration remotely.
-/// This allows modifying schedules, limits, and settings for apps
-/// that are already configured on the child's device.
+/// This mirrors the child's AppConfigurationSheet structure exactly.
 struct ParentAppEditSheet: View {
     @Binding var config: MutableAppConfigDTO?
     let childLearningApps: [FullAppConfigDTO]  // Available learning apps on child
@@ -11,7 +10,6 @@ struct ParentAppEditSheet: View {
 
     @State private var localConfig: MutableAppConfigDTO
     @State private var isFullDayAccess: Bool
-    @State private var showingCategoryChangeAlert = false
 
     @Environment(\.colorScheme) var colorScheme
 
@@ -27,12 +25,10 @@ struct ParentAppEditSheet: View {
         self.onCancel = onCancel
 
         // Initialize local state from the config
-        // Note: config.wrappedValue should never be nil in practice
         if let existingConfig = config.wrappedValue {
             _localConfig = State(initialValue: existingConfig)
             _isFullDayAccess = State(initialValue: existingConfig.scheduleConfig?.allowedTimeWindow.isFullDay ?? true)
         } else {
-            // Fallback empty config - should never be reached
             _localConfig = State(initialValue: MutableAppConfigDTO.empty)
             _isFullDayAccess = State(initialValue: true)
         }
@@ -50,16 +46,16 @@ struct ParentAppEditSheet: View {
         NavigationView {
             ScrollView {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.large) {
-                    // App Header (read-only)
+                    // App header (matches child styling)
                     appHeader
 
-                    // Basic Settings Section
-                    basicSettingsSection
+                    // Summary card (matches child)
+                    configSummarySection
 
                     divider
 
-                    // Time Window Section (only show when tracking is enabled)
-                    if localConfig.isEnabled, let scheduleConfig = localConfig.scheduleConfig {
+                    // Time Window Section
+                    if let scheduleConfig = localConfig.scheduleConfig {
                         TimeWindowPicker(
                             timeWindow: Binding(
                                 get: { scheduleConfig.allowedTimeWindow },
@@ -86,6 +82,10 @@ struct ParentAppEditSheet: View {
                                 localConfig.scheduleConfig?.allowedTimeWindow = .fullDay
                                 localConfig.scheduleConfig?.dailyTimeWindows = .allFullDay
                                 localConfig.scheduleConfig?.useAdvancedTimeWindowConfig = false
+                                // Smart default for learning apps: set to unlimited when full day
+                                if localConfig.isLearningApp {
+                                    localConfig.scheduleConfig?.dailyLimits = .unlimited
+                                }
                             }
                         }
 
@@ -111,62 +111,66 @@ struct ParentAppEditSheet: View {
                         )
                     }
 
-                    // Reward-specific sections (only show when tracking is enabled)
-                    if localConfig.isEnabled && localConfig.isRewardApp {
+                    // Reward-specific sections
+                    if localConfig.isRewardApp {
                         divider
-                        linkedAppsSection
+
+                        // Linked Learning Apps
+                        ParentLinkedAppsPicker(
+                            linkedApps: $localConfig.linkedLearningApps,
+                            unlockMode: $localConfig.unlockMode,
+                            availableLearningApps: childLearningApps.filter { $0.category == "Learning" }
+                        )
+
                         divider
-                        streakSettingsSection
+
+                        // Streak Settings (using shared component)
+                        StreakSettingsPicker(
+                            streakSettings: $localConfig.streakSettings,
+                            estimatedDailyReward: estimatedReward
+                        )
                     }
 
-                    // Note about limitations
+                    // Note about remote limitations (parent-specific)
                     limitationsNote
 
                     Spacer(minLength: 40)
                 }
-                .padding()
+                .padding(AppTheme.Spacing.large)
             }
-            .background(AppTheme.background(for: colorScheme))
-            .navigationTitle("Edit \(localConfig.displayName)")
+            .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
+            .navigationTitle("CONFIGURE APP")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) {
-                    Button("Cancel") {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Button("CANCEL") {
                         onCancel()
                     }
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
+                    .textCase(.uppercase)
                 }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+
+                ToolbarItem(placement: .navigationBarTrailing) {
+                    Button("SAVE") {
                         onSave(localConfig)
                     }
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(hasChanges ? (colorScheme == .dark ? AppTheme.lightCream : accentColor) : .gray)
+                    .textCase(.uppercase)
                     .disabled(!hasChanges)
-                    .foregroundColor(hasChanges ? accentColor : .gray)
                 }
             }
-        }
-        .alert("Change Category?", isPresented: $showingCategoryChangeAlert) {
-            Button("Cancel", role: .cancel) {}
-            Button("Change") {
-                if localConfig.isLearningApp {
-                    localConfig.switchToReward()
-                } else {
-                    localConfig.switchToLearning()
-                }
-            }
-        } message: {
-            Text("Changing the category will reset some settings. Are you sure?")
+            .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar)
         }
         .onAppear {
             // Sync localConfig from binding after view appears
-            // This fixes the timing issue where @State init captures stale/nil values
             if let existingConfig = config {
                 localConfig = existingConfig
                 isFullDayAccess = existingConfig.scheduleConfig?.allowedTimeWindow.isFullDay ?? true
             }
-        }
-        .onChange(of: localConfig.isEnabled) { newValue in
-            // Create default schedule config when enabling tracking
-            if newValue && localConfig.scheduleConfig == nil {
+            // Ensure schedule config exists
+            if localConfig.scheduleConfig == nil {
                 localConfig.scheduleConfig = localConfig.isRewardApp
                     ? .defaultReward(logicalID: localConfig.logicalID)
                     : .defaultLearning(logicalID: localConfig.logicalID)
@@ -174,205 +178,260 @@ struct ParentAppEditSheet: View {
         }
     }
 
-    // MARK: - View Components
+    // MARK: - Computed Properties
+
+    private var estimatedReward: Int {
+        switch localConfig.unlockMode {
+        case .all:
+            return localConfig.linkedLearningApps.reduce(0) { $0 + $1.rewardMinutesEarned }
+        case .any:
+            return localConfig.linkedLearningApps.map { $0.rewardMinutesEarned }.max() ?? 0
+        }
+    }
+
+    // MARK: - App Header (matches child styling)
 
     private var appHeader: some View {
-        VStack(spacing: 12) {
-            // App icon placeholder (we don't have the actual icon)
-            ZStack {
-                RoundedRectangle(cornerRadius: 20)
-                    .fill(accentColor.opacity(0.15))
-                    .frame(width: 80, height: 80)
+        HStack(spacing: AppTheme.Spacing.regular) {
+            // App icon - show styled fallback if no icon URL
+            if let iconURL = localConfig.iconURL, !iconURL.isEmpty {
+                CachedAppIcon(
+                    iconURL: iconURL,
+                    identifier: localConfig.logicalID,
+                    size: 56,
+                    fallbackSymbol: localConfig.isLearningApp ? "book.fill" : "gamecontroller.fill"
+                )
+            } else {
+                // Styled fallback icon
+                ZStack {
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                        .fill(accentColor.opacity(0.15))
+                        .frame(width: 56, height: 56)
 
-                Image(systemName: localConfig.isLearningApp ? "book.fill" : "gamecontroller.fill")
-                    .font(.system(size: 32))
+                    Image(systemName: localConfig.isLearningApp ? "book.fill" : "gamecontroller.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(accentColor)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.tiny) {
+                // App name
+                Text(localConfig.displayName)
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .lineLimit(1)
+                    .textCase(.uppercase)
+
+                // Category badge
+                HStack(spacing: AppTheme.Spacing.tiny) {
+                    Image(systemName: localConfig.isLearningApp ? "book.fill" : "gift.fill")
+                        .font(.system(size: 10))
+
+                    Text(localConfig.isLearningApp ? "LEARNING" : "REWARD")
+                        .font(.system(size: 10, weight: .semibold))
+                        .tracking(1)
+                        .textCase(.uppercase)
+                }
+                .foregroundColor(accentColor)
+                .padding(.horizontal, AppTheme.Spacing.regular)
+                .padding(.vertical, AppTheme.Spacing.tiny)
+                .background(
+                    Capsule()
+                        .fill(accentColor.opacity(0.15))
+                )
+            }
+
+            Spacer()
+        }
+        .padding(AppTheme.Spacing.regular)
+        .appCard(colorScheme)
+    }
+
+    // MARK: - Config Summary Section (matches child)
+
+    private var configSummarySection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
+            HStack(spacing: AppTheme.Spacing.tiny) {
+                Image(systemName: "info.circle.fill")
+                    .font(.system(size: 14))
                     .foregroundColor(accentColor)
+
+                Text("SUMMARY")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .textCase(.uppercase)
             }
 
-            Text(localConfig.displayName)
-                .font(.title2)
-                .fontWeight(.semibold)
-                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+            VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
+                ForEach(summaryLines, id: \.self) { line in
+                    HStack(alignment: .top, spacing: AppTheme.Spacing.small) {
+                        Text("•")
+                            .font(.system(size: 11))
+                            .foregroundColor(accentColor)
 
-            // Category badge
-            Text(localConfig.category)
-                .font(.caption)
-                .fontWeight(.semibold)
-                .foregroundColor(.white)
-                .padding(.horizontal, 12)
-                .padding(.vertical, 4)
-                .background(accentColor)
-                .cornerRadius(12)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical)
-    }
-
-    private var basicSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Text("BASIC SETTINGS")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(AppTheme.brandedText(for: colorScheme))
-
-            // Enabled toggle
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("App Tracking")
-                        .font(.subheadline)
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    Text("Track usage and apply limits")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                }
-                Spacer()
-                Toggle("", isOn: $localConfig.isEnabled)
-                    .labelsHidden()
-                    .tint(accentColor)
-            }
-            .padding()
-            .background(AppTheme.card(for: colorScheme))
-            .cornerRadius(12)
-
-            // Points per minute (for learning apps)
-            if localConfig.isLearningApp {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Points per Minute")
-                            .font(.subheadline)
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                        Text("Reward points earned for each minute of learning")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                        Text(line)
+                            .font(.system(size: 11, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+                            .textCase(.uppercase)
                     }
-                    Spacer()
-                    Stepper(
-                        "\(localConfig.pointsPerMinute)",
-                        value: $localConfig.pointsPerMinute,
-                        in: 1...10
-                    )
-                    .labelsHidden()
                 }
-                .padding()
-                .background(AppTheme.card(for: colorScheme))
-                .cornerRadius(12)
-            }
-
-            // Blocking toggle (for reward apps)
-            if localConfig.isRewardApp {
-                HStack {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("Block Until Goals Met")
-                            .font(.subheadline)
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                        Text("Require learning goals before unlocking")
-                            .font(.caption)
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    }
-                    Spacer()
-                    Toggle("", isOn: $localConfig.blockingEnabled)
-                        .labelsHidden()
-                        .tint(accentColor)
-                }
-                .padding()
-                .background(AppTheme.card(for: colorScheme))
-                .cornerRadius(12)
             }
         }
-    }
-
-    private var linkedAppsSection: some View {
-        ParentLinkedAppsPicker(
-            linkedApps: $localConfig.linkedLearningApps,
-            unlockMode: $localConfig.unlockMode,
-            availableLearningApps: childLearningApps.filter { $0.category == "Learning" }
+        .padding(AppTheme.Spacing.regular)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(accentColor.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
+                )
         )
     }
 
-    private var streakSettingsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("STREAK BONUS")
-                .font(.system(size: 16, weight: .semibold))
-                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+    private var summaryLines: [String] {
+        guard let scheduleConfig = localConfig.scheduleConfig else {
+            return ["No schedule configured"]
+        }
 
-            // Enable toggle
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Enable Streak Bonus")
-                        .font(.subheadline)
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    Text("Reward consistency with bonus time")
-                        .font(.caption)
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                }
-                Spacer()
-                Toggle("", isOn: Binding(
-                    get: { localConfig.streakSettings?.isEnabled ?? false },
-                    set: { newValue in
-                        if localConfig.streakSettings == nil {
-                            localConfig.streakSettings = .defaultSettings
-                        }
-                        localConfig.streakSettings?.isEnabled = newValue
-                    }
-                ))
-                .labelsHidden()
-                .tint(accentColor)
-            }
-            .padding()
-            .background(AppTheme.card(for: colorScheme))
-            .cornerRadius(12)
+        let limits = scheduleConfig.dailyLimits
+        let useAdvancedTime = scheduleConfig.useAdvancedTimeWindowConfig
+        let useAdvancedLimits = scheduleConfig.useAdvancedDayConfig
 
-            // Bonus settings (if enabled)
-            if localConfig.streakSettings?.isEnabled == true {
-                VStack(spacing: 12) {
-                    // Bonus value
-                    HStack {
-                        Text("Bonus Amount")
-                            .font(.subheadline)
-                        Spacer()
-                        Text("\(localConfig.streakSettings?.bonusValue ?? 10)%")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(accentColor)
-                            .frame(minWidth: 50)
-                        Stepper(
-                            "",
-                            value: Binding(
-                                get: { localConfig.streakSettings?.bonusValue ?? 10 },
-                                set: { localConfig.streakSettings?.bonusValue = $0 }
-                            ),
-                            in: 5...50,
-                            step: 5
-                        )
-                        .labelsHidden()
-                    }
+        // If either time windows or limits are per-day, use smart grouping
+        if useAdvancedTime || useAdvancedLimits {
+            return buildSmartSummary(scheduleConfig: scheduleConfig)
+        }
 
-                    // Streak cycle
-                    HStack {
-                        Text("Streak Cycle")
-                            .font(.subheadline)
-                        Spacer()
-                        Text("\(localConfig.streakSettings?.streakCycleDays ?? 7) days")
-                            .font(.subheadline)
-                            .fontWeight(.medium)
-                            .foregroundColor(accentColor)
-                            .frame(minWidth: 60)
-                        Stepper(
-                            "",
-                            value: Binding(
-                                get: { localConfig.streakSettings?.streakCycleDays ?? 7 },
-                                set: { localConfig.streakSettings?.streakCycleDays = $0 }
-                            ),
-                            in: 3...14
-                        )
-                        .labelsHidden()
-                    }
-                }
-                .padding()
-                .background(AppTheme.card(for: colorScheme))
-                .cornerRadius(12)
-            }
+        // Simple mode
+        let timeWindow = scheduleConfig.allowedTimeWindow
+        let timeRange = timeWindow.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) AND \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+
+        if limits.weekdayLimit == limits.weekendLimit {
+            return [formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)]
+        } else {
+            return [
+                "WEEKDAYS (MON-FRI): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
+                "WEEKENDS (SAT-SUN): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+            ]
         }
     }
+
+    private func buildSmartSummary(scheduleConfig: AppScheduleConfiguration) -> [String] {
+        let limits = scheduleConfig.dailyLimits
+        let useAdvancedTime = scheduleConfig.useAdvancedTimeWindowConfig
+
+        func configKey(for weekday: Int) -> String {
+            let window = useAdvancedTime ? scheduleConfig.dailyTimeWindows.window(for: weekday) : scheduleConfig.allowedTimeWindow
+            let limit = limits.limit(for: weekday)
+            return "\(window.startHour):\(window.startMinute)-\(window.endHour):\(window.endMinute)|\(limit)"
+        }
+
+        func summaryFor(weekday: Int) -> String {
+            let window = useAdvancedTime ? scheduleConfig.dailyTimeWindows.window(for: weekday) : scheduleConfig.allowedTimeWindow
+            let limitMinutes = limits.limit(for: weekday)
+            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
+        }
+
+        let weekdayKeys = (2...6).map { configKey(for: $0) }
+        let allWeekdaysSame = Set(weekdayKeys).count == 1
+        let satKey = configKey(for: 7)
+        let sunKey = configKey(for: 1)
+        let weekendSame = satKey == sunKey
+
+        let allKeys = (1...7).map { configKey(for: $0) }
+        if Set(allKeys).count == 1 {
+            let window = useAdvancedTime ? scheduleConfig.dailyTimeWindows.window(for: 2) : scheduleConfig.allowedTimeWindow
+            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            return [formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)]
+        }
+
+        if allWeekdaysSame && weekendSame {
+            return [
+                "WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))",
+                "WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))"
+            ]
+        }
+
+        var lines: [String] = []
+        if allWeekdaysSame {
+            lines.append("WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))")
+        } else {
+            for weekday in 2...6 {
+                lines.append("\(dayName(for: weekday)): \(summaryFor(weekday: weekday))")
+            }
+        }
+
+        if weekendSame {
+            lines.append("WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))")
+        } else {
+            lines.append("SATURDAY: \(summaryFor(weekday: 7))")
+            lines.append("SUNDAY: \(summaryFor(weekday: 1))")
+        }
+
+        return lines
+    }
+
+    private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            if timeWindow.isFullDay {
+                return "YOUR CHILD CAN USE THIS APP ANYTIME"
+            } else {
+                return "YOUR CHILD CAN USE THIS APP \(timeRange)"
+            }
+        } else {
+            return "YOUR CHILD CAN USE THIS APP FOR \(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func formatUsageLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
+        if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
+            return timeRange
+        } else {
+            return "\(formatDuration(minutes)) \(timeRange)"
+        }
+    }
+
+    private func dayName(for weekday: Int) -> String {
+        switch weekday {
+        case 1: return "SUNDAY"
+        case 2: return "MONDAY"
+        case 3: return "TUESDAY"
+        case 4: return "WEDNESDAY"
+        case 5: return "THURSDAY"
+        case 6: return "FRIDAY"
+        case 7: return "SATURDAY"
+        default: return ""
+        }
+    }
+
+    private func formatDuration(_ minutes: Int) -> String {
+        if minutes >= 1440 {
+            return "UNLIMITED"
+        }
+        let hours = minutes / 60
+        let mins = minutes % 60
+        if hours > 0 && mins > 0 {
+            return "\(hours)H \(mins)M"
+        } else if hours > 0 {
+            return "\(hours)H"
+        } else {
+            return "\(mins)M"
+        }
+    }
+
+    private func formatTime(hour: Int, minute: Int) -> String {
+        let period = hour >= 12 ? "PM" : "AM"
+        let displayHour = hour == 0 ? 12 : (hour > 12 ? hour - 12 : hour)
+        if minute == 0 {
+            return "\(displayHour):00 \(period)"
+        }
+        return String(format: "%d:%02d %@", displayHour, minute, period)
+    }
+
+    // MARK: - Limitations Note (parent-specific)
 
     private var limitationsNote: some View {
         VStack(alignment: .leading, spacing: 8) {
@@ -398,4 +457,3 @@ struct ParentAppEditSheet: View {
             .frame(height: 1)
     }
 }
-
