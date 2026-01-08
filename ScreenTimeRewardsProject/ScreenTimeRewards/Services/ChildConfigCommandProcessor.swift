@@ -1,6 +1,7 @@
 import Foundation
 import CoreData
 import CloudKit
+import ManagedSettings
 
 /// Processes configuration commands sent from parent device.
 /// This runs on the child device when commands are received via CloudKit.
@@ -11,6 +12,11 @@ class ChildConfigCommandProcessor {
     private let scheduleService = AppScheduleService.shared
     private let cloudKitService = CloudKitSyncService.shared
     private let persistenceController = PersistenceController.shared
+    private let screenTimeService = ScreenTimeService.shared
+
+    // Command type constants
+    static let commandTypeFullConfig = "update_full_config"
+    static let commandTypeWebRestrictions = "update_web_restrictions"
 
     private init() {}
 
@@ -90,13 +96,23 @@ class ChildConfigCommandProcessor {
         var processedCount = 0
         for record in commandRecords {
             do {
-                guard let commandType = record["commandType"] as? String,
-                      commandType == "update_full_config" else {
+                guard let commandType = record["commandType"] as? String else {
                     continue
                 }
 
-                try await processFullConfigCommandFromSharedZone(record)
-                processedCount += 1
+                switch commandType {
+                case Self.commandTypeFullConfig:
+                    try await processFullConfigCommandFromSharedZone(record)
+                    processedCount += 1
+                case Self.commandTypeWebRestrictions:
+                    try await processWebRestrictionCommandFromSharedZone(record)
+                    processedCount += 1
+                default:
+                    #if DEBUG
+                    print("[ChildConfigCommandProcessor] Unknown command type: \(commandType)")
+                    #endif
+                    continue
+                }
             } catch {
                 let cmdID = record["commandID"] as? String ?? "?"
                 #if DEBUG
@@ -169,6 +185,89 @@ class ChildConfigCommandProcessor {
         #endif
     }
 
+    // MARK: - Web Restriction Command Processing
+
+    /// Process a web restriction command from CloudKit shared zone
+    private func processWebRestrictionCommandFromSharedZone(_ record: CKRecord) async throws {
+        guard let payloadString = record["payloadJSON"] as? String,
+              !payloadString.isEmpty else {
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Invalid web restriction command or empty payload")
+            #endif
+            throw ProcessingError.invalidPayload
+        }
+
+        // Decode the payload
+        let payload: WebRestrictionPayload
+        do {
+            payload = try WebRestrictionPayload.fromBase64String(payloadString)
+        } catch {
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Failed to decode web restriction payload: \(error)")
+            #endif
+            throw ProcessingError.decodingFailed(error)
+        }
+
+        #if DEBUG
+        print("[ChildConfigCommandProcessor] ===== Processing Web Restriction Command =====" )
+        print("[ChildConfigCommandProcessor] Command ID: \(payload.commandID)")
+        print("[ChildConfigCommandProcessor] Blocked websites: \(payload.blockedWebsiteCount)")
+        print("[ChildConfigCommandProcessor] Blocked browsers: \(payload.blockedBrowserCount)")
+        #endif
+
+        // Apply the web restrictions
+        try await applyWebRestrictions(payload)
+
+        // Mark command as executed in CloudKit shared zone
+        try await cloudKitService.markCommandExecutedInSharedZone(record)
+
+        #if DEBUG
+        print("[ChildConfigCommandProcessor] ✅ Web restriction command processed: \(payload.commandID)")
+        #endif
+    }
+
+    /// Apply web restrictions from the payload
+    private func applyWebRestrictions(_ payload: WebRestrictionPayload) async throws {
+        // 1. Deserialize and apply web domain blocks
+        var webDomainTokens: Set<WebDomainToken> = []
+        for tokenData in payload.blockedWebDomainTokens {
+            if let token = try? JSONDecoder().decode(WebDomainToken.self, from: tokenData) {
+                webDomainTokens.insert(token)
+            }
+        }
+
+        if !webDomainTokens.isEmpty {
+            screenTimeService.syncWebDomainShields(currentBlockedDomains: webDomainTokens)
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Applied \(webDomainTokens.count) web domain blocks")
+            #endif
+        } else {
+            // Clear all web domain blocks if payload has none
+            screenTimeService.syncWebDomainShields(currentBlockedDomains: [])
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Cleared web domain blocks")
+            #endif
+        }
+
+        // 2. Apply browser blocks
+        let browserBundleIDs = Set(payload.blockedBrowserBundleIDs)
+        if !browserBundleIDs.isEmpty {
+            screenTimeService.blockBrowsers(bundleIDs: browserBundleIDs)
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Applied \(browserBundleIDs.count) browser blocks")
+            #endif
+        } else {
+            screenTimeService.unblockAllBrowsers()
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] Cleared browser blocks")
+            #endif
+        }
+
+        #if DEBUG
+        print("[ChildConfigCommandProcessor] Web restrictions applied successfully")
+        #endif
+    }
+
     /// Mark a command as failed in CloudKit shared zone
     private func markCommandFailedInSharedZone(_ record: CKRecord, error: Error) async throws {
         let sharedDB = CKContainer(identifier: "iCloud.com.screentimerewards").sharedCloudDatabase
@@ -232,7 +331,21 @@ class ChildConfigCommandProcessor {
         // 2. CRITICAL: Always use top-level payload values for these fields
         // The top-level values are the UPDATED values from parent editing
         // The scheduleConfig may have STALE values due to data duplication
-        scheduleConfig.linkedLearningApps = payload.linkedLearningApps
+
+        // Filter out any phantom linked apps that don't exist on this device
+        let validLinkedApps = payload.linkedLearningApps.filter { linkedApp in
+            // Check if there's a corresponding learning app on device
+            ScreenTimeService.shared.getDisplayName(for: linkedApp.logicalID) != nil
+        }
+
+        #if DEBUG
+        let removedCount = payload.linkedLearningApps.count - validLinkedApps.count
+        if removedCount > 0 {
+            print("[ChildConfigCommandProcessor] ⚠️ Filtered out \(removedCount) orphaned linked app(s)")
+        }
+        #endif
+
+        scheduleConfig.linkedLearningApps = validLinkedApps
         scheduleConfig.unlockMode = payload.unlockMode
         scheduleConfig.streakSettings = payload.streakSettings
         scheduleConfig.isEnabled = payload.isEnabled

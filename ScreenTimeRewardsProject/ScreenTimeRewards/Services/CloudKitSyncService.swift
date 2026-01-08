@@ -1035,6 +1035,99 @@ class CloudKitSyncService: ObservableObject {
         }
     }
 
+    // MARK: - Web Restriction Commands
+
+    /// Send a web restriction command to child device via CloudKit
+    /// This is called from the parent device to update child's web restrictions
+    func sendWebRestrictionCommand(deviceID: String, payload: WebRestrictionPayload) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Sending Web Restriction Command =====")
+        print("[CloudKitSyncService] Target Device: \(deviceID)")
+        print("[CloudKitSyncService] Command ID: \(payload.commandID)")
+        print("[CloudKitSyncService] Blocked websites: \(payload.blockedWebsiteCount)")
+        print("[CloudKitSyncService] Blocked browsers: \(payload.blockedBrowserCount)")
+        #endif
+
+        // Check account status first
+        let accountStatus = await checkAndLogCloudKitAccountStatus()
+        guard accountStatus == .available else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ CloudKit account not available, cannot send command")
+            #endif
+            throw CloudKitSyncError.zoneNotFound(deviceID: deviceID)
+        }
+
+        // Get or create the parent's command zone
+        let db = container.privateCloudDatabase
+        let zoneID = try await getOrCreateParentCommandsZone()
+
+        #if DEBUG
+        print("[CloudKitSyncService] Using zone: \(zoneID.zoneName)")
+        #endif
+
+        // Create CKRecord for the command
+        let recordID = CKRecord.ID(recordName: "WebCmd-\(payload.commandID)", zoneID: zoneID)
+        let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
+
+        // Link record to the share's root record so it's visible to child
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: zoneID)
+        record.parent = CKRecord.Reference(recordID: rootRecordID, action: .none)
+
+        #if DEBUG
+        print("[CloudKitSyncService] Setting parent reference to: \(rootRecordID.recordName)")
+        #endif
+
+        record["commandID"] = payload.commandID as CKRecordValue
+        record["targetDeviceID"] = deviceID as CKRecordValue
+        record["commandType"] = "update_web_restrictions" as CKRecordValue
+        record["payloadJSON"] = try payload.toBase64String() as CKRecordValue
+        record["createdAt"] = Date() as CKRecordValue
+        record["status"] = "pending" as CKRecordValue
+        record["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
+
+        // Use explicit CKModifyRecordsOperation for better server sync control
+        let savedRecordName = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<String, Error>) in
+            let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
+            operation.qualityOfService = .userInitiated
+            operation.savePolicy = .changedKeys
+
+            operation.perRecordSaveBlock = { recordID, result in
+                #if DEBUG
+                switch result {
+                case .success(let savedRecord):
+                    print("[CloudKitSyncService] [WEB-CMD] ✅ Record saved: \(recordID.recordName)")
+                    print("[CloudKitSyncService] [WEB-CMD]   Type: \(savedRecord.recordType)")
+                case .failure(let error):
+                    print("[CloudKitSyncService] [WEB-CMD] ❌ Record FAILED: \(recordID.recordName)")
+                    print("[CloudKitSyncService] [WEB-CMD]   Error: \(error.localizedDescription)")
+                }
+                #endif
+            }
+
+            operation.modifyRecordsResultBlock = { result in
+                switch result {
+                case .success:
+                    #if DEBUG
+                    print("[CloudKitSyncService] ✅ Web restriction command saved successfully")
+                    #endif
+                    continuation.resume(returning: recordID.recordName)
+                case .failure(let error):
+                    #if DEBUG
+                    print("[CloudKitSyncService] ❌ Web restriction command failed: \(error)")
+                    #endif
+                    continuation.resume(throwing: error)
+                }
+            }
+
+            db.add(operation)
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Web restriction command saved: \(savedRecordName)")
+        #endif
+    }
+
     /// Fetch pending commands from the shared zone (child side)
     /// This is called by the child device to get commands from the parent
     ///
@@ -1695,26 +1788,35 @@ class CloudKitSyncService: ObservableObject {
 
                 // Encode linked learning apps with display names for parent dashboard
                 if !scheduleConfig.linkedLearningApps.isEmpty {
-                    // Enrich linked apps with display names
-                    var enrichedLinkedApps = scheduleConfig.linkedLearningApps
-                    for i in enrichedLinkedApps.indices {
-                        if enrichedLinkedApps[i].displayName == nil {
+                    // Enrich linked apps with display names and filter out invalid ones
+                    var enrichedLinkedApps: [LinkedLearningApp] = []
+                    for var linkedApp in scheduleConfig.linkedLearningApps {
+                        if linkedApp.displayName == nil {
                             // Look up display name from ScreenTimeService
-                            let linkedLogicalID = enrichedLinkedApps[i].logicalID
-                            if let name = ScreenTimeService.shared.getDisplayName(for: linkedLogicalID) {
-                                enrichedLinkedApps[i].displayName = name
+                            if let name = ScreenTimeService.shared.getDisplayName(for: linkedApp.logicalID) {
+                                linkedApp.displayName = name
                             }
+                        }
+                        // Only include apps that have a valid display name (i.e., still exist on device)
+                        if linkedApp.displayName != nil {
+                            enrichedLinkedApps.append(linkedApp)
+                        } else {
+                            #if DEBUG
+                            print("[CloudKitSyncService]   ⚠️ Filtering out orphaned linked app: \(linkedApp.logicalID)")
+                            #endif
                         }
                     }
 
-                    if let linkedJSON = encodeToJSON(enrichedLinkedApps) {
-                        rec["CD_linkedAppsJSON"] = linkedJSON as CKRecordValue
+                    if !enrichedLinkedApps.isEmpty {
+                        if let linkedJSON = encodeToJSON(enrichedLinkedApps) {
+                            rec["CD_linkedAppsJSON"] = linkedJSON as CKRecordValue
+                        }
+                        rec["CD_unlockMode"] = scheduleConfig.unlockMode.rawValue as CKRecordValue
+                        #if DEBUG
+                        let names = enrichedLinkedApps.compactMap { $0.displayName }.joined(separator: ", ")
+                        print("[CloudKitSyncService]   \(config.displayName ?? "?") - added \(enrichedLinkedApps.count) linked apps: \(names) (\(scheduleConfig.unlockMode.rawValue))")
+                        #endif
                     }
-                    rec["CD_unlockMode"] = scheduleConfig.unlockMode.rawValue as CKRecordValue
-                    #if DEBUG
-                    let names = enrichedLinkedApps.compactMap { $0.displayName }.joined(separator: ", ")
-                    print("[CloudKitSyncService]   \(config.displayName ?? "?") - added \(enrichedLinkedApps.count) linked apps: \(names) (\(scheduleConfig.unlockMode.rawValue))")
-                    #endif
                 }
 
                 // Encode streak settings if enabled
@@ -3271,5 +3373,152 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         return results
+    }
+
+    // MARK: - Parent Notifications
+
+    /// Send a notification to parent device via CloudKit
+    /// Creates a ParentNotification record in the parent's shared zone
+    func sendParentNotification(_ payload: ParentNotificationPayload) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Sending Parent Notification =====")
+        print("[CloudKitSyncService] Type: \(payload.notificationType.rawValue)")
+        print("[CloudKitSyncService] Title: \(payload.title)")
+        #endif
+
+        let sharedDB = container.sharedCloudDatabase
+
+        // Get share context from multi-parent storage (or legacy keys)
+        guard let zoneInfo = getParentZoneInfo() else {
+            let error = NSError(domain: "ParentNotification", code: -1,
+                              userInfo: [NSLocalizedDescriptionKey: "Missing share context - device may not be paired"])
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Cannot send parent notification - no zone info")
+            #endif
+            throw error
+        }
+
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
+        let rootID = CKRecord.ID(recordName: zoneInfo.rootRecordName, zoneID: zoneID)
+
+        // Create the notification record
+        let record = payload.toCKRecord(zoneID: zoneID, rootID: rootID)
+
+        #if DEBUG
+        print("[CloudKitSyncService] Zone: \(zoneInfo.zoneName)")
+        print("[CloudKitSyncService] Owner: \(zoneInfo.zoneOwner)")
+        print("[CloudKitSyncService] Root: \(zoneInfo.rootRecordName)")
+        #endif
+
+        do {
+            let (savedRecords, _) = try await sharedDB.modifyRecords(saving: [record], deleting: [])
+
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Parent notification sent: \(savedRecords.count) record(s)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Failed to send parent notification: \(error.localizedDescription)")
+            #endif
+
+            // Queue for offline retry
+            do {
+                try offlineQueue.enqueueOperation(
+                    operation: "sendParentNotification",
+                    payload: [
+                        "notificationID": payload.notificationID,
+                        "type": payload.notificationType.rawValue,
+                        "title": payload.title,
+                        "body": payload.body
+                    ]
+                )
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Failed to queue for offline retry: \(error.localizedDescription)")
+                #endif
+            }
+
+            throw error
+        }
+    }
+
+    /// Fetch unread parent notifications (for parent device)
+    func fetchUnreadParentNotifications(for childDeviceID: String? = nil) async throws -> [ParentNotificationPayload] {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Fetching Unread Parent Notifications =====")
+        #endif
+
+        let privateDB = container.privateCloudDatabase
+        var results: [ParentNotificationPayload] = []
+
+        // Get all child monitoring zones
+        let zones = try await getAllChildMonitoringZones()
+
+        for zone in zones {
+            do {
+                var predicate: NSPredicate
+                if let childID = childDeviceID {
+                    predicate = NSPredicate(format: "CD_childDeviceID == %@ AND CD_isRead == %@", childID, NSNumber(value: false))
+                } else {
+                    predicate = NSPredicate(format: "CD_isRead == %@", NSNumber(value: false))
+                }
+
+                let query = CKQuery(recordType: "ParentNotification", predicate: predicate)
+                query.sortDescriptors = [NSSortDescriptor(key: "CD_timestamp", ascending: false)]
+
+                let (matches, _) = try await privateDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                for (_, result) in matches {
+                    if case .success(let record) = result,
+                       let payload = ParentNotificationPayload.fromCKRecord(record) {
+                        results.append(payload)
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error fetching notifications from zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Found \(results.count) unread notifications")
+        #endif
+
+        return results
+    }
+
+    /// Mark a parent notification as read
+    func markParentNotificationAsRead(notificationID: String) async throws {
+        #if DEBUG
+        print("[CloudKitSyncService] Marking notification as read: \(notificationID)")
+        #endif
+
+        let privateDB = container.privateCloudDatabase
+        let zones = try await getAllChildMonitoringZones()
+
+        for zone in zones {
+            do {
+                let predicate = NSPredicate(format: "CD_notificationID == %@", notificationID)
+                let query = CKQuery(recordType: "ParentNotification", predicate: predicate)
+                let (matches, _) = try await privateDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                for (recordID, result) in matches {
+                    if case .success(var record) = result {
+                        record["CD_isRead"] = true as CKRecordValue
+                        try await privateDB.modifyRecords(saving: [record], deleting: [])
+
+                        #if DEBUG
+                        print("[CloudKitSyncService] ✅ Marked notification as read")
+                        #endif
+                        return
+                    }
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Error in zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
     }
 }

@@ -297,9 +297,9 @@ struct RewardAppDetailView: View {
                             scheduleSection(config: config)
                         }
 
-                        // Unlock Requirements (if linked apps exist)
+                        // Unlock Requirements (if valid linked apps exist)
                         if let config = scheduleService.getSchedule(for: snapshot.logicalID),
-                           !config.linkedLearningApps.isEmpty {
+                           !validLinkedApps(for: config).isEmpty {
                             unlockRequirementsSection(config: config)
                         }
 
@@ -456,8 +456,17 @@ struct RewardAppDetailView: View {
 
     // MARK: - Unlock Requirements Section
 
+    /// Filter linked apps to only include those that have valid learning snapshots on device
+    private func validLinkedApps(for config: AppScheduleConfiguration) -> [LinkedLearningApp] {
+        config.linkedLearningApps.filter { linkedApp in
+            viewModel.learningSnapshots.contains { $0.logicalID == linkedApp.logicalID }
+        }
+    }
+
     private func unlockRequirementsSection(config: AppScheduleConfiguration) -> some View {
-        VStack(spacing: 12) {
+        let filteredLinkedApps = validLinkedApps(for: config)
+
+        return VStack(spacing: 12) {
             // Header
             HStack {
                 Image(systemName: "lock.open.fill")
@@ -482,7 +491,7 @@ struct RewardAppDetailView: View {
             }
 
             VStack(spacing: 8) {
-                ForEach(config.linkedLearningApps, id: \.logicalID) { linkedApp in
+                ForEach(filteredLinkedApps, id: \.logicalID) { linkedApp in
                     HStack(spacing: 12) {
                         // App icon - find from learning snapshots
                         if let learningSnapshot = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID }) {

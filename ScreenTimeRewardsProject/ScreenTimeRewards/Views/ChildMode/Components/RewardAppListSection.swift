@@ -65,7 +65,7 @@ struct RewardAppListSection: View {
             ChildAppDetailView(
                 snapshot: detailData.snapshot,
                 unlockedApp: detailData.unlockedApp,
-                linkedLearningApps: detailData.config?.linkedLearningApps ?? [],
+                linkedLearningApps: filterValidLinkedApps(for: detailData.config),
                 learningProgress: calculateLearningProgress(for: detailData.config),
                 learningAppTokens: resolveLearningTokens(for: detailData.config),
                 unlockMode: detailData.config?.unlockMode ?? .all,
@@ -79,29 +79,41 @@ struct RewardAppListSection: View {
     private func calculateLearningProgress(for config: AppScheduleConfiguration?) -> [String: (used: Int, required: Int, goalMet: Bool)] {
         guard let config = config else { return [:] }
         var progress: [String: (used: Int, required: Int, goalMet: Bool)] = [:]
-        
-        for linkedApp in config.linkedLearningApps {
+
+        // Only calculate progress for linked apps that have valid learning snapshots
+        let validLinkedApps = filterValidLinkedApps(for: config)
+        for linkedApp in validLinkedApps {
             // Find usage from snapshots
             let usedSeconds = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID })?.totalSeconds ?? 0
             let usedMinutes = Int(usedSeconds / 60)
             let goalMet = usedMinutes >= linkedApp.minutesRequired
             progress[linkedApp.logicalID] = (usedMinutes, linkedApp.minutesRequired, goalMet)
         }
-        
+
         return progress
     }
 
     private func resolveLearningTokens(for config: AppScheduleConfiguration?) -> [String: ApplicationToken] {
         guard let config = config else { return [:] }
         var tokens: [String: ApplicationToken] = [:]
-        
+
         for linkedApp in config.linkedLearningApps {
             if let snapshot = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID }) {
                 tokens[linkedApp.logicalID] = snapshot.token
             }
         }
-        
+
         return tokens
+    }
+
+    /// Filter linked apps to only include those with valid learning snapshots on device
+    private func filterValidLinkedApps(for config: AppScheduleConfiguration?) -> [LinkedLearningApp] {
+        guard let config = config else { return [] }
+
+        // Only include linked apps that have a corresponding learning snapshot
+        return config.linkedLearningApps.filter { linkedApp in
+            viewModel.learningSnapshots.contains { $0.logicalID == linkedApp.logicalID }
+        }
     }
 
     // MARK: - Subviews
@@ -267,7 +279,7 @@ struct RewardAppListSection: View {
         VStack(spacing: 12) {
             Image(systemName: "gamecontroller")
                 .font(.system(size: 32))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
 
             Text("No reward apps configured")
                 .font(.system(size: 15, weight: .medium))

@@ -94,7 +94,7 @@ struct ParentAppDetailView: View {
                     }
 
                     // Unlock Requirements (Reward apps only)
-                    if config.category == "Reward" && !config.linkedLearningApps.isEmpty {
+                    if config.category == "Reward" && !validLinkedLearningApps.isEmpty {
                         unlockRequirementsSection
                     }
 
@@ -503,6 +503,13 @@ struct ParentAppDetailView: View {
         childLearningApps.first { $0.logicalID == logicalID }?.iconURL
     }
 
+    /// Filter linked apps to only include those that exist in childLearningApps
+    private var validLinkedLearningApps: [LinkedLearningApp] {
+        config.linkedLearningApps.filter { linkedApp in
+            childLearningApps.contains { $0.logicalID == linkedApp.logicalID }
+        }
+    }
+
     private var unlockRequirementsSection: some View {
         VStack(spacing: 12) {
             // Header
@@ -529,7 +536,7 @@ struct ParentAppDetailView: View {
             }
 
             VStack(spacing: 8) {
-                ForEach(config.linkedLearningApps, id: \.logicalID) { linkedApp in
+                ForEach(validLinkedLearningApps, id: \.logicalID) { linkedApp in
                     HStack(spacing: 12) {
                         // App icon - look up from childLearningApps
                         ZStack {
