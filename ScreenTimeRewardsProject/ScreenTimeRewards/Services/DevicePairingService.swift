@@ -153,38 +153,22 @@ class DevicePairingService: ObservableObject {
     }
 
     /// Create monitoring zone with share for cross-account pairing
-    /// Now checks for existing zones and cleans them up to prevent zone accumulation
+    /// Each child gets their own zone - existing zones are preserved to support multiple children
     func createMonitoringZoneForChild() async throws -> (zoneID: CKRecordZone.ID, share: CKShare) {
         let database = container.privateCloudDatabase
 
-        // 1. Delete ALL old ChildMonitoring zones before creating new pairing
-        // This prevents zone accumulation from repeated pairings
-        #if DEBUG
-        print("[DevicePairingService] Deleting all old ChildMonitoring zones before creating new pairing...")
-        #endif
+        // NOTE: We intentionally do NOT delete existing zones here.
+        // Each child gets their own zone, allowing multiple children per parent.
+        // Zone cleanup should only happen during explicit unpair operations.
 
-        do {
-            let cleanedCount = try await cloudKitSync.deleteAllChildMonitoringZones()
-            #if DEBUG
-            if cleanedCount > 0 {
-                print("[DevicePairingService] ✅ Deleted \(cleanedCount) old zone(s)")
-            }
-            #endif
-        } catch {
-            #if DEBUG
-            print("[DevicePairingService] ⚠️ Zone cleanup failed (non-critical): \(error.localizedDescription)")
-            #endif
-            // Continue with pairing even if cleanup fails
-        }
-
-        // 2. Create unique zone for this pairing session
+        // 1. Create unique zone for this pairing session
         let zoneID = CKRecordZone.ID(zoneName: "ChildMonitoring-\(UUID().uuidString)")
         let zone = CKRecordZone(zoneID: zoneID)
 
-        // 3. Save the zone
+        // 2. Save the zone
         let savedZone = try await database.save(zone)
 
-        // 4. Create root record for sharing
+        // 3. Create root record for sharing
         let rootRecordID = CKRecord.ID(recordName: "MonitoringSession-\(UUID().uuidString)", zoneID: savedZone.zoneID)
         let rootRecord = CKRecord(recordType: "MonitoringSession", recordID: rootRecordID)
         rootRecord["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue

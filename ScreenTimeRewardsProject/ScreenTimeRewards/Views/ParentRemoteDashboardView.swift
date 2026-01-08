@@ -217,6 +217,19 @@ struct ParentRemoteDashboardView: View {
                     }
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: NSNotification.Name("NewChildPaired"))) { _ in
+                // When new child is detected, refresh all data (not just device list)
+                Task {
+                    #if DEBUG
+                    print("[ParentRemoteDashboardView] 📣 NewChildPaired notification received - refreshing all data")
+                    #endif
+                    await viewModel.loadLinkedChildDevices()
+                    // Load the newly paired child's data
+                    if let firstChild = viewModel.linkedChildDevices.first {
+                        await viewModel.loadChildData(for: firstChild)
+                    }
+                }
+            }
         }
         .navigationViewStyle(.stack)
     }

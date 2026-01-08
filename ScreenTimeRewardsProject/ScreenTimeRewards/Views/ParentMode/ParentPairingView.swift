@@ -11,6 +11,11 @@ struct ParentPairingView: View {
     @State private var cloudKitStatus: CloudKitStatus = .checking
     @State private var showSubscriptionPaywall = false
 
+    // Polling for new child device
+    @State private var isPollingForChild = false
+    @State private var initialChildCount = 0
+    @Environment(\.dismiss) private var dismiss
+
     enum CloudKitStatus: Equatable {
         case checking
         case available
@@ -58,6 +63,18 @@ struct ParentPairingView: View {
                         .font(.subheadline)
                         .foregroundColor(.secondary)
                         .multilineTextAlignment(.center)
+
+                    // Polling indicator
+                    if isPollingForChild {
+                        HStack(spacing: 8) {
+                            ProgressView()
+                                .scaleEffect(0.8)
+                            Text("Waiting for child device to connect...")
+                                .font(.caption)
+                                .foregroundColor(.secondary)
+                        }
+                        .padding(.vertical, 8)
+                    }
 
                     // Important notice about different Apple ID requirement
                     HStack(spacing: 8) {
@@ -132,6 +149,10 @@ struct ParentPairingView: View {
         .onAppear {
             checkCloudKitAndGenerate()
         }
+        .onDisappear {
+            // Stop polling when view is dismissed
+            isPollingForChild = false
+        }
         .sheet(isPresented: $showSubscriptionPaywall) {
             SubscriptionPaywallView()
         }
@@ -146,8 +167,7 @@ struct ParentPairingView: View {
             await MainActor.run {
                 if status {
                     self.cloudKitStatus = .available
-                    // Automatically generate QR code when CloudKit is available
-                    generateQRCode()
+                    // Don't auto-generate - user must click button to avoid destroying existing pairings
                 } else {
                     self.cloudKitStatus = .notAuthenticated
                 }
@@ -297,6 +317,8 @@ struct ParentPairingView: View {
                     await MainActor.run {
                         self.qrCodeImage = convertCIImageToUIImage(ciImage)
                         self.isGenerating = false
+                        // Start polling for new child device
+                        self.startPollingForNewChild()
                     }
                 } else {
                     #if DEBUG
@@ -346,6 +368,70 @@ struct ParentPairingView: View {
                         self.errorMessage = "Unable to create pairing QR code. Please try again."
                     }
                 }
+            }
+        }
+    }
+
+    private func startPollingForNewChild() {
+        isPollingForChild = true
+
+        Task {
+            // Capture initial child count
+            let cloudKitSync = CloudKitSyncService.shared
+            let startCount = (try? await cloudKitSync.fetchLinkedChildDevices().count) ?? 0
+            initialChildCount = startCount
+
+            #if DEBUG
+            print("[ParentPairingView] 🔄 Starting polling for new child device. Initial count: \(startCount)")
+            #endif
+
+            // Poll every 2 seconds for up to 5 minutes (150 attempts)
+            for attempt in 1...150 {
+                try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
+
+                // Check if polling was cancelled
+                guard isPollingForChild else {
+                    #if DEBUG
+                    print("[ParentPairingView] 🛑 Polling cancelled")
+                    #endif
+                    return
+                }
+
+                // Fetch current child count
+                let currentCount = (try? await cloudKitSync.fetchLinkedChildDevices().count) ?? 0
+
+                #if DEBUG
+                if attempt % 10 == 0 {
+                    print("[ParentPairingView] 🔄 Poll attempt \(attempt): \(currentCount) children (started with \(startCount))")
+                }
+                #endif
+
+                if currentCount > startCount {
+                    // SUCCESS - new child detected!
+                    #if DEBUG
+                    print("[ParentPairingView] ✅ New child device detected! Closing view...")
+                    #endif
+
+                    await MainActor.run {
+                        isPollingForChild = false
+                        // Notify parent dashboard to refresh all data (not just device list)
+                        NotificationCenter.default.post(
+                            name: NSNotification.Name("NewChildPaired"),
+                            object: nil
+                        )
+                        dismiss()
+                    }
+                    return
+                }
+            }
+
+            // Timeout after 5 minutes
+            #if DEBUG
+            print("[ParentPairingView] ⏰ Polling timeout after 5 minutes")
+            #endif
+
+            await MainActor.run {
+                isPollingForChild = false
             }
         }
     }

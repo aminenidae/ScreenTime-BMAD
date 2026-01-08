@@ -172,7 +172,7 @@ private extension ChildPairingView {
         VStack(spacing: 20) {
             Image(systemName: "qrcode.viewfinder")
                 .font(.system(size: 64))
-                .foregroundColor(canAddParent ? AppTheme.vibrantTeal : .gray)
+                .foregroundColor(canAddParent ? AppTheme.brandedText(for: colorScheme) : .gray)
                 .padding(.top, 8)
 
             VStack(spacing: 8) {
@@ -339,9 +339,14 @@ private extension ChildPairingView {
 
                 try await pairingService.acceptParentShareAndRegister(from: payload)
 
-                // Trigger upload
+                // Trigger upload and config refresh
                 Task {
                     await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+                    // Also fetch app configurations from the newly paired parent
+                    try? await ChildBackgroundSyncService.shared.checkForConfigurationUpdates()
+                    #if DEBUG
+                    print("[ChildPairingView] ✅ Uploaded usage and refreshed config after pairing")
+                    #endif
                 }
 
                 await MainActor.run {
