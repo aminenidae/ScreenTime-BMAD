@@ -111,19 +111,28 @@ struct ParentAppDetailView: View {
         .navigationTitle(displayName)
         .navigationBarTitleDisplayMode(.inline)
         .sheet(isPresented: $isEditSheetPresented) {
-            ParentAppEditSheet(
-                config: $editingConfig,
-                childLearningApps: childLearningApps.filter { $0.category == "Learning" },
-                onSave: { updatedConfig in
-                    Task {
-                        await sendConfigUpdate(updatedConfig)
+            ZStack {
+                ParentAppEditSheet(
+                    config: $editingConfig,
+                    childLearningApps: childLearningApps.filter { $0.category == "Learning" },
+                    onSave: { updatedConfig in
+                        Task {
+                            await sendConfigUpdate(updatedConfig)
+                        }
+                    },
+                    onCancel: {
+                        isEditSheetPresented = false
+                        editingConfig = nil
                     }
-                },
-                onCancel: {
-                    isEditSheetPresented = false
-                    editingConfig = nil
+                )
+
+                // Saving overlay
+                if syncStatus == .sending {
+                    SavingConfigOverlayView(appName: config.displayName)
+                        .transition(.opacity)
                 }
-            )
+            }
+            .animation(.easeInOut(duration: 0.3), value: syncStatus)
         }
         .alert(syncStatus == .success ? "Changes Sent" : "Sync Error", isPresented: $showingSyncAlert) {
             Button("OK") {
@@ -716,6 +725,84 @@ private struct UsageBarChart: View {
         let formatter = DateFormatter()
         formatter.dateFormat = "M/d"
         return formatter.string(from: date)
+    }
+}
+
+// MARK: - Saving Config Overlay
+
+private struct SavingConfigOverlayView: View {
+    let appName: String
+    @Environment(\.colorScheme) var colorScheme
+    @State private var iconScale: CGFloat = 1.0
+    @State private var isAnimating = false
+
+    var body: some View {
+        ZStack {
+            // Semi-transparent background
+            Color.black.opacity(0.4)
+                .ignoresSafeArea()
+
+            // Saving card
+            VStack(spacing: 20) {
+                // Animated gear/upload icon
+                ZStack {
+                    Circle()
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 100, height: 100)
+                        .scaleEffect(iconScale)
+
+                    Image(systemName: "icloud.and.arrow.up.fill")
+                        .font(.system(size: 44))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                        .scaleEffect(iconScale)
+                }
+                .onAppear {
+                    withAnimation(Animation.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                        iconScale = 1.1
+                    }
+                }
+
+                VStack(spacing: 8) {
+                    Text("Saving Changes...")
+                        .font(.headline)
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+
+                    Text("Sending configuration to child's device")
+                        .font(.subheadline)
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                }
+
+                // Animated progress dots
+                HStack(spacing: 8) {
+                    ForEach(0..<3, id: \.self) { index in
+                        Circle()
+                            .fill(AppTheme.vibrantTeal)
+                            .frame(width: 10, height: 10)
+                            .scaleEffect(isAnimating ? 1.0 : 0.5)
+                            .opacity(isAnimating ? 1.0 : 0.3)
+                            .animation(
+                                Animation.easeInOut(duration: 0.6)
+                                    .repeatForever(autoreverses: true)
+                                    .delay(Double(index) * 0.2),
+                                value: isAnimating
+                            )
+                    }
+                }
+                .padding(.top, 8)
+            }
+            .padding(32)
+            .background(
+                RoundedRectangle(cornerRadius: 24)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .shadow(color: .black.opacity(0.2), radius: 20, x: 0, y: 10)
+            )
+            .padding(.horizontal, 40)
+        }
+        .onAppear {
+            isAnimating = true
+        }
     }
 }
 

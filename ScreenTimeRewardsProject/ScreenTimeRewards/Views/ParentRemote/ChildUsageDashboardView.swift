@@ -11,6 +11,7 @@ struct ChildUsageDashboardView: View {
 
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var currentIndex: Int = 0
+    @State private var hasLoadedInitialData = false
     @Environment(\.colorScheme) var colorScheme
 
     init(devices: [RegisteredDevice], selectedDeviceID: String?, isEmbedded: Bool = false) {
@@ -84,26 +85,32 @@ struct ChildUsageDashboardView: View {
                 }
             }
 
-            ToolbarItem(placement: .topBarTrailing) {
-                Button(action: {
-                    Task {
-                        if let device = currentDevice {
-                            await viewModel.loadChildData(for: device)
+            // Only show refresh button when NOT embedded (parent dashboard handles refresh in embedded mode)
+            if !isEmbedded {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: {
+                        Task {
+                            if let device = currentDevice {
+                                await viewModel.loadChildData(for: device)
+                            }
                         }
+                    }) {
+                        Image(systemName: "arrow.clockwise")
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
-                }) {
-                    Image(systemName: "arrow.clockwise")
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
             }
         }
         .onAppear {
+            // Only load data on first appearance, not when navigating back from detail views
+            guard !hasLoadedInitialData else { return }
+            hasLoadedInitialData = true
             Task {
                 await loadAllDeviceData()
             }
         }
     }
-    
+
     private func loadAllDeviceData() async {
         await viewModel.loadLinkedChildDevices()
     }
@@ -115,6 +122,7 @@ struct ChildUsagePageView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     @State private var selectedTab = 0
     @State private var showRemoveConfirmation = false
+    @State private var hasLoadedInitialData = false
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
@@ -165,6 +173,9 @@ struct ChildUsagePageView: View {
             await viewModel.loadChildData(for: device)
         }
         .onAppear {
+            // Only load data on first appearance, not when navigating back from detail views
+            guard !hasLoadedInitialData else { return }
+            hasLoadedInitialData = true
             Task {
                 await viewModel.loadChildData(for: device)
             }

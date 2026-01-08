@@ -11,6 +11,7 @@ struct LaunchScreenView: View {
     @State private var rotationDegrees: Double = 0
     @State private var opacity: Double = 1.0
     @State private var isLaunchComplete = false
+    @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
         if isLaunchComplete {
@@ -25,8 +26,8 @@ struct LaunchScreenView: View {
 
     private var launchScreenContent: some View {
         ZStack {
-            // Use light cream to match the icon's background color
-            AppTheme.lightCream
+            // Background adapts to color scheme
+            AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
             VStack(spacing: AppTheme.Spacing.large) {
@@ -38,7 +39,7 @@ struct LaunchScreenView: View {
 
                 Text("Learn More... Earn More")
                     .font(AppTheme.Typography.title1)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .textCase(.uppercase)
                     .tracking(2)
                     .multilineTextAlignment(.center)
