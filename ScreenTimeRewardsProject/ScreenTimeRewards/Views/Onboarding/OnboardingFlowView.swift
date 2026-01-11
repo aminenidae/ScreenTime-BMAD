@@ -47,6 +47,7 @@ struct OnboardingFlowView: View {
                         onBack: { onboardingStep = .deviceSelection },
                         onComplete: { onboardingStep = .welcome }
                     )
+                    .environmentObject(subscriptionManager)
 
                 case .childFlow:
                     // New 7-screen onboarding flow

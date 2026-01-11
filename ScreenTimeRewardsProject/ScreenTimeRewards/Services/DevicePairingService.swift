@@ -11,6 +11,11 @@ enum PairingError: LocalizedError {
     case invalidQRCode
     case networkError(Error)
     case sameAccountPairing
+    case firebaseValidationFailed(FirebaseValidationError)
+    case tokenExpired
+    case tokenAlreadyUsed
+    case subscriptionExpired
+    case soloCannotPair
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +31,16 @@ enum PairingError: LocalizedError {
             return "Network error: \(error.localizedDescription)"
         case .sameAccountPairing:
             return "Cannot pair devices using the same iCloud account. The parent and child devices must use different Apple IDs for data sync to work properly."
+        case .firebaseValidationFailed(let error):
+            return error.errorDescription
+        case .tokenExpired:
+            return "The pairing code has expired. Please ask the parent to generate a new code."
+        case .tokenAlreadyUsed:
+            return "This pairing code has already been used. Please ask the parent to generate a new code."
+        case .subscriptionExpired:
+            return "The parent's subscription has expired. Please ask the parent to renew their subscription."
+        case .soloCannotPair:
+            return "Solo subscription does not support device pairing. Upgrade to Individual or Family plan for remote monitoring."
         }
     }
 }
@@ -424,10 +439,8 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] Share URL: \(payload.shareURL)")
         #endif
 
-        // Check how many parents this child is already paired with
-        let currentParentCount = try await getParentPairingCount()
-
-        guard currentParentCount < 2 else {
+        // Check if this child can pair with another parent (based on subscription tier)
+        guard canAnotherParentPair() else {
             throw PairingError.maxParentsReached
         }
 
@@ -596,6 +609,295 @@ class DevicePairingService: ObservableObject {
 
         // Save to SHARED database
         let _ = try await sharedDatabase.save(deviceRecord)
+    }
+
+    // MARK: - Firebase-Validated Secure Pairing (v2)
+
+    /// Create a secure pairing session with Firebase validation
+    /// This generates a single-use token that prevents QR code sharing abuse
+    func createSecurePairingSession() async throws -> (sessionID: String, qrData: String, share: CKShare, zoneID: CKRecordZone.ID) {
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Starting secure pairing session with Firebase validation...")
+        #endif
+
+        // Check if subscription allows pairing
+        guard SubscriptionManager.shared.allowsParentPairing else {
+            throw PairingError.soloCannotPair
+        }
+
+        // Ensure we have a Firebase family
+        guard let familyId = FirebaseValidationService.shared.cachedFamilyId else {
+            #if DEBUG
+            print("[DevicePairingService] ❌ No Firebase family ID - need to create family first")
+            #endif
+            throw PairingError.networkError(NSError(domain: "PairingError", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Please complete subscription setup before pairing."]))
+        }
+
+        // Check device limit using CloudKit
+        let currentChildCount: Int
+        do {
+            currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
+        } catch {
+            throw PairingError.networkError(error)
+        }
+
+        guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
+            throw PairingError.deviceLimitReached
+        }
+
+        isPairing = true
+        defer { isPairing = false }
+
+        // Create CloudKit share first
+        let (zoneID, share) = try await createMonitoringZoneForChild()
+
+        guard let shareURL = share.url?.absoluteString else {
+            throw PairingError.networkError(NSError(domain: "PairingError", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "Failed to generate sharing URL."]))
+        }
+
+        // Generate Firebase-validated QR data with single-use token
+        let qrData: String
+        do {
+            qrData = try await FirebaseValidationService.shared.generateChildPairingQRData(
+                familyId: familyId,
+                cloudKitShareURL: shareURL
+            )
+        } catch let error as FirebaseValidationError {
+            throw PairingError.firebaseValidationFailed(error)
+        }
+
+        let sessionID = UUID().uuidString
+
+        // Also create parent commands zone for remote control
+        var commandsShareURL: String? = nil
+        do {
+            let (_, commandsShare) = try await createParentCommandsZone()
+            commandsShareURL = commandsShare.url?.absoluteString
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
+            #endif
+        }
+
+        // Store session locally
+        let sessionData: [String: Any] = [
+            "sessionID": sessionID,
+            "parentDeviceID": DeviceModeManager.shared.deviceID,
+            "parentDeviceName": DeviceModeManager.shared.deviceName,
+            "sharedZoneID": zoneID.zoneName,
+            "shareURL": shareURL,
+            "commandsShareURL": commandsShareURL ?? "",
+            "createdAt": Date(),
+            "expiresAt": Date().addingTimeInterval(600), // 10 minutes
+            "isSecure": true
+        ]
+
+        UserDefaults.standard.set(sessionData, forKey: "pairingSession_\(sessionID)")
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Secure pairing session created with Firebase token")
+        #endif
+
+        return (sessionID, qrData, share, zoneID)
+    }
+
+    /// Accept secure pairing from parent with Firebase validation
+    /// Validates the token with Firebase before accepting CloudKit share
+    func acceptSecureParentPairing(from payload: SecureChildPairingPayload) async throws {
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Child: Starting secure pairing with Firebase validation...")
+        print("[DevicePairingService] Token ID: \(payload.tokenId)")
+        #endif
+
+        // Check if this child can pair with another parent
+        guard canAnotherParentPair() else {
+            throw PairingError.maxParentsReached
+        }
+
+        // Check local expiration first
+        if payload.isExpired {
+            throw PairingError.tokenExpired
+        }
+
+        isPairing = true
+        defer { isPairing = false }
+
+        // Step 1: Validate with Firebase server (single-use token check)
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Validating with Firebase...")
+        #endif
+
+        let validationResult: TokenValidationResult
+        do {
+            validationResult = try await FirebaseValidationService.shared.validateChildPairingToken(payload: payload)
+        } catch let error as FirebaseValidationError {
+            throw PairingError.firebaseValidationFailed(error)
+        }
+
+        guard validationResult.success else {
+            if let error = validationResult.error {
+                switch error {
+                case .tokenExpired:
+                    throw PairingError.tokenExpired
+                case .tokenAlreadyUsed:
+                    throw PairingError.tokenAlreadyUsed
+                case .subscriptionExpired:
+                    throw PairingError.subscriptionExpired
+                case .deviceLimitReached:
+                    throw PairingError.deviceLimitReached
+                default:
+                    throw PairingError.firebaseValidationFailed(error)
+                }
+            }
+            throw PairingError.invalidQRCode
+        }
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Firebase validation successful, proceeding with CloudKit...")
+        #endif
+
+        // Step 2: Accept CloudKit share (now that Firebase validated the token)
+        guard let shareURL = URL(string: payload.shareURL) else {
+            throw PairingError.invalidQRCode
+        }
+
+        let metadata = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKShare.Metadata, Error>) in
+            container.fetchShareMetadata(with: shareURL) { metadata, error in
+                if let error = error {
+                    continuation.resume(throwing: error)
+                } else if let metadata = metadata {
+                    continuation.resume(returning: metadata)
+                } else {
+                    continuation.resume(throwing: PairingError.shareNotFound)
+                }
+            }
+        }
+
+        // Validate different iCloud accounts
+        let currentUserID = try await getCurrentUserRecordID()
+        let shareOwnerID = metadata.rootRecordID.zoneID.ownerName
+
+        if currentUserID.recordName == shareOwnerID {
+            throw PairingError.sameAccountPairing
+        }
+
+        // Accept the share
+        try await container.accept(metadata)
+
+        // Store parent info
+        let zoneID = metadata.rootRecordID.zoneID
+        let rootID = metadata.rootRecordID
+
+        let newParent = PairedParentInfo(
+            id: payload.parentDeviceID,
+            deviceName: "Parent Device",
+            sharedZoneID: zoneID.zoneName,
+            sharedZoneOwner: zoneID.ownerName,
+            rootRecordName: rootID.recordName,
+            commandsZoneID: nil,
+            pairedDate: Date()
+        )
+
+        addPairedParent(newParent)
+
+        // Register in parent's shared zone
+        try await registerInParentSharedZone(
+            zoneID: zoneID,
+            rootRecordID: rootID,
+            parentDeviceID: payload.parentDeviceID
+        )
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Secure pairing completed successfully!")
+        #endif
+    }
+
+    /// Parse a scanned QR code and determine if it's v1 (legacy) or v2 (secure)
+    enum ScannedQRType {
+        case legacyChildPairing(PairingPayload)
+        case secureChildPairing(SecureChildPairingPayload)
+        case coParentInvitation(CoParentPayload)
+        case invalid
+    }
+
+    func parseScannedQRCode(_ jsonString: String) -> ScannedQRType {
+        guard let data = jsonString.data(using: .utf8) else {
+            return .invalid
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        // Try secure child pairing (v2) first
+        if let payload = try? decoder.decode(SecureChildPairingPayload.self, from: data),
+           payload.version == 2 {
+            return .secureChildPairing(payload)
+        }
+
+        // Try co-parent payload
+        if let payload = try? decoder.decode(CoParentPayload.self, from: data),
+           payload.version == 1 {
+            return .coParentInvitation(payload)
+        }
+
+        // Try legacy payload (no version field)
+        if let payload = try? JSONDecoder().decode(PairingPayload.self, from: data) {
+            return .legacyChildPairing(payload)
+        }
+
+        return .invalid
+    }
+
+    /// Handle any scanned QR code (legacy or secure)
+    func handleScannedQRCode(_ jsonString: String) async throws {
+        let qrType = parseScannedQRCode(jsonString)
+
+        switch qrType {
+        case .secureChildPairing(let payload):
+            try await acceptSecureParentPairing(from: payload)
+
+        case .legacyChildPairing(let payload):
+            // Legacy pairing - use CloudKit-only flow
+            try await acceptParentShareAndRegister(from: payload)
+
+        case .coParentInvitation:
+            // Co-parent handling is done via JoinFamilyView, not here
+            throw PairingError.invalidQRCode
+
+        case .invalid:
+            throw PairingError.invalidQRCode
+        }
+    }
+
+    /// Generate QR code image from JSON string
+    func generateQRCodeImage(from jsonString: String) -> CIImage? {
+        let qrFilter = CIFilter(name: "CIQRCodeGenerator")
+        qrFilter?.setValue(jsonString.data(using: .utf8), forKey: "inputMessage")
+        qrFilter?.setValue("Q", forKey: "inputCorrectionLevel")
+        return qrFilter?.outputImage
+    }
+
+    /// Generate co-parent invitation QR code
+    func generateCoParentQRCode(familyName: String) async throws -> CIImage? {
+        guard let familyId = FirebaseValidationService.shared.cachedFamilyId else {
+            throw PairingError.networkError(NSError(domain: "PairingError", code: -1,
+                userInfo: [NSLocalizedDescriptionKey: "No family found. Please complete subscription setup."]))
+        }
+
+        let qrData = try await FirebaseValidationService.shared.generateCoParentQRData(
+            familyId: familyId,
+            familyName: familyName
+        )
+
+        return generateQRCodeImage(from: qrData)
+    }
+
+    /// Check if using secure (Firebase-validated) pairing
+    var isSecurePairingEnabled: Bool {
+        FirebaseValidationService.shared.isConfigured &&
+        FirebaseValidationService.shared.cachedFamilyId != nil
     }
 
     /// Accept pairing from parent (local-only, no CloudKit writes)
@@ -776,6 +1078,19 @@ class DevicePairingService: ObservableObject {
     /// Get count of paired parents
     func getPairedParentCount() -> Int {
         return getPairedParents().count
+    }
+
+    /// Check if another parent can pair with this child device
+    /// Uses subscription tier limits from SubscriptionManager
+    func canAnotherParentPair() -> Bool {
+        let currentCount = getPairedParentCount()
+        let limit = SubscriptionManager.shared.parentDeviceLimitPerChild
+        return currentCount < limit
+    }
+
+    /// Get the maximum number of parents allowed for current subscription
+    func getParentDeviceLimit() -> Int {
+        return SubscriptionManager.shared.parentDeviceLimitPerChild
     }
 
     /// Clear legacy single-parent storage keys

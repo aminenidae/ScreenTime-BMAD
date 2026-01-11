@@ -52,7 +52,7 @@ struct TimeBalanceRing: View {
                 // Game controller icon
                 Image(systemName: "gamecontroller.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.8))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
 
                 // Balance amount
                 Text("\(remainingMinutes)")

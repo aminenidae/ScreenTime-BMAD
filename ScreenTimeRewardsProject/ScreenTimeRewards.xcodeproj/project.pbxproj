@@ -26,6 +26,12 @@
 		43E1F0242F1A000100123450 /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
 		43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC484D2F12E73600E5D3AD /* RevenueCat */; };
+		43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48532F12E86700E5D3AD /* FirebaseAI */; };
+		43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48552F12E86700E5D3AD /* FirebaseAILogic */; };
+		43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48572F12E86700E5D3AD /* FirebaseAnalytics */; };
+		43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */; };
+		43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -103,6 +109,27 @@
 			);
 			target = 436830122E9F172A0058C9C1 /* ScreenTimeRewards */;
 		};
+		43EC48442F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 43E0F0112EA0258700567890 /* ScreenTimeActivityExtension */;
+		};
+		43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 43E1F0132F1A000100123450 /* ScreenTimeReportExtension */;
+		};
+		43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
@@ -118,6 +145,9 @@
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				436830392E9F172B0058C9C1 /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeRewards" target */,
+				43EC48442F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeActivityExtension" target */,
+				43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */,
+				43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */,
 			);
 			path = ScreenTimeRewards;
 			sourceTree = "<group>";
@@ -148,8 +178,14 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */,
 				43E0F00C2EA0258700567890 /* ManagedSettings.framework in Frameworks */,
 				43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */,
+				43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */,
+				43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */,
+				43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */,
+				43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */,
+				43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */,
 				43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -294,6 +330,12 @@
 			);
 			name = ScreenTimeRewards;
 			packageProductDependencies = (
+				43EC484D2F12E73600E5D3AD /* RevenueCat */,
+				43EC48532F12E86700E5D3AD /* FirebaseAI */,
+				43EC48552F12E86700E5D3AD /* FirebaseAILogic */,
+				43EC48572F12E86700E5D3AD /* FirebaseAnalytics */,
+				43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */,
+				43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */,
 			);
 			productName = ScreenTimeRewards;
 			productReference = 436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */;
@@ -420,6 +462,10 @@
 			);
 			mainGroup = 4368300A2E9F172A0058C9C1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 436830142E9F172A0058C9C1 /* Products */;
 			projectDirPath = "";
@@ -1050,6 +1096,58 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
+		43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.54.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		43EC484D2F12E73600E5D3AD /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		43EC48532F12E86700E5D3AD /* FirebaseAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAI;
+		};
+		43EC48552F12E86700E5D3AD /* FirebaseAILogic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAILogic;
+		};
+		43EC48572F12E86700E5D3AD /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsCore;
+		};
+		43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsIdentitySupport;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4368300B2E9F172A0058C9C1 /* Project object */;
 }

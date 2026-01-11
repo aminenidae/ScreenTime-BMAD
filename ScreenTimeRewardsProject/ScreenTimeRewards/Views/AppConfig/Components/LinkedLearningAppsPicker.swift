@@ -107,7 +107,7 @@ struct LinkedLearningAppsPicker: View {
                 }) {
                     Image(systemName: isSelected ? "checkmark.square.fill" : "square")
                         .font(.system(size: 22))
-                        .foregroundColor(isSelected ? AppTheme.vibrantTeal : ChallengeBuilderTheme.mutedText)
+                        .foregroundColor(isSelected ? AppTheme.lightCream : ChallengeBuilderTheme.mutedText)
                 }
                 .buttonStyle(.plain)
             }
@@ -283,7 +283,7 @@ struct LinkedLearningAppsPicker: View {
                 Text(mode.displayName)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundColor(isSelected ? AppTheme.vibrantTeal : ChallengeBuilderTheme.text)
+            .foregroundColor(isSelected ? AppTheme.lightCream : ChallengeBuilderTheme.text)
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
@@ -291,7 +291,7 @@ struct LinkedLearningAppsPicker: View {
                     .fill(isSelected ? AppTheme.vibrantTeal.opacity(0.15) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(isSelected ? AppTheme.vibrantTeal.opacity(0.3) : ChallengeBuilderTheme.border, lineWidth: 1)
+                            .stroke(isSelected ? AppTheme.lightCream.opacity(0.3) : ChallengeBuilderTheme.border, lineWidth: 1)
                     )
             )
         }

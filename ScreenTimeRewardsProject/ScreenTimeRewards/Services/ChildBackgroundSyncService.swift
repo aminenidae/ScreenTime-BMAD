@@ -1,14 +1,46 @@
 import BackgroundTasks
 import Foundation
 import CoreData
+import Combine
 
-class ChildBackgroundSyncService {
+/// Subscription status from parent's Firebase family
+enum ParentSubscriptionStatus: String, Codable {
+    case active
+    case trial
+    case grace
+    case expired
+    case unpaired
+
+    var allowsFullAccess: Bool {
+        switch self {
+        case .active, .trial, .grace:
+            return true
+        case .expired, .unpaired:
+            return false
+        }
+    }
+}
+
+class ChildBackgroundSyncService: ObservableObject {
     static let shared = ChildBackgroundSyncService()
-    
+
+    // MARK: - Published State
+
+    /// Current subscription status from parent's family
+    @Published private(set) var parentSubscriptionStatus: ParentSubscriptionStatus = .unpaired
+
+    /// Whether child has full access (paired with subscribed parent)
+    @Published private(set) var hasFullAccess: Bool = true
+
+    /// Days remaining in trial (for Family path)
+    @Published private(set) var trialDaysRemaining: Int?
+
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
-    
-    private init() {}
+
+    private init() {
+        loadCachedSubscriptionStatus()
+    }
     
     /// Register background tasks for usage upload and configuration checking
     func registerBackgroundTasks() {
@@ -34,12 +66,23 @@ class ChildBackgroundSyncService {
             self.handleMidnightResetTask(task)
         }
 
+        // Register subscription verification task (Firebase validation)
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.subscription-verify",
+            using: nil
+        ) { task in
+            self.handleSubscriptionVerifyTask(task)
+        }
+
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
 
         // Schedule the midnight reset task for the next midnight
         scheduleMidnightReset()
+
+        // Schedule initial subscription verification
+        scheduleSubscriptionVerification()
     }
     
     /// Schedule a usage upload task
@@ -380,8 +423,205 @@ class ChildBackgroundSyncService {
         #if DEBUG
         print("[ChildBackgroundSyncService] Triggering immediate upload")
         #endif
-        
+
         // Process the offline queue immediately
         await offlineQueue.processQueue()
     }
+
+    // MARK: - Subscription Verification (Firebase)
+
+    /// Handle subscription verification background task
+    func handleSubscriptionVerifyTask(_ task: BGTask) {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] 🔐 Handling subscription verification task")
+        #endif
+
+        task.expirationHandler = {
+            task.setTaskCompleted(success: false)
+        }
+
+        Task {
+            await verifyParentSubscription()
+            scheduleSubscriptionVerification()
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    /// Schedule subscription verification task (daily)
+    func scheduleSubscriptionVerification() {
+        let request = BGProcessingTaskRequest(identifier: "com.screentimerewards.subscription-verify")
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 24 * 60 * 60) // 24 hours
+        request.requiresNetworkConnectivity = true
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            #if DEBUG
+            print("[ChildBackgroundSyncService] 🔐 Scheduled subscription verification (24 hours)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ❌ Failed to schedule subscription verification: \(error)")
+            #endif
+        }
+    }
+
+    /// Verify parent's subscription status via Firebase
+    @MainActor
+    func verifyParentSubscription() async {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] 🔐 Verifying parent subscription...")
+        #endif
+
+        // Check if device is paired
+        guard DevicePairingService.shared.hasValidPairing() else {
+            // Not paired - check if in trial period
+            updateStatusForUnpairedDevice()
+            return
+        }
+
+        // Verify with Firebase
+        do {
+            let isValid = try await FirebaseValidationService.shared.verifyFamilySubscription()
+
+            if isValid {
+                parentSubscriptionStatus = .active
+                hasFullAccess = true
+                trialDaysRemaining = nil
+                cacheSubscriptionStatus()
+
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ✅ Parent subscription is active")
+                #endif
+            } else {
+                parentSubscriptionStatus = .expired
+                hasFullAccess = false
+                trialDaysRemaining = nil
+                cacheSubscriptionStatus()
+
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ⚠️ Parent subscription expired")
+                #endif
+
+                // Post notification for UI to show limited mode
+                NotificationCenter.default.post(name: .parentSubscriptionExpired, object: nil)
+            }
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ❌ Subscription verification failed: \(error)")
+            #endif
+
+            // On error, use cached status with grace period
+            // hasFullAccess remains at cached value
+        }
+    }
+
+    /// Update status for unpaired device (trial check)
+    private func updateStatusForUnpairedDevice() {
+        // Check if we're in a trial period (Family path onboarding)
+        if let trialStartString = UserDefaults.standard.string(forKey: "family_trial_start"),
+           let trialStart = ISO8601DateFormatter().date(from: trialStartString) {
+
+            let daysSinceStart = Calendar.current.dateComponents([.day], from: trialStart, to: Date()).day ?? 0
+            let trialDays = 14
+            let remaining = max(0, trialDays - daysSinceStart)
+
+            trialDaysRemaining = remaining
+
+            if remaining > 0 {
+                parentSubscriptionStatus = .trial
+                hasFullAccess = true
+
+                #if DEBUG
+                print("[ChildBackgroundSyncService] 📅 Trial period: \(remaining) days remaining")
+                #endif
+            } else {
+                parentSubscriptionStatus = .expired
+                hasFullAccess = false
+
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ⚠️ Trial period expired")
+                #endif
+
+                // Post notification for UI to show limited mode
+                NotificationCenter.default.post(name: .trialExpired, object: nil)
+            }
+        } else {
+            // No trial, not paired - limited access
+            parentSubscriptionStatus = .unpaired
+            hasFullAccess = false
+            trialDaysRemaining = nil
+
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⚠️ Device not paired and no trial")
+            #endif
+        }
+
+        cacheSubscriptionStatus()
+    }
+
+    /// Start the 14-day trial (called from Family path onboarding)
+    func startFamilyTrial() {
+        let now = ISO8601DateFormatter().string(from: Date())
+        UserDefaults.standard.set(now, forKey: "family_trial_start")
+
+        parentSubscriptionStatus = .trial
+        hasFullAccess = true
+        trialDaysRemaining = 14
+
+        cacheSubscriptionStatus()
+
+        #if DEBUG
+        print("[ChildBackgroundSyncService] 🎁 Started 14-day family trial")
+        #endif
+    }
+
+    /// Cache subscription status locally
+    private func cacheSubscriptionStatus() {
+        UserDefaults.standard.set(parentSubscriptionStatus.rawValue, forKey: "cached_parent_subscription_status")
+        UserDefaults.standard.set(hasFullAccess, forKey: "cached_has_full_access")
+        if let days = trialDaysRemaining {
+            UserDefaults.standard.set(days, forKey: "cached_trial_days_remaining")
+        } else {
+            UserDefaults.standard.removeObject(forKey: "cached_trial_days_remaining")
+        }
+        UserDefaults.standard.set(Date(), forKey: "subscription_status_cached_at")
+    }
+
+    /// Load cached subscription status
+    private func loadCachedSubscriptionStatus() {
+        if let statusString = UserDefaults.standard.string(forKey: "cached_parent_subscription_status"),
+           let status = ParentSubscriptionStatus(rawValue: statusString) {
+            parentSubscriptionStatus = status
+        }
+
+        hasFullAccess = UserDefaults.standard.bool(forKey: "cached_has_full_access")
+
+        if UserDefaults.standard.object(forKey: "cached_trial_days_remaining") != nil {
+            trialDaysRemaining = UserDefaults.standard.integer(forKey: "cached_trial_days_remaining")
+        }
+
+        // Check if cached status is stale (> 7 days old) - default to restricted if so
+        if let cachedAt = UserDefaults.standard.object(forKey: "subscription_status_cached_at") as? Date {
+            let daysSinceCached = Calendar.current.dateComponents([.day], from: cachedAt, to: Date()).day ?? 0
+            if daysSinceCached > 7 {
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ⚠️ Cached subscription status is stale, defaulting to restricted")
+                #endif
+                hasFullAccess = false
+            }
+        }
+    }
+
+    /// Trigger immediate subscription verification
+    func triggerImmediateSubscriptionVerification() async {
+        await verifyParentSubscription()
+    }
+}
+
+// MARK: - Notification Names
+
+extension Notification.Name {
+    static let parentSubscriptionExpired = Notification.Name("parentSubscriptionExpired")
+    static let trialExpired = Notification.Name("trialExpired")
+    // dailyUsageReset is defined in ScreenTimeNotifications.swift
 }

@@ -46,7 +46,7 @@ class OnboardingAnalytics {
         #endif
 
         #if DEBUG
-        // In debug mode, log to console
+        // In debug mode, also log to console
         print("📊 Analytics: \(event.rawValue) | \(parameters)")
         logEvent(event, parameters: parameters)
         #endif

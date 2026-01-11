@@ -70,7 +70,7 @@ struct DeviceCard: View {
         if device.isStale {
             return .gray
         }
-        return AppTheme.vibrantTeal
+        return AppTheme.brandedText(for: colorScheme)
     }
 
     var body: some View {

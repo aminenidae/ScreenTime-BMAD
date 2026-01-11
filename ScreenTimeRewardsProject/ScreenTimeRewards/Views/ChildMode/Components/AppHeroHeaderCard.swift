@@ -74,7 +74,7 @@ struct AppHeroHeaderCard: View {
                 .font(.system(size: 13, weight: .bold))
                 .tracking(1)
         }
-        .foregroundColor(isUnlocked ? AppTheme.vibrantTeal : AppTheme.playfulCoral)
+        .foregroundColor(isUnlocked ? AppTheme.brandedText(for: colorScheme) : AppTheme.playfulCoral)
         .padding(.horizontal, 16)
         .padding(.vertical, 8)
         .background(
@@ -99,7 +99,7 @@ struct AppHeroHeaderCard: View {
     private var timeColor: Color {
         guard totalDailyLimit > 0 else { return AppTheme.playfulCoral }
         let percentage = Double(remainingMinutes) / Double(totalDailyLimit)
-        if percentage > 0.5 { return AppTheme.vibrantTeal }
+        if percentage > 0.5 { return AppTheme.brandedText(for: colorScheme) }
         if percentage > 0.2 { return AppTheme.sunnyYellow }
         return AppTheme.playfulCoral
     }

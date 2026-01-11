@@ -58,7 +58,7 @@ struct TimeBankCard: View {
         HStack(spacing: 8) {
             Image(systemName: "banknote.fill")
                 .font(.system(size: 18))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 .rotationEffect(.degrees(isAnimating ? 0 : -10))
                 .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
 

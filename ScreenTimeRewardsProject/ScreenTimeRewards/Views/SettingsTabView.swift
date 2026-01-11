@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import FamilyControls
 
 struct SettingsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
@@ -8,10 +9,13 @@ struct SettingsTabView: View {
     @State private var showingPairingView = false
     @State private var showingSubscriptionManagement = false
     @State private var showingPairingConfig = false
+    @State private var showingWebsiteBlockingView = false
 
     @State private var showResetConfirmation = false
     @StateObject private var pairingService = DevicePairingService.shared
     @StateObject private var modeManager = DeviceModeManager.shared
+    private let screenTimeService = ScreenTimeService.shared
+    @State private var areBrowsersBlocked = false
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -75,6 +79,13 @@ struct SettingsTabView: View {
                             subscriptionRow
                         }
 
+                        // Web Restrictions Section
+                        settingsSection(title: "WEB RESTRICTIONS") {
+                            blockedWebsitesRow
+                            blockBrowsersRow
+                            adultContentStatusRow
+                        }
+
                         // Devices Section
                         settingsSection(title: "DEVICES") {
                             pairingStatusRow
@@ -96,13 +107,6 @@ struct SettingsTabView: View {
                                 .padding(.horizontal, 4)
                         }
 
-                        #if DEBUG
-                        // Debug Section (only in DEBUG builds)
-                        settingsSection(title: "DEBUG") {
-                            debugDumpRecordsRow
-                            debugTriggerSyncRow
-                        }
-                        #endif
                     }
                     .padding(.horizontal, 16)
                     .padding(.top, 16)
@@ -125,6 +129,15 @@ struct SettingsTabView: View {
 
         .sheet(isPresented: $showingPairingConfig) {
             PairingConfigView()
+        }
+
+        .sheet(isPresented: $showingWebsiteBlockingView) {
+            WebsiteBlockingView()
+        }
+
+        .onAppear {
+            // Sync browser blocking state
+            areBrowsersBlocked = screenTimeService.areBrowsersBlocked
         }
     }
 }
@@ -409,27 +422,42 @@ private extension SettingsTabView {
         .buttonStyle(PlainButtonStyle())
     }
 
-    #if DEBUG
-    var debugDumpRecordsRow: some View {
+    // MARK: - Web Restrictions Rows
+
+    var blockedWebsitesRow: some View {
         Button(action: {
-            ScreenTimeService.shared.dumpUsageRecords()
+            showingWebsiteBlockingView = true
         }) {
             HStack(spacing: 16) {
+                // Icon container
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.purple.opacity(0.15))
+                        .fill(AppTheme.playfulCoral.opacity(0.15))
                         .frame(width: 44, height: 44)
 
-                    Image(systemName: "doc.text.magnifyingglass")
+                    Image(systemName: "globe.badge.chevron.backward")
                         .font(.system(size: 20))
-                        .foregroundColor(.purple)
+                        .foregroundColor(AppTheme.playfulCoral)
                 }
 
-                Text("Dump UsageRecords")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                // Label with count
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Blocked Websites")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    let count = screenTimeService.currentlyBlockedWebDomains.count
+                    Text(count == 0 ? "No websites blocked" : "\(count) site\(count == 1 ? "" : "s") blocked")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                }
 
                 Spacer()
+
+                // Chevron
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
             }
             .padding(14)
             .background(
@@ -437,49 +465,108 @@ private extension SettingsTabView {
                     .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.purple.opacity(0.2), lineWidth: 1)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
                     )
             )
         }
         .buttonStyle(PlainButtonStyle())
     }
 
-    var debugTriggerSyncRow: some View {
-        Button(action: {
-            Task {
-                await ChildBackgroundSyncService.shared.triggerImmediateUsageUpload()
+    var blockBrowsersRow: some View {
+        HStack(spacing: 16) {
+            // Icon container
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(AppTheme.errorRed.opacity(0.15))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "safari")
+                    .font(.system(size: 20))
+                    .foregroundColor(AppTheme.errorRed)
             }
-        }) {
-            HStack(spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.orange.opacity(0.15))
-                        .frame(width: 44, height: 44)
 
-                    Image(systemName: "icloud.and.arrow.up")
-                        .font(.system(size: 20))
-                        .foregroundColor(.orange)
-                }
-
-                Text("Trigger CloudKit Sync")
+            // Label
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Block All Browsers")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                Spacer()
+                Text("Safari, Chrome, Firefox, etc.")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
             }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(AppTheme.card(for: colorScheme))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(Color.orange.opacity(0.2), lineWidth: 1)
-                    )
-            )
+
+            Spacer()
+
+            // Toggle
+            Toggle("", isOn: $areBrowsersBlocked)
+                .labelsHidden()
+                .tint(AppTheme.errorRed)
+                .onChange(of: areBrowsersBlocked) { newValue in
+                    if newValue {
+                        screenTimeService.blockAllBrowsers()
+                    } else {
+                        screenTimeService.unblockAllBrowsers()
+                    }
+                    // Sync to paired child devices
+                    Task {
+                        await screenTimeService.syncWebRestrictionsToChildren()
+                    }
+                }
         }
-        .buttonStyle(PlainButtonStyle())
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                )
+        )
     }
-    #endif
+
+    var adultContentStatusRow: some View {
+        HStack(spacing: 16) {
+            // Icon container with shield
+            ZStack {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(Color.green.opacity(0.15))
+                    .frame(width: 44, height: 44)
+
+                Image(systemName: "shield.fill")
+                    .font(.system(size: 20))
+                    .foregroundColor(.green)
+            }
+
+            // Label
+            VStack(alignment: .leading, spacing: 2) {
+                Text("Adult Content Blocked")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Text("Always protected")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+            }
+
+            Spacer()
+
+            // Status checkmark
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 22))
+                .foregroundColor(.green)
+        }
+        .padding(14)
+        .background(
+            RoundedRectangle(cornerRadius: 16)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .stroke(Color.green.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
 }
 
 struct SettingsTabView_Previews: PreviewProvider {

@@ -27,3 +27,5 @@ Pods/
 *.swp
 *.swo
 *~
+build/
+.DS_Store

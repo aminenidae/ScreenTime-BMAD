@@ -209,7 +209,7 @@ struct AvatarShowcaseView: View {
                 }
                 .font(AppTheme.Typography.body)
                 .fontWeight(.medium)
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 .padding()
                 .background(
                     RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)

@@ -104,7 +104,7 @@ struct AppUsageRow: View {
     private var lockIcon: some View {
         Image(systemName: isLocked ? "lock.fill" : "lock.open.fill")
             .font(.system(size: 14, weight: .semibold))
-            .foregroundColor(isLocked ? AppTheme.textSecondary(for: colorScheme) : AppTheme.vibrantTeal)
+            .foregroundColor(isLocked ? AppTheme.textSecondary(for: colorScheme) : AppTheme.brandedText(for: colorScheme))
     }
 
     private func progressBar(value: Double) -> some View {

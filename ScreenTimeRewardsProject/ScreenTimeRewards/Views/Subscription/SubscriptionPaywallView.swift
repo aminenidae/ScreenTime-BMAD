@@ -1,5 +1,10 @@
+//
+//  SubscriptionPaywallView.swift
+//  ScreenTimeRewards
+//
+
 import SwiftUI
-import StoreKit
+import RevenueCat
 
 struct SubscriptionPaywallView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
@@ -7,11 +12,17 @@ struct SubscriptionPaywallView: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var selectedTier: SubscriptionTier = .individual
+    @State private var selectedBillingPeriod: BillingPeriod = .annual
     @State private var isPurchasing = false
     @State private var showError = false
     @State private var errorMessage = ""
     var isOnboarding: Bool = false
     var onComplete: (() -> Void)? = nil
+
+    enum BillingPeriod: String, CaseIterable {
+        case monthly = "Monthly"
+        case annual = "Annual"
+    }
 
     var body: some View {
         ZStack {
@@ -22,6 +33,7 @@ struct SubscriptionPaywallView: View {
                 VStack(spacing: 32) {
                     headerSection
                     trialBanner
+                    billingPeriodSelector
                     tierSelector
                     featureList
                     purchaseButton
@@ -53,6 +65,16 @@ struct SubscriptionPaywallView: View {
             Text(errorMessage)
         }
     }
+
+    /// Get the selected package based on tier and billing period
+    private var selectedPackage: Package? {
+        switch selectedBillingPeriod {
+        case .monthly:
+            return subscriptionManager.monthlyPackage(for: selectedTier)
+        case .annual:
+            return subscriptionManager.annualPackage(for: selectedTier)
+        }
+    }
 }
 
 // MARK: - Sections
@@ -77,7 +99,7 @@ private extension SubscriptionPaywallView {
 
     var trialBanner: some View {
         VStack(spacing: 8) {
-            Text("30-DAY FREE TRIAL")
+            Text("14-DAY FREE TRIAL")
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(AppTheme.sunnyYellow)
 
@@ -97,6 +119,41 @@ private extension SubscriptionPaywallView {
         )
     }
 
+    var billingPeriodSelector: some View {
+        HStack(spacing: 12) {
+            ForEach(BillingPeriod.allCases, id: \.self) { period in
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        selectedBillingPeriod = period
+                    }
+                } label: {
+                    VStack(spacing: 4) {
+                        Text(period.rawValue)
+                            .font(.system(size: 16, weight: .semibold))
+
+                        if period == .annual {
+                            Text("Save ~50%")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.sunnyYellow)
+                        }
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 12)
+                    .background(
+                        RoundedRectangle(cornerRadius: 10)
+                            .fill(selectedBillingPeriod == period
+                                  ? AppTheme.vibrantTeal
+                                  : AppTheme.card(for: colorScheme))
+                    )
+                    .foregroundColor(selectedBillingPeriod == period
+                                     ? .white
+                                     : AppTheme.textPrimary(for: colorScheme))
+                }
+                .buttonStyle(.plain)
+            }
+        }
+    }
+
     var tierSelector: some View {
         VStack(spacing: 12) {
             tierCard(.individual)
@@ -106,25 +163,55 @@ private extension SubscriptionPaywallView {
 
     func tierCard(_ tier: SubscriptionTier) -> some View {
         let isSelected = selectedTier == tier
-        let product = subscriptionManager.product(for: tier)
+        let package: Package? = selectedBillingPeriod == .monthly
+            ? subscriptionManager.monthlyPackage(for: tier)
+            : subscriptionManager.annualPackage(for: tier)
 
         return Button {
             selectedTier = tier
         } label: {
             HStack {
                 VStack(alignment: .leading, spacing: 8) {
-                    Text(tier.displayName)
-                        .font(.system(size: 20, weight: .bold))
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    HStack {
+                        Text(tier.displayName)
+                            .font(.system(size: 20, weight: .bold))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text(tier == .family ? "Up to 5 child devices" : "Perfect for one child")
+                        if tier == .family {
+                            Text("BEST VALUE")
+                                .font(.system(size: 10, weight: .bold))
+                                .foregroundColor(.white)
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(AppTheme.sunnyYellow)
+                                .cornerRadius(4)
+                        }
+                    }
+
+                    Text(tierSubtitle(for: tier))
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
 
-                    if let product {
-                        Text(product.displayPrice)
-                            .font(.system(size: 28, weight: .bold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    if let package {
+                        HStack(alignment: .lastTextBaseline, spacing: 4) {
+                            Text(package.localizedPriceString)
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                            Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+
+                        if selectedBillingPeriod == .annual {
+                            Text(monthlyEquivalent(for: package))
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                    } else {
+                        Text("Loading...")
+                            .font(.system(size: 14))
+                            .foregroundColor(.secondary)
                     }
                 }
 
@@ -153,6 +240,31 @@ private extension SubscriptionPaywallView {
             )
         }
         .buttonStyle(.plain)
+    }
+
+    func tierSubtitle(for tier: SubscriptionTier) -> String {
+        switch tier {
+        case .solo:
+            return "1 child device, on-device only"
+        case .individual:
+            return "1 child, 2 parent devices"
+        case .family:
+            return "Up to 5 children, 2 parents each"
+        case .trial:
+            return "Full access for 14 days"
+        }
+    }
+
+    func monthlyEquivalent(for package: Package) -> String {
+        let price = package.storeProduct.price as Decimal
+        let monthlyPrice = price / 12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
+            return "Just \(formatted)/month"
+        }
+        return ""
     }
 
     var featureList: some View {
@@ -194,8 +306,9 @@ private extension SubscriptionPaywallView {
                 if isPurchasing {
                     ProgressView()
                         .progressViewStyle(.circular)
+                        .tint(.white)
                 } else {
-                    Text(isOnboarding ? "Start Free Trial" : "Continue")
+                    Text(buttonText)
                         .font(.system(size: 18, weight: .bold))
                 }
             }
@@ -205,7 +318,18 @@ private extension SubscriptionPaywallView {
             .foregroundColor(.white)
             .cornerRadius(12)
         }
-        .disabled(isPurchasing || subscriptionManager.product(for: selectedTier) == nil)
+        .disabled(isPurchasing || selectedPackage == nil)
+        .opacity(selectedPackage == nil ? 0.6 : 1.0)
+    }
+
+    var buttonText: String {
+        if isOnboarding {
+            return "Start Free Trial"
+        } else if let package = selectedPackage {
+            return "Subscribe for \(package.localizedPriceString)"
+        } else {
+            return "Continue"
+        }
     }
 
     var restoreButton: some View {
@@ -256,13 +380,17 @@ private extension SubscriptionPaywallView {
 
 private extension SubscriptionPaywallView {
     func purchase() async {
-        guard let product = subscriptionManager.product(for: selectedTier) else { return }
+        guard let package = selectedPackage else {
+            errorMessage = "No subscription package available"
+            showError = true
+            return
+        }
 
         isPurchasing = true
         defer { isPurchasing = false }
 
         do {
-            try await subscriptionManager.purchase(product)
+            try await subscriptionManager.purchase(package)
             await MainActor.run {
                 finishFlow()
             }

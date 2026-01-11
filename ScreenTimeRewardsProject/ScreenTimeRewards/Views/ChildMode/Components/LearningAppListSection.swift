@@ -75,7 +75,7 @@ struct LearningAppListSection: View {
                 // Icon
                 Image(systemName: "book.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.lightCream)
 
                 // Title
                 Text("LEARNING APPS")
@@ -97,7 +97,7 @@ struct LearningAppListSection: View {
                 // Expand/collapse chevron
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.6))
+                    .foregroundColor(AppTheme.lightCream.opacity(0.6))
                     .rotationEffect(.degrees(isExpanded ? 0 : -90))
             }
         }
@@ -120,7 +120,7 @@ struct LearningAppListSection: View {
                     .overlay(
                         Image(systemName: "book.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.lightCream)
                     )
             }
 
@@ -158,7 +158,7 @@ struct LearningAppListSection: View {
         VStack(spacing: 12) {
             Image(systemName: "book.closed")
                 .font(.system(size: 32))
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.4))
+                .foregroundColor(AppTheme.lightCream.opacity(0.4))
 
             Text("No learning apps used today")
                 .font(.system(size: 15, weight: .medium))

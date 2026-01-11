@@ -57,7 +57,7 @@ struct StreakMilestoneCelebration: View {
                     Text("FOR \(appName.uppercased())!")
                         .font(.system(size: 24, weight: .bold))
                         .tracking(1.5)
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: .light))
 
                     Text("You earned \(bonusMinutes) bonus minutes!")
                         .font(.system(size: 16, weight: .semibold))

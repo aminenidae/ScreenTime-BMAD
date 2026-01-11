@@ -55,6 +55,9 @@ struct ChildDashboardView: View {
                 // Header with exit button
                 headerSection
 
+                // Limited mode banner (subscription expired/trial ended)
+                LimitedModeBanner()
+
                 ScrollView {
                     VStack(spacing: 16) {
                         // Hero Time Bank Card
@@ -103,7 +106,7 @@ struct ChildDashboardView: View {
                 }) {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         .frame(width: 44, height: 44)
                         .background(
                             RoundedRectangle(cornerRadius: 12)

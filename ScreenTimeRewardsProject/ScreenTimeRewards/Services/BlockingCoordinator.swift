@@ -441,6 +441,45 @@ class BlockingCoordinator: ObservableObject {
         return DailyLimitCheckResult(isOverLimit: false, limitMinutes: nil, usedMinutes: nil)
     }
 
+    /// Check usage levels and trigger notifications for 80% threshold and 100% limit
+    /// Called after blocking state is evaluated
+    private func checkAndNotifyUsageLevels(logicalID: String, decision: BlockingDecision) {
+        guard let config = scheduleService.getSchedule(for: logicalID) else { return }
+
+        let todayLimit = config.dailyLimits.todayLimit
+
+        // Skip if unlimited (1440 = 24 hours)
+        guard todayLimit < 1440 else { return }
+
+        let usedMinutes = getTodayUsageMinutes(for: logicalID)
+        let appDisplayName = AppNameMappingService.shared.getCustomName(for: logicalID) ?? logicalID
+
+        // Check for 80% threshold (approaching limit)
+        let thresholdPercent = 0.80
+        let thresholdMinutes = Int(Double(todayLimit) * thresholdPercent)
+
+        if usedMinutes >= thresholdMinutes && usedMinutes < todayLimit {
+            // At 80% but not yet at limit - send approaching notification
+            NotificationService.shared.scheduleApproachingLimitNotification(
+                appName: appDisplayName,
+                appLogicalID: logicalID,
+                usedMinutes: usedMinutes,
+                limitMinutes: todayLimit
+            )
+        }
+
+        // Check for 100% limit reached (notify parent)
+        if decision.primaryReason == .dailyLimitReached {
+            Task {
+                await NotificationService.shared.notifyParentOfDailyLimitReached(
+                    appName: appDisplayName,
+                    usedMinutes: usedMinutes,
+                    limitMinutes: todayLimit
+                )
+            }
+        }
+    }
+
     private struct LearningGoalCheckResult {
         let isGoalMet: Bool
         let targetMinutes: Int
@@ -580,6 +619,11 @@ class BlockingCoordinator: ObservableObject {
         for token in tokens {
             let decision = evaluateBlockingState(for: token)
 
+            // Check for usage level notifications (80% threshold, limit reached)
+            if let logicalID = screenTimeService?.getLogicalID(for: token) {
+                checkAndNotifyUsageLevels(logicalID: logicalID, decision: decision)
+            }
+
             if decision.shouldBlock {
                 // Set blocking reason before blocking
                 setBlockingReason(for: token, decision: decision)
@@ -601,8 +645,25 @@ class BlockingCoordinator: ObservableObject {
         }
         if !tokensToUnblock.isEmpty {
             service.unblockRewardApps(tokens: tokensToUnblock)
+
+            // Learning goal completed - notify child and parent
+            let earnedMinutes = getTotalEarnedRewardMinutes(for: tokensToUnblock)
+            if earnedMinutes > 0 {
+                NotificationService.shared.scheduleLearningGoalCompletedNotification(earnedMinutes: earnedMinutes)
+
+                Task {
+                    await NotificationService.shared.notifyParentOfLearningGoalCompleted(earnedMinutes: earnedMinutes)
+                }
+
+                // Cancel streak at risk reminders since goal is met
+                for token in tokensToUnblock {
+                    if let logicalID = screenTimeService?.getLogicalID(for: token) {
+                        NotificationService.shared.cancelStreakAtRiskReminders(for: logicalID)
+                    }
+                }
+            }
         }
-        
+
         // Check Streak
         checkAndUpdateStreak()
     }
@@ -660,12 +721,32 @@ class BlockingCoordinator: ObservableObject {
                             settings: streakSettings
                         )
 
-                        // Post notification for milestone achievement
+                        // Post internal notification for milestone achievement
                         streakService.notifyMilestoneAchieved(
                             milestone: milestone,
                             bonusMinutes: bonus,
                             appLogicalID: logicalID
                         )
+
+                        // Get display name for notifications
+                        let appDisplayName = AppNameMappingService.shared.getCustomName(for: logicalID) ?? logicalID
+
+                        // Schedule local notification for child
+                        NotificationService.shared.scheduleStreakMilestoneNotification(
+                            milestone: milestone,
+                            bonusMinutes: bonus,
+                            appName: appDisplayName,
+                            appLogicalID: logicalID
+                        )
+
+                        // Notify parent device
+                        Task {
+                            await NotificationService.shared.notifyParentOfStreakMilestone(
+                                milestone: milestone,
+                                appName: appDisplayName,
+                                bonusMinutes: bonus
+                            )
+                        }
 
                         print("[BlockingCoordinator] 🏆 Streak Milestone \(milestone) for \(logicalID)! Granted \(bonus) bonus minutes.")
                     }

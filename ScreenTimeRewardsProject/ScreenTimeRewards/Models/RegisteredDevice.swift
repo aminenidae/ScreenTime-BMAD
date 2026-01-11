@@ -25,6 +25,8 @@ extension RegisteredDevice {
     @NSManaged public var lastSyncDate: Date?
     @NSManaged public var isActive: Bool
     @NSManaged public var subscriptionTier: String?
+    @NSManaged public var subscriptionStatus: String?
+    @NSManaged public var subscriptionExpiryDate: Date?
     @NSManaged public var sharedZoneID: String?
     @NSManaged public var sharedZoneOwner: String?
 

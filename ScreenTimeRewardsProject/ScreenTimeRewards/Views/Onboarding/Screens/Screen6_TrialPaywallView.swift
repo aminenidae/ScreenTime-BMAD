@@ -1,8 +1,13 @@
-import SwiftUI
-import StoreKit
+//
+//  Screen6_TrialPaywallView.swift
+//  ScreenTimeRewards
+//
 
-/// Screen 6: 30-Day Trial + Pricing (C6)
-/// Presents the subscription options with 30-day free trial
+import SwiftUI
+import RevenueCat
+
+/// Screen 6: 14-Day Trial + Pricing (C6)
+/// Presents the subscription options with 14-day free trial
 /// Adapts to iPad with grid layout and landscape mode
 struct Screen6_TrialPaywallView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
@@ -20,6 +25,16 @@ struct Screen6_TrialPaywallView: View {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
+    /// Get the annual Family package from RevenueCat
+    private var annualPackage: Package? {
+        subscriptionManager.annualPackage(for: .family)
+    }
+
+    /// Get the monthly Family package from RevenueCat
+    private var monthlyPackage: Package? {
+        subscriptionManager.monthlyPackage(for: .family)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -34,38 +49,40 @@ struct Screen6_TrialPaywallView: View {
                         .cornerRadius(AppTheme.CornerRadius.large)
                         .padding(.horizontal, layout.horizontalPadding)
 
-                                                // Value propositions
-                                                VStack(alignment: .leading, spacing: 10) {
-                                                    HStack(spacing: 12) {
-                                                        Image(systemName: "gift.fill")
-                                                            .foregroundColor(AppTheme.vibrantTeal)
-                                                        Text("KIDS EARN REWARDS. NOT JUST RULES.")
-                                                            .textCase(.uppercase)
-                                                            .tracking(1.5)
-                                                    }
-                                                    HStack(spacing: 12) {
-                                                        Image(systemName: "trophy.fill")
-                                                            .foregroundColor(AppTheme.vibrantTeal)
-                                                        Text("LEARNING FEELS LIKE WINNING.")
-                                                            .textCase(.uppercase)
-                                                            .tracking(1.5)
-                                                    }
-                                                    HStack(spacing: 12) {
-                                                        Image(systemName: "heart.fill")
-                                                            .foregroundColor(AppTheme.vibrantTeal)
-                                                        Text("PARENTS RELAX. KIDS STAY ENGAGED.")
-                                                            .textCase(.uppercase)
-                                                            .tracking(1.5)
-                                                    }
-                                                }
-                                                .font(.system(size: 13, weight: .medium)) // Reduced by 2 pts
-                                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                                .frame(maxWidth: 500) // Center alignment (default) and match card width
-                                                .padding(.horizontal, layout.horizontalPadding)
+                    // Value propositions
+                    VStack(alignment: .leading, spacing: 10) {
+                        HStack(spacing: 12) {
+                            Image(systemName: "gift.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("KIDS EARN REWARDS. NOT JUST RULES.")
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                        }
+                        HStack(spacing: 12) {
+                            Image(systemName: "trophy.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("LEARNING FEELS LIKE WINNING.")
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                        }
+                        HStack(spacing: 12) {
+                            Image(systemName: "heart.fill")
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("PARENTS RELAX. KIDS STAY ENGAGED.")
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                        }
+                    }
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .frame(maxWidth: 500)
+                    .padding(.horizontal, layout.horizontalPadding)
+
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
                         isSelected: selectedPlan == .annual,
                         colorScheme: colorScheme,
+                        package: annualPackage,
                         onSelect: { selectedPlan = .annual },
                         onPurchase: { purchaseAnnual() }
                     )
@@ -76,6 +93,7 @@ struct Screen6_TrialPaywallView: View {
                     MonthlyPlanCard(
                         isSelected: selectedPlan == .monthly,
                         colorScheme: colorScheme,
+                        package: monthlyPackage,
                         onSelect: { selectedPlan = .monthly },
                         onPurchase: { purchaseMonthly() }
                     )
@@ -96,7 +114,7 @@ struct Screen6_TrialPaywallView: View {
             }
 
             // Legal fine print
-            Text("30-day free trial. No charge until your trial ends.\nYou can cancel anytime in your iPhone settings.")
+            Text("14-day free trial. No charge until your trial ends.\nYou can cancel anytime in your iPhone settings.")
                 .font(.system(size: 12, weight: .regular))
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
@@ -119,7 +137,7 @@ struct Screen6_TrialPaywallView: View {
                 onboarding.logEvent("onboarding_dev_skip_paywall")
                 onboarding.advanceScreen()
             }) {
-                Text("🔧 Dev: Skip & Keep Settings")
+                Text("Dev: Skip & Keep Settings")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(.blue.opacity(0.7))
             }
@@ -148,28 +166,28 @@ struct Screen6_TrialPaywallView: View {
     }
 
     private func purchaseAnnual() {
-        guard let product = subscriptionManager.product(for: .family) else {
+        guard let package = annualPackage else {
             purchaseError = "Unable to load subscription. Please try again."
             return
         }
-        purchase(product)
+        purchase(package)
     }
 
     private func purchaseMonthly() {
-        guard let product = subscriptionManager.product(for: .family) else {
+        guard let package = monthlyPackage else {
             purchaseError = "Unable to load subscription. Please try again."
             return
         }
-        purchase(product)
+        purchase(package)
     }
 
-    private func purchase(_ product: Product) {
+    private func purchase(_ package: Package) {
         isPurchasing = true
         purchaseError = nil
 
         Task {
             do {
-                try await subscriptionManager.purchase(product)
+                try await subscriptionManager.purchase(package)
                 onboarding.trialStartDate = Date()
                 onboarding.logEvent("onboarding_trial_started", params: ["plan": selectedPlan.rawValue])
                 onboarding.advanceScreen()
@@ -188,8 +206,26 @@ struct Screen6_TrialPaywallView: View {
 private struct AnnualPlanCard: View {
     let isSelected: Bool
     let colorScheme: ColorScheme
+    let package: Package?
     let onSelect: () -> Void
     let onPurchase: () -> Void
+
+    /// Calculate monthly equivalent from annual price
+    private var monthlyEquivalent: String {
+        guard let package else { return "" }
+        let price = package.storeProduct.price as Decimal
+        let monthlyPrice = price / 12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+    }
+
+    /// Calculate savings percentage vs monthly
+    private var savingsText: String {
+        // Family annual is ~$75/year vs ~$12.49/month ($150/year) = 50% savings
+        return "50% off today"
+    }
 
     var body: some View {
         VStack(spacing: 12) {
@@ -207,27 +243,28 @@ private struct AnnualPlanCard: View {
                         }
                         .foregroundColor(AppTheme.vibrantTeal)
 
-                        // Price
+                        // Price - dynamic from RevenueCat
                         VStack(alignment: .leading, spacing: 2) {
-                            Text("4.99 USD / month")
-                                .font(.system(size: 18, weight: .bold))
-                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                .textCase(.uppercase)
+                            if let package {
+                                Text("\(monthlyEquivalent) / month")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                    .textCase(.uppercase)
 
-                            Text("59.99 USD billed annually")
-                                .font(.system(size: 14, weight: .regular))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                                .textCase(.uppercase)
+                                Text("\(package.localizedPriceString) billed annually")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .textCase(.uppercase)
+                            } else {
+                                Text("Loading...")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
                         }
 
                         // Discount
                         HStack(spacing: 6) {
-                            Text("119.88")
-                                .font(.system(size: 13, weight: .regular))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                                .strikethrough()
-
-                            Text("50% off today")
+                            Text(savingsText)
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
                                 .textCase(.uppercase)
@@ -245,9 +282,9 @@ private struct AnnualPlanCard: View {
             .buttonStyle(.plain)
 
             Button(action: onPurchase) {
-                Text("Start 30-Day Free Trial")
-                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
-                    .foregroundColor(.white) // Always white for primary
+                Text("Start 14-Day Free Trial")
+                    .font(.system(size: 18, weight: .bold))
+                    .foregroundColor(.white)
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
                     .background(AppTheme.vibrantTeal)
@@ -258,6 +295,8 @@ private struct AnnualPlanCard: View {
                     )
                     .textCase(.uppercase)
             }
+            .disabled(package == nil)
+            .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }
@@ -277,6 +316,7 @@ private struct AnnualPlanCard: View {
 private struct MonthlyPlanCard: View {
     let isSelected: Bool
     let colorScheme: ColorScheme
+    let package: Package?
     let onSelect: () -> Void
     let onPurchase: () -> Void
 
@@ -285,11 +325,17 @@ private struct MonthlyPlanCard: View {
             Button(action: onSelect) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        // Price
-                        Text("9.99 USD / month")
-                            .font(.system(size: 18, weight: .bold))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                            .textCase(.uppercase)
+                        // Price - dynamic from RevenueCat
+                        if let package {
+                            Text("\(package.localizedPriceString) / month")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .textCase(.uppercase)
+                        } else {
+                            Text("Loading...")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
 
                         Text("Cancel anytime")
                             .font(.system(size: 12, weight: .regular))
@@ -308,15 +354,17 @@ private struct MonthlyPlanCard: View {
             .buttonStyle(.plain)
 
             Button(action: onPurchase) {
-                Text("Start 30-Day Free Trial")
-                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                Text("Start 14-Day Free Trial")
+                    .font(.system(size: 18, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
-                    .background(AppTheme.vibrantTeal.opacity(0.1)) // Secondary button style
-                    .foregroundColor(AppTheme.vibrantTeal) // Text color for secondary button
+                    .background(AppTheme.vibrantTeal.opacity(0.1))
+                    .foregroundColor(AppTheme.vibrantTeal)
                     .cornerRadius(AppTheme.CornerRadius.medium)
                     .textCase(.uppercase)
             }
+            .disabled(package == nil)
+            .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
             .padding(.bottom, 16)
         }

@@ -52,13 +52,6 @@ struct ModeSelectionView: View {
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                            .padding(.bottom, 8)
-
-                        // Subtitle
-                        Text("ACCESS CONTROLS")
-                            .font(.system(size: 14, weight: .medium))
-                            .tracking(2)
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                             .padding(.bottom, 24)
 
                         // Arrow
@@ -90,13 +83,6 @@ struct ModeSelectionView: View {
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
                             .foregroundColor(AppTheme.lightCream)
-                            .padding(.bottom, 8)
-
-                        // Subtitle
-                        Text("USER INTERFACE")
-                            .font(.system(size: 14, weight: .medium))
-                            .tracking(2)
-                            .foregroundColor(AppTheme.lightCream.opacity(0.8))
                             .padding(.bottom, 24)
 
                         // Arrow

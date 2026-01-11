@@ -1,63 +1,125 @@
+//
+//  SubscriptionManager.swift
+//  ScreenTimeRewards
+//
+//  Manages subscriptions using RevenueCat SDK
+//
+
 import Foundation
 import SwiftUI
 import Combine
-import StoreKit
+import RevenueCat
 import CoreData
 
 @MainActor
-final class SubscriptionManager: ObservableObject {
+final class SubscriptionManager: NSObject, ObservableObject {
     static let shared = SubscriptionManager()
 
     // MARK: - Published State
-    @Published private(set) var products: [Product] = []
-    @Published private(set) var purchasedProductIDs: Set<String> = []
-    @Published private(set) var currentTier: SubscriptionTier = .free
+
+    /// Available offerings from RevenueCat (contains packages with dynamic pricing)
+    @Published private(set) var offerings: Offerings?
+
+    /// The current offering (usually "default")
+    @Published private(set) var currentOffering: Offering?
+
+    /// RevenueCat customer info with entitlement status
+    @Published private(set) var customerInfo: CustomerInfo?
+
+    /// Current subscription tier
+    @Published private(set) var currentTier: SubscriptionTier = .trial
+
+    /// Current subscription status
     @Published private(set) var currentStatus: SubscriptionStatus = .trial
+
+    /// Local CoreData subscription record
     @Published private(set) var subscription: UserSubscription?
 
+    /// Whether RevenueCat has been configured
+    @Published private(set) var isConfigured: Bool = false
+
     // MARK: - Constants
-    private let trialDuration: TimeInterval = 30 * 24 * 60 * 60
-    private let gracePeriodDuration: TimeInterval = 7 * 24 * 60 * 60
+
+    private let trialDuration: TimeInterval = TimeInterval(RevenueCatConfig.trialDurationDays * 24 * 60 * 60)
+    private let gracePeriodDuration: TimeInterval = TimeInterval(RevenueCatConfig.gracePeriodDays * 24 * 60 * 60)
 
     // MARK: - Dependencies
+
     private let persistenceController = PersistenceController.shared
     private let deviceManager = DeviceModeManager.shared
 
-    private var updateListenerTask: Task<Void, Never>?
+    // MARK: - Initialization
 
-    private init() {
-        updateListenerTask = listenForTransactions()
+    private override init() {
+        super.init()
+        configureRevenueCat()
+    }
 
+    private func configureRevenueCat() {
+        #if DEBUG
+        Purchases.logLevel = .debug
+        #endif
+
+        Purchases.configure(withAPIKey: RevenueCatConfig.apiKey)
+
+        // Use device ID for cross-device identification
         Task {
-            await loadProducts()
-            await loadSubscriptionStatus()
+            do {
+                let (customerInfo, _) = try await Purchases.shared.logIn(deviceManager.deviceID)
+                self.customerInfo = customerInfo
+                self.isConfigured = true
+                await loadSubscriptionStatus()
+
+                #if DEBUG
+                print("[SubscriptionManager] RevenueCat configured with user: \(deviceManager.deviceID)")
+                #endif
+            } catch {
+                print("[SubscriptionManager] RevenueCat login error: \(error)")
+                // Continue without login - will use anonymous ID
+                self.isConfigured = true
+                await loadSubscriptionStatus()
+            }
         }
+
+        // Set delegate for customer info updates
+        Purchases.shared.delegate = self
     }
 
-    deinit {
-        updateListenerTask?.cancel()
-    }
+    // MARK: - Offerings (Dynamic Pricing)
 
-    // MARK: - Product Loading
-    func loadProducts() async {
-        let productIDs = SubscriptionTier
-            .allCases
-            .compactMap { $0.productID }
-
-        guard !productIDs.isEmpty else { return }
-
+    /// Load available offerings from RevenueCat
+    func loadOfferings() async {
         do {
-            products = try await Product.products(for: productIDs)
+            offerings = try await Purchases.shared.offerings()
+            currentOffering = offerings?.current
+
             #if DEBUG
-            print("[SubscriptionManager] Loaded \(products.count) products")
+            print("[SubscriptionManager] Loaded offerings: \(offerings?.all.keys.joined(separator: ", ") ?? "none")")
+            if let current = currentOffering {
+                print("[SubscriptionManager] Current offering: \(current.identifier)")
+                for package in current.availablePackages {
+                    print("[SubscriptionManager]   - \(package.identifier): \(package.localizedPriceString)")
+                }
+            }
             #endif
         } catch {
-            print("[SubscriptionManager] Failed to load products: \(error)")
+            print("[SubscriptionManager] Failed to load offerings: \(error)")
         }
     }
 
-    // MARK: - Subscription Lifecycle
+    // MARK: - Subscription Status
+
+    /// Load subscription status from RevenueCat and local storage
     func loadSubscriptionStatus() async {
+        // 1. Get RevenueCat customer info
+        do {
+            customerInfo = try await Purchases.shared.customerInfo()
+            updateTierFromCustomerInfo()
+        } catch {
+            print("[SubscriptionManager] Failed to get customer info: \(error)")
+        }
+
+        // 2. Load/create local CoreData subscription
         let context = persistenceController.container.viewContext
         let fetchRequest = NSFetchRequest<UserSubscription>(entityName: "UserSubscription")
         fetchRequest.fetchLimit = 1
@@ -65,27 +127,128 @@ final class SubscriptionManager: ObservableObject {
 
         do {
             let results = try context.fetch(fetchRequest)
-
-            if let existingSubscription = results.first {
-                subscription = existingSubscription
-                updateSubscriptionState()
+            if let existing = results.first {
+                subscription = existing
+                syncLocalWithRevenueCat()
             } else {
                 await createTrialSubscription()
             }
-
-            await checkStoreKitSubscriptions()
         } catch {
             print("[SubscriptionManager] Failed to load subscription: \(error)")
         }
+
+        // 3. Load offerings for dynamic pricing
+        await loadOfferings()
     }
 
+    /// Update tier and status based on RevenueCat customer info
+    private func updateTierFromCustomerInfo() {
+        guard let info = customerInfo else {
+            // No RevenueCat info - check local trial
+            if let sub = subscription, sub.isTrialActive {
+                currentTier = .trial
+                currentStatus = .trial
+            } else if let sub = subscription, sub.isInGracePeriod {
+                currentTier = .trial
+                currentStatus = .grace
+            } else {
+                currentTier = .trial
+                currentStatus = .expired
+            }
+            return
+        }
+
+        // Check Family entitlement first (highest tier)
+        if let familyEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumFamily],
+           familyEntitlement.isActive {
+            currentTier = .family
+            currentStatus = mapEntitlementToStatus(familyEntitlement)
+            return
+        }
+
+        // Then check Individual
+        if let individualEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumIndividual],
+           individualEntitlement.isActive {
+            currentTier = .individual
+            currentStatus = mapEntitlementToStatus(individualEntitlement)
+            return
+        }
+
+        // Then check Solo
+        if let soloEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumSolo],
+           soloEntitlement.isActive {
+            currentTier = .solo
+            currentStatus = mapEntitlementToStatus(soloEntitlement)
+            return
+        }
+
+        // No active entitlements - check if in local trial
+        if let sub = subscription, sub.isTrialActive {
+            currentTier = .trial
+            currentStatus = .trial
+        } else if let sub = subscription, sub.isInGracePeriod {
+            currentTier = .trial
+            currentStatus = .grace
+        } else {
+            currentTier = .trial
+            currentStatus = .expired
+        }
+    }
+
+    private func mapEntitlementToStatus(_ entitlement: EntitlementInfo) -> SubscriptionStatus {
+        if entitlement.periodType == .trial {
+            return .trial
+        } else if entitlement.isActive {
+            if entitlement.willRenew {
+                return .active
+            } else {
+                // Active but won't renew - still has access until expiry
+                return .active
+            }
+        } else if entitlement.billingIssueDetectedAt != nil {
+            return .grace
+        } else {
+            return .expired
+        }
+    }
+
+    /// Sync local CoreData with RevenueCat status
+    private func syncLocalWithRevenueCat() {
+        guard let subscription else { return }
+
+        if let info = customerInfo {
+            // If RevenueCat shows active subscription, update local record
+            if let familyEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumFamily],
+               familyEntitlement.isActive {
+                subscription.tierEnum = .family
+                subscription.statusEnum = mapEntitlementToStatus(familyEntitlement)
+                subscription.expiryDate = familyEntitlement.expirationDate
+            } else if let individualEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumIndividual],
+                      individualEntitlement.isActive {
+                subscription.tierEnum = .individual
+                subscription.statusEnum = mapEntitlementToStatus(individualEntitlement)
+                subscription.expiryDate = individualEntitlement.expirationDate
+            } else if let soloEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumSolo],
+                      soloEntitlement.isActive {
+                subscription.tierEnum = .solo
+                subscription.statusEnum = mapEntitlementToStatus(soloEntitlement)
+                subscription.expiryDate = soloEntitlement.expirationDate
+            }
+
+            try? subscription.managedObjectContext?.save()
+        }
+
+        updateTierFromCustomerInfo()
+    }
+
+    /// Create a new trial subscription for first-time users
     private func createTrialSubscription() async {
         let context = persistenceController.container.viewContext
 
         let newSubscription = UserSubscription(context: context)
         newSubscription.subscriptionID = UUID().uuidString
         newSubscription.userDeviceID = deviceManager.deviceID
-        newSubscription.tierEnum = .free
+        newSubscription.tierEnum = .trial
         newSubscription.statusEnum = .trial
 
         let now = Date()
@@ -96,210 +259,283 @@ final class SubscriptionManager: ObservableObject {
         do {
             try context.save()
             subscription = newSubscription
-            updateSubscriptionState()
-            print("[SubscriptionManager] Created trial subscription")
+            updateTierFromCustomerInfo()
+
+            // Schedule trial expiration reminders
+            if let trialEnd = newSubscription.trialEndDate {
+                NotificationService.shared.scheduleSubscriptionReminders(
+                    expirationDate: trialEnd,
+                    isTrial: true,
+                    remindDays: [7, 3, 0]
+                )
+            }
+
+            #if DEBUG
+            print("[SubscriptionManager] Created \(RevenueCatConfig.trialDurationDays)-day trial subscription")
+            #endif
         } catch {
             print("[SubscriptionManager] Failed to create trial subscription: \(error)")
         }
     }
 
-    private func updateSubscriptionState() {
-        guard let subscription else {
-            currentTier = .free
-            currentStatus = .trial
-            return
-        }
+    // MARK: - Purchasing
 
-        var needsSave = false
-        let now = Date()
+    /// Purchase a package from RevenueCat
+    func purchase(_ package: Package) async throws {
+        let result = try await Purchases.shared.purchase(package: package)
+        customerInfo = result.customerInfo
+        updateTierFromCustomerInfo()
+        await updateLocalSubscription(from: result.customerInfo)
 
-        // Transition out of trial when needed
-        if subscription.statusEnum == .trial,
-           let trialEnd = subscription.trialEndDate,
-           now > trialEnd {
-            if let graceEnd = subscription.graceEndDate,
-               now < graceEnd {
-                subscription.statusEnum = .grace
-            } else {
-                subscription.statusEnum = .expired
-            }
-            needsSave = true
-        }
-
-        // Transition from active to grace/expired if subscription expired
-        if subscription.statusEnum == .active,
-           let expiryDate = subscription.expiryDate,
-           now > expiryDate {
-            if let graceEnd = subscription.graceEndDate,
-               now < graceEnd {
-                subscription.statusEnum = .grace
-            } else {
-                subscription.statusEnum = .expired
-            }
-            needsSave = true
-        }
-
-        currentTier = subscription.tierEnum
-        currentStatus = subscription.statusEnum
-
-        if needsSave {
-            do {
-                try subscription.managedObjectContext?.save()
-            } catch {
-                print("[SubscriptionManager] Failed to persist subscription state update: \(error)")
-            }
-        }
+        #if DEBUG
+        print("[SubscriptionManager] Purchase successful: \(package.storeProduct.productIdentifier)")
+        #endif
     }
 
-    private func checkStoreKitSubscriptions() async {
-        do {
-            var updatedProductIDs: Set<String> = []
+    /// Restore purchases from the App Store
+    func restorePurchases() async throws {
+        customerInfo = try await Purchases.shared.restorePurchases()
+        updateTierFromCustomerInfo()
+        await updateLocalSubscription(from: customerInfo)
 
-            for await result in StoreKit.Transaction.currentEntitlements {
-                guard case .verified(let transaction) = result else { continue }
-                updatedProductIDs.insert(transaction.productID)
-                await updateSubscription(with: transaction)
-            }
-
-            purchasedProductIDs = updatedProductIDs
-        } catch {
-            print("[SubscriptionManager] Failed to check StoreKit entitlements: \(error)")
-        }
+        #if DEBUG
+        print("[SubscriptionManager] Purchases restored")
+        #endif
     }
 
-    private func updateSubscription(with transaction: StoreKit.Transaction) async {
+    /// Update local CoreData subscription from RevenueCat customer info
+    private func updateLocalSubscription(from info: CustomerInfo?) async {
+        guard let info, let subscription else { return }
+
         let context = persistenceController.container.viewContext
-        let subscription = subscription ?? UserSubscription(context: context)
 
-        if self.subscription == nil {
-            subscription.subscriptionID = UUID().uuidString
-            subscription.userDeviceID = deviceManager.deviceID
-            self.subscription = subscription
+        // Find the active entitlement
+        if let familyEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumFamily],
+           familyEntitlement.isActive {
+            subscription.tierEnum = .family
+            subscription.statusEnum = mapEntitlementToStatus(familyEntitlement)
+            subscription.purchaseDate = familyEntitlement.originalPurchaseDate
+            subscription.expiryDate = familyEntitlement.expirationDate
+            if let expiry = familyEntitlement.expirationDate {
+                subscription.graceEndDate = expiry.addingTimeInterval(gracePeriodDuration)
+            }
+        } else if let individualEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumIndividual],
+                  individualEntitlement.isActive {
+            subscription.tierEnum = .individual
+            subscription.statusEnum = mapEntitlementToStatus(individualEntitlement)
+            subscription.purchaseDate = individualEntitlement.originalPurchaseDate
+            subscription.expiryDate = individualEntitlement.expirationDate
+            if let expiry = individualEntitlement.expirationDate {
+                subscription.graceEndDate = expiry.addingTimeInterval(gracePeriodDuration)
+            }
+        } else if let soloEntitlement = info.entitlements[RevenueCatConfig.Entitlement.premiumSolo],
+                  soloEntitlement.isActive {
+            subscription.tierEnum = .solo
+            subscription.statusEnum = mapEntitlementToStatus(soloEntitlement)
+            subscription.purchaseDate = soloEntitlement.originalPurchaseDate
+            subscription.expiryDate = soloEntitlement.expirationDate
+            if let expiry = soloEntitlement.expirationDate {
+                subscription.graceEndDate = expiry.addingTimeInterval(gracePeriodDuration)
+            }
         }
 
-        if let tier = SubscriptionTier.allCases.first(where: { $0.productID == transaction.productID }) {
-            subscription.tierEnum = tier
-        }
-
-        subscription.statusEnum = .active
-        subscription.purchaseDate = transaction.purchaseDate
-        subscription.expiryDate = transaction.expirationDate
-        subscription.transactionID = String(transaction.id)
-        subscription.originalTransactionID = String(transaction.originalID)
-        subscription.autoRenewEnabled = true
         subscription.lastValidatedDate = Date()
-
-        if subscription.graceEndDate == nil, let expiryDate = transaction.expirationDate {
-            subscription.graceEndDate = expiryDate.addingTimeInterval(gracePeriodDuration)
-        }
 
         do {
             try context.save()
-            purchasedProductIDs.insert(transaction.productID)
-            updateSubscriptionState()
+
+            // Schedule subscription expiration reminders
+            if let expiryDate = subscription.expiryDate {
+                NotificationService.shared.scheduleSubscriptionReminders(
+                    expirationDate: expiryDate,
+                    isTrial: false,
+                    remindDays: [7, 3, 0]
+                )
+            }
+
+            // Sync subscription status to CloudKit for child device verification
+            await syncSubscriptionToCloudKit()
+        } catch {
+            print("[SubscriptionManager] Failed to update local subscription: \(error)")
+        }
+    }
+
+    /// Sync subscription status to CloudKit so child devices can verify parent's subscription
+    private func syncSubscriptionToCloudKit() async {
+        // Only sync if this is a parent device
+        guard deviceManager.currentMode == .parentDevice else { return }
+
+        do {
+            try await CloudKitSyncService.shared.updateParentSubscriptionStatus(
+                tier: currentTier,
+                status: currentStatus,
+                expiryDate: subscription?.expiryDate
+            )
+
             #if DEBUG
-            print("[SubscriptionManager] Updated subscription with transaction \(transaction.id)")
+            print("[SubscriptionManager] Synced subscription to CloudKit: \(currentTier.rawValue), \(currentStatus.rawValue)")
             #endif
         } catch {
-            print("[SubscriptionManager] Failed to save subscription update: \(error)")
-        }
-    }
-
-    // MARK: - Purchasing
-    func purchase(_ product: Product) async throws {
-        let result = try await product.purchase()
-
-        switch result {
-        case .success(let verification):
-            let transaction = try checkVerified(verification)
-            await updateSubscription(with: transaction)
-            await transaction.finish()
-        case .userCancelled:
-            throw SubscriptionError.userCancelled
-        case .pending:
-            throw SubscriptionError.pending
-        @unknown default:
-            throw SubscriptionError.unknown
-        }
-    }
-
-    func restorePurchases() async throws {
-        try await AppStore.sync()
-        await checkStoreKitSubscriptions()
-    }
-
-    // MARK: - Transaction Listener
-    private func listenForTransactions() -> Task<Void, Never> {
-        Task.detached(priority: .background) { [weak self] in
-            for await result in StoreKit.Transaction.updates {
-                guard let self else { continue }
-                guard case .verified(let transaction) = result else { continue }
-
-                await self.updateSubscription(with: transaction)
-                await transaction.finish()
-            }
+            // Log but don't fail - child will use cached data
+            print("[SubscriptionManager] Failed to sync subscription to CloudKit: \(error)")
         }
     }
 
     // MARK: - Entitlement Helpers
+
+    /// Whether the user has access to premium features
     var hasAccess: Bool {
         currentStatus.isAccessGranted
     }
 
+    /// Whether the user can create challenges
     var canCreateChallenge: Bool {
         hasAccess
     }
 
+    /// Maximum number of child devices for current tier
     var childDeviceLimit: Int {
         currentTier.childDeviceLimit
     }
 
+    /// Maximum number of parent devices per child for current tier
+    var parentDeviceLimitPerChild: Int {
+        currentTier.parentDeviceLimitPerChild
+    }
+
+    /// Check if user can pair another child device
     func canPairChildDevice(currentCount: Int) -> Bool {
         currentCount < childDeviceLimit
     }
 
+    /// Check if another parent can pair with a child (2 parent limit)
+    func canPairParentDevice(currentCount: Int) -> Bool {
+        currentCount < parentDeviceLimitPerChild
+    }
+
+    /// Whether user is in trial period
     var isInTrial: Bool {
         currentStatus == .trial
     }
 
+    /// Whether user is in grace period
     var isInGracePeriod: Bool {
         currentStatus == .grace
     }
 
+    /// Days remaining in trial
     var trialDaysRemaining: Int? {
         subscription?.daysRemainingInTrial
     }
 
+    /// Days remaining in grace period
     var graceDaysRemaining: Int? {
         subscription?.daysRemainingInGrace
     }
 
+    /// Display name for current tier
     var currentTierName: String {
         currentTier.displayName
     }
 
-    func product(for tier: SubscriptionTier) -> Product? {
-        guard let productID = tier.productID else { return nil }
-        return products.first { $0.id == productID }
+    // MARK: - Package Helpers
+
+    /// Get a specific package from the current offering
+    func package(for productID: String) -> Package? {
+        currentOffering?.availablePackages.first {
+            $0.storeProduct.productIdentifier == productID
+        }
     }
 
-    // MARK: - Helpers
-    private func checkVerified<T>(_ result: VerificationResult<T>) throws -> T {
-        switch result {
-        case .verified(let safe):
-            return safe
-        case .unverified(_, let error):
-            throw error
+    /// Get the monthly package for a tier
+    func monthlyPackage(for tier: SubscriptionTier) -> Package? {
+        guard let productID = tier.monthlyProductID else { return nil }
+        return package(for: productID)
+    }
+
+    /// Get the annual package for a tier
+    func annualPackage(for tier: SubscriptionTier) -> Package? {
+        guard let productID = tier.annualProductID else { return nil }
+        return package(for: productID)
+    }
+
+    /// All available packages grouped by tier
+    var packagesByTier: [SubscriptionTier: [Package]] {
+        guard let offering = currentOffering else { return [:] }
+
+        var result: [SubscriptionTier: [Package]] = [:]
+
+        for tier in [SubscriptionTier.solo, .individual, .family] {
+            var packages: [Package] = []
+            if let monthly = monthlyPackage(for: tier) {
+                packages.append(monthly)
+            }
+            if let annual = annualPackage(for: tier) {
+                packages.append(annual)
+            }
+            if !packages.isEmpty {
+                result[tier] = packages
+            }
+        }
+
+        return result
+    }
+
+    // MARK: - Firebase Family Management
+
+    /// Create a Firebase family after subscription purchase (for Individual/Family tiers)
+    func createFirebaseFamilyIfNeeded() async {
+        // Only create Firebase family for tiers that require parent device
+        guard currentTier.requiresParentDevice else { return }
+
+        do {
+            let familyId = try await FirebaseValidationService.shared.createFamily(subscriptionTier: currentTier)
+
+            #if DEBUG
+            print("[SubscriptionManager] Created Firebase family: \(familyId)")
+            #endif
+        } catch {
+            print("[SubscriptionManager] Failed to create Firebase family: \(error)")
+        }
+    }
+
+    /// Whether the subscription allows pairing with parent devices
+    var allowsParentPairing: Bool {
+        currentTier.requiresParentDevice && hasAccess
+    }
+
+    /// Whether the subscription is Solo (single device, no pairing)
+    var isSoloSubscription: Bool {
+        currentTier == .solo
+    }
+}
+
+// MARK: - PurchasesDelegate
+
+extension SubscriptionManager: PurchasesDelegate {
+    nonisolated func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
+        Task { @MainActor in
+            self.customerInfo = customerInfo
+            self.updateTierFromCustomerInfo()
+
+            // Sync to CloudKit when subscription status changes
+            await self.syncSubscriptionToCloudKit()
+
+            #if DEBUG
+            print("[SubscriptionManager] Customer info updated via delegate")
+            #endif
         }
     }
 }
 
 // MARK: - Errors
+
 enum SubscriptionError: LocalizedError {
     case verificationFailed
     case userCancelled
     case pending
     case unknown
+    case noOfferings
 
     var errorDescription: String? {
         switch self {
@@ -311,6 +547,8 @@ enum SubscriptionError: LocalizedError {
             return "Purchase is pending approval"
         case .unknown:
             return "An unknown error occurred"
+        case .noOfferings:
+            return "No subscription options available"
         }
     }
 }

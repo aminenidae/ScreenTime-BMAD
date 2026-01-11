@@ -83,6 +83,9 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     /// Warm Orange - For reward time expired (#F5A623)
     private let warmOrange = UIColor(red: 0.96, green: 0.65, blue: 0.14, alpha: 1)
 
+    /// Block Red - For blocked websites (#CC3333)
+    private let blockRed = UIColor(red: 0.8, green: 0.2, blue: 0.2, alpha: 1)
+
     // MARK: - Theme Definitions
 
     private var learningGoalTheme: ShieldTheme {
@@ -90,7 +93,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             backgroundColor: vibrantTeal.withAlphaComponent(0.95),
             iconName: "book.fill",
             title: "Learning Time First!",
-            primaryButtonLabel: "Go Learn",
+            primaryButtonLabel: "OK",
             primaryButtonColor: learningPeach
         )
     }
@@ -122,6 +125,16 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
             title: "Reward Time Finished",
             primaryButtonLabel: "OK",
             primaryButtonColor: .systemOrange
+        )
+    }
+
+    private var websiteBlockedTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: blockRed.withAlphaComponent(0.95),
+            iconName: "globe.badge.chevron.backward",
+            title: "Website Blocked",
+            primaryButtonLabel: "OK",
+            primaryButtonColor: .systemGray
         )
     }
 
@@ -300,11 +313,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
                 text: theme.primaryButtonLabel,
                 color: .white
             ),
-            primaryButtonBackgroundColor: theme.primaryButtonColor,
-            secondaryButtonLabel: ShieldConfiguration.Label(
-                text: "Not Now",
-                color: UIColor.white.withAlphaComponent(0.8)
-            )
+            primaryButtonBackgroundColor: theme.primaryButtonColor
         )
     }
 
@@ -329,18 +338,18 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     }
 
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
-        // Web domains don't have tokens, use default learning goal theme
-        let theme = learningGoalTheme
-        let subtitle = "Complete your learning goal to unlock this site."
+        // Use website blocked theme for blocked web domains
+        let theme = websiteBlockedTheme
+        let subtitle = "This website has been blocked by your parent."
 
-        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe")
+        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe.badge.chevron.backward")
     }
 
     override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
-        // Web domains don't have tokens, use default learning goal theme
-        let theme = learningGoalTheme
-        let subtitle = "Complete your learning goal to unlock this category."
+        // Use website blocked theme for blocked web domain categories
+        let theme = websiteBlockedTheme
+        let subtitle = "This website category has been blocked by your parent."
 
-        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe")
+        return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe.badge.chevron.backward")
     }
 }

@@ -36,7 +36,7 @@ struct LearningProgressCard: View {
         HStack(spacing: 8) {
             Image(systemName: "book.fill")
                 .font(.system(size: 16))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
             Text(isUnlocked ? "YOU'VE EARNED THIS TIME BY:" : "COMPLETE THESE TO UNLOCK")
                 .font(.system(size: 13, weight: .bold))
@@ -69,7 +69,7 @@ struct LearningProgressCard: View {
                         .overlay(
                             Image(systemName: "book.fill")
                                 .font(.system(size: 14))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         )
                 }
 
@@ -97,7 +97,7 @@ struct LearningProgressCard: View {
                 if progress.goalMet {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 20))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
             }
 

@@ -360,7 +360,7 @@ struct DailyUsageChartCard: View {
             Text(label.uppercased())
                 .font(.system(size: 11, weight: .medium))
                 .tracking(1)
-                .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 .textCase(.uppercase)
 
             Text("\(value)M") // Consistent formatting

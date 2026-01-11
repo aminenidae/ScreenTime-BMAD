@@ -109,7 +109,7 @@ private struct StreakRowView: View {
             // Days to next milestone
             Text("\(streak.daysToNextMilestone) to go")
                 .font(.caption)
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 .padding(.horizontal, 8)
                 .padding(.vertical, 4)
                 .background(

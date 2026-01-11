@@ -4,8 +4,8 @@ import CoreData
 extension UserSubscription {
     var tierEnum: SubscriptionTier {
         get {
-            guard let tierString = subscriptionTier else { return .free }
-            return SubscriptionTier(rawValue: tierString) ?? .free
+            guard let tierString = subscriptionTier else { return .trial }
+            return SubscriptionTier(rawValue: tierString) ?? .trial
         }
         set {
             subscriptionTier = newValue.rawValue

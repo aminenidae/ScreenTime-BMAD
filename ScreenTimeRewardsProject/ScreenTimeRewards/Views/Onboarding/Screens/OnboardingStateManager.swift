@@ -8,6 +8,9 @@ struct OnboardingSetupState: Codable {
     var currentScreen: Int = 1
     var completedScreens: [Int] = []
 
+    // Setup path selection
+    var selectedPath: SetupPath?
+
     // Screen 4: Learning setup
     var selectedLearningAppIDs: [String] = []
     var dailyLearningGoalMinutes: Int = 60
@@ -50,6 +53,9 @@ class OnboardingStateManager: ObservableObject {
     @Published var currentScreen: Int = 1
     @Published var completedScreens: [Int] = []
 
+    // Setup path selection (Solo vs Family)
+    @Published var selectedPath: SetupPath?
+
     // Screen 4: Learning setup
     @Published var selectedLearningApps: [ManagedAppInfo] = []
     @Published var dailyLearningGoalMinutes: Int = 60
@@ -65,6 +71,16 @@ class OnboardingStateManager: ObservableObject {
 
     // Screen 7: Activation
     @Published var onboardingComplete: Bool = false
+
+    /// Whether to show paywall (Solo path only)
+    var shouldShowPaywall: Bool {
+        selectedPath == .solo
+    }
+
+    /// Whether this is a family path (14-day trial, no paywall)
+    var isFamilyPath: Bool {
+        selectedPath == .family
+    }
 
     // Family Activity Selection for actual app picker
     @Published var learningFamilySelection = FamilyActivitySelection()
@@ -117,6 +133,7 @@ class OnboardingStateManager: ObservableObject {
     }
 
     func resetSetup() {
+        selectedPath = nil
         selectedLearningApps = []
         selectedRewardApps = []
         learningFamilySelection = FamilyActivitySelection()
@@ -128,6 +145,14 @@ class OnboardingStateManager: ObservableObject {
         completedScreens = []
         saveState()
         logEvent("onboarding_setup_reset")
+    }
+
+    /// Set the monitoring path and advance
+    func selectPath(_ path: SetupPath) {
+        selectedPath = path
+        saveState()
+        logEvent("onboarding_path_selected", params: ["path": path.rawValue])
+        advanceScreen()
     }
 
     // MARK: - Analytics
@@ -150,6 +175,7 @@ class OnboardingStateManager: ObservableObject {
         let state = OnboardingSetupState(
             currentScreen: currentScreen,
             completedScreens: completedScreens,
+            selectedPath: selectedPath,
             selectedLearningAppIDs: selectedLearningApps.filter(\.isSelected).map(\.id),
             dailyLearningGoalMinutes: dailyLearningGoalMinutes,
             childAgreementConfirmed: childAgreementConfirmed,

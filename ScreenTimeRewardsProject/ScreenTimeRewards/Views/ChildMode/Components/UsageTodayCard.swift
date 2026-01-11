@@ -51,7 +51,7 @@ struct UsageTodayCard: View {
         return HStack(spacing: 6) {
             Image(systemName: isMore ? "arrow.up.circle.fill" : "arrow.down.circle.fill")
                 .font(.system(size: 14))
-                .foregroundColor(isMore ? AppTheme.playfulCoral : AppTheme.vibrantTeal)
+                .foregroundColor(isMore ? AppTheme.playfulCoral : AppTheme.brandedText(for: colorScheme))
 
             Text("\(abs(difference)) minutes \(isMore ? "more" : "less") than yesterday")
                 .font(.system(size: 12, weight: .medium))

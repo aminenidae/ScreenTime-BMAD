@@ -236,7 +236,7 @@ private extension SubscriptionManagementView {
                 .background(AppTheme.vibrantTeal)
                 .cornerRadius(16)
             }
-        } else if subscriptionManager.currentTier == .free {
+        } else if subscriptionManager.currentTier == .trial {
             Button {
                 showPaywall = true
             } label: {
@@ -320,7 +320,8 @@ private extension SubscriptionManagementView {
 private extension SubscriptionManagementView {
     var tierIcon: String {
         switch subscriptionManager.currentTier {
-        case .free: return "hourglass"
+        case .trial: return "hourglass"
+        case .solo: return "iphone"
         case .individual: return "person.fill"
         case .family: return "person.3.fill"
         }
@@ -328,7 +329,8 @@ private extension SubscriptionManagementView {
 
     var tierColor: Color {
         switch subscriptionManager.currentTier {
-        case .free: return AppTheme.brandedText(for: colorScheme).opacity(0.6)
+        case .trial: return AppTheme.brandedText(for: colorScheme).opacity(0.6)
+        case .solo: return AppTheme.vibrantTeal.opacity(0.8)
         case .individual: return AppTheme.vibrantTeal
         case .family: return AppTheme.sunnyYellow
         }

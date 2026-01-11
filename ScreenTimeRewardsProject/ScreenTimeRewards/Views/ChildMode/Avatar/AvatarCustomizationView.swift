@@ -179,6 +179,8 @@ private struct CategoryTab: View {
     let count: Int
     let action: () -> Void
 
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -194,7 +196,7 @@ private struct CategoryTab: View {
                     .foregroundColor(.secondary)
             }
             .frame(width: 70, height: 60)
-            .foregroundColor(isSelected ? .white : AppTheme.vibrantTeal)
+            .foregroundColor(isSelected ? .white : AppTheme.brandedText(for: colorScheme))
             .background(
                 RoundedRectangle(cornerRadius: 12)
                     .fill(isSelected ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.1))

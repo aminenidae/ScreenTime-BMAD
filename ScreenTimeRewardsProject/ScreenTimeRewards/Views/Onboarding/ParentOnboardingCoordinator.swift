@@ -4,10 +4,12 @@ import SwiftUI
 struct ParentOnboardingCoordinator: View {
     enum ParentStep {
         case welcome
+        case paywall
         case installationGuide
         case pairing
     }
 
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
     @State private var currentStep: ParentStep = .welcome
     @AppStorage("hasCompletedParentOnboarding") private var parentComplete = false
 
@@ -22,13 +24,34 @@ struct ParentOnboardingCoordinator: View {
                 ParentWelcomeScreen(
                     deviceName: deviceName,
                     onBack: onBack,
-                    onContinue: { currentStep = .installationGuide }
+                    onContinue: {
+                        // Parent device requires actual paid subscription, not trial
+                        // Trial is for child devices only
+                        if subscriptionManager.currentStatus == .active {
+                            currentStep = .installationGuide
+                        } else {
+                            currentStep = .paywall
+                        }
+                    }
+                )
+
+            case .paywall:
+                ParentPaywallView(
+                    onSubscribed: { currentStep = .installationGuide },
+                    onSkip: nil  // No skip - subscription required on parent device
                 )
 
             case .installationGuide:
                 ParentDeviceSetupScreen(
                     deviceName: deviceName,
-                    onBack: { currentStep = .welcome },
+                    onBack: {
+                        // Go back to paywall if not subscribed, otherwise welcome
+                        if subscriptionManager.currentStatus == .active {
+                            currentStep = .welcome
+                        } else {
+                            currentStep = .paywall
+                        }
+                    },
                     onContinue: { currentStep = .pairing }
                 )
 

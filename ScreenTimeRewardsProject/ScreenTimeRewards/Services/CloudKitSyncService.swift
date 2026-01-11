@@ -3521,4 +3521,135 @@ class CloudKitSyncService: ObservableObject {
             }
         }
     }
+
+    // MARK: - Subscription Status Sync (for Child Verification)
+
+    /// Update parent device's subscription status in CloudKit
+    /// Called when subscription changes on parent device
+    /// Child devices can query this to verify parent's subscription
+    func updateParentSubscriptionStatus(tier: SubscriptionTier, status: SubscriptionStatus, expiryDate: Date?) async throws {
+        let context = persistenceController.container.viewContext
+        let deviceID = DeviceModeManager.shared.deviceID
+
+        #if DEBUG
+        print("[CloudKitSyncService] Updating parent subscription status: \(tier.rawValue), \(status.rawValue)")
+        #endif
+
+        // Find or create RegisteredDevice for this parent
+        let fetchRequest: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        fetchRequest.predicate = NSPredicate(format: "deviceID == %@", deviceID)
+
+        let devices = try context.fetch(fetchRequest)
+
+        let device: RegisteredDevice
+        if let existing = devices.first {
+            device = existing
+        } else {
+            // Create new device record
+            device = RegisteredDevice(context: context)
+            device.deviceID = deviceID
+            device.deviceName = DeviceModeManager.shared.deviceName
+            device.deviceType = "parent"
+            device.registrationDate = Date()
+            device.isActive = true
+        }
+
+        // Update subscription fields
+        device.subscriptionTier = tier.rawValue
+        device.subscriptionStatus = status.rawValue
+        device.subscriptionExpiryDate = expiryDate
+        device.lastSyncDate = Date()
+
+        try context.save()
+
+        #if DEBUG
+        print("[CloudKitSyncService] ✅ Parent subscription status saved to CoreData (will sync to CloudKit)")
+        #endif
+    }
+
+    /// Fetch parent's subscription status from CloudKit
+    /// Called by child device to verify parent's subscription
+    /// Returns (tier, status, isValid) tuple
+    func fetchParentSubscriptionStatus(parentDeviceID: String) async throws -> (tier: SubscriptionTier, status: SubscriptionStatus, isValid: Bool) {
+        #if DEBUG
+        print("[CloudKitSyncService] Fetching parent subscription for: \(parentDeviceID)")
+        #endif
+
+        // Query shared database for parent's device record
+        let sharedDB = container.sharedCloudDatabase
+
+        do {
+            let zones = try await sharedDB.allRecordZones()
+
+            // Look in all shared zones for parent info
+            for zone in zones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+                do {
+                    // Query for RegisteredDevice records in this zone
+                    let predicate = NSPredicate(format: "CD_deviceID == %@ OR CD_parentDeviceID == %@", parentDeviceID, parentDeviceID)
+                    let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+
+                    let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
+
+                    for (_, result) in matches {
+                        if case .success(let record) = result {
+                            let tierString = record["CD_subscriptionTier"] as? String ?? "trial"
+                            let statusString = record["CD_subscriptionStatus"] as? String ?? "trial"
+                            let expiryDate = record["CD_subscriptionExpiryDate"] as? Date
+
+                            let tier = SubscriptionTier(rawValue: tierString) ?? .trial
+                            let status = SubscriptionStatus(rawValue: statusString) ?? .trial
+
+                            // Check if subscription is still valid
+                            let isValid: Bool
+                            if let expiry = expiryDate {
+                                isValid = Date() < expiry || status == .active || status == .grace
+                            } else {
+                                isValid = status.isAccessGranted
+                            }
+
+                            #if DEBUG
+                            print("[CloudKitSyncService] ✅ Found parent subscription: \(tier.rawValue), \(status.rawValue), valid: \(isValid)")
+                            #endif
+
+                            return (tier, status, isValid)
+                        }
+                    }
+                } catch {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ Error checking zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                    #endif
+                    continue
+                }
+            }
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Error fetching zones: \(error.localizedDescription)")
+            #endif
+        }
+
+        // Fallback: Check if we have cached parent info from pairing
+        // If CloudKit query fails, assume valid to avoid blocking user
+        #if DEBUG
+        print("[CloudKitSyncService] ⚠️ Could not verify parent subscription, assuming valid")
+        #endif
+        return (.trial, .trial, true)
+    }
+
+    /// Count parent devices that have paired with a specific child
+    /// Used to enforce the 2-parent-per-child limit
+    func countParentDevicesForChild(childDeviceID: String) async throws -> Int {
+        #if DEBUG
+        print("[CloudKitSyncService] Counting parent devices for child: \(childDeviceID)")
+        #endif
+
+        // Get paired parents from local storage
+        let pairedParents = DevicePairingService.shared.getPairedParents()
+        let count = pairedParents.count
+
+        #if DEBUG
+        print("[CloudKitSyncService] Found \(count) parent device(s)")
+        #endif
+
+        return count
+    }
 }

@@ -87,7 +87,7 @@ struct RewardsTabView: View {
                                 .font(.system(size: 18))
                                 .foregroundColor(AppTheme.playfulCoral)
 
-                            Text("YOUR REWARDS")
+                            Text("REWARD APPS")
                                 .font(.system(size: 14, weight: .semibold))
                                 .tracking(1.5)
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme))

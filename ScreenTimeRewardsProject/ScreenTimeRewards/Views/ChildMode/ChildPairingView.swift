@@ -46,8 +46,10 @@ struct ChildPairingView: View {
     @State private var showingUnpairConfirmation = false
     @State private var showHelp = false
 
-    /// Maximum number of parent devices allowed
-    private let maxParentDevices = 2
+    /// Maximum number of parent devices allowed (from subscription tier)
+    private var maxParentDevices: Int {
+        DevicePairingService.shared.getParentDeviceLimit()
+    }
 
     var body: some View {
         ZStack(alignment: .top) {

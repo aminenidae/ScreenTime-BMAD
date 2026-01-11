@@ -21,12 +21,12 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
             HStack {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .foregroundColor(AppTheme.lightCream)
 
                 Text("TODAY'S ACTIVITY")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .foregroundColor(AppTheme.lightCream)
 
                 Spacer()
 

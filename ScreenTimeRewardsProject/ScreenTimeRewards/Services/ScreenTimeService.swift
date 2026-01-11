@@ -1738,9 +1738,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         print("[DiagnosticPolling] ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━")
 
+        #if DEBUG
         // Print full usage tracking debug summary with ext_ vs app comparison
         print("\n⏱️⏱️⏱️ POLLING CYCLE #\(diagnosticPollCount) - USAGE TRACKING DEBUG ⏱️⏱️⏱️")
         printUsageTrackingDebugSummary()
+        #endif
     }
 
     /// Check if diagnostic polling is active

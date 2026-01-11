@@ -36,7 +36,7 @@ struct AvatarHeroSection: View {
             VStack(spacing: 4) {
                 Text(avatarName.uppercased())
                     .font(.system(size: 20, weight: .bold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text(stageName.uppercased())
                     .font(.system(size: 10, weight: .medium))
@@ -108,7 +108,7 @@ struct AvatarHeroSection: View {
             if let minutesLeft = avatarService.minutesToNextLevel {
                 Text(progressText(minutesLeft: minutesLeft).uppercased())
                     .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(AppTheme.vibrantTeal.opacity(0.7))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
             }
         }
     }

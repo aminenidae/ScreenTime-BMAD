@@ -119,6 +119,10 @@ struct Screen4_AuthorizationView: View {
         Task {
             do {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
+
+                // Also request notification permissions (non-blocking)
+                _ = await NotificationService.shared.requestAuthorization()
+
                 await MainActor.run {
                     isRequesting = false
                     onboarding.advanceScreen()

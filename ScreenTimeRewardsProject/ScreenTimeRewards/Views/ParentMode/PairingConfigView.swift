@@ -103,7 +103,7 @@ struct PairingConfigView: View {
             HStack(spacing: 12) {
                 Image(systemName: "info.circle.fill")
                     .font(.system(size: 24))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text("WHY MANUAL NAMING?")
                     .font(.system(size: 14, weight: .bold))
@@ -119,7 +119,7 @@ struct PairingConfigView: View {
             HStack(spacing: 8) {
                 Image(systemName: "hand.tap.fill")
                     .font(.system(size: 12))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text("Tap each app and enter its name so you can monitor usage on your parent device.")
                     .font(.system(size: 13, weight: .medium))
@@ -150,7 +150,7 @@ struct PairingConfigView: View {
             HStack(spacing: 10) {
                 Image(systemName: "book.fill")
                     .font(.system(size: 16))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text("LEARNING APPS")
                     .font(.system(size: 13, weight: .semibold))
@@ -161,7 +161,7 @@ struct PairingConfigView: View {
 
                 Text("\(learningApps.count)")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .padding(.horizontal, 8)
                     .padding(.vertical, 4)
                     .background(
@@ -240,7 +240,7 @@ struct PairingConfigView: View {
 
                             Image(systemName: "book.fill")
                                 .font(.system(size: 18))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         }
                     }
 

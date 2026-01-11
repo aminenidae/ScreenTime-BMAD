@@ -323,12 +323,14 @@ private struct FilterChip: View {
     let isSelected: Bool
     let action: () -> Void
 
+    @Environment(\.colorScheme) var colorScheme
+
     var body: some View {
         Button(action: action) {
             Text(title)
                 .font(AppTheme.Typography.caption)
                 .fontWeight(.medium)
-                .foregroundColor(isSelected ? .white : AppTheme.vibrantTeal)
+                .foregroundColor(isSelected ? .white : AppTheme.brandedText(for: colorScheme))
                 .padding(.horizontal, 12)
                 .padding(.vertical, 6)
                 .background(

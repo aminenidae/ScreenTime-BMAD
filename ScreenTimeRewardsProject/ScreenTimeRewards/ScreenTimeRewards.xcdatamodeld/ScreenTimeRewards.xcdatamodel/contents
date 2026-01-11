@@ -186,7 +186,9 @@
         <attribute name="registrationDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
         <attribute name="sharedZoneID" optional="YES" attributeType="String"/>
         <attribute name="sharedZoneOwner" optional="YES" attributeType="String"/>
-        <attribute name="subscriptionTier" optional="YES" attributeType="String" defaultValueString="free"/>
+        <attribute name="subscriptionExpiryDate" optional="YES" attributeType="Date" usesScalarValueType="NO"/>
+        <attribute name="subscriptionStatus" optional="YES" attributeType="String" defaultValueString="trial"/>
+        <attribute name="subscriptionTier" optional="YES" attributeType="String" defaultValueString="trial"/>
         <fetchIndex name="byDeviceID">
             <fetchIndexElement property="deviceID" type="Binary" order="ascending"/>
         </fetchIndex>
