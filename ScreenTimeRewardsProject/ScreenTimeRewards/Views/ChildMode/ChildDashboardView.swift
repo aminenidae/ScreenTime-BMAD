@@ -7,6 +7,8 @@ import ManagedSettings
 struct ChildDashboardView: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @ObservedObject var syncService = ChildBackgroundSyncService.shared
     @Environment(\.colorScheme) var colorScheme
 
     // Design colors matching ModeSelectionView
@@ -93,7 +95,16 @@ struct ChildDashboardView: View {
             .refreshable {
                 await viewModel.refresh()
             }
+
+            // Full-screen blocker when trial expired and not paired
+            // Check BOTH: local subscription (Solo) OR remote parent subscription (pairing)
+            if !subscriptionManager.hasAccess && !syncService.hasFullAccess {
+                ExpiredTrialBlockerView()
+                    .transition(.opacity)
+            }
         }
+        .animation(.easeInOut(duration: 0.3), value: subscriptionManager.hasAccess)
+        .animation(.easeInOut(duration: 0.3), value: syncService.hasFullAccess)
     }
 
     // MARK: - Subviews

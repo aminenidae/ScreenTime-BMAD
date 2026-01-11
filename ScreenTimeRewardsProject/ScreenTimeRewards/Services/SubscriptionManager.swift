@@ -10,6 +10,7 @@ import SwiftUI
 import Combine
 import RevenueCat
 import CoreData
+import Security
 
 @MainActor
 final class SubscriptionManager: NSObject, ObservableObject {
@@ -42,6 +43,10 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     private let trialDuration: TimeInterval = TimeInterval(RevenueCatConfig.trialDurationDays * 24 * 60 * 60)
     private let gracePeriodDuration: TimeInterval = TimeInterval(RevenueCatConfig.gracePeriodDays * 24 * 60 * 60)
+
+    // Keychain constants for trial protection (persists across reinstall)
+    private let keychainService = "com.screentimerewards"
+    private let keychainTrialStartKey = "trialStartDate"
 
     // MARK: - Dependencies
 
@@ -242,6 +247,7 @@ final class SubscriptionManager: NSObject, ObservableObject {
     }
 
     /// Create a new trial subscription for first-time users
+    /// Uses Keychain to persist trial start date across reinstalls (abuse prevention)
     private func createTrialSubscription() async {
         let context = persistenceController.container.viewContext
 
@@ -249,30 +255,64 @@ final class SubscriptionManager: NSObject, ObservableObject {
         newSubscription.subscriptionID = UUID().uuidString
         newSubscription.userDeviceID = deviceManager.deviceID
         newSubscription.tierEnum = .trial
-        newSubscription.statusEnum = .trial
 
-        let now = Date()
-        newSubscription.trialStartDate = now
-        newSubscription.trialEndDate = now.addingTimeInterval(trialDuration)
-        newSubscription.graceEndDate = now.addingTimeInterval(trialDuration + gracePeriodDuration)
+        // Check Keychain for existing trial (reinstall protection)
+        if let existingTrialStart = loadTrialStartFromKeychain() {
+            // User reinstalled - restore original trial dates
+            let trialEnd = existingTrialStart.addingTimeInterval(trialDuration)
+            let graceEnd = trialEnd.addingTimeInterval(gracePeriodDuration)
+
+            newSubscription.trialStartDate = existingTrialStart
+            newSubscription.trialEndDate = trialEnd
+            newSubscription.graceEndDate = graceEnd
+
+            // Check if trial/grace already expired
+            let now = Date()
+            if now >= graceEnd {
+                newSubscription.statusEnum = .expired
+                #if DEBUG
+                print("[SubscriptionManager] Restored EXPIRED trial from Keychain (started: \(existingTrialStart))")
+                #endif
+            } else if now >= trialEnd {
+                newSubscription.statusEnum = .grace
+                #if DEBUG
+                print("[SubscriptionManager] Restored GRACE PERIOD trial from Keychain (started: \(existingTrialStart))")
+                #endif
+            } else {
+                newSubscription.statusEnum = .trial
+                #if DEBUG
+                print("[SubscriptionManager] Restored ACTIVE trial from Keychain (started: \(existingTrialStart))")
+                #endif
+            }
+        } else {
+            // First install - create new trial and save to Keychain
+            let now = Date()
+            newSubscription.trialStartDate = now
+            newSubscription.trialEndDate = now.addingTimeInterval(trialDuration)
+            newSubscription.graceEndDate = now.addingTimeInterval(trialDuration + gracePeriodDuration)
+            newSubscription.statusEnum = .trial
+
+            // Save to Keychain for reinstall protection
+            saveTrialStartToKeychain(now)
+
+            #if DEBUG
+            print("[SubscriptionManager] Created NEW \(RevenueCatConfig.trialDurationDays)-day trial subscription")
+            #endif
+        }
 
         do {
             try context.save()
             subscription = newSubscription
             updateTierFromCustomerInfo()
 
-            // Schedule trial expiration reminders
-            if let trialEnd = newSubscription.trialEndDate {
+            // Schedule trial expiration reminders (only if trial is still active)
+            if newSubscription.statusEnum == .trial, let trialEnd = newSubscription.trialEndDate {
                 NotificationService.shared.scheduleSubscriptionReminders(
                     expirationDate: trialEnd,
                     isTrial: true,
                     remindDays: [7, 3, 0]
                 )
             }
-
-            #if DEBUG
-            print("[SubscriptionManager] Created \(RevenueCatConfig.trialDurationDays)-day trial subscription")
-            #endif
         } catch {
             print("[SubscriptionManager] Failed to create trial subscription: \(error)")
         }
@@ -507,6 +547,67 @@ final class SubscriptionManager: NSObject, ObservableObject {
     /// Whether the subscription is Solo (single device, no pairing)
     var isSoloSubscription: Bool {
         currentTier == .solo
+    }
+
+    // MARK: - Keychain Helpers (Trial Protection)
+
+    /// Save trial start date to Keychain (persists across reinstalls)
+    private func saveTrialStartToKeychain(_ date: Date) {
+        let dateString = ISO8601DateFormatter().string(from: date)
+        let data = dateString.data(using: .utf8)!
+
+        // Delete any existing item first
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainTrialStartKey
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        // Add new item
+        let addQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainTrialStartKey,
+            kSecValueData as String: data,
+            kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlock
+        ]
+        let status = SecItemAdd(addQuery as CFDictionary, nil)
+
+        #if DEBUG
+        if status == errSecSuccess {
+            print("[SubscriptionManager] Trial start date saved to Keychain: \(dateString)")
+        } else {
+            print("[SubscriptionManager] Keychain save failed with status: \(status)")
+        }
+        #endif
+    }
+
+    /// Load trial start date from Keychain (nil if never started trial)
+    private func loadTrialStartFromKeychain() -> Date? {
+        let query: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainTrialStartKey,
+            kSecReturnData as String: true,
+            kSecMatchLimit as String: kSecMatchLimitOne
+        ]
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+
+        guard status == errSecSuccess,
+              let data = result as? Data,
+              let dateString = String(data: data, encoding: .utf8),
+              let date = ISO8601DateFormatter().date(from: dateString) else {
+            return nil
+        }
+
+        #if DEBUG
+        print("[SubscriptionManager] Trial start date loaded from Keychain: \(dateString)")
+        #endif
+
+        return date
     }
 }
 
