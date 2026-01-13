@@ -503,6 +503,15 @@ struct ParentAppDetailView: View {
         childLearningApps.first { $0.logicalID == logicalID }?.iconURL
     }
 
+    /// Get display name for a linked learning app by looking it up in childLearningApps
+    private func displayNameForLinkedApp(_ linkedApp: LinkedLearningApp) -> String {
+        // Prefer the stored displayName, fall back to lookup from childLearningApps
+        if let name = linkedApp.displayName, !name.isEmpty {
+            return name
+        }
+        return childLearningApps.first { $0.logicalID == linkedApp.logicalID }?.displayName ?? "Learning App"
+    }
+
     /// Filter linked apps to only include those that exist in childLearningApps
     private var validLinkedLearningApps: [LinkedLearningApp] {
         config.linkedLearningApps.filter { linkedApp in
@@ -552,7 +561,7 @@ struct ParentAppDetailView: View {
                             )
                         }
 
-                        Text(linkedApp.displayName ?? "Learning App")
+                        Text(displayNameForLinkedApp(linkedApp))
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
                             .lineLimit(1)

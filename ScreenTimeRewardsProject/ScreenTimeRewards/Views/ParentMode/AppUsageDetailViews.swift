@@ -493,12 +493,18 @@ struct RewardAppDetailView: View {
             VStack(spacing: 8) {
                 ForEach(filteredLinkedApps, id: \.logicalID) { linkedApp in
                     HStack(spacing: 12) {
-                        // App icon - find from learning snapshots
+                        // App icon and name - find from learning snapshots
                         if let learningSnapshot = viewModel.learningSnapshots.first(where: { $0.logicalID == linkedApp.logicalID }) {
                             Label(learningSnapshot.token)
                                 .labelStyle(.iconOnly)
                                 .frame(width: 32, height: 32)
                                 .clipShape(RoundedRectangle(cornerRadius: 8))
+
+                            Label(learningSnapshot.token)
+                                .labelStyle(.titleOnly)
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                                .lineLimit(1)
                         } else {
                             ZStack {
                                 RoundedRectangle(cornerRadius: 8)
@@ -509,12 +515,12 @@ struct RewardAppDetailView: View {
                                     .font(.system(size: 14))
                                     .foregroundColor(AppTheme.vibrantTeal)
                             }
-                        }
 
-                        Text(linkedApp.displayName ?? "Learning App")
-                            .font(.system(size: 14, weight: .medium))
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                            .lineLimit(1)
+                            Text(linkedApp.displayName ?? "Learning App")
+                                .font(.system(size: 14, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                                .lineLimit(1)
+                        }
 
                         Spacer()
 
