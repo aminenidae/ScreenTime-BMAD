@@ -132,6 +132,16 @@ class OnboardingStateManager: ObservableObject {
         logEvent("onboarding_skip_to_activation")
     }
 
+    /// Simulator-only: Skip directly to paywall for App Store screenshots
+    func skipToPaywall() {
+        selectedPath = .solo  // Ensure paywall shows
+        withAnimation(.easeInOut(duration: 0.3)) {
+            currentScreen = 6
+        }
+        saveState()
+        logEvent("onboarding_skip_to_paywall_simulator")
+    }
+
     func resetSetup() {
         selectedPath = nil
         selectedLearningApps = []

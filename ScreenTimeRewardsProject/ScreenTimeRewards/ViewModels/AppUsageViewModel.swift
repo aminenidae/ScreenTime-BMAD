@@ -141,6 +141,23 @@ class AppUsageViewModel: ObservableObject {
         Int(rewardSnapshots.reduce(0) { $0 + $1.totalSeconds } / 60)
     }
 
+    // MARK: - Cumulative Available Balance
+
+    /// Cumulative available minutes = historical remaining + today's (earned - used)
+    /// This provides rollover of unused reward time from previous days
+    var cumulativeAvailableMinutes: Int {
+        let learningLogicalIDs = learningSnapshots.map { $0.logicalID }
+        let rewardLogicalIDs = rewardSnapshots.map { $0.logicalID }
+
+        let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
+            learningIDs: learningLogicalIDs,
+            rewardIDs: rewardLogicalIDs
+        )
+
+        let todayRemaining = totalEarnedMinutes - totalUsedMinutes
+        return max(0, historicalRemaining + todayRemaining)
+    }
+
     /// Total points reserved for unlocked reward apps
     /// Formula: Reserved Points = Sum of (Redeemed - Consumed) for all unlocked apps
     var reservedLearningPoints: Int {

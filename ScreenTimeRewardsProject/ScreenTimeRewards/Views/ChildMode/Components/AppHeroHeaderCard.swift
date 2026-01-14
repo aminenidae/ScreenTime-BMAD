@@ -12,20 +12,20 @@ struct AppHeroHeaderCard: View {
 
     var body: some View {
         HStack(spacing: 12) {
-            // App icon (44x44)
+            // App icon (64x64)
             if #available(iOS 15.2, *) {
                 Label(token)
                     .labelStyle(.iconOnly)
-                    .scaleEffect(1.4)
-                    .frame(width: 44, height: 44)
-                    .clipShape(RoundedRectangle(cornerRadius: 10))
+                    .scaleEffect(2.0)
+                    .frame(width: 64, height: 64)
+                    .clipShape(RoundedRectangle(cornerRadius: 14))
             } else {
-                RoundedRectangle(cornerRadius: 10)
+                RoundedRectangle(cornerRadius: 14)
                     .fill(AppTheme.playfulCoral.opacity(0.2))
-                    .frame(width: 44, height: 44)
+                    .frame(width: 64, height: 64)
                     .overlay(
                         Image(systemName: "gamecontroller.fill")
-                            .font(.system(size: 20))
+                            .font(.system(size: 28))
                             .foregroundColor(AppTheme.playfulCoral)
                     )
             }

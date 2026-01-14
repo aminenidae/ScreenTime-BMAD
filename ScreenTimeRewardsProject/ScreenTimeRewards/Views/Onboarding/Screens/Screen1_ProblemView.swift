@@ -76,6 +76,16 @@ struct Screen1_ProblemView: View {
             }
             .padding(.horizontal, layout.horizontalPadding)
 
+            // Simulator-only: Skip to paywall for App Store screenshots
+            #if targetEnvironment(simulator)
+            Button("📸 Skip to Paywall (Simulator Only)") {
+                onboarding.skipToPaywall()
+            }
+            .font(.system(size: 12))
+            .foregroundColor(.orange)
+            .padding(.top, 8)
+            #endif
+
             Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())

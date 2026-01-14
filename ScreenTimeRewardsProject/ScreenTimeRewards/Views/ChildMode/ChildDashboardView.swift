@@ -31,20 +31,19 @@ struct ChildDashboardView: View {
         viewModel.rewardSnapshots.reduce(0) { $0 + $1.totalSeconds }
     }
 
-    /// Total earned reward minutes (from linked learning goals + streak bonuses)
-    /// This is the total earned from learning - does NOT include reward app usage
+    /// Total earned reward minutes TODAY (from linked learning goals + streak bonuses)
     private var totalEarnedMinutes: Int {
         viewModel.totalEarnedMinutes + viewModel.totalStreakBonusMinutes
     }
 
-    /// Total reward minutes used
+    /// Total reward minutes used TODAY
     private var totalUsedMinutes: Int {
         Int(totalRewardUsedSeconds / 60)
     }
 
-    /// Remaining reward minutes (same as TimeBankCard)
-    private var remainingMinutes: Int {
-        max(totalEarnedMinutes - totalUsedMinutes, 0)
+    /// Cumulative available minutes (rollover from previous days + today's net)
+    private var cumulativeAvailableMinutes: Int {
+        viewModel.cumulativeAvailableMinutes
     }
 
     var body: some View {
@@ -65,13 +64,14 @@ struct ChildDashboardView: View {
                         // Hero Time Bank Card
                         TimeBankCard(
                             earnedMinutes: totalEarnedMinutes,
-                            usedMinutes: totalUsedMinutes
+                            usedMinutes: totalUsedMinutes,
+                            availableMinutes: cumulativeAvailableMinutes
                         )
 
                         // Reward Apps Section
                         RewardAppListSection(
                             snapshots: viewModel.rewardSnapshots,
-                            remainingMinutes: remainingMinutes,
+                            remainingMinutes: cumulativeAvailableMinutes,
                             unlockedApps: viewModel.unlockedRewardApps
                         )
 

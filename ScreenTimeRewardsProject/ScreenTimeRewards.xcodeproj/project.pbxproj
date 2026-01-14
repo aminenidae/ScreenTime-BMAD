@@ -92,6 +92,7 @@
 		43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/TotalActivityView.swift; sourceTree = SOURCE_ROOT; };
 		43E1F0052F1A000100123450 /* ScreenTimeReportExtension/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ScreenTimeReportExtension/Info.plist; sourceTree = SOURCE_ROOT; };
 		43E1F0062F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements; sourceTree = SOURCE_ROOT; };
+		43EC48692F136A8100E5D3AD /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Products.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
@@ -239,6 +240,7 @@
 		4368300A2E9F172A0058C9C1 = {
 			isa = PBXGroup;
 			children = (
+				43EC48692F136A8100E5D3AD /* Products.storekit */,
 				436830152E9F172A0058C9C1 /* ScreenTimeRewards */,
 				4368302A2E9F172B0058C9C1 /* ScreenTimeRewardsTests */,
 				436830342E9F172B0058C9C1 /* ScreenTimeRewardsUITests */,

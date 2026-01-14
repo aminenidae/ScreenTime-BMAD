@@ -21,12 +21,12 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
             HStack {
                 Image(systemName: "chart.bar.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.lightCream)
+                    .foregroundColor(colorScheme == .light ? AppTheme.vibrantTeal : AppTheme.lightCream)
 
                 Text("TODAY'S ACTIVITY")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
-                    .foregroundColor(AppTheme.lightCream)
+                    .foregroundColor(colorScheme == .light ? AppTheme.vibrantTeal : AppTheme.lightCream)
 
                 Spacer()
 
@@ -134,35 +134,45 @@ private struct UsageStatCard: View {
 
     @Environment(\.colorScheme) var colorScheme
 
+    /// Text color - only adjust teal for dark mode contrast, keep coral as-is
+    private var textColor: Color {
+        // Only fix contrast for teal (Learning card) in dark mode
+        // Coral (Reward card) has good contrast and should stay coral
+        if colorScheme == .dark && color == AppTheme.vibrantTeal {
+            return AppTheme.lightCream
+        }
+        return color
+    }
+
     var body: some View {
         Button(action: onTap) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 6) {
                     Image(systemName: icon)
                         .font(.system(size: 14))
-                        .foregroundColor(color)
+                        .foregroundColor(textColor)
 
                     Text(label)
                         .font(.system(size: 11, weight: .medium))
                         .tracking(1)
-                        .foregroundColor(color.opacity(0.8))
+                        .foregroundColor(textColor.opacity(0.8))
 
                     Spacer()
 
                     // Chevron indicator for drill-down
                     Image(systemName: "chevron.right")
                         .font(.system(size: 10, weight: .semibold))
-                        .foregroundColor(color.opacity(0.5))
+                        .foregroundColor(textColor.opacity(0.5))
                 }
 
                 HStack(alignment: .bottom, spacing: 4) {
                     Text("\(minutes)")
                         .font(.system(size: 32, weight: .bold))
-                        .foregroundColor(color)
+                        .foregroundColor(textColor)
 
                     Text("min")
                         .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(color.opacity(0.7))
+                        .foregroundColor(textColor.opacity(0.7))
                         .padding(.bottom, 4)
                 }
 

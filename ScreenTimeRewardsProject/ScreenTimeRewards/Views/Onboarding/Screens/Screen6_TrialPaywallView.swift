@@ -5,6 +5,7 @@
 
 import SwiftUI
 import RevenueCat
+import StoreKit
 
 /// Screen 6: 14-Day Trial + Pricing (C6)
 /// Presents the subscription options with 14-day free trial
@@ -20,6 +21,7 @@ struct Screen6_TrialPaywallView: View {
     @State private var showConfirmSkip = false
     @State private var isPurchasing = false
     @State private var purchaseError: String?
+    @State private var showRestoreSuccess = false
 
     private var layout: ResponsiveCardLayout {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
@@ -33,6 +35,19 @@ struct Screen6_TrialPaywallView: View {
     /// Get the monthly Family package from RevenueCat
     private var monthlyPackage: Package? {
         subscriptionManager.monthlyPackage(for: .family)
+    }
+
+    /// StoreKit fallback prices when RevenueCat unavailable
+    private var annualFallbackPrice: String? {
+        subscriptionManager.storeKitAnnualPrice(for: .family)
+    }
+
+    private var monthlyFallbackPrice: String? {
+        subscriptionManager.storeKitMonthlyPrice(for: .family)
+    }
+
+    private var annualFallbackProduct: Product? {
+        subscriptionManager.storeKitAnnualProduct(for: .family)
     }
 
     var body: some View {
@@ -83,6 +98,8 @@ struct Screen6_TrialPaywallView: View {
                         isSelected: selectedPlan == .annual,
                         colorScheme: colorScheme,
                         package: annualPackage,
+                        fallbackPrice: annualFallbackPrice,
+                        fallbackProduct: annualFallbackProduct,
                         onSelect: { selectedPlan = .annual },
                         onPurchase: { purchaseAnnual() }
                     )
@@ -94,6 +111,7 @@ struct Screen6_TrialPaywallView: View {
                         isSelected: selectedPlan == .monthly,
                         colorScheme: colorScheme,
                         package: monthlyPackage,
+                        fallbackPrice: monthlyFallbackPrice,
                         onSelect: { selectedPlan = .monthly },
                         onPurchase: { purchaseMonthly() }
                     )
@@ -122,6 +140,16 @@ struct Screen6_TrialPaywallView: View {
                 .padding(.bottom, layout.isLandscape ? 8 : 12)
                 .textCase(.uppercase)
 
+            // Restore purchases (required by App Store)
+            Button(action: restorePurchases) {
+                Text("Restore Purchases")
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
+            }
+            .disabled(isPurchasing)
+            .padding(.bottom, 8)
+
             // Skip link
             Button(action: { showConfirmSkip = true }) {
                 Text("Skip trial and delete setup")
@@ -129,22 +157,9 @@ struct Screen6_TrialPaywallView: View {
                     .foregroundColor(.red.opacity(0.8))
                     .textCase(.uppercase)
             }
-            .padding(.bottom, 8)
+            .padding(.bottom, 4)
 
-            // DEBUG: Skip without deleting settings (for development)
-            #if DEBUG
-            Button(action: {
-                onboarding.logEvent("onboarding_dev_skip_paywall")
-                onboarding.advanceScreen()
-            }) {
-                Text("Dev: Skip & Keep Settings")
-                    .font(.system(size: 11, weight: .medium))
-                    .foregroundColor(.blue.opacity(0.7))
-            }
-            .padding(.bottom, layout.isLandscape ? 12 : 20)
-            #else
-            Spacer().frame(height: 12)
-            #endif
+            Spacer().frame(height: layout.isLandscape ? 12 : 20)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .alert("Delete setup?", isPresented: $showConfirmSkip) {
@@ -154,6 +169,18 @@ struct Screen6_TrialPaywallView: View {
             }
         } message: {
             Text("This will remove all settings you just created. You can always set it up again later.")
+        }
+        .alert("Purchases Restored", isPresented: $showRestoreSuccess) {
+            Button("OK") {
+                if subscriptionManager.hasAccess {
+                    onboarding.logEvent("onboarding_restore_success")
+                    onboarding.advanceScreen()
+                }
+            }
+        } message: {
+            Text(subscriptionManager.hasAccess
+                 ? "Your subscription has been restored."
+                 : "No previous purchases found.")
         }
         .overlay {
             if isPurchasing {
@@ -199,6 +226,21 @@ struct Screen6_TrialPaywallView: View {
             isPurchasing = false
         }
     }
+
+    private func restorePurchases() {
+        isPurchasing = true
+        purchaseError = nil
+
+        Task {
+            do {
+                try await subscriptionManager.restorePurchases()
+                showRestoreSuccess = true
+            } catch {
+                purchaseError = error.localizedDescription
+            }
+            isPurchasing = false
+        }
+    }
 }
 
 // MARK: - Annual Plan Card
@@ -207,6 +249,8 @@ private struct AnnualPlanCard: View {
     let isSelected: Bool
     let colorScheme: ColorScheme
     let package: Package?
+    let fallbackPrice: String?
+    let fallbackProduct: Product?
     let onSelect: () -> Void
     let onPurchase: () -> Void
 
@@ -221,10 +265,26 @@ private struct AnnualPlanCard: View {
         return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
     }
 
+    /// Calculate monthly equivalent from StoreKit fallback
+    private var storeKitMonthlyEquivalent: String {
+        guard let product = fallbackProduct else { return "" }
+        let price = product.price
+        let monthlyPrice = price / 12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = product.priceFormatStyle.locale
+        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+    }
+
     /// Calculate savings percentage vs monthly
     private var savingsText: String {
         // Family annual is ~$75/year vs ~$12.49/month ($150/year) = 50% savings
         return "50% off today"
+    }
+
+    /// Check if we have any price to display
+    private var hasPrice: Bool {
+        package != nil || fallbackPrice != nil
     }
 
     var body: some View {
@@ -243,7 +303,7 @@ private struct AnnualPlanCard: View {
                         }
                         .foregroundColor(AppTheme.vibrantTeal)
 
-                        // Price - dynamic from RevenueCat
+                        // Price - dynamic from RevenueCat or StoreKit fallback
                         VStack(alignment: .leading, spacing: 2) {
                             if let package {
                                 Text("\(monthlyEquivalent) / month")
@@ -252,6 +312,17 @@ private struct AnnualPlanCard: View {
                                     .textCase(.uppercase)
 
                                 Text("\(package.localizedPriceString) billed annually")
+                                    .font(.system(size: 14, weight: .regular))
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .textCase(.uppercase)
+                            } else if let price = fallbackPrice {
+                                // StoreKit fallback
+                                Text("\(storeKitMonthlyEquivalent) / month")
+                                    .font(.system(size: 18, weight: .bold))
+                                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                    .textCase(.uppercase)
+
+                                Text("\(price) billed annually")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                     .textCase(.uppercase)
@@ -317,6 +388,7 @@ private struct MonthlyPlanCard: View {
     let isSelected: Bool
     let colorScheme: ColorScheme
     let package: Package?
+    let fallbackPrice: String?
     let onSelect: () -> Void
     let onPurchase: () -> Void
 
@@ -325,9 +397,15 @@ private struct MonthlyPlanCard: View {
             Button(action: onSelect) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 6) {
-                        // Price - dynamic from RevenueCat
+                        // Price - dynamic from RevenueCat or StoreKit fallback
                         if let package {
                             Text("\(package.localizedPriceString) / month")
+                                .font(.system(size: 18, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                                .textCase(.uppercase)
+                        } else if let price = fallbackPrice {
+                            // StoreKit fallback
+                            Text("\(price) / month")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                 .textCase(.uppercase)

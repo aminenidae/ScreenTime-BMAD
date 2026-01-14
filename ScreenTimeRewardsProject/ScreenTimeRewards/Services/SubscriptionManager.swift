@@ -11,6 +11,7 @@ import Combine
 import RevenueCat
 import CoreData
 import Security
+import StoreKit
 
 @MainActor
 final class SubscriptionManager: NSObject, ObservableObject {
@@ -38,6 +39,9 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     /// Whether RevenueCat has been configured
     @Published private(set) var isConfigured: Bool = false
+
+    /// StoreKit products fallback (when RevenueCat offerings unavailable)
+    @Published private(set) var storeKitProducts: [String: Product] = [:]
 
     // MARK: - Constants
 
@@ -109,6 +113,38 @@ final class SubscriptionManager: NSObject, ObservableObject {
             #endif
         } catch {
             print("[SubscriptionManager] Failed to load offerings: \(error)")
+        }
+
+        // Fallback to StoreKit if no offerings available
+        if currentOffering == nil || currentOffering?.availablePackages.isEmpty == true {
+            await loadStoreKitProductsFallback()
+        }
+    }
+
+    /// Fallback: Load products directly from StoreKit when RevenueCat offerings unavailable
+    private func loadStoreKitProductsFallback() async {
+        let productIDs: Set<String> = [
+            RevenueCatConfig.ProductID.soloMonthly,
+            RevenueCatConfig.ProductID.soloAnnual,
+            RevenueCatConfig.ProductID.individualMonthly,
+            RevenueCatConfig.ProductID.individualAnnual,
+            RevenueCatConfig.ProductID.familyMonthly,
+            RevenueCatConfig.ProductID.familyAnnual
+        ]
+
+        do {
+            let products = try await Product.products(for: productIDs)
+            for product in products {
+                storeKitProducts[product.id] = product
+            }
+            #if DEBUG
+            print("[SubscriptionManager] Loaded \(products.count) StoreKit products as fallback")
+            for product in products {
+                print("[SubscriptionManager]   - \(product.id): \(product.displayPrice)")
+            }
+            #endif
+        } catch {
+            print("[SubscriptionManager] StoreKit fallback failed: \(error)")
         }
     }
 
@@ -519,6 +555,42 @@ final class SubscriptionManager: NSObject, ObservableObject {
         }
 
         return result
+    }
+
+    // MARK: - StoreKit Fallback Helpers
+
+    /// Get StoreKit product (fallback when RevenueCat unavailable)
+    func storeKitProduct(for productID: String) -> Product? {
+        storeKitProducts[productID]
+    }
+
+    /// Get StoreKit product price string (fallback)
+    func storeKitPrice(for productID: String) -> String? {
+        storeKitProducts[productID]?.displayPrice
+    }
+
+    /// Get monthly price for a tier (StoreKit fallback)
+    func storeKitMonthlyPrice(for tier: SubscriptionTier) -> String? {
+        guard let productID = tier.monthlyProductID else { return nil }
+        return storeKitPrice(for: productID)
+    }
+
+    /// Get annual price for a tier (StoreKit fallback)
+    func storeKitAnnualPrice(for tier: SubscriptionTier) -> String? {
+        guard let productID = tier.annualProductID else { return nil }
+        return storeKitPrice(for: productID)
+    }
+
+    /// Get StoreKit product for a tier's monthly subscription
+    func storeKitMonthlyProduct(for tier: SubscriptionTier) -> Product? {
+        guard let productID = tier.monthlyProductID else { return nil }
+        return storeKitProduct(for: productID)
+    }
+
+    /// Get StoreKit product for a tier's annual subscription
+    func storeKitAnnualProduct(for tier: SubscriptionTier) -> Product? {
+        guard let productID = tier.annualProductID else { return nil }
+        return storeKitProduct(for: productID)
     }
 
     // MARK: - Firebase Family Management

@@ -59,16 +59,17 @@ struct LearningProgressCard: View {
                 if let token = learningAppTokens[linkedApp.logicalID], #available(iOS 15.2, *) {
                     Label(token)
                         .labelStyle(.iconOnly)
-                        .frame(width: 32, height: 32)
+                        .scaleEffect(2.0)
+                        .frame(width: 64, height: 64)
                         .clipShape(Circle())
                         .overlay(Circle().stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1))
                 } else {
                     Circle()
                         .fill(AppTheme.vibrantTeal.opacity(0.2))
-                        .frame(width: 32, height: 32)
+                        .frame(width: 64, height: 64)
                         .overlay(
                             Image(systemName: "book.fill")
-                                .font(.system(size: 14))
+                                .font(.system(size: 28))
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme))
                         )
                 }
@@ -127,7 +128,9 @@ struct LearningProgressCard: View {
                         Spacer()
                         Text("\(progress.used) / \(progress.required) MIN")
                             .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(.white)
+                            .foregroundColor(percentage < 0.5
+                                ? (colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal)
+                                : .white)
                             .padding(.trailing, 8)
                     }
                 }

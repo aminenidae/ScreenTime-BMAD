@@ -526,7 +526,7 @@ struct RewardAppDetailView: View {
 
                         Text("\(linkedApp.minutesRequired) MIN")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal)
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(AppTheme.vibrantTeal.opacity(0.15))

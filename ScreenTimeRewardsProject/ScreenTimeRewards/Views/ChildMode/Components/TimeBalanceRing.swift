@@ -1,31 +1,38 @@
 import SwiftUI
 
 /// Animated circular ring showing reward time balance
-/// Displays remaining time as a depleting ring (full = all time available)
+/// Displays available time as a filling ring (full = time available)
 struct TimeBalanceRing: View {
-    let earnedMinutes: Int
-    let usedMinutes: Int
+    let availableMinutes: Int   // Cumulative available (rollover + today)
+    let todayEarned: Int        // Today's earned (for progress calculation)
 
     @Environment(\.colorScheme) var colorScheme
     @State private var animatedProgress: Double = 0
 
-    // Design colors
-    
-    
-    
-    
-
-    private var remainingMinutes: Int {
-        max(earnedMinutes - usedMinutes, 0)
+    // Backward compatibility initializer
+    init(availableMinutes: Int, todayEarned: Int) {
+        self.availableMinutes = availableMinutes
+        self.todayEarned = todayEarned
     }
 
+    // Legacy initializer for backward compatibility
+    init(earnedMinutes: Int, usedMinutes: Int) {
+        self.availableMinutes = max(earnedMinutes - usedMinutes, 0)
+        self.todayEarned = earnedMinutes
+    }
+
+    // Design colors
+
     private var progress: Double {
-        guard earnedMinutes > 0 else { return 0 }
-        return Double(remainingMinutes) / Double(earnedMinutes)
+        // Show full ring if there's any available time, proportional otherwise
+        // Use a 60-minute reference as "full" for meaningful progress display
+        let reference = max(todayEarned, 60)
+        guard reference > 0 else { return availableMinutes > 0 ? 1.0 : 0.0 }
+        return min(1.0, Double(availableMinutes) / Double(reference))
     }
 
     private var isLowBalance: Bool {
-        remainingMinutes > 0 && remainingMinutes < 5
+        availableMinutes > 0 && availableMinutes < 5
     }
 
     var body: some View {
@@ -54,15 +61,15 @@ struct TimeBalanceRing: View {
                     .font(.system(size: 24))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
 
-                // Balance amount
-                Text("\(remainingMinutes)")
+                // Balance amount (cumulative available)
+                Text("\(availableMinutes)")
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .contentTransition(.numericText())
-                    .animation(.spring(response: 0.4), value: remainingMinutes)
+                    .animation(.spring(response: 0.4), value: availableMinutes)
 
                 // Label
-                Text("MIN LEFT")
+                Text("MIN AVAILABLE")
                     .font(.system(size: 11, weight: .medium))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))

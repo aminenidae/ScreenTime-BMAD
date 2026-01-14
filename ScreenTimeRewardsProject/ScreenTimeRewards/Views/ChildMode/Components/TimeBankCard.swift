@@ -1,35 +1,34 @@
 import SwiftUI
 
 /// Hero card displaying the child's reward time "bank balance"
-/// Shows earned, used, and remaining time in a playful wallet metaphor
+/// Shows earned/used for today, with cumulative available balance in the ring
 struct TimeBankCard: View {
-    let earnedMinutes: Int
-    let usedMinutes: Int
+    let earnedMinutes: Int      // Today's earned
+    let usedMinutes: Int        // Today's used
+    let availableMinutes: Int   // Cumulative available (rollover + today)
 
     @Environment(\.colorScheme) var colorScheme
     @State private var isAnimating = false
 
-    // Design colors
-    
-    
-    
-    
-
-    private var remainingMinutes: Int {
-        max(earnedMinutes - usedMinutes, 0)
+    // Convenience initializer for backward compatibility
+    init(earnedMinutes: Int, usedMinutes: Int, availableMinutes: Int? = nil) {
+        self.earnedMinutes = earnedMinutes
+        self.usedMinutes = usedMinutes
+        // If no cumulative available provided, fall back to today's remaining
+        self.availableMinutes = availableMinutes ?? max(earnedMinutes - usedMinutes, 0)
     }
+
+    // Design colors
 
     var body: some View {
         VStack(spacing: 16) {
             // Header
             headerSection
 
-            // Balance Ring
-            // Note: TimeBalanceRing might need update too, but for now we keep it
-            // Assuming TimeBalanceRing handles its own colors or we can pass them if modified
+            // Balance Ring - shows cumulative available minutes
             TimeBalanceRing(
-                earnedMinutes: earnedMinutes,
-                usedMinutes: usedMinutes
+                availableMinutes: availableMinutes,
+                todayEarned: earnedMinutes
             )
 
             // Breakdown chips
@@ -158,4 +157,13 @@ struct TimeBankCard: View {
     .padding()
     .background(AppTheme.background(for: .dark))
     .preferredColorScheme(.dark)
+}
+
+#Preview("Cumulative Balance") {
+    // Today: 0 earned, 0 used, but 20 min available from previous days
+    VStack {
+        TimeBankCard(earnedMinutes: 0, usedMinutes: 0, availableMinutes: 20)
+    }
+    .padding()
+    .background(AppTheme.background(for: .light))
 }

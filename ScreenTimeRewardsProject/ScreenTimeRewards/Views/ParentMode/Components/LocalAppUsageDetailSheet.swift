@@ -224,10 +224,8 @@ private struct LearningAppRow: View {
             // App icon using FamilyControls Label
             appIconView
 
-            Text(displayName)
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .lineLimit(1)
+            // App name - use token's label for accurate name on child device
+            appNameView
 
             Spacer()
 
@@ -268,6 +266,22 @@ private struct LearningAppRow: View {
                 )
         }
     }
+
+    @ViewBuilder
+    private var appNameView: some View {
+        if #available(iOS 15.2, *) {
+            Label(snapshot.token)
+                .labelStyle(.titleOnly)
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .lineLimit(1)
+        } else {
+            Text(displayName)
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .lineLimit(1)
+        }
+    }
 }
 
 // MARK: - Reward App Row
@@ -295,10 +309,8 @@ private struct RewardAppRow: View {
             // App icon using FamilyControls Label
             appIconView
 
-            Text(displayName)
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .lineLimit(1)
+            // App name - use token's label for accurate name on child device
+            appNameView
 
             Spacer()
 
@@ -337,6 +349,22 @@ private struct RewardAppRow: View {
                     Image(systemName: "gamecontroller.fill")
                         .foregroundColor(categoryColor)
                 )
+        }
+    }
+
+    @ViewBuilder
+    private var appNameView: some View {
+        if #available(iOS 15.2, *) {
+            Label(snapshot.token)
+                .labelStyle(.titleOnly)
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .lineLimit(1)
+        } else {
+            Text(displayName)
+                .font(.headline)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                .lineLimit(1)
         }
     }
 }

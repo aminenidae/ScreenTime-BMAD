@@ -229,6 +229,75 @@ final class UsagePersistence {
         cachedApps
     }
 
+    // MARK: - Historical Data Access
+
+    /// Get yesterday's usage summary for an app
+    /// Returns nil if no data exists for yesterday
+    func getYesterdayUsageSummary(for logicalID: LogicalAppID) -> DailyUsageSummary? {
+        guard let app = cachedApps[logicalID] else { return nil }
+
+        let calendar = Calendar.current
+        guard let yesterday = calendar.date(byAdding: .day, value: -1, to: calendar.startOfDay(for: Date())) else {
+            return nil
+        }
+
+        return app.dailyHistory.first { calendar.isDate($0.date, inSameDayAs: yesterday) }
+    }
+
+    /// Get aggregate yesterday's data for multiple apps
+    /// Returns tuple of (totalSeconds, totalPoints) for all apps combined
+    func getYesterdayTotals(for logicalIDs: [LogicalAppID]) -> (seconds: Int, points: Int) {
+        var totalSeconds = 0
+        var totalPoints = 0
+
+        for logicalID in logicalIDs {
+            if let summary = getYesterdayUsageSummary(for: logicalID) {
+                totalSeconds += summary.seconds
+                totalPoints += summary.points
+            }
+        }
+
+        return (totalSeconds, totalPoints)
+    }
+
+    /// Calculate cumulative remaining minutes from all historical data (excluding today)
+    /// Formula: sum of (learning app minutes) - sum of (reward app minutes) across all days in history
+    /// - Parameters:
+    ///   - learningIDs: LogicalIDs of learning apps (contribute to earned)
+    ///   - rewardIDs: LogicalIDs of reward apps (contribute to used)
+    /// - Returns: Historical remaining minutes (can be negative if overspent historically)
+    func getHistoricalRemainingMinutes(learningIDs: [LogicalAppID], rewardIDs: [LogicalAppID]) -> Int {
+        var totalEarnedSeconds = 0
+        var totalUsedSeconds = 0
+
+        // Sum all historical learning app usage (earned time)
+        for logicalID in learningIDs {
+            if let app = cachedApps[logicalID] {
+                for summary in app.dailyHistory {
+                    totalEarnedSeconds += summary.seconds
+                }
+            }
+        }
+
+        // Sum all historical reward app usage (used time)
+        for logicalID in rewardIDs {
+            if let app = cachedApps[logicalID] {
+                for summary in app.dailyHistory {
+                    totalUsedSeconds += summary.seconds
+                }
+            }
+        }
+
+        let earnedMinutes = totalEarnedSeconds / 60
+        let usedMinutes = totalUsedSeconds / 60
+
+        #if DEBUG
+        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m, used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
+        #endif
+
+        return earnedMinutes - usedMinutes
+    }
+
     /// Reload cached apps from shared defaults, returning the latest snapshot.
     func reloadAppsFromDisk() -> [LogicalAppID: PersistedApp] {
         cachedApps = UsagePersistence.decodeApps(from: userDefaults, key: persistedAppsKey)

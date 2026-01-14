@@ -58,8 +58,31 @@ private struct ShieldTheme {
     let backgroundColor: UIColor
     let iconName: String
     let title: String
+    let titleColor: UIColor
+    let subtitleColor: UIColor
     let primaryButtonLabel: String
     let primaryButtonColor: UIColor
+    let primaryButtonTextColor: UIColor
+
+    init(
+        backgroundColor: UIColor,
+        iconName: String,
+        title: String,
+        titleColor: UIColor = .white,
+        subtitleColor: UIColor = UIColor.white.withAlphaComponent(0.9),
+        primaryButtonLabel: String,
+        primaryButtonColor: UIColor,
+        primaryButtonTextColor: UIColor = .white
+    ) {
+        self.backgroundColor = backgroundColor
+        self.iconName = iconName
+        self.title = title
+        self.titleColor = titleColor
+        self.subtitleColor = subtitleColor
+        self.primaryButtonLabel = primaryButtonLabel
+        self.primaryButtonColor = primaryButtonColor
+        self.primaryButtonTextColor = primaryButtonTextColor
+    }
 }
 
 /// Custom shield configuration that matches the app's theme
@@ -68,8 +91,11 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     // MARK: - Theme Colors
 
-    /// Vibrant Teal - For learning goal blocking (#00A6A6)
+    /// Vibrant Teal - For learning goal button (#00A6A6)
     private let vibrantTeal = UIColor(red: 0, green: 0.651, blue: 0.651, alpha: 1)
+
+    /// Light Cream - Soft matte background for learning goal (#F5F3E1)
+    private let lightCream = UIColor(red: 0.961, green: 0.953, blue: 0.882, alpha: 1)
 
     /// Learning Peach - Button color for learning (#FFB4A3)
     private let learningPeach = UIColor(red: 1.0, green: 0.706, blue: 0.639, alpha: 1)
@@ -90,11 +116,14 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     private var learningGoalTheme: ShieldTheme {
         ShieldTheme(
-            backgroundColor: vibrantTeal.withAlphaComponent(0.95),
-            iconName: "book.fill",
+            backgroundColor: lightCream,
+            iconName: "ShieldLockIcon",  // Custom cute lock icon
             title: "Learning Time First!",
+            titleColor: UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1),  // Dark gray for contrast
+            subtitleColor: UIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 0.9),  // Slightly lighter
             primaryButtonLabel: "OK",
-            primaryButtonColor: learningPeach
+            primaryButtonColor: vibrantTeal,
+            primaryButtonTextColor: .white  // White text on teal button
         )
     }
 
@@ -211,25 +240,11 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     /// Generate message for learning goal blocking
     private func generateLearningGoalMessage(info: AppBlockingInfo, context: String) -> String {
-        guard let target = info.learningTargetMinutes,
-              let current = info.learningCurrentMinutes else {
+        guard let target = info.learningTargetMinutes else {
             return "Complete your learning goal to unlock this \(context)."
         }
 
-        let remaining = max(0, target - current)
-
-        if remaining == 0 {
-            return "Great job! You've completed your learning goal!"
-        } else if remaining == target {
-            // No progress yet
-            return "Complete \(target) minutes of learning to unlock this \(context). Let's get started!"
-        } else if remaining <= 5 {
-            // Almost there
-            return "Almost there! Just \(remaining) more minutes to go!"
-        } else {
-            // In progress
-            return "You need \(remaining) more minutes. You've done \(current) so far!"
-        }
+        return "Complete \(target) minutes on your learning apps to unlock this app. Let's get started!"
     }
 
     /// Generate message for daily limit reached
@@ -291,6 +306,16 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     // MARK: - Shield Configuration Builder
 
+    /// Load icon image - tries asset catalog first, then falls back to SF Symbol
+    private func loadIcon(named name: String) -> UIImage? {
+        // First try loading from asset catalog (for custom icons)
+        if let assetImage = UIImage(named: name) {
+            return assetImage
+        }
+        // Fall back to SF Symbol
+        return UIImage(systemName: name)
+    }
+
     /// Build a shield configuration with the given theme and message
     private func buildConfiguration(
         theme: ShieldTheme,
@@ -300,18 +325,18 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         return ShieldConfiguration(
             backgroundBlurStyle: .systemUltraThinMaterial,
             backgroundColor: theme.backgroundColor,
-            icon: UIImage(systemName: iconOverride ?? theme.iconName),
+            icon: loadIcon(named: iconOverride ?? theme.iconName),
             title: ShieldConfiguration.Label(
                 text: theme.title,
-                color: .white
+                color: theme.titleColor
             ),
             subtitle: ShieldConfiguration.Label(
                 text: subtitle,
-                color: UIColor.white.withAlphaComponent(0.9)
+                color: theme.subtitleColor
             ),
             primaryButtonLabel: ShieldConfiguration.Label(
                 text: theme.primaryButtonLabel,
-                color: .white
+                color: theme.primaryButtonTextColor
             ),
             primaryButtonBackgroundColor: theme.primaryButtonColor
         )

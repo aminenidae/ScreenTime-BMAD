@@ -75,7 +75,7 @@ struct LearningAppListSection: View {
                 // Icon
                 Image(systemName: "book.fill")
                     .font(.system(size: 18))
-                    .foregroundColor(AppTheme.lightCream)
+                    .foregroundColor(colorScheme == .light ? AppTheme.vibrantTeal : AppTheme.lightCream)
 
                 // Title
                 Text("LEARNING APPS")

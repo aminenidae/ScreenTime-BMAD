@@ -5,6 +5,7 @@
 
 import SwiftUI
 import RevenueCat
+import StoreKit
 
 struct SubscriptionPaywallView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
@@ -167,6 +168,11 @@ private extension SubscriptionPaywallView {
             ? subscriptionManager.monthlyPackage(for: tier)
             : subscriptionManager.annualPackage(for: tier)
 
+        // StoreKit fallback price when RevenueCat unavailable
+        let fallbackPrice: String? = selectedBillingPeriod == .monthly
+            ? subscriptionManager.storeKitMonthlyPrice(for: tier)
+            : subscriptionManager.storeKitAnnualPrice(for: tier)
+
         return Button {
             selectedTier = tier
         } label: {
@@ -205,6 +211,23 @@ private extension SubscriptionPaywallView {
 
                         if selectedBillingPeriod == .annual {
                             Text(monthlyEquivalent(for: package))
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                    } else if let price = fallbackPrice {
+                        // StoreKit fallback when RevenueCat offerings unavailable
+                        HStack(alignment: .lastTextBaseline, spacing: 4) {
+                            Text(price)
+                                .font(.system(size: 28, weight: .bold))
+                                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+                            Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                                .font(.system(size: 14))
+                                .foregroundColor(.secondary)
+                        }
+
+                        if selectedBillingPeriod == .annual, let product = subscriptionManager.storeKitAnnualProduct(for: tier) {
+                            Text(storeKitMonthlyEquivalent(for: product))
                                 .font(.system(size: 12))
                                 .foregroundColor(.secondary)
                         }
@@ -261,6 +284,18 @@ private extension SubscriptionPaywallView {
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
+            return "Just \(formatted)/month"
+        }
+        return ""
+    }
+
+    func storeKitMonthlyEquivalent(for product: Product) -> String {
+        let price = product.price
+        let monthlyPrice = price / 12
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = product.priceFormatStyle.locale
         if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
             return "Just \(formatted)/month"
         }

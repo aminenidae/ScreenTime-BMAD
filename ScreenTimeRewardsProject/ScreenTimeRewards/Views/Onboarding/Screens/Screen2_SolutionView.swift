@@ -26,8 +26,8 @@ struct Screen2_SolutionView: View {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
-    /// Delay between each step animation (in seconds)
-    private let stepAnimationDelay: Double = 1.0
+    /// Cumulative delays for each card: 0s, 1.0s, 2.5s, 4.5s, 6.5s
+    private let cardAnimationDelays: [Double] = [0.0, 1.0, 2.5, 4.5, 6.5]
 
     private let steps: [SolutionStepCard] = [
         SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree On A Goal", subtitle: "Parent & Child Discuss Learning Targets"),
@@ -122,13 +122,13 @@ struct Screen2_SolutionView: View {
         }
     }
 
-    /// Starts the staggered step animations with 2-second delays
+    /// Starts the staggered step animations with custom delays per card
     private func startStepAnimations() {
         guard !animationStarted else { return }
         animationStarted = true
 
         for step in steps {
-            let delay = Double(step.id) * stepAnimationDelay
+            let delay = cardAnimationDelays[step.id]
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                     _ = visibleSteps.insert(step.id)
