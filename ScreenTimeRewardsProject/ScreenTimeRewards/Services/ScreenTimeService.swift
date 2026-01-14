@@ -1818,6 +1818,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 continue
             }
 
+            // Check if app is currently shielded - skip recording shield time as usage
+            if isLogicalIDShielded(logicalID) {
+                NSLog("[Snapshot] \(bundleID): SHIELDED - skipping (shield time, not real usage)")
+                skippedCount += 1
+                continue
+            }
+
             guard let persistedApp = usagePersistence.app(for: logicalID) else {
                 NSLog("[ScreenTimeService] ⚠️ No persisted app found for: \(logicalID)")
                 continue
@@ -2603,6 +2610,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Get currently shielded tokens (for BlockingCoordinator refresh)
     func getCurrentlyShieldedTokens() -> Set<ApplicationToken> {
         return currentlyShielded
+    }
+
+    /// Check if a logical ID corresponds to a currently shielded app
+    private func isLogicalIDShielded(_ logicalID: String) -> Bool {
+        for token in currentlyShielded {
+            if getLogicalID(for: token) == logicalID {
+                return true
+            }
+        }
+        return false
     }
 
     /// Clear all shields
