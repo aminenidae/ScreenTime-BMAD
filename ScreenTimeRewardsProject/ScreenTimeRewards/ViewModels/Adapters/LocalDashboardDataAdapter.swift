@@ -105,6 +105,10 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
         viewModel.totalStreakBonusMinutes
     }
 
+    var availableMinutes: Int {
+        viewModel.cumulativeAvailableMinutes
+    }
+
     // MARK: - Streaks
 
     private var deviceID: String {

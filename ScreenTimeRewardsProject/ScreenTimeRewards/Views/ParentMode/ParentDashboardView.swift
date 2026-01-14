@@ -35,7 +35,8 @@ struct ParentDashboardView: View {
                         // Section 2: Time Bank
                         TimeBankCard(
                             earnedMinutes: dataAdapter.earnedMinutes + dataAdapter.streakBonusMinutes,
-                            usedMinutes: dataAdapter.usedMinutes
+                            usedMinutes: dataAdapter.usedMinutes,
+                            availableMinutes: dataAdapter.availableMinutes
                         )
 
                         // Section 3: Streaks Summary

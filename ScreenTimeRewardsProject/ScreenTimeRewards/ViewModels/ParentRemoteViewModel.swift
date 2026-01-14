@@ -258,6 +258,7 @@ struct DailySnapshotDTO: Identifiable {
     let totalEarnedMinutes: Int
     let totalLearningSeconds: Int
     let totalRewardSeconds: Int
+    let cumulativeAvailableMinutes: Int  // Rollover + today's remaining
     let syncTimestamp: Date?
 
     /// Create from a CloudKit record
@@ -267,6 +268,7 @@ struct DailySnapshotDTO: Identifiable {
         self.totalEarnedMinutes = record["CD_totalEarnedMinutes"] as? Int ?? 0
         self.totalLearningSeconds = record["CD_totalLearningSeconds"] as? Int ?? 0
         self.totalRewardSeconds = record["CD_totalRewardSeconds"] as? Int ?? 0
+        self.cumulativeAvailableMinutes = record["CD_cumulativeAvailableMinutes"] as? Int ?? 0
         self.syncTimestamp = record["CD_syncTimestamp"] as? Date
     }
 }

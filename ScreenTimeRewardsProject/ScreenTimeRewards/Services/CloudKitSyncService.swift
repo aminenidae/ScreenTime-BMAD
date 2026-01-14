@@ -3056,8 +3056,17 @@ class CloudKitSyncService: ObservableObject {
         // Get earned minutes from BlockingCoordinator using logicalIDs
         let totalEarnedMinutes = BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: rewardLogicalIDs)
 
+        // Calculate cumulative available minutes (rollover + today's remaining)
+        let learningLogicalIDs = allApps.filter { $0.value.category == "Learning" }.map { $0.key }
+        let historicalRemaining = ScreenTimeService.shared.usagePersistence.getHistoricalRemainingMinutes(
+            learningIDs: learningLogicalIDs,
+            rewardIDs: rewardLogicalIDs
+        )
+        let todayRemaining = totalEarnedMinutes - (totalRewardSeconds / 60)
+        let cumulativeAvailableMinutes = max(0, historicalRemaining + todayRemaining)
+
         #if DEBUG
-        print("[CloudKitSyncService] 📊 Daily Snapshot: learning=\(totalLearningSeconds)s, reward=\(totalRewardSeconds)s, earned=\(totalEarnedMinutes)m")
+        print("[CloudKitSyncService] 📊 Daily Snapshot: learning=\(totalLearningSeconds)s, reward=\(totalRewardSeconds)s, earned=\(totalEarnedMinutes)m, available=\(cumulativeAvailableMinutes)m")
         #endif
 
         // Create or update snapshot record
@@ -3069,6 +3078,7 @@ class CloudKitSyncService: ObservableObject {
         snapshot["CD_totalEarnedMinutes"] = totalEarnedMinutes as CKRecordValue
         snapshot["CD_totalLearningSeconds"] = totalLearningSeconds as CKRecordValue
         snapshot["CD_totalRewardSeconds"] = totalRewardSeconds as CKRecordValue
+        snapshot["CD_cumulativeAvailableMinutes"] = cumulativeAvailableMinutes as CKRecordValue
         snapshot["CD_syncTimestamp"] = Date() as CKRecordValue
 
         do {

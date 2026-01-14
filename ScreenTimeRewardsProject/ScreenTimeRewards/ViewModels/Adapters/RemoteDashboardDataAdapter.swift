@@ -118,6 +118,11 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
         return completedCycles * AppStreakSettings.defaultSettings.bonusValue
     }
 
+    var availableMinutes: Int {
+        // Use cumulative available from synced daily snapshot (includes rollover)
+        viewModel.childDailySnapshot?.cumulativeAvailableMinutes ?? 0
+    }
+
     // MARK: - Streaks
 
     var currentStreak: Int {
