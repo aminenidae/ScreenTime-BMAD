@@ -105,7 +105,7 @@ class BlockingCoordinator: ObservableObject {
             decision.usedMinutes = limitCheck.usedMinutes
         }
 
-        // 3. Check Learning Goal (Priority 3 - Lowest)
+        // 3. Check Learning Goal (Priority 3)
         let learningCheck = checkLearningGoal(logicalID: logicalID)
         if !learningCheck.isGoalMet {
             activeReasons.insert(.learningGoal)
@@ -113,10 +113,20 @@ class BlockingCoordinator: ObservableObject {
             decision.learningCurrentMinutes = learningCheck.currentMinutes
         }
 
+        // 4. Check Available Minutes (Priority 4 - block if no time in bank)
+        // Only relevant if learning goal IS met (otherwise learning goal is the blocking reason)
+        if learningCheck.isGoalMet {
+            let availableCheck = checkAvailableMinutes()
+            if availableCheck.hasNoTimeAvailable {
+                activeReasons.insert(.rewardTimeExpired)
+            }
+        }
+
         // Determine if blocked (any active reason)
         let shouldBlock = !activeReasons.isEmpty
 
         // Determine primary reason (highest priority)
+        // Priority: downtime (1) > dailyLimit (2) > learningGoal (3) > rewardTimeExpired (4)
         var primaryReason: BlockingReasonType?
         if activeReasons.contains(.downtime) {
             primaryReason = .downtime
@@ -124,6 +134,8 @@ class BlockingCoordinator: ObservableObject {
             primaryReason = .dailyLimitReached
         } else if activeReasons.contains(.learningGoal) {
             primaryReason = .learningGoal
+        } else if activeReasons.contains(.rewardTimeExpired) {
+            primaryReason = .rewardTimeExpired
         }
 
         return BlockingDecision(
@@ -599,6 +611,56 @@ class BlockingCoordinator: ObservableObject {
         return 0
     }
 
+    // MARK: - Available Minutes Check
+
+    private struct AvailableMinutesCheckResult {
+        let hasNoTimeAvailable: Bool
+        let cumulativeAvailable: Int
+    }
+
+    /// Check if cumulative available reward minutes is exhausted
+    /// Uses historical balance (with rollover) + today's earned minutes
+    private func checkAvailableMinutes() -> AvailableMinutesCheckResult {
+        guard let service = screenTimeService else {
+            return AvailableMinutesCheckResult(hasNoTimeAvailable: false, cumulativeAvailable: 0)
+        }
+
+        // Collect learning and reward app logical IDs
+        var learningIDs: [String] = []
+        var rewardIDs: [String] = []
+
+        for (token, category) in service.categoryAssignments {
+            if let logicalID = service.getLogicalID(for: token) {
+                if category == .learning {
+                    learningIDs.append(logicalID)
+                } else if category == .reward {
+                    rewardIDs.append(logicalID)
+                }
+            }
+        }
+
+        // Use UsagePersistence to get CUMULATIVE balance (includes historical rollover)
+        let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
+            learningIDs: learningIDs,
+            rewardIDs: rewardIDs
+        )
+
+        // Add today's earned (from learning goal checks)
+        let todayEarned = getTotalEarnedRewardMinutes(for: currentRewardTokens)
+
+        // Calculate cumulative available
+        let cumulativeAvailable = historicalRemaining + todayEarned
+
+        #if DEBUG
+        print("[BlockingCoordinator] 💰 Available minutes check: historical=\(historicalRemaining), todayEarned=\(todayEarned), cumulative=\(cumulativeAvailable)")
+        #endif
+
+        return AvailableMinutesCheckResult(
+            hasNoTimeAvailable: cumulativeAvailable <= 0,
+            cumulativeAvailable: cumulativeAvailable
+        )
+    }
+
     // MARK: - Sync All Reward Apps
 
     /// Sync blocking state for all reward apps
@@ -795,9 +857,13 @@ class BlockingCoordinator: ObservableObject {
             )
 
         case .rewardTimeExpired:
-            // This case is handled directly in AppUsageViewModel.consumeReservedPoints()
-            // when reward time expires, not through BlockingCoordinator evaluation
-            break
+            // Get total used minutes from reward apps for display context
+            let availableCheck = checkAvailableMinutes()
+            let usedMinutes = max(0, -availableCheck.cumulativeAvailable) // Show how much over budget
+            blockingReasonService.setRewardTimeExpiredBlocking(
+                token: token,
+                usedMinutes: usedMinutes
+            )
         }
 
         #if DEBUG

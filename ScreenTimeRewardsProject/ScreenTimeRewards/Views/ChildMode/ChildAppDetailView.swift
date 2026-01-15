@@ -93,16 +93,7 @@ struct ChildAppDetailView: View {
                         totalDailyLimit: dailyLimit
                     )
 
-                    // 2. Learning Progress (Most Important!)
-                    LearningProgressCard(
-                        linkedLearningApps: linkedLearningApps,
-                        learningProgress: learningProgress,
-                        learningAppTokens: learningAppTokens,
-                        unlockMode: unlockMode,
-                        isUnlocked: isUnlocked
-                    )
-
-                    // 3. Streak Progress (if enabled for this app)
+                    // 2. Streak Progress (if enabled for this app)
                     if let streakData = streakData, let settings = streakSettings {
                         ChildAppStreakCard(
                             currentStreak: streakData.current,
@@ -114,6 +105,15 @@ struct ChildAppDetailView: View {
                             potentialBonus: potentialBonusMinutes
                         )
                     }
+
+                    // 3. Unlock Requirements (Learning Progress)
+                    LearningProgressCard(
+                        linkedLearningApps: linkedLearningApps,
+                        learningProgress: learningProgress,
+                        learningAppTokens: learningAppTokens,
+                        unlockMode: unlockMode,
+                        isUnlocked: isUnlocked
+                    )
 
                     // 4. Time Bank Visualization
                     if isUnlocked {
