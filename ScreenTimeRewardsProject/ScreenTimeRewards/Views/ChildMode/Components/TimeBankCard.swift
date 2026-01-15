@@ -1,0 +1,169 @@
+import SwiftUI
+
+/// Hero card displaying the child's reward time "bank balance"
+/// Shows earned/used for today, with cumulative available balance in the ring
+struct TimeBankCard: View {
+    let earnedMinutes: Int      // Today's earned
+    let usedMinutes: Int        // Today's used
+    let availableMinutes: Int   // Cumulative available (rollover + today)
+
+    @Environment(\.colorScheme) var colorScheme
+    @State private var isAnimating = false
+
+    // Convenience initializer for backward compatibility
+    init(earnedMinutes: Int, usedMinutes: Int, availableMinutes: Int? = nil) {
+        self.earnedMinutes = earnedMinutes
+        self.usedMinutes = usedMinutes
+        // If no cumulative available provided, fall back to today's remaining
+        self.availableMinutes = availableMinutes ?? max(earnedMinutes - usedMinutes, 0)
+    }
+
+    // Design colors
+
+    var body: some View {
+        VStack(spacing: 16) {
+            // Header
+            headerSection
+
+            // Balance Ring - shows cumulative available minutes
+            TimeBalanceRing(
+                availableMinutes: availableMinutes,
+                todayEarned: earnedMinutes
+            )
+
+            // Breakdown chips
+            breakdownSection
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.card(for: colorScheme))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.1), lineWidth: 1)
+                )
+        )
+        .onAppear {
+            withAnimation(.easeOut(duration: 0.6)) {
+                isAnimating = true
+            }
+        }
+    }
+
+    // MARK: - Subviews
+
+    private var headerSection: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "banknote.fill")
+                .font(.system(size: 18))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                .rotationEffect(.degrees(isAnimating ? 0 : -10))
+                .animation(.spring(response: 0.5, dampingFraction: 0.6).delay(0.3), value: isAnimating)
+
+            Text("TIME BANK")
+                .font(.system(size: 14, weight: .semibold))
+                .tracking(1.5)
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+
+            Spacer()
+        }
+    }
+
+    private var breakdownSection: some View {
+        HStack(spacing: 16) {
+            // Earned chip
+            balanceChip(
+                value: earnedMinutes,
+                label: "EARNED",
+                color: AppTheme.vibrantTeal
+            )
+
+            // Divider
+            Text("-")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+            // Used chip
+            balanceChip(
+                value: usedMinutes,
+                label: "USED",
+                color: AppTheme.playfulCoral
+            )
+        }
+        .scaleEffect(isAnimating ? 1 : 0.9)
+        .opacity(isAnimating ? 1 : 0)
+        .animation(.spring(response: 0.5, dampingFraction: 0.7).delay(0.4), value: isAnimating)
+    }
+
+    @ViewBuilder
+    private func balanceChip(value: Int, label: String, color: Color) -> some View {
+        // In dark mode, use cream for better visibility on teal backgrounds
+        let textColor = (colorScheme == .dark && label == "EARNED") ? AppTheme.lightCream : color
+
+        VStack(spacing: 4) {
+            Text("\(value)")
+                .font(.system(size: 32, weight: .bold))
+                .foregroundColor(textColor)
+
+            Text("MIN \(label)")
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1)
+                .foregroundColor(textColor.opacity(0.8))
+        }
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(
+            Capsule()
+                .fill(color.opacity(0.1))
+                .overlay(
+                    Capsule()
+                        .strokeBorder(color.opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
+}
+
+// MARK: - Preview
+
+#Preview("Full Balance") {
+    VStack {
+        TimeBankCard(earnedMinutes: 45, usedMinutes: 0)
+    }
+    .padding()
+    .background(AppTheme.background(for: .light))
+}
+
+#Preview("Partial Balance") {
+    VStack {
+        TimeBankCard(earnedMinutes: 45, usedMinutes: 20)
+    }
+    .padding()
+    .background(AppTheme.background(for: .light))
+}
+
+#Preview("Low Balance") {
+    VStack {
+        TimeBankCard(earnedMinutes: 45, usedMinutes: 42)
+    }
+    .padding()
+    .background(AppTheme.background(for: .light))
+}
+
+#Preview("Dark Mode") {
+    VStack {
+        TimeBankCard(earnedMinutes: 45, usedMinutes: 20)
+    }
+    .padding()
+    .background(AppTheme.background(for: .dark))
+    .preferredColorScheme(.dark)
+}
+
+#Preview("Cumulative Balance") {
+    // Today: 0 earned, 0 used, but 20 min available from previous days
+    VStack {
+        TimeBankCard(earnedMinutes: 0, usedMinutes: 0, availableMinutes: 20)
+    }
+    .padding()
+    .background(AppTheme.background(for: .light))
+}

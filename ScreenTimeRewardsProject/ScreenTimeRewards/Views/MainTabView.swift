@@ -1,23 +1,174 @@
 import SwiftUI
+import FamilyControls
 
 struct MainTabView: View {
-    var body: some View {
-        TabView {
-            RewardsTabView()
-                .tabItem {
-                    Label("Rewards", systemImage: "gamecontroller.fill")
-                }
+    @EnvironmentObject var viewModel: AppUsageViewModel
+    var isParentMode: Bool = false
+    @EnvironmentObject var sessionManager: SessionManager
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @AppStorage("hasCompletedChildOnboarding") private var hasCompletedOnboarding = false
+    @State private var selectedTab = 0
 
-            LearningTabView()
-                .tabItem {
-                    Label("Learning", systemImage: "book.fill")
+    // TutorialModeManager - use shared instance (not active outside tutorial, but needed for views)
+    @StateObject private var tutorialManager = TutorialModeManager.shared
+
+    var body: some View {
+        #if DEBUG
+        let _ = print("[MainTabView] Rendering with isParentMode: \(isParentMode)")
+        let _ = print("[MainTabView] sessionManager: \(sessionManager)")
+        #endif
+
+        if isParentMode {
+            parentModeView
+        } else {
+            childModeView
+        }
+    }
+
+    // MARK: - Parent Mode with Swipe Navigation
+    private var parentModeView: some View {
+        ZStack {
+            NavigationView {
+                VStack(spacing: 0) {
+                    // Swipeable pages
+                    TabView(selection: $selectedTab) {
+                        ParentDashboardView()
+                            .tag(0)
+
+                        LearningTabView()
+                            .tag(1)
+
+                        RewardsTabView()
+                            .tag(2)
+
+                        SettingsTabView()
+                            .tag(3)
+                    }
+                    .tabViewStyle(.page(indexDisplayMode: .never))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                    // Custom tab indicator at bottom
+                    ParentTabIndicator(selectedTab: $selectedTab)
                 }
+                .environmentObject(viewModel)
+                .environmentObject(tutorialManager)
+                .navigationViewStyle(.stack)
+                .navigationBarHidden(true)
+            }
+            .navigationViewStyle(.stack)
+            .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+            .onChange(of: viewModel.familySelection) { _ in
+                viewModel.onPickerSelectionChange()
+            }
+            .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+                if !isPresented {
+                    viewModel.onFamilyPickerDismissed()
+                }
+            }
+
+            HiddenUsageReportView()
+        }
+    }
+
+    // MARK: - Child Mode with Bottom Tab Bar
+    private var childModeView: some View {
+        ZStack {
+            NavigationView {
+                VStack(spacing: 0) {
+                    TabView {
+                        RewardsTabView()
+                            .tabItem {
+                                Label("Rewards", systemImage: "gamecontroller.fill")
+                            }
+                            .navigationTitle("Rewards")
+
+                        LearningTabView()
+                            .tabItem {
+                                Label("Learning", systemImage: "book.fill")
+                            }
+                            .navigationTitle("Learning")
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .environmentObject(viewModel)
+                .environmentObject(tutorialManager)
+                .navigationViewStyle(.stack)
+                .navigationBarTitleDisplayMode(.inline)
+            }
+            .navigationViewStyle(.stack)
+            .familyActivityPicker(isPresented: $viewModel.isFamilyPickerPresented, selection: $viewModel.familySelection)
+            .onChange(of: viewModel.familySelection) { _ in
+                viewModel.onPickerSelectionChange()
+            }
+            .onChange(of: viewModel.isFamilyPickerPresented) { isPresented in
+                if !isPresented {
+                    viewModel.onFamilyPickerDismissed()
+                }
+            }
+
+            HiddenUsageReportView()
         }
     }
 }
 
-struct MainTabView_Previews: PreviewProvider {
-    static var previews: some View {
-        MainTabView()
+// MARK: - Parent Tab Indicator
+struct ParentTabIndicator: View {
+    @Binding var selectedTab: Int
+    @EnvironmentObject var viewModel: AppUsageViewModel
+
+    private let tabs: [(String, String)] = [
+        ("Dashboard", "chart.bar.fill"),
+        ("Learning Apps", "book.fill"),
+        ("Reward Apps", "gift.fill"),
+        ("Settings", "gearshape.fill")
+    ]
+
+    @Environment(\.colorScheme) var colorScheme
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(0..<tabs.count, id: \.self) { index in
+                Button(action: {
+                    withAnimation(.spring(response: 0.3, dampingFraction: 0.7)) {
+                        selectedTab = index
+                    }
+                }) {
+                    VStack(spacing: 6) {
+                        // Wrap icon in ZStack for badge overlay
+                        ZStack(alignment: .topTrailing) {
+                            Image(systemName: tabs[index].1)
+                                .font(.system(size: 24, weight: .medium))
+                                .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                                .frame(width: 48, height: 48)
+
+                            // Show badge only for Settings tab (index 3)
+                            if index == 3 && viewModel.hasUnnamedApps {
+                                NotificationBadge()
+                                    .offset(x: 6, y: 8)
+                            }
+                        }
+
+                        Text(tabs[index].0)
+                            .font(.system(size: 12, weight: selectedTab == index ? .semibold : .regular))
+                            .foregroundColor(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : AppTheme.brandedText(for: colorScheme).opacity(0.5))
+
+                        // Active indicator
+                        RoundedRectangle(cornerRadius: 2)
+                            .fill(selectedTab == index ? AppTheme.brandedText(for: colorScheme) : Color.clear)
+                            .frame(height: 3)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea(edges: .bottom))
+        .overlay(
+            Rectangle()
+                .frame(height: 0.5)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.2)),
+            alignment: .top // Moved to top for separation
+        )
     }
 }

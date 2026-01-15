@@ -7,6 +7,9 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
+		432838612ED2977500B0EC3D /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
+		432838622ED2977500B0EC3D /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43575C3A2EA1D9BF00AA226E /* ManagedSettingsUI.framework */; };
+		4328386A2ED2977500B0EC3D /* ShieldConfigurationExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
 		43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
 		43E0F0082EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */; };
@@ -16,9 +19,29 @@
 		43E0F00D2EA0258700567890 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		43E0F0152EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */; };
 		43E0F0172EA0258700567890 /* ScreenTimeActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		43E1F0202F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */; };
+		43E1F0212F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */; };
+		43E1F0222F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */; };
+		43E1F0232F1A000100123450 /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
+		43E1F0242F1A000100123450 /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
+		43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
+		43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC484D2F12E73600E5D3AD /* RevenueCat */; };
+		43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48532F12E86700E5D3AD /* FirebaseAI */; };
+		43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48552F12E86700E5D3AD /* FirebaseAILogic */; };
+		43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48572F12E86700E5D3AD /* FirebaseAnalytics */; };
+		43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */; };
+		43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
+		432838682ED2977500B0EC3D /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 4368300B2E9F172A0058C9C1 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 4328385F2ED2977500B0EC3D;
+			remoteInfo = ShieldConfigurationExtension;
+		};
 		436830282E9F172B0058C9C1 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
 			containerPortal = 4368300B2E9F172A0058C9C1 /* Project object */;
@@ -43,6 +66,8 @@
 			dstSubfolderSpec = 13;
 			files = (
 				43E0F0172EA0258700567890 /* ScreenTimeActivityExtension.appex in Embed App Extensions */,
+				4328386A2ED2977500B0EC3D /* ShieldConfigurationExtension.appex in Embed App Extensions */,
+				43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -50,6 +75,7 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ShieldConfigurationExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		43575C3A2EA1D9BF00AA226E /* ManagedSettingsUI.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettingsUI.framework; path = System/Library/Frameworks/ManagedSettingsUI.framework; sourceTree = SDKROOT; };
 		436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenTimeRewards.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		436830272E9F172B0058C9C1 /* ScreenTimeRewardsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreenTimeRewardsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -60,9 +86,23 @@
 		43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift; sourceTree = SOURCE_ROOT; };
 		43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenTimeActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		43E0F00B2EA0258700567890 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = System/Library/Frameworks/ManagedSettings.framework; sourceTree = SDKROOT; };
+		43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenTimeReportExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/ScreenTimeReportExtension.swift; sourceTree = SOURCE_ROOT; };
+		43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/TotalActivityReport.swift; sourceTree = SOURCE_ROOT; };
+		43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/TotalActivityView.swift; sourceTree = SOURCE_ROOT; };
+		43E1F0052F1A000100123450 /* ScreenTimeReportExtension/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ScreenTimeReportExtension/Info.plist; sourceTree = SOURCE_ROOT; };
+		43E1F0062F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements; sourceTree = SOURCE_ROOT; };
+		43EC48692F136A8100E5D3AD /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Products.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		4328386E2ED2977500B0EC3D /* Exceptions for "ShieldConfigurationExtension" folder in "ShieldConfigurationExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */;
+		};
 		436830392E9F172B0058C9C1 /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeRewards" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -70,13 +110,45 @@
 			);
 			target = 436830122E9F172A0058C9C1 /* ScreenTimeRewards */;
 		};
+		43EC48442F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeActivityExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 43E0F0112EA0258700567890 /* ScreenTimeActivityExtension */;
+		};
+		43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 43E1F0132F1A000100123450 /* ScreenTimeReportExtension */;
+		};
+		43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				"GoogleService-Info.plist",
+			);
+			target = 4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */;
+		};
 /* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
+		432838632ED2977500B0EC3D /* ShieldConfigurationExtension */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				4328386E2ED2977500B0EC3D /* Exceptions for "ShieldConfigurationExtension" folder in "ShieldConfigurationExtension" target */,
+			);
+			path = ShieldConfigurationExtension;
+			sourceTree = "<group>";
+		};
 		436830152E9F172A0058C9C1 /* ScreenTimeRewards */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
 			exceptions = (
 				436830392E9F172B0058C9C1 /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeRewards" target */,
+				43EC48442F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeActivityExtension" target */,
+				43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */,
+				43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */,
 			);
 			path = ScreenTimeRewards;
 			sourceTree = "<group>";
@@ -94,12 +166,27 @@
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
+		4328385D2ED2977500B0EC3D /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				432838612ED2977500B0EC3D /* ManagedSettings.framework in Frameworks */,
+				432838622ED2977500B0EC3D /* ManagedSettingsUI.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		436830102E9F172A0058C9C1 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */,
 				43E0F00C2EA0258700567890 /* ManagedSettings.framework in Frameworks */,
 				43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */,
+				43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */,
+				43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */,
+				43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */,
+				43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */,
+				43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */,
 				43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -128,6 +215,16 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		43E1F0112F1A000100123450 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43E1F0232F1A000100123450 /* DeviceActivity.framework in Frameworks */,
+				43E1F0242F1A000100123450 /* FamilyControls.framework in Frameworks */,
+				43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -143,12 +240,15 @@
 		4368300A2E9F172A0058C9C1 = {
 			isa = PBXGroup;
 			children = (
+				43EC48692F136A8100E5D3AD /* Products.storekit */,
 				436830152E9F172A0058C9C1 /* ScreenTimeRewards */,
 				4368302A2E9F172B0058C9C1 /* ScreenTimeRewardsTests */,
 				436830342E9F172B0058C9C1 /* ScreenTimeRewardsUITests */,
+				432838632ED2977500B0EC3D /* ShieldConfigurationExtension */,
 				43DD71462E9F19B60066E06C /* Frameworks */,
 				436830142E9F172A0058C9C1 /* Products */,
 				435757372E9F4C1500AA226E /* Recovered References */,
+				43E1F0072F1A000100123450 /* ScreenTimeReportExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -159,6 +259,8 @@
 				436830272E9F172B0058C9C1 /* ScreenTimeRewardsTests.xctest */,
 				436830312E9F172B0058C9C1 /* ScreenTimeRewardsUITests.xctest */,
 				43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */,
+				43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */,
+				432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -174,9 +276,43 @@
 			name = Frameworks;
 			sourceTree = "<group>";
 		};
+		43E1F0072F1A000100123450 /* ScreenTimeReportExtension */ = {
+			isa = PBXGroup;
+			children = (
+				43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */,
+				43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */,
+				43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */,
+				43E1F0052F1A000100123450 /* ScreenTimeReportExtension/Info.plist */,
+				43E1F0062F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements */,
+			);
+			path = ScreenTimeReportExtension;
+			sourceTree = "<group>";
+		};
 /* End PBXGroup section */
 
 /* Begin PBXNativeTarget section */
+		4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4328386D2ED2977500B0EC3D /* Build configuration list for PBXNativeTarget "ShieldConfigurationExtension" */;
+			buildPhases = (
+				4328385C2ED2977500B0EC3D /* Sources */,
+				4328385D2ED2977500B0EC3D /* Frameworks */,
+				4328385E2ED2977500B0EC3D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			fileSystemSynchronizedGroups = (
+				432838632ED2977500B0EC3D /* ShieldConfigurationExtension */,
+			);
+			name = ShieldConfigurationExtension;
+			packageProductDependencies = (
+			);
+			productName = ShieldConfigurationExtension;
+			productReference = 432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 		436830122E9F172A0058C9C1 /* ScreenTimeRewards */ = {
 			isa = PBXNativeTarget;
 			buildConfigurationList = 4368303A2E9F172B0058C9C1 /* Build configuration list for PBXNativeTarget "ScreenTimeRewards" */;
@@ -189,12 +325,19 @@
 			buildRules = (
 			);
 			dependencies = (
+				432838692ED2977500B0EC3D /* PBXTargetDependency */,
 			);
 			fileSystemSynchronizedGroups = (
 				436830152E9F172A0058C9C1 /* ScreenTimeRewards */,
 			);
 			name = ScreenTimeRewards;
 			packageProductDependencies = (
+				43EC484D2F12E73600E5D3AD /* RevenueCat */,
+				43EC48532F12E86700E5D3AD /* FirebaseAI */,
+				43EC48552F12E86700E5D3AD /* FirebaseAILogic */,
+				43EC48572F12E86700E5D3AD /* FirebaseAnalytics */,
+				43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */,
+				43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */,
 			);
 			productName = ScreenTimeRewards;
 			productReference = 436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */;
@@ -263,6 +406,23 @@
 			productReference = 43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
+		43E1F0132F1A000100123450 /* ScreenTimeReportExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 43E1F0322F1A000100123450 /* Build configuration list for PBXNativeTarget "ScreenTimeReportExtension" */;
+			buildPhases = (
+				43E1F0102F1A000100123450 /* Sources */,
+				43E1F0112F1A000100123450 /* Frameworks */,
+				43E1F0122F1A000100123450 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = ScreenTimeReportExtension;
+			productName = ScreenTimeReportExtension;
+			productReference = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */;
+			productType = "com.apple.product-type.app-extension";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -273,6 +433,9 @@
 				LastSwiftUpdateCheck = 2600;
 				LastUpgradeCheck = 2600;
 				TargetAttributes = {
+					4328385F2ED2977500B0EC3D = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
 					436830122E9F172A0058C9C1 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
@@ -287,6 +450,9 @@
 					43E0F0112EA0258700567890 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
+					43E1F0132F1A000100123450 = {
+						CreatedOnToolsVersion = 26.0.1;
+					};
 				};
 			};
 			buildConfigurationList = 4368300E2E9F172A0058C9C1 /* Build configuration list for PBXProject "ScreenTimeRewards" */;
@@ -298,6 +464,10 @@
 			);
 			mainGroup = 4368300A2E9F172A0058C9C1;
 			minimizedProjectReferenceProxies = 1;
+			packageReferences = (
+				43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */,
+				43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */,
+			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 436830142E9F172A0058C9C1 /* Products */;
 			projectDirPath = "";
@@ -307,11 +477,20 @@
 				436830262E9F172B0058C9C1 /* ScreenTimeRewardsTests */,
 				436830302E9F172B0058C9C1 /* ScreenTimeRewardsUITests */,
 				43E0F0112EA0258700567890 /* ScreenTimeActivityExtension */,
+				43E1F0132F1A000100123450 /* ScreenTimeReportExtension */,
+				4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
+		4328385E2ED2977500B0EC3D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		436830112E9F172A0058C9C1 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -340,9 +519,23 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		43E1F0122F1A000100123450 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
+		4328385C2ED2977500B0EC3D /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 		4368300F2E9F172A0058C9C1 /* Sources */ = {
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
@@ -373,9 +566,24 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		43E1F0102F1A000100123450 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				43E1F0202F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift in Sources */,
+				43E1F0212F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift in Sources */,
+				43E1F0222F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
+		432838692ED2977500B0EC3D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */;
+			targetProxy = 432838682ED2977500B0EC3D /* PBXContainerItemProxy */;
+		};
 		436830292E9F172B0058C9C1 /* PBXTargetDependency */ = {
 			isa = PBXTargetDependency;
 			target = 436830122E9F172A0058C9C1 /* ScreenTimeRewards */;
@@ -389,6 +597,66 @@
 /* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
+		4328386B2ED2977500B0EC3D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShieldConfigurationExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ShieldConfigurationExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		4328386C2ED2977500B0EC3D /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
+				GENERATE_INFOPLIST_FILE = YES;
+				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = ShieldConfigurationExtension;
+				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				MARKETING_VERSION = 1.0;
+				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ShieldConfigurationExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = YES;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_EMIT_LOC_STRINGS = YES;
+				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 		4368303B2E9F172B0058C9C1 /* Debug */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
@@ -401,7 +669,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeRewards/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -437,7 +705,7 @@
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeRewards/Info.plist;
-				INFOPLIST_KEY_LSApplicationCategoryType = "";
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.lifestyle";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -465,6 +733,7 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -529,6 +798,8 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ALWAYS_SEARCH_USER_PATHS = NO;
+				ASSETCATALOG_COMPILER_APPICON_NAME = "";
+				"ASSETCATALOG_COMPILER_APPICON_NAME[sdk=*]" = "";
 				ASSETCATALOG_COMPILER_GENERATE_SWIFT_ASSET_SYMBOL_EXTENSIONS = YES;
 				CLANG_ANALYZER_NONNULL = YES;
 				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
@@ -590,7 +861,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -612,7 +883,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -633,6 +904,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -653,6 +925,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				MARKETING_VERSION = 1.0;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -674,7 +947,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -697,7 +970,7 @@
 				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 15.0;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
@@ -712,9 +985,64 @@
 			};
 			name = Release;
 		};
+		43E1F0302F1A000100123450 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
+				INFOPLIST_FILE = ScreenTimeReportExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeReportExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		43E1F0312F1A000100123450 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
+				CODE_SIGN_STYLE = Automatic;
+				CURRENT_PROJECT_VERSION = 1;
+				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
+				INFOPLIST_FILE = ScreenTimeReportExtension/Info.plist;
+				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@executable_path/../../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeReportExtension;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SKIP_INSTALL = NO;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
+		4328386D2ED2977500B0EC3D /* Build configuration list for PBXNativeTarget "ShieldConfigurationExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4328386B2ED2977500B0EC3D /* Debug */,
+				4328386C2ED2977500B0EC3D /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 		4368300E2E9F172A0058C9C1 /* Build configuration list for PBXProject "ScreenTimeRewards" */ = {
 			isa = XCConfigurationList;
 			buildConfigurations = (
@@ -760,7 +1088,68 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+		43E1F0322F1A000100123450 /* Build configuration list for PBXNativeTarget "ScreenTimeReportExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				43E1F0302F1A000100123450 /* Debug */,
+				43E1F0312F1A000100123450 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
 /* End XCConfigurationList section */
+
+/* Begin XCRemoteSwiftPackageReference section */
+		43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/firebase/firebase-ios-sdk";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 12.7.0;
+			};
+		};
+		43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */ = {
+			isa = XCRemoteSwiftPackageReference;
+			repositoryURL = "https://github.com/RevenueCat/purchases-ios";
+			requirement = {
+				kind = upToNextMajorVersion;
+				minimumVersion = 5.54.0;
+			};
+		};
+/* End XCRemoteSwiftPackageReference section */
+
+/* Begin XCSwiftPackageProductDependency section */
+		43EC484D2F12E73600E5D3AD /* RevenueCat */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCat;
+		};
+		43EC48532F12E86700E5D3AD /* FirebaseAI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAI;
+		};
+		43EC48552F12E86700E5D3AD /* FirebaseAILogic */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAILogic;
+		};
+		43EC48572F12E86700E5D3AD /* FirebaseAnalytics */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalytics;
+		};
+		43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsCore;
+		};
+		43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
+			productName = FirebaseAnalyticsIdentitySupport;
+		};
+/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 4368300B2E9F172A0058C9C1 /* Project object */;
 }

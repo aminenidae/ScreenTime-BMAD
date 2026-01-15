@@ -7,6 +7,11 @@
 		<key>ScreenTimeActivityExtension.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
+			<integer>2</integer>
+		</dict>
+		<key>ScreenTimeReportExtension.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
 			<integer>1</integer>
 		</dict>
 		<key>ScreenTimeRewards.xcscheme_^#shared#^_</key>
@@ -18,6 +23,29 @@
 		<dict>
 			<key>orderHint</key>
 			<integer>0</integer>
+		</dict>
+		<key>ShieldConfigurationExtension.xcscheme_^#shared#^_</key>
+		<dict>
+			<key>orderHint</key>
+			<integer>1</integer>
+		</dict>
+	</dict>
+	<key>SuppressBuildableAutocreation</key>
+	<dict>
+		<key>436830122E9F172A0058C9C1</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>436830262E9F172B0058C9C1</key>
+		<dict>
+			<key>primary</key>
+			<true/>
+		</dict>
+		<key>436830302E9F172B0058C9C1</key>
+		<dict>
+			<key>primary</key>
+			<true/>
 		</dict>
 	</dict>
 </dict>

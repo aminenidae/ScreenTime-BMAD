@@ -3,7 +3,11 @@
 <plist version="1.0">
 <dict>
 	<key>MinimumOSVersion</key>
-	<string>16.0</string>
+	<string>16.6</string>
+	<key>NSCameraUsageDescription</key>
+	<string>This app needs access to the camera to scan QR codes for device pairing with parent devices.</string>
+	<key>NSFaceIDUsageDescription</key>
+	<string>Parent mode requires authentication to access app settings and controls</string>
 	<key>NSFamilyControlsUsageDescription</key>
 	<string>This app needs access to Screen Time data to track educational app usage and reward learning activities.</string>
 	<key>UIApplicationSceneManifest</key>
@@ -21,6 +25,17 @@
 			</array>
 		</dict>
 	</dict>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>processing</string>
+		<string>remote-notification</string>
+	</array>
+	<key>BGTaskSchedulerPermittedIdentifiers</key>
+	<array>
+		<string>com.screentimerewards.usage-upload</string>
+		<string>com.screentimerewards.config-check</string>
+		<string>com.screentimerewards.midnight-reset</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 </dict>

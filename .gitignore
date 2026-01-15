@@ -7,13 +7,43 @@ Debug Reports/
 
 # macOS specific
 .DS_Store
+**/.DS_Store
 
 # Xcode
 *.xcuserstate
 project.xcworkspace
+**/project.xcworkspace
+
+# Xcode user data
+*.xcuserdatad
+UserInterfaceState.xcuserstate
+**/*.xcuserdatad
+**/UserInterfaceState.xcuserstate
 
 # Validation scripts
 validate_task_k.*
 
 # Ignore the embedded repo
 ScreenTime-BMAD/
+
+# Additional patterns to ensure user-specific files are ignored
+**/*.xcuserstate
+**/*.xcuserdata
+**/UserInterfaceState.xcuserstate
+
+# Backup files
+*.backup
+**/*.backup
+
+# Additional Xcode shared data that should be ignored
+xcshareddata/
+**/xcshareddata/
+
+# Internal documentation (all docs folders)
+docs/
+ScreenTimeRewardsProject/docs/
+
+# Legacy individual doc patterns (kept for reference)
+USAGE_TRACKING_ACCURACY.md
+USAGE_DOUBLING_FIX_PLAN.md
+HASHVALUE_INSTABILITY_FIX.md
