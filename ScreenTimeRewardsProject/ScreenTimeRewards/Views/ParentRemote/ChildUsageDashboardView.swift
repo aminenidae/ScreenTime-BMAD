@@ -44,6 +44,14 @@ struct ChildUsageDashboardView: View {
                 }
             }
             .tabViewStyle(.page(indexDisplayMode: .never)) // Hide page dots, use custom navigation
+            .onChange(of: currentIndex) { newIndex in
+                // Trigger data reload when user swipes to a different child device
+                guard newIndex >= 0 && newIndex < devices.count else { return }
+                let device = devices[newIndex]
+                Task {
+                    await viewModel.loadChildData(for: device)
+                }
+            }
         }
         .navigationTitle(isEmbedded ? "" : (currentDevice?.deviceName ?? "Device"))
         .navigationBarTitleDisplayMode(.inline)
@@ -168,6 +176,18 @@ struct ChildUsagePageView: View {
                 .tag(2)
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
+        }
+        .overlay {
+            // Loading indicator when switching devices
+            if viewModel.isLoading {
+                ZStack {
+                    Color.black.opacity(0.3)
+                        .ignoresSafeArea()
+                    ProgressView()
+                        .scaleEffect(1.5)
+                        .tint(.white)
+                }
+            }
         }
         .refreshable {
             await viewModel.loadChildData(for: device)

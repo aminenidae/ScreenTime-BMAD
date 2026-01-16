@@ -661,7 +661,26 @@ class ParentRemoteViewModel: ObservableObject {
     func loadChildData(for device: RegisteredDevice) async {
         isLoading = true
         errorMessage = nil
-        
+
+        // ALWAYS clear all cached data when loading a device
+        // This guarantees no stale data from previous device, avoiding race conditions
+        // with the conditional check that was unreliable across device switches
+        pendingConfigUpdates.removeAll()
+        childLearningAppsFullConfig = []
+        childRewardAppsFullConfig = []
+        childLearningApps = []
+        childRewardApps = []
+        childShieldStates = [:]
+        childDailyUsageHistory = []
+        childDailyUsageByApp = [:]
+        childStreakSummary = nil
+        childStreakRecords = []
+        childDailySnapshot = nil
+        usageRecords = []
+        categorySummaries = []
+        dailySummaries = []
+        appConfigurations = []
+
         selectedChildDevice = device
         
         do {
