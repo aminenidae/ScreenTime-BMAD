@@ -15,7 +15,6 @@ struct QRCodeScannerView: View {
     let completion: CompletionHandler
     @Environment(\.dismiss) private var dismiss
     @State private var torchOn = false
-    @State private var showImagePicker = false
     @State private var showSuccessModal = false
     @State private var scannedCode: String?
 
@@ -78,15 +77,6 @@ struct QRCodeScannerView: View {
 
                 // Bottom Camera Controls
                 HStack(spacing: 24) {
-                    Button(action: { showImagePicker = true }) {
-                        Image(systemName: "photo.on.rectangle")
-                            .font(.system(size: 24))
-                            .foregroundColor(.white)
-                            .frame(width: 48, height: 48)
-                            .background(Color.black.opacity(0.4))
-                            .clipShape(Circle())
-                    }
-
                     Button(action: { torchOn.toggle() }) {
                         Image(systemName: torchOn ? "flashlight.on.fill" : "flashlight.off.fill")
                             .font(.system(size: 24))
@@ -112,9 +102,6 @@ struct QRCodeScannerView: View {
                 .transition(.opacity)
                 .zIndex(20)
             }
-        }
-        .sheet(isPresented: $showImagePicker) {
-            ImagePicker(onQRCodeDetected: handleScanResult)
         }
     }
 
@@ -228,59 +215,6 @@ private struct SuccessModal: View {
             .cornerRadius(12)
             .shadow(radius: 10)
             .padding(.horizontal, 16)
-        }
-    }
-}
-
-// MARK: - Image Picker
-private struct ImagePicker: UIViewControllerRepresentable {
-    let onQRCodeDetected: (Result<String, Error>) -> Void
-    @Environment(\.dismiss) private var dismiss
-
-    func makeUIViewController(context: Context) -> UIImagePickerController {
-        let picker = UIImagePickerController()
-        picker.delegate = context.coordinator
-        picker.sourceType = .photoLibrary
-        return picker
-    }
-
-    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(onQRCodeDetected: onQRCodeDetected, dismiss: dismiss)
-    }
-
-    class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
-        let onQRCodeDetected: (Result<String, Error>) -> Void
-        let dismiss: DismissAction
-
-        init(onQRCodeDetected: @escaping (Result<String, Error>) -> Void, dismiss: DismissAction) {
-            self.onQRCodeDetected = onQRCodeDetected
-            self.dismiss = dismiss
-        }
-
-        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
-            dismiss()
-
-            guard let image = info[.originalImage] as? UIImage,
-                  let ciImage = CIImage(image: image) else {
-                onQRCodeDetected(.failure(NSError(domain: "QRScannerError", code: -1, userInfo: [NSLocalizedDescriptionKey: "Failed to process image"])))
-                return
-            }
-
-            let detector = CIDetector(ofType: CIDetectorTypeQRCode, context: nil, options: [CIDetectorAccuracy: CIDetectorAccuracyHigh])
-            let features = detector?.features(in: ciImage) as? [CIQRCodeFeature]
-
-            if let qrCode = features?.first?.messageString {
-                AudioServicesPlaySystemSound(SystemSoundID(kSystemSoundID_Vibrate))
-                onQRCodeDetected(.success(qrCode))
-            } else {
-                onQRCodeDetected(.failure(NSError(domain: "QRScannerError", code: -1, userInfo: [NSLocalizedDescriptionKey: "No QR code found in image"])))
-            }
-        }
-
-        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
-            dismiss()
         }
     }
 }
