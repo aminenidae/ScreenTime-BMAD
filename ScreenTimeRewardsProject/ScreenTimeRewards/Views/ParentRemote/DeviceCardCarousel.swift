@@ -1,35 +1,32 @@
 import SwiftUI
 import CoreData
 
-/// 3D Card Carousel showing child devices
-/// Cards scroll horizontally with deck-of-cards effect
+/// 2-Column Grid showing child devices
+/// Displays all devices at once in a grid layout
 struct DeviceCardCarousel: View {
     let devices: [RegisteredDevice]
-    
+
+    private let columns = [
+        GridItem(.flexible(), spacing: 12),
+        GridItem(.flexible(), spacing: 12)
+    ]
+
+    private let cardHeight: CGFloat = 180
+
     var body: some View {
-        GeometryReader { geometry in
-            let cardWidth: CGFloat = geometry.size.width * 0.75
-            let cardHeight: CGFloat = 280
-            let spacing: CGFloat = 20
-            
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: spacing) {
-                    ForEach(devices, id: \.deviceID) { device in
-                        NavigationLink(destination: ChildUsageDashboardView(
-                            devices: devices,
-                            selectedDeviceID: device.deviceID
-                        )) {
-                            DeviceCard(device: device)
-                                .frame(width: cardWidth, height: cardHeight)
-                        }
-                        .buttonStyle(PlainButtonStyle())
-                    }
+        LazyVGrid(columns: columns, spacing: 16) {
+            ForEach(devices, id: \.deviceID) { device in
+                NavigationLink(destination: ChildUsageDashboardView(
+                    devices: devices,
+                    selectedDeviceID: device.deviceID
+                )) {
+                    DeviceCard(device: device)
+                        .frame(height: cardHeight)
                 }
-                .padding(.horizontal, (geometry.size.width - cardWidth) / 2)
+                .buttonStyle(PlainButtonStyle())
             }
-            .frame(height: cardHeight + 40)
         }
-        .frame(height: 320)
+        .padding(.horizontal, 16)
     }
 }
 
@@ -75,30 +72,30 @@ struct DeviceCard: View {
 
     var body: some View {
         ZStack(alignment: .topTrailing) {
-            VStack(spacing: 24) {
-                // Device icon
+            VStack(spacing: 12) {
+                // Device icon (compact size)
                 ZStack(alignment: .bottomTrailing) {
                     Image(systemName: deviceIcon)
-                        .font(.system(size: 80))
+                        .font(.system(size: 50))
                         .foregroundColor(iconColor)
 
                     // Connection status indicator
                     if device.isStale {
                         Image(systemName: "exclamationmark.triangle.fill")
-                            .font(.system(size: 24))
+                            .font(.system(size: 16))
                             .foregroundColor(.orange)
-                            .offset(x: 10, y: 10)
+                            .offset(x: 6, y: 6)
                     } else if device.connectionStatus.isHealthy {
                         Image(systemName: "checkmark.circle.fill")
-                            .font(.system(size: 20))
+                            .font(.system(size: 14))
                             .foregroundColor(.green)
-                            .offset(x: 8, y: 8)
+                            .offset(x: 5, y: 5)
                     }
                 }
 
-                // Device name
+                // Device name (compact)
                 Text(device.deviceName ?? "Unknown Device")
-                    .font(.title2)
+                    .font(.headline)
                     .fontWeight(.bold)
                     .foregroundColor(device.isStale ? .gray : AppTheme.textPrimary(for: colorScheme))
                     .multilineTextAlignment(.center)
@@ -108,37 +105,37 @@ struct DeviceCard: View {
                 if device.isStale {
                     HStack(spacing: 4) {
                         Image(systemName: "wifi.slash")
-                            .font(.caption)
+                            .font(.caption2)
                         Text("Disconnected")
-                            .font(.caption)
+                            .font(.caption2)
                     }
                     .foregroundColor(.orange)
                 } else {
-                    HStack(spacing: 6) {
+                    HStack(spacing: 4) {
                         Text("Tap to view")
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
                         Image(systemName: "chevron.right")
-                            .font(.caption)
+                            .font(.caption2)
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     }
                 }
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding()
+            .padding(12)
             .background(
-                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                     .fill(AppTheme.card(for: colorScheme))
                     .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                             .fill(deviceTypeTint)
                     )
                     .overlay(
-                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
                             .stroke(device.isStale ? Color.orange : AppTheme.border(for: colorScheme), lineWidth: device.isStale ? 2 : 1)
                     )
-                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 10, x: 0, y: 5)
+                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 6, x: 0, y: 3)
             )
         }
     }
