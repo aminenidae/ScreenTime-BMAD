@@ -75,4 +75,16 @@ enum RevenueCatConfig {
 
     /// Grace period duration in days after subscription expires
     static let gracePeriodDays = 7
+
+    // MARK: - Development Mode
+
+    /// Whether to bypass subscription checks in development mode.
+    /// When enabled, grants full Family tier access without requiring a real subscription.
+    static var devModeEnabled: Bool {
+        #if DEBUG
+        return true
+        #else
+        return false
+        #endif
+    }
 }

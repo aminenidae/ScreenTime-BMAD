@@ -616,6 +616,19 @@ class ChildBackgroundSyncService: ObservableObject {
     func triggerImmediateSubscriptionVerification() async {
         await verifyParentSubscription()
     }
+
+    // MARK: - Development Mode
+
+    #if DEBUG
+    /// Grant dev access on child device (for testing).
+    /// This bypasses parent subscription verification.
+    func activateDevAccess() {
+        parentSubscriptionStatus = .active
+        hasFullAccess = true
+        trialDaysRemaining = nil
+        print("[ChildBackgroundSyncService] 🔓 Dev access activated")
+    }
+    #endif
 }
 
 // MARK: - Notification Names

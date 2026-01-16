@@ -400,9 +400,10 @@ private extension SubscriptionPaywallView {
     #if DEBUG
     var skipButton: some View {
         Button {
+            subscriptionManager.activateDevSubscription(tier: selectedTier)
             finishFlow()
         } label: {
-            Text("Skip (Dev Only)")
+            Text("Skip with \(selectedTier.displayName) (Dev)")
                 .font(.system(size: 12, weight: .medium))
                 .foregroundColor(.red.opacity(0.7))
         }

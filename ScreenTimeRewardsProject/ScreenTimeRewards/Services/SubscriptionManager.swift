@@ -681,6 +681,26 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
         return date
     }
+
+    // MARK: - Development Mode
+
+    #if DEBUG
+    /// Activate a development subscription for testing (DEBUG only).
+    /// This allows testing subscription features without a real purchase.
+    func activateDevSubscription(tier: SubscriptionTier) {
+        currentTier = tier
+        currentStatus = .active
+
+        // Also update local CoreData subscription for consistency
+        if let subscription = subscription {
+            subscription.tierEnum = tier
+            subscription.statusEnum = .active
+            try? subscription.managedObjectContext?.save()
+        }
+
+        print("[SubscriptionManager] 🔓 Dev subscription activated: \(tier.displayName)")
+    }
+    #endif
 }
 
 // MARK: - PurchasesDelegate

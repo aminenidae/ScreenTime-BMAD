@@ -159,6 +159,20 @@ struct Screen6_TrialPaywallView: View {
             }
             .padding(.bottom, 4)
 
+            #if DEBUG
+            // Dev skip button - activates subscription without purchase
+            Button {
+                subscriptionManager.activateDevSubscription(tier: .family)
+                onboarding.trialStartDate = Date()
+                onboarding.advanceScreen()
+            } label: {
+                Text("Skip with Family (Dev)")
+                    .font(.system(size: 12, weight: .medium))
+                    .foregroundColor(.orange)
+            }
+            .padding(.bottom, 4)
+            #endif
+
             Spacer().frame(height: layout.isLandscape ? 12 : 20)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())

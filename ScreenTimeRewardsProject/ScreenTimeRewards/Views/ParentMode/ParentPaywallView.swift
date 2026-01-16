@@ -57,6 +57,11 @@ struct ParentPaywallView: View {
 
                     // Restore purchases
                     restoreButton
+
+                    #if DEBUG
+                    // Dev skip button
+                    devSkipButton
+                    #endif
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 32)
@@ -313,6 +318,22 @@ struct ParentPaywallView: View {
         }
         .disabled(isPurchasing)
     }
+
+    // MARK: - Dev Skip Button
+
+    #if DEBUG
+    private var devSkipButton: some View {
+        Button {
+            subscriptionManager.activateDevSubscription(tier: selectedTier)
+            onSubscribed()
+        } label: {
+            Text("Skip with \(selectedTier.displayName) (Dev)")
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(.red.opacity(0.7))
+        }
+        .padding(.top, 8)
+    }
+    #endif
 
     // MARK: - Purchasing Overlay
 
