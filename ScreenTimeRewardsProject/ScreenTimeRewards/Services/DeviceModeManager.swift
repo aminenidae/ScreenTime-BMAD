@@ -135,9 +135,19 @@ class DeviceModeManager: ObservableObject {
     func resetDeviceMode() {
         currentMode = nil
         userDefaults.removeObject(forKey: deviceModeKey)
-        
+
         #if DEBUG
         print("[DeviceModeManager] Mode reset - will show device selection on next launch")
+        #endif
+    }
+
+    /// Update the device name
+    func setDeviceName(_ name: String) {
+        self.deviceName = name
+        userDefaults.set(name, forKey: deviceNameKey)
+
+        #if DEBUG
+        print("[DeviceModeManager] Device name updated to: \(name)")
         #endif
     }
     

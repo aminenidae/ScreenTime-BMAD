@@ -5,6 +5,8 @@ struct ParentRemoteDashboardView: View {
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var showingRefreshIndicator = false
     @State private var showingPairingView = false
+    @State private var showingSettings = false
+    @State private var showingChangePIN = false
     @State private var deviceCountBeforePairing = 0  // Track count to detect new pairing
     @State private var hasLoadedInitialData = false  // Prevent re-sync on navigation back
     @Environment(\.colorScheme) var colorScheme
@@ -151,14 +153,30 @@ struct ParentRemoteDashboardView: View {
             .toolbar {
                 // Add Child Device button at top-left as per UX/UI improvements Phase 1
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button(action: {
-                        showingPairingView = true
-                    }) {
-                        Image(systemName: "plus.circle.fill") // Changed from "iphone.gen2.badge.plus" as per UX/UI improvements Phase 1 Update
-                            .imageScale(.large)
-                            .foregroundColor(.blue)
+                    HStack(spacing: 16) {
+                        Button(action: {
+                            showingPairingView = true
+                        }) {
+                            Image(systemName: "plus.circle.fill")
+                                .imageScale(.large)
+                                .foregroundColor(.blue)
+                        }
+                        .accessibilityLabel("Add Child Device")
+
+                        // Settings menu
+                        Menu {
+                            Button(action: {
+                                showingChangePIN = true
+                            }) {
+                                Label("Change PIN", systemImage: "lock.rotation")
+                            }
+                        } label: {
+                            Image(systemName: "gearshape.fill")
+                                .imageScale(.large)
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                        .accessibilityLabel("Settings")
                     }
-                    .accessibilityLabel("Add Child Device")
                 }
 
                 // Show device name in center for single-device mode
@@ -200,6 +218,13 @@ struct ParentRemoteDashboardView: View {
             // Move the sheet outside of conditional views to ensure it's always available
             .sheet(isPresented: $showingPairingView) {
                 ParentPairingView()
+            }
+            .sheet(isPresented: $showingChangePIN) {
+                ChangePINView(onSuccess: {
+                    #if DEBUG
+                    print("[ParentRemoteDashboardView] PIN changed successfully")
+                    #endif
+                })
             }
             .onChange(of: showingPairingView) { isShowing in
                 if isShowing {

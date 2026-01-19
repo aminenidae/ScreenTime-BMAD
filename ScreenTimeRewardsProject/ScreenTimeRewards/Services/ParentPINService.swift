@@ -15,10 +15,45 @@ class ParentPINService {
 
     private let keychainService = "com.screentime.rewards"
     private let keychainAccount = "parentpin"
+    private let firstLaunchMarkerKey = "com.screentime.rewards.pinServiceInitialized"
 
     private init() {}
 
     // MARK: - Public Methods
+
+    /// Handle app reinstall by clearing stale PIN from Keychain
+    /// UserDefaults is deleted on uninstall, but Keychain persists.
+    /// By checking a UserDefaults marker, we can detect reinstalls and clear the PIN.
+    func handleReinstallIfNeeded() {
+        let hasLaunchedBefore = UserDefaults.standard.bool(forKey: firstLaunchMarkerKey)
+
+        if !hasLaunchedBefore {
+            // First launch after install/reinstall
+            // If PIN exists in Keychain, this is a reinstall - clear it
+            if isPINConfigured() {
+                clearPIN()
+                #if DEBUG
+                print("[ParentPINService] Reinstall detected - cleared stale PIN from Keychain")
+                #endif
+            }
+            // Set the marker
+            UserDefaults.standard.set(true, forKey: firstLaunchMarkerKey)
+        }
+    }
+
+    /// Clear the PIN from Keychain
+    func clearPIN() {
+        let deleteQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainAccount
+        ]
+        SecItemDelete(deleteQuery as CFDictionary)
+
+        #if DEBUG
+        print("[ParentPINService] PIN cleared from Keychain")
+        #endif
+    }
 
     /// Check if parent PIN is configured
     /// - Returns: True if PIN is set up, false otherwise

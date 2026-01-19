@@ -1,6 +1,7 @@
 import SwiftUI
 import UIKit
 import FamilyControls
+import CoreData
 
 struct SettingsTabView: View {
     @EnvironmentObject var sessionManager: SessionManager
@@ -17,6 +18,12 @@ struct SettingsTabView: View {
     private let screenTimeService = ScreenTimeService.shared
     @State private var areBrowsersBlocked = false
     @Environment(\.colorScheme) var colorScheme
+
+    // New settings state
+    @State private var showingEditChildName = false
+    @State private var showingChangePIN = false
+    @State private var showingNotificationSettings = false
+    @State private var showingAbout = false
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -95,6 +102,23 @@ struct SettingsTabView: View {
                             }
                         }
 
+                        // Child Section - for editing this device's name
+                        settingsSection(title: "CHILD") {
+                            editChildNameRow
+                        }
+
+                        // Security Section
+                        settingsSection(title: "SECURITY") {
+                            changePINRow
+                        }
+
+                        // General Section
+                        settingsSection(title: "GENERAL") {
+                            notificationSettingsRow
+                            helpSupportRow
+                            aboutRow
+                        }
+
                         // Danger Zone Section
                         VStack(alignment: .leading, spacing: 8) {
                             settingsSection(title: "DANGER ZONE") {
@@ -135,6 +159,29 @@ struct SettingsTabView: View {
             WebsiteBlockingView()
         }
 
+        .sheet(isPresented: $showingEditChildName) {
+            EditChildNameSheet(
+                currentName: modeManager.deviceName,
+                onSave: { newName in
+                    updateDeviceName(newName)
+                }
+            )
+        }
+
+        .fullScreenCover(isPresented: $showingChangePIN) {
+            ChangePINView(onSuccess: {
+                showingChangePIN = false
+            })
+        }
+
+        .sheet(isPresented: $showingNotificationSettings) {
+            NotificationSettingsView()
+        }
+
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
+        }
+
         .onAppear {
             // Sync browser blocking state
             areBrowsersBlocked = screenTimeService.areBrowsersBlocked
@@ -155,6 +202,18 @@ private extension SettingsTabView {
 
             content()
         }
+    }
+
+    func updateDeviceName(_ newName: String) {
+        modeManager.setDeviceName(newName)
+
+        #if DEBUG
+        print("[SettingsTabView] Device name updated to: \(newName)")
+        #endif
+    }
+
+    var appVersion: String {
+        Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
     }
 }
 
@@ -565,6 +624,207 @@ private extension SettingsTabView {
                         .stroke(Color.green.opacity(0.2), lineWidth: 1)
                 )
         )
+    }
+
+    // MARK: - New Settings Rows
+
+    var editChildNameRow: some View {
+        Button(action: {
+            showingEditChildName = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "person.text.rectangle")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Edit Child's Name")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text(modeManager.deviceName)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var changePINRow: some View {
+        Button(action: {
+            showingChangePIN = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.sunnyYellow.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "lock.rotation")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.sunnyYellow)
+                }
+
+                Text("Change PIN")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var notificationSettingsRow: some View {
+        Button(action: {
+            showingNotificationSettings = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.playfulCoral.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "bell.badge")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.playfulCoral)
+                }
+
+                Text("Notifications")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var helpSupportRow: some View {
+        Link(destination: URL(string: "https://screentimerewards.app/support")!) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "questionmark.circle")
+                        .font(.system(size: 20))
+                        .foregroundColor(.blue)
+                }
+
+                Text("Help & Support")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+
+                Image(systemName: "arrow.up.right.square")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+    }
+
+    var aboutRow: some View {
+        Button(action: {
+            showingAbout = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.brandedText(for: colorScheme).opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "info.circle")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("About")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Version \(appVersion)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
 }

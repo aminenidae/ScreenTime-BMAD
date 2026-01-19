@@ -7,10 +7,17 @@ struct LinkedLearningAppsPicker: View {
     @Binding var linkedApps: [LinkedLearningApp]
     @Binding var unlockMode: UnlockMode
     let learningSnapshots: [LearningAppSnapshot]
+    let rewardAppToken: ApplicationToken  // Reward app token for icon display in unlock sentence
 
-    // Minutes presets
+    @Environment(\.colorScheme) private var colorScheme
+
+    // Track which apps have their config expanded
+    @State private var expandedAppIDs: Set<String> = []
+
+    // Minutes presets for goal (collapsed row)
     private let minutePresets = [5, 10, 15, 20, 30, 45, 60]
-    private let rewardMinutePresets = [5, 10, 15, 20, 30, 45, 60, 90, 120]
+    // Ratio presets for expanded row (1-10 minutes)
+    private let ratioPresets = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -63,9 +70,10 @@ struct LinkedLearningAppsPicker: View {
     private func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
         let isSelected = linkedApps.contains { $0.logicalID == snapshot.logicalID }
         let linkedApp = linkedApps.first { $0.logicalID == snapshot.logicalID }
+        let isExpanded = expandedAppIDs.contains(snapshot.logicalID)
 
-        return VStack(alignment: .leading, spacing: 8) {
-            // Main row with checkbox
+        return VStack(alignment: .leading, spacing: 10) {
+            // Row 1: App icon + app name + checkbox
             HStack(spacing: 12) {
                 // App icon
                 if #available(iOS 15.2, *) {
@@ -89,19 +97,19 @@ struct LinkedLearningAppsPicker: View {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
                         .labelStyle(.titleOnly)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(ChallengeBuilderTheme.text)
                         .lineLimit(1)
                 } else {
                     Text(snapshot.displayName.isEmpty ? "LEARNING APP" : snapshot.displayName)
-                        .font(.system(size: 12, weight: .medium))
+                        .font(.system(size: 13, weight: .semibold))
                         .foregroundColor(ChallengeBuilderTheme.text)
                         .lineLimit(1)
                 }
 
                 Spacer()
 
-                // Checkbox
+                // Checkbox (on right)
                 Button(action: {
                     toggleApp(snapshot: snapshot)
                 }) {
@@ -112,9 +120,14 @@ struct LinkedLearningAppsPicker: View {
                 .buttonStyle(.plain)
             }
 
-            // Per-app configuration (only when selected)
+            // Row 2: Plain English requirement sentence with inline pickers (only when selected)
             if isSelected, let app = linkedApp {
-                perAppConfig(app: app, snapshot: snapshot)
+                collapsedConfigRow(app: app, snapshot: snapshot, isExpanded: isExpanded)
+            }
+
+            // Row 3: Expanded ratio explanation (only when selected AND expanded)
+            if isSelected, let app = linkedApp, isExpanded {
+                expandedConfigRow(app: app, snapshot: snapshot)
             }
         }
         .padding(12)
@@ -128,123 +141,270 @@ struct LinkedLearningAppsPicker: View {
         )
     }
 
-    // MARK: - Per-App Configuration
+    // MARK: - Collapsed Config Row (Plain English requirement sentence)
 
-    private func perAppConfig(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // First row: Learn time + Period
-            HStack(spacing: 8) {
-                Text("LEARN:")
+    private func collapsedConfigRow(app: LinkedLearningApp, snapshot: LearningAppSnapshot, isExpanded: Bool) -> some View {
+        HStack(spacing: 0) {
+            // Plain English sentence with inline pickers and app icons: "Use [learning icon] for [15m] per [day] to unlock [reward icon]"
+            Group {
+                Text("Use ")
                     .font(.system(size: 12))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    .lineLimit(1)
+                    .fixedSize()
 
-                // Minutes picker
-                Menu {
-                    ForEach(minutePresets, id: \.self) { minutes in
-                        Button(action: {
-                            updateMinutes(for: snapshot.logicalID, minutes: minutes)
-                        }) {
-                            HStack {
-                                Text(formatMinutes(minutes))
-                                if app.minutesRequired == minutes {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(formatMinutes(app.minutesRequired))
-                            .font(.system(size: 12, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10))
-                    }
-                    .foregroundColor(AppTheme.vibrantTeal)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(AppTheme.vibrantTeal.opacity(0.15))
-                    )
-                }
+                // Learning app icon (inline)
+                inlineLearningAppIcon(snapshot: snapshot)
 
-                // Period picker (daily/weekly)
-                Menu {
-                    ForEach(GoalPeriod.allCases, id: \.self) { period in
-                        Button(action: {
-                            updatePeriod(for: snapshot.logicalID, period: period)
-                        }) {
-                            HStack {
-                                Text(period.displayName)
-                                if app.goalPeriod == period {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(app.goalPeriod.displayName)
-                            .font(.system(size: 12, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10))
-                    }
-                    .foregroundColor(AppTheme.sunnyYellow)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(AppTheme.sunnyYellow.opacity(0.15))
-                    )
-                }
+                Text(" for ")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    .lineLimit(1)
+                    .fixedSize()
 
-                Spacer()
+                // Minutes picker (inline)
+                inlineMinutesPicker(app: app, snapshot: snapshot)
+
+                Text(" per ")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    .lineLimit(1)
+                    .fixedSize()
+
+                // Period picker (inline)
+                inlinePeriodPicker(app: app, snapshot: snapshot)
+
+                Text(" to unlock ")
+                    .font(.system(size: 12))
+                    .foregroundColor(ChallengeBuilderTheme.mutedText)
+                    .lineLimit(1)
+                    .fixedSize()
+
+                // Reward app icon (inline)
+                inlineRewardAppIcon()
             }
 
-            // Second row: Reward earned
-            HStack(spacing: 8) {
-                Text("EARN:")
-                    .font(.system(size: 12))
+            Spacer(minLength: 8)
+
+            // Chevron at end of sentence
+            Button(action: {
+                toggleExpanded(for: snapshot.logicalID)
+            }) {
+                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
-
-                // Reward minutes picker
-                Menu {
-                    ForEach(rewardMinutePresets, id: \.self) { minutes in
-                        Button(action: {
-                            updateRewardMinutes(for: snapshot.logicalID, minutes: minutes)
-                        }) {
-                            HStack {
-                                Text(formatMinutes(minutes))
-                                if app.rewardMinutesEarned == minutes {
-                                    Image(systemName: "checkmark")
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    HStack(spacing: 4) {
-                        Text(formatMinutes(app.rewardMinutesEarned))
-                            .font(.system(size: 12, weight: .medium))
-                        Image(systemName: "chevron.up.chevron.down")
-                            .font(.system(size: 10))
-                    }
-                    .foregroundColor(AppTheme.playfulCoral)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(
-                        RoundedRectangle(cornerRadius: 6)
-                            .fill(AppTheme.playfulCoral.opacity(0.15))
-                    )
-                }
-
-                Text("REWARD")
-                    .font(.system(size: 12))
-                    .foregroundColor(ChallengeBuilderTheme.mutedText)
-
-                Spacer()
             }
+            .buttonStyle(.plain)
         }
-        .padding(.leading, 44) // Align with app name
+        .padding(.leading, 8)
+    }
+
+    // MARK: - Expanded Config Row (Ratio explanation)
+
+    private func expandedConfigRow(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        HStack(spacing: 0) {
+            Text("Every ")
+                .font(.system(size: 12))
+                .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+            // Learning time picker (inline)
+            inlineLearnTimePicker(app: app, snapshot: snapshot)
+
+            Text(" on ")
+                .font(.system(size: 12))
+                .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+            // Learning app icon
+            inlineLearningAppIcon(snapshot: snapshot)
+
+            Text(" grants ")
+                .font(.system(size: 12))
+                .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+            // Reward time picker (inline)
+            inlineRewardTimePicker(app: app, snapshot: snapshot)
+
+            Text(" on ")
+                .font(.system(size: 12))
+                .foregroundColor(ChallengeBuilderTheme.mutedText)
+
+            // Reward app icon
+            inlineRewardAppIcon()
+        }
+        .padding(.leading, 8)
+        .padding(.top, 4)
+    }
+
+    // MARK: - Inline App Icons
+
+    @ViewBuilder
+    private func inlineLearningAppIcon(snapshot: LearningAppSnapshot) -> some View {
+        if #available(iOS 15.2, *) {
+            Label(snapshot.token)
+                .labelStyle(.iconOnly)
+                .scaleEffect(0.8)
+                .frame(width: 20, height: 20)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(AppTheme.vibrantTeal.opacity(0.2))
+                .frame(width: 20, height: 20)
+                .overlay(
+                    Image(systemName: "book.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                )
+        }
+    }
+
+    @ViewBuilder
+    private func inlineRewardAppIcon() -> some View {
+        if #available(iOS 15.2, *) {
+            Label(rewardAppToken)
+                .labelStyle(.iconOnly)
+                .scaleEffect(0.8)
+                .frame(width: 20, height: 20)
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        } else {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(AppTheme.playfulCoral.opacity(0.2))
+                .frame(width: 20, height: 20)
+                .overlay(
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 10))
+                        .foregroundColor(AppTheme.playfulCoral)
+                )
+        }
+    }
+
+    // MARK: - Inline Pickers
+
+    private func inlineMinutesPicker(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        Menu {
+            ForEach(minutePresets, id: \.self) { minutes in
+                Button(action: {
+                    updateMinutes(for: snapshot.logicalID, minutes: minutes)
+                }) {
+                    HStack {
+                        Text(formatMinutes(minutes))
+                        if app.minutesRequired == minutes {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(formatMinutes(app.minutesRequired))
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(AppTheme.vibrantTeal)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppTheme.vibrantTeal.opacity(0.15))
+            )
+        }
+    }
+
+    private func inlinePeriodPicker(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        Menu {
+            ForEach(GoalPeriod.allCases, id: \.self) { period in
+                Button(action: {
+                    updatePeriod(for: snapshot.logicalID, period: period)
+                }) {
+                    HStack {
+                        Text(period.displayName)
+                        if app.goalPeriod == period {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(app.goalPeriod.shortDisplayName)
+                    .font(.system(size: 12, weight: .semibold))
+                    .lineLimit(1)
+                    .fixedSize()
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(colorScheme == .dark ? AppTheme.sunnyYellow : AppTheme.brandedText(for: colorScheme))
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppTheme.sunnyYellow.opacity(0.15))
+            )
+        }
+    }
+
+    private func inlineLearnTimePicker(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        Menu {
+            ForEach(ratioPresets, id: \.self) { minutes in
+                Button(action: {
+                    updateRatioLearning(for: snapshot.logicalID, minutes: minutes)
+                }) {
+                    HStack {
+                        Text(formatMinutes(minutes))
+                        if app.ratioLearningMinutes == minutes {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(formatMinutes(app.ratioLearningMinutes))
+                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(AppTheme.vibrantTeal)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppTheme.vibrantTeal.opacity(0.15))
+            )
+        }
+    }
+
+    private func inlineRewardTimePicker(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        Menu {
+            ForEach(ratioPresets, id: \.self) { minutes in
+                Button(action: {
+                    updateRewardMinutes(for: snapshot.logicalID, minutes: minutes)
+                }) {
+                    HStack {
+                        Text(formatMinutes(minutes))
+                        if app.rewardMinutesEarned == minutes {
+                            Image(systemName: "checkmark")
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: 2) {
+                Text(formatMinutes(app.rewardMinutesEarned))
+                    .font(.system(size: 12, weight: .semibold))
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.system(size: 8))
+            }
+            .foregroundColor(AppTheme.playfulCoral)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 3)
+            .background(
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(AppTheme.playfulCoral.opacity(0.15))
+            )
+        }
     }
 
     // MARK: - Unlock Mode Section
@@ -283,7 +443,7 @@ struct LinkedLearningAppsPicker: View {
                 Text(mode.displayName)
                     .font(.system(size: 12, weight: .medium))
             }
-            .foregroundColor(isSelected ? AppTheme.lightCream : ChallengeBuilderTheme.text)
+            .foregroundColor(isSelected ? AppTheme.vibrantTeal : AppTheme.brandedText(for: colorScheme))
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
             .background(
@@ -291,7 +451,7 @@ struct LinkedLearningAppsPicker: View {
                     .fill(isSelected ? AppTheme.vibrantTeal.opacity(0.15) : Color.clear)
                     .overlay(
                         RoundedRectangle(cornerRadius: 8)
-                            .stroke(isSelected ? AppTheme.lightCream.opacity(0.3) : ChallengeBuilderTheme.border, lineWidth: 1)
+                            .stroke(isSelected ? AppTheme.vibrantTeal.opacity(0.5) : ChallengeBuilderTheme.border, lineWidth: 1)
                     )
             )
         }
@@ -351,8 +511,17 @@ struct LinkedLearningAppsPicker: View {
     private func toggleApp(snapshot: LearningAppSnapshot) {
         if let index = linkedApps.firstIndex(where: { $0.logicalID == snapshot.logicalID }) {
             linkedApps.remove(at: index)
+            expandedAppIDs.remove(snapshot.logicalID)
         } else {
             linkedApps.append(.defaultRequirement(logicalID: snapshot.logicalID))
+        }
+    }
+
+    private func toggleExpanded(for logicalID: String) {
+        if expandedAppIDs.contains(logicalID) {
+            expandedAppIDs.remove(logicalID)
+        } else {
+            expandedAppIDs.insert(logicalID)
         }
     }
 
@@ -365,6 +534,12 @@ struct LinkedLearningAppsPicker: View {
     private func updatePeriod(for logicalID: String, period: GoalPeriod) {
         if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
             linkedApps[index].goalPeriod = period
+        }
+    }
+
+    private func updateRatioLearning(for logicalID: String, minutes: Int) {
+        if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
+            linkedApps[index].ratioLearningMinutes = minutes
         }
     }
 

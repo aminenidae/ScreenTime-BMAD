@@ -317,6 +317,14 @@ enum GoalPeriod: String, Codable, CaseIterable {
         case .weekly: return "per week"
         }
     }
+
+    /// Short display name for inline pickers (e.g., "day" or "week")
+    var shortDisplayName: String {
+        switch self {
+        case .daily: return "day"
+        case .weekly: return "week"
+        }
+    }
 }
 
 // MARK: - Linked Learning App
@@ -325,9 +333,10 @@ enum GoalPeriod: String, Codable, CaseIterable {
 struct LinkedLearningApp: Codable, Equatable, Hashable {
     let logicalID: String           // ID of the learning app
     var displayName: String?        // App name for display (synced to parent)
-    var minutesRequired: Int        // minutes needed (e.g., 15, 30, 45)
+    var minutesRequired: Int        // Goal: minutes needed per period (e.g., 15, 30)
     var goalPeriod: GoalPeriod      // daily or weekly
-    var rewardMinutesEarned: Int    // reward time granted when goal is met
+    var ratioLearningMinutes: Int   // Ratio input: every X minutes of learning...
+    var rewardMinutesEarned: Int    // Ratio output: ...grants Y minutes of reward
 
     static func defaultRequirement(logicalID: String) -> LinkedLearningApp {
         LinkedLearningApp(
@@ -335,20 +344,22 @@ struct LinkedLearningApp: Codable, Equatable, Hashable {
             displayName: nil,
             minutesRequired: 15,
             goalPeriod: .daily,
-            rewardMinutesEarned: 15  // Default 1:1 ratio
+            ratioLearningMinutes: 1,  // Default: every 1 minute...
+            rewardMinutesEarned: 1    // ...grants 1 minute (1:1 ratio)
         )
     }
 
     // Custom Codable to handle backward compatibility
     enum CodingKeys: String, CodingKey {
-        case logicalID, displayName, minutesRequired, goalPeriod, rewardMinutesEarned
+        case logicalID, displayName, minutesRequired, goalPeriod, ratioLearningMinutes, rewardMinutesEarned
     }
 
-    init(logicalID: String, displayName: String? = nil, minutesRequired: Int, goalPeriod: GoalPeriod, rewardMinutesEarned: Int) {
+    init(logicalID: String, displayName: String? = nil, minutesRequired: Int, goalPeriod: GoalPeriod, ratioLearningMinutes: Int, rewardMinutesEarned: Int) {
         self.logicalID = logicalID
         self.displayName = displayName
         self.minutesRequired = minutesRequired
         self.goalPeriod = goalPeriod
+        self.ratioLearningMinutes = ratioLearningMinutes
         self.rewardMinutesEarned = rewardMinutesEarned
     }
 
@@ -358,8 +369,9 @@ struct LinkedLearningApp: Codable, Equatable, Hashable {
         displayName = try container.decodeIfPresent(String.self, forKey: .displayName)
         minutesRequired = try container.decode(Int.self, forKey: .minutesRequired)
         goalPeriod = try container.decode(GoalPeriod.self, forKey: .goalPeriod)
-        // Backward compatibility: default to minutesRequired (1:1) if not present
-        rewardMinutesEarned = try container.decodeIfPresent(Int.self, forKey: .rewardMinutesEarned) ?? minutesRequired
+        // Backward compatibility: default to 1 if not present
+        ratioLearningMinutes = try container.decodeIfPresent(Int.self, forKey: .ratioLearningMinutes) ?? 1
+        rewardMinutesEarned = try container.decodeIfPresent(Int.self, forKey: .rewardMinutesEarned) ?? 1
     }
 
     /// Display string for the requirement (e.g., "15m daily → 30m reward")

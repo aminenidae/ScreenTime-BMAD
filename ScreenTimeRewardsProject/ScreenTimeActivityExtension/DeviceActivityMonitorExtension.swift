@@ -2,6 +2,7 @@ import DeviceActivity
 import Foundation
 import Darwin // For mach_task_self_ and task_info
 import ManagedSettings
+import UserNotifications
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -537,41 +538,77 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Check all reward app goals and update shields accordingly
     /// Called after each usage recording to immediately unblock reward apps when goals are met
     private nonisolated func checkAndUpdateShields(defaults: UserDefaults) {
-        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
-              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+        debugLog("SHIELD_CHECK: Starting shield update check", defaults: defaults)
+
+        guard let data = defaults.data(forKey: "extensionShieldConfigs") else {
+            debugLog("SHIELD_CHECK: ❌ NO extensionShieldConfigs data found - ensure main app synced configs", defaults: defaults)
             return
         }
 
+        guard let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+            debugLog("SHIELD_CHECK: ❌ DECODE FAILED for extensionShieldConfigs - data may be corrupted", defaults: defaults)
+            return
+        }
+
+        debugLog("SHIELD_CHECK: Found \(configs.goalConfigs.count) goal configs to evaluate", defaults: defaults)
+
         for goalConfig in configs.goalConfigs {
             let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
+            debugLog("SHIELD_CHECK: \(shortID)... goalMet=\(isGoalMet)", defaults: defaults)
 
             if isGoalMet {
                 guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
+                    debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
                     continue
                 }
 
                 var currentShields = managedSettingsStore.shield.applications ?? Set()
-                if currentShields.contains(token) {
+                let shieldCount = currentShields.count
+                let containsToken = currentShields.contains(token)
+                debugLog("SHIELD_CHECK: \(shortID) currentShields=\(shieldCount), containsToken=\(containsToken)", defaults: defaults)
+
+                if containsToken {
                     currentShields.remove(token)
                     managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
                     recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                    debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID)", defaults: defaults)
+
+                    // Calculate earned minutes for notification
+                    let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
+                    scheduleGoalCompletedNotification(rewardMinutes: earnedMinutes, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                } else {
+                    debugLog("SHIELD_CHECK: ℹ️ \(shortID) goal met but not currently shielded", defaults: defaults)
                 }
             }
         }
+        debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
     }
 
     /// Check if a reward app's learning goal is met
     private nonisolated func checkGoalMet(goalConfig: ExtensionGoalConfigMinimal, defaults: UserDefaults) -> Bool {
+        let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
+        debugLog("GOAL_CHECK: \(shortID) mode=\(goalConfig.unlockMode) linkedApps=\(goalConfig.linkedLearningApps.count)", defaults: defaults)
+
+        if goalConfig.linkedLearningApps.isEmpty {
+            debugLog("GOAL_CHECK: ⚠️ \(shortID) has NO linked learning apps - goal cannot be met", defaults: defaults)
+            return false
+        }
+
         switch goalConfig.unlockMode {
         case "any":
             for linked in goalConfig.linkedLearningApps {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
+                let linkedShortID = String(linked.learningAppLogicalID.prefix(12))
+                debugLog("GOAL_CHECK: \(linkedShortID) usage=\(usageMinutes)min required=\(linked.minutesRequired)min", defaults: defaults)
                 if usageMinutes >= linked.minutesRequired {
+                    debugLog("GOAL_CHECK: ✅ \(shortID) goal MET via \(linkedShortID)", defaults: defaults)
                     return true
                 }
             }
+            debugLog("GOAL_CHECK: ❌ \(shortID) goal NOT met (any mode) - no linked app reached target", defaults: defaults)
             return false
 
         case "all":
@@ -579,13 +616,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
+                let linkedShortID = String(linked.learningAppLogicalID.prefix(12))
+                debugLog("GOAL_CHECK: \(linkedShortID) usage=\(usageMinutes)min required=\(linked.minutesRequired)min", defaults: defaults)
                 if usageMinutes < linked.minutesRequired {
+                    debugLog("GOAL_CHECK: ❌ \(shortID) goal NOT met (all mode) - \(linkedShortID) below target", defaults: defaults)
                     return false
                 }
             }
-            return !goalConfig.linkedLearningApps.isEmpty
+            debugLog("GOAL_CHECK: ✅ \(shortID) goal MET (all mode) - all linked apps reached target", defaults: defaults)
+            return true
 
         default:
+            debugLog("GOAL_CHECK: ⚠️ \(shortID) unknown unlockMode: \(goalConfig.unlockMode)", defaults: defaults)
             return false
         }
     }
@@ -601,6 +643,44 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Also update a global "last unlock" timestamp so main app knows something changed
         defaults.set(now.timeIntervalSince1970, forKey: "ext_last_unlock_timestamp")
+    }
+
+    /// Schedule a local notification when learning goal is completed and shield is lifted
+    /// Extensions CAN schedule local notifications - they share notification permissions with the main app
+    private nonisolated func scheduleGoalCompletedNotification(rewardMinutes: Int, rewardAppID: String, defaults: UserDefaults) {
+        // Check if we already sent this notification today to avoid duplicates
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+        let todayKey = dateFormatter.string(from: Date())
+        let notificationSentKey = "ext_goal_notification_\(rewardAppID)_\(todayKey)"
+
+        if defaults.bool(forKey: notificationSentKey) {
+            debugLog("NOTIFICATION: Already sent goal notification for \(String(rewardAppID.prefix(12))) today", defaults: defaults)
+            return
+        }
+
+        let content = UNMutableNotificationContent()
+        content.title = "Goal Complete!"
+        content.body = "You've earned \(rewardMinutes) minutes of reward time. Enjoy your games!"
+        content.sound = .default
+        content.categoryIdentifier = "learningGoal"
+
+        let identifier = "ext_goal_completed_\(rewardAppID)_\(todayKey)"
+        let request = UNNotificationRequest(
+            identifier: identifier,
+            content: content,
+            trigger: nil // Immediate delivery
+        )
+
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error = error {
+                self?.debugLog("NOTIFICATION: ❌ Failed to schedule - \(error.localizedDescription)", defaults: defaults)
+            } else {
+                // Mark as sent to prevent duplicates
+                defaults.set(true, forKey: notificationSentKey)
+                self?.debugLog("NOTIFICATION: ✅ Scheduled goal completed notification for \(String(rewardAppID.prefix(12)))", defaults: defaults)
+            }
+        }
     }
 
     // MARK: - Unified Shield Blocking (when reward time expires)

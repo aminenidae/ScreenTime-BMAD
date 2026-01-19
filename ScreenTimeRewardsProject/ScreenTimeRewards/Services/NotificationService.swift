@@ -13,6 +13,7 @@ final class NotificationService: ObservableObject {
 
     private let center = UNUserNotificationCenter.current()
     private let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared")
+    private let settingsManager = NotificationSettingsManager.shared
 
     // MARK: - Notification Tracking Keys
 
@@ -230,6 +231,13 @@ final class NotificationService: ObservableObject {
         defaults?.set(sent, forKey: sentNotificationsKey)
     }
 
+    // MARK: - Settings Check
+
+    /// Check if notifications are enabled for a specific category
+    private func isNotificationEnabled(for category: Category) -> Bool {
+        return settingsManager.isEnabled(for: category.rawValue)
+    }
+
     // MARK: - Child Local Notifications
 
     // MARK: 1. Streak Milestone Achieved
@@ -241,6 +249,14 @@ final class NotificationService: ObservableObject {
         appName: String,
         appLogicalID: String
     ) {
+        // Check user settings
+        guard isNotificationEnabled(for: .streakMilestone) else {
+            #if DEBUG
+            print("[NotificationService] Streak milestone notifications disabled by user")
+            #endif
+            return
+        }
+
         let identifier = "streak_milestone_\(milestone)_\(appLogicalID)"
         guard !hasNotificationBeenSent(identifier: identifier, today: true) else {
             print("[NotificationService] Streak milestone notification already sent today for \(appName)")
@@ -281,6 +297,14 @@ final class NotificationService: ObservableObject {
 
     /// Schedule a notification when child completes their daily learning goal
     func scheduleLearningGoalCompletedNotification(earnedMinutes: Int) {
+        // Check user settings
+        guard isNotificationEnabled(for: .learningGoal) else {
+            #if DEBUG
+            print("[NotificationService] Learning goal notifications disabled by user")
+            #endif
+            return
+        }
+
         let identifier = "learning_goal_completed"
         guard !hasNotificationBeenSent(identifier: identifier, today: true) else {
             print("[NotificationService] Learning goal notification already sent today")
@@ -322,6 +346,14 @@ final class NotificationService: ObservableObject {
         usedMinutes: Int,
         limitMinutes: Int
     ) {
+        // Check user settings
+        guard isNotificationEnabled(for: .dailyLimit) else {
+            #if DEBUG
+            print("[NotificationService] Daily limit notifications disabled by user")
+            #endif
+            return
+        }
+
         let identifier = "approaching_limit_\(appLogicalID)"
         guard !hasNotificationBeenSent(identifier: identifier, today: true) else {
             print("[NotificationService] Approaching limit notification already sent today for \(appName)")
@@ -431,6 +463,14 @@ final class NotificationService: ObservableObject {
 
     /// Schedule a notification when reward minutes are running low
     func scheduleTimeBankLowNotification(remainingMinutes: Int, threshold: Int = 5) {
+        // Check user settings
+        guard isNotificationEnabled(for: .timeBankLow) else {
+            #if DEBUG
+            print("[NotificationService] Time bank low notifications disabled by user")
+            #endif
+            return
+        }
+
         guard remainingMinutes <= threshold && remainingMinutes > 0 else { return }
 
         let identifier = "time_bank_low"
@@ -623,6 +663,14 @@ final class NotificationService: ObservableObject {
         isTrial: Bool,
         remindDays: [Int] = [7, 3, 0]
     ) {
+        // Check user settings
+        guard isNotificationEnabled(for: .subscriptionReminder) else {
+            #if DEBUG
+            print("[NotificationService] Subscription reminder notifications disabled by user")
+            #endif
+            return
+        }
+
         // Cancel existing reminders first
         cancelSubscriptionReminders()
 

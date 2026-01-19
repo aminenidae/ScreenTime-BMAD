@@ -121,7 +121,8 @@ struct AppConfigurationSheet: View {
                             LinkedLearningAppsPicker(
                                 linkedApps: $localConfig.linkedLearningApps,
                                 unlockMode: $localConfig.unlockMode,
-                                learningSnapshots: learningSnapshots
+                                learningSnapshots: learningSnapshots,
+                                rewardAppToken: token
                             )
                             .id(AppConfigSection.linkedApps.rawValue)
                             .tutorialTarget("config_linked_apps")
@@ -132,11 +133,18 @@ struct AppConfigurationSheet: View {
                                 .frame(height: 1)
 
                             let estimatedReward: Int = {
+                                // Calculate estimated daily reward based on minimum learning requirements
+                                func estimatedRewardFor(_ app: LinkedLearningApp) -> Int {
+                                    // (minutesRequired / ratioLearningMinutes) * rewardMinutesEarned
+                                    guard app.ratioLearningMinutes > 0 else { return 0 }
+                                    return (app.minutesRequired / app.ratioLearningMinutes) * app.rewardMinutesEarned
+                                }
+
                                 switch localConfig.unlockMode {
                                 case .all:
-                                    return localConfig.linkedLearningApps.reduce(0) { $0 + $1.rewardMinutesEarned }
+                                    return localConfig.linkedLearningApps.reduce(0) { $0 + estimatedRewardFor($1) }
                                 case .any:
-                                    return localConfig.linkedLearningApps.map { $0.rewardMinutesEarned }.max() ?? 0
+                                    return localConfig.linkedLearningApps.map { estimatedRewardFor($0) }.max() ?? 0
                                 }
                             }()
 
@@ -208,6 +216,7 @@ struct AppConfigurationSheet: View {
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
+                // Usage/time limit summary lines (text only)
                 ForEach(summaryLines, id: \.self) { line in
                     HStack(alignment: .top, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
                         Text("•")
@@ -219,6 +228,11 @@ struct AppConfigurationSheet: View {
                             .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8)) // Use AppTheme color
                             .textCase(.uppercase)
                     }
+                }
+
+                // Unlock requirements with inline icons (reward apps only)
+                if appType == .reward {
+                    unlockSummaryView
                 }
             }
         }
@@ -235,28 +249,96 @@ struct AppConfigurationSheet: View {
     }
 
     private var summaryLines: [String] {
+        var lines: [String] = []
+
         let limits = localConfig.dailyLimits
         let useAdvancedTime = localConfig.useAdvancedTimeWindowConfig
         let useAdvancedLimits = localConfig.useAdvancedDayConfig
 
         // If either time windows or limits are per-day, use smart grouping
         if useAdvancedTime || useAdvancedLimits {
-            return buildSmartSummary(limits: limits, useAdvancedTime: useAdvancedTime)
+            lines = buildSmartSummary(limits: limits, useAdvancedTime: useAdvancedTime)
+        } else {
+            // Simple mode
+            let timeWindow = localConfig.allowedTimeWindow
+            let timeRange = timeWindow.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) AND \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+
+            if limits.weekdayLimit == limits.weekendLimit {
+                // 1 line - same for all days
+                lines = [formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)]
+            } else {
+                // 2 lines - weekday vs weekend
+                lines = [
+                    "WEEKDAYS (MON-FRI): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
+                    "WEEKENDS (SAT-SUN): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+                ]
+            }
         }
 
-        // Simple mode
-        let timeWindow = localConfig.allowedTimeWindow
-        let timeRange = timeWindow.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) AND \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+        return lines
+    }
 
-        if limits.weekdayLimit == limits.weekendLimit {
-            // 1 line - same for all days
-            return [formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)]
+    // MARK: - Unlock Summary View (with inline icons)
+
+    /// Helper to find a learning app snapshot by logical ID
+    private func snapshotFor(logicalID: String) -> LearningAppSnapshot? {
+        learningSnapshots.first { $0.logicalID == logicalID }
+    }
+
+    /// Rich view for unlock requirements with inline app icons
+    @ViewBuilder
+    private var unlockSummaryView: some View {
+        let linkedApps = localConfig.linkedLearningApps
+
+        if linkedApps.isEmpty {
+            EmptyView()
+        } else if linkedApps.count <= 4 {
+            // Show each app on separate line with icon
+            ForEach(linkedApps, id: \.logicalID) { app in
+                if let snapshot = snapshotFor(logicalID: app.logicalID) {
+                    unlockAppRow(app: app, snapshot: snapshot)
+                }
+            }
         } else {
-            // 2 lines - weekday vs weekend
-            return [
-                "WEEKDAYS (MON-FRI): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
-                "WEEKENDS (SAT-SUN): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
-            ]
+            // Summarize for 5+ apps
+            let modeText = localConfig.unlockMode == .all ? "ALL" : "ANY"
+            HStack(alignment: .top, spacing: AppTheme.Spacing.small) {
+                Text("•")
+                    .font(.system(size: 11))
+                    .foregroundColor(accentColor)
+                Text("COMPLETE \(modeText) \(linkedApps.count) APPS GOAL TO UNLOCK")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+                    .textCase(.uppercase)
+            }
+        }
+    }
+
+    /// Single row for an unlock app requirement with inline icons
+    private func unlockAppRow(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
+        let periodText = app.goalPeriod == .daily ? "DAY" : "WEEK"
+        return HStack(alignment: .center, spacing: 4) {
+            Text("•")
+                .font(.system(size: 11))
+                .foregroundColor(accentColor)
+            Text("USE")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+            if #available(iOS 15.2, *) {
+                Label(snapshot.token)
+                    .labelStyle(.iconOnly)
+                    .scaleEffect(0.9)
+                    .frame(width: 24, height: 24)
+            }
+            Text("FOR \(formatDuration(app.minutesRequired))/\(periodText) TO UNLOCK")
+                .font(.system(size: 11, weight: .medium))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+            if #available(iOS 15.2, *) {
+                Label(token)
+                    .labelStyle(.iconOnly)
+                    .scaleEffect(0.9)
+                    .frame(width: 24, height: 24)
+            }
         }
     }
 
