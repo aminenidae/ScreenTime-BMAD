@@ -917,6 +917,126 @@ class BlockingCoordinator: ObservableObject {
     func updateTrackedTokens(_ tokens: Set<ApplicationToken>) {
         currentRewardTokens = tokens
     }
+
+    // MARK: - Extension State Synchronization
+
+    /// Check if the extension unlocked or blocked any reward apps while the main app was closed
+    /// Call this on app launch/foreground to sync state and show notification if needed
+    func checkExtensionUnlockState() {
+        guard let defaults = UserDefaults(suiteName: appGroupID) else {
+            #if DEBUG
+            print("[BlockingCoordinator] Failed to access App Group UserDefaults")
+            #endif
+            return
+        }
+
+        let lastCheckedTimestamp = defaults.double(forKey: "app_last_state_check")
+        let lastUnlockTimestamp = defaults.double(forKey: "ext_last_unlock_timestamp")
+        let lastBlockTimestamp = defaults.double(forKey: "ext_last_block_timestamp")
+
+        // Determine if either unlock or block happened since last check
+        let hasNewUnlock = lastUnlockTimestamp > lastCheckedTimestamp
+        let hasNewBlock = lastBlockTimestamp > lastCheckedTimestamp
+
+        guard hasNewUnlock || hasNewBlock else {
+            #if DEBUG
+            print("[BlockingCoordinator] No new extension state changes (lastUnlock=\(lastUnlockTimestamp), lastBlock=\(lastBlockTimestamp), lastChecked=\(lastCheckedTimestamp))")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        if hasNewUnlock {
+            print("[BlockingCoordinator] Extension unlocked apps while main app was closed - syncing state")
+        }
+        if hasNewBlock {
+            print("[BlockingCoordinator] Extension blocked apps while main app was closed - syncing state")
+        }
+        #endif
+
+        // Mark as checked with current timestamp
+        defaults.set(Date().timeIntervalSince1970, forKey: "app_last_state_check")
+
+        // Sync all reward apps to ensure consistency
+        if !currentRewardTokens.isEmpty {
+            syncAllRewardApps(tokens: currentRewardTokens)
+        }
+
+        // Upload shield states to parent CloudKit if block state changed
+        if hasNewBlock {
+            Task {
+                do {
+                    try await CloudKitSyncService.shared.uploadShieldStatesToParent()
+                    #if DEBUG
+                    print("[BlockingCoordinator] ✅ Uploaded block state changes to parent CloudKit")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[BlockingCoordinator] ⚠️ Failed to upload block state to parent: \(error)")
+                    #endif
+                }
+            }
+        }
+
+        // Handle unlock notification catch-up
+        if hasNewUnlock {
+            let earnedMinutes = calculateTotalEarnedMinutesFromExtension(defaults: defaults)
+            if earnedMinutes > 0 {
+                // Only schedule if we haven't already shown one today
+                let dateFormatter = DateFormatter()
+                dateFormatter.dateFormat = "yyyy-MM-dd"
+                let todayKey = dateFormatter.string(from: Date())
+                let notificationSentKey = "app_goal_notification_\(todayKey)"
+
+                if !defaults.bool(forKey: notificationSentKey) {
+                    NotificationService.shared.scheduleLearningGoalCompletedNotification(earnedMinutes: earnedMinutes)
+                    defaults.set(true, forKey: notificationSentKey)
+                    #if DEBUG
+                    print("[BlockingCoordinator] Scheduled catch-up notification for \(earnedMinutes) earned minutes")
+                    #endif
+                }
+            }
+
+            // Also upload unlock state to parent CloudKit
+            Task {
+                do {
+                    try await CloudKitSyncService.shared.uploadShieldStatesToParent()
+                    #if DEBUG
+                    print("[BlockingCoordinator] ✅ Uploaded unlock state changes to parent CloudKit")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[BlockingCoordinator] ⚠️ Failed to upload unlock state to parent: \(error)")
+                    #endif
+                }
+            }
+        }
+    }
+
+    /// Calculate total earned minutes from extension unlock records
+    private func calculateTotalEarnedMinutesFromExtension(defaults: UserDefaults) -> Int {
+        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
+              let configs = try? JSONDecoder().decode(ExtensionShieldConfigs.self, from: data) else {
+            return 0
+        }
+
+        var totalEarned = 0
+        for goalConfig in configs.goalConfigs {
+            // Check if this app's goal is met
+            for linked in goalConfig.linkedLearningApps {
+                let usageKey = "usage_\(linked.learningAppLogicalID)_today"
+                let usageSeconds = defaults.integer(forKey: usageKey)
+                let usageMinutes = usageSeconds / 60
+
+                if usageMinutes >= linked.minutesRequired {
+                    totalEarned += linked.rewardMinutesEarned
+                    break // Only count once per reward app for "any" mode
+                }
+            }
+        }
+
+        return totalEarned
+    }
 }
 
 // MARK: - BlockingReasonType Extension

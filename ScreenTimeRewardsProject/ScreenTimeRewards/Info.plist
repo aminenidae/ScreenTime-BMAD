@@ -27,6 +27,7 @@
 	</dict>
 	<key>UIBackgroundModes</key>
 	<array>
+		<string>fetch</string>
 		<string>processing</string>
 		<string>remote-notification</string>
 	</array>
@@ -35,6 +36,8 @@
 		<string>com.screentimerewards.usage-upload</string>
 		<string>com.screentimerewards.config-check</string>
 		<string>com.screentimerewards.midnight-reset</string>
+		<string>com.screentimerewards.subscription-verify</string>
+		<string>com.screentimerewards.shield-state-sync</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

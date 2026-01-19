@@ -21,6 +21,10 @@ struct ScreenTimeRewardsApp: App {
     @StateObject private var modeManager = DeviceModeManager.shared
 
     init() {
+        // Handle reinstall - clear PIN if app was reinstalled
+        // Must happen before any PIN checks
+        ParentPINService.shared.handleReinstallIfNeeded()
+
         // Perform streak migration if needed
         Task { @MainActor in
             await StreakMigrationService.shared.performMigrationIfNeeded()
@@ -52,6 +56,18 @@ struct ScreenTimeRewardsApp: App {
                     ScreenTimeService.shared.refreshFromExtension()
                 }
 
+                // Ensure extension has latest goal configs (critical for shield unlock to work)
+                Task { @MainActor in
+                    ScreenTimeService.shared.syncGoalConfigsToExtension()
+                    print("[ScreenTimeRewardsApp] 📋 Synced goal configs to extension")
+                }
+
+                // Check if extension unlocked any apps while main app was closed
+                Task { @MainActor in
+                    BlockingCoordinator.shared.checkExtensionUnlockState()
+                    print("[ScreenTimeRewardsApp] 🔓 Checked extension unlock state")
+                }
+
                 // Start background sync as safety net for missed Darwin notifications
                 ScreenTimeService.shared.startBackgroundSync()
                 print("[ScreenTimeRewardsApp] 🔄 Started background sync timer (5min polling)")
@@ -67,6 +83,12 @@ struct ScreenTimeRewardsApp: App {
                 // Initialize real-time sync coordinator (listens for shield changes, throttles syncs)
                 let _ = RealTimeSyncCoordinator.shared
                 print("[ScreenTimeRewardsApp] 📡 RealTimeSyncCoordinator initialized")
+
+                // Set up CloudKit database subscriptions for real-time push notifications
+                Task {
+                    await CloudKitSyncService.shared.setupDatabaseSubscriptions()
+                    print("[ScreenTimeRewardsApp] 📡 CloudKit database subscriptions configured")
+                }
 
                 // Sync app configurations to CloudKit for paired child devices
                 // This ensures existing apps sync to parent dashboard on app open
@@ -115,6 +137,24 @@ struct ScreenTimeRewardsApp: App {
                 }
 
             case .background, .inactive:
+                // Lock parent session when app goes to background on child device
+                // This forces PIN re-entry when parent mode is accessed again
+                if modeManager.isChildDevice && sessionManager.currentMode == .parent {
+                    sessionManager.exitToSelection()
+                    #if DEBUG
+                    print("[ScreenTimeRewardsApp] 🔒 Locked parent session - returning to mode selection")
+                    #endif
+                }
+
+                // Lock parent device dashboard when app goes to background
+                // This forces PIN re-entry when the app is re-opened
+                if modeManager.isParentDevice && sessionManager.isParentDeviceAuthenticated {
+                    sessionManager.lockParentDevice()
+                    #if DEBUG
+                    print("[ScreenTimeRewardsApp] 🔒 Locked parent device dashboard - PIN required on next access")
+                    #endif
+                }
+
                 // Stop periodic refresh when app goes to background
                 BlockingCoordinator.shared.stopPeriodicRefresh()
                 print("[ScreenTimeRewardsApp] ⏸️ Stopped BlockingCoordinator periodic refresh")
@@ -150,7 +190,7 @@ struct RootView: View {
             } else if modeManager.isChildDevice && !subscriptionManager.hasAccess {
                 SubscriptionLockoutView()
             } else if modeManager.isParentDevice {
-                ParentRemoteDashboardView()  // NEW - Will be implemented in Phase 3
+                ParentDeviceAuthView()  // Requires PIN authentication before showing dashboard
             } else if modeManager.isChildDevice {
                 Group {
                     switch sessionManager.currentMode {

@@ -74,6 +74,14 @@ class ChildBackgroundSyncService: ObservableObject {
             self.handleSubscriptionVerifyTask(task)
         }
 
+        // Register shield state sync task (BGAppRefreshTask for more frequent updates)
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.shield-state-sync",
+            using: nil
+        ) { task in
+            self.handleShieldStateSyncTask(task as! BGAppRefreshTask)
+        }
+
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
@@ -83,6 +91,9 @@ class ChildBackgroundSyncService: ObservableObject {
 
         // Schedule initial subscription verification
         scheduleSubscriptionVerification()
+
+        // Schedule shield state sync (more frequent than BGProcessingTask)
+        scheduleShieldStateSync()
     }
     
     /// Schedule a usage upload task
@@ -213,13 +224,15 @@ class ChildBackgroundSyncService: ObservableObject {
         #endif
 
         // 1. Process any pending full config commands from parent
+        var configsWereUpdated = false
         do {
             let processedCount = try await ChildConfigCommandProcessor.shared.processPendingCommands()
-            #if DEBUG
             if processedCount > 0 {
+                configsWereUpdated = true
+                #if DEBUG
                 print("[ChildBackgroundSyncService] Processed \(processedCount) parent config command(s)")
+                #endif
             }
-            #endif
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] Error processing parent commands: \(error)")
@@ -232,9 +245,13 @@ class ChildBackgroundSyncService: ObservableObject {
             let configurations = try await cloudKitService.downloadParentConfiguration()
 
             // Apply configurations
-            let screenTimeService = ScreenTimeService.shared
+            let screenTimeService = await ScreenTimeService.shared
             for config in configurations {
-                screenTimeService.applyCloudKitConfiguration(config)
+                await screenTimeService.applyCloudKitConfiguration(config)
+            }
+
+            if !configurations.isEmpty {
+                configsWereUpdated = true
             }
 
             #if DEBUG
@@ -245,6 +262,53 @@ class ChildBackgroundSyncService: ObservableObject {
             print("[ChildBackgroundSyncService] Failed to check for configuration updates: \(error)")
             #endif
             throw error
+        }
+
+        // 3. Sync goal configs to extension if any configurations were updated
+        // This ensures the DeviceActivityMonitorExtension has the latest learning goal requirements
+        if configsWereUpdated {
+            await syncGoalConfigsToExtension()
+        }
+
+        // 4. Check extension state and sync to CloudKit
+        // This ensures parent dashboard shows current shield state after config updates
+        await syncExtensionStateToCloudKit()
+    }
+
+    /// Sync goal configs to extension after background config update
+    @MainActor
+    private func syncGoalConfigsToExtension() {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] Syncing goal configs to extension after background update")
+        #endif
+
+        ScreenTimeService.shared.syncGoalConfigsToExtension()
+
+        #if DEBUG
+        print("[ChildBackgroundSyncService] ✅ Goal configs synced to extension")
+        #endif
+    }
+
+    /// Sync extension state to CloudKit after background operations
+    @MainActor
+    private func syncExtensionStateToCloudKit() async {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] Checking extension state for CloudKit sync")
+        #endif
+
+        // Check if extension made any state changes
+        BlockingCoordinator.shared.checkExtensionUnlockState()
+
+        // Upload current shield states to parent
+        do {
+            try await CloudKitSyncService.shared.uploadShieldStatesToParent()
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ✅ Shield states uploaded to parent CloudKit")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⚠️ Failed to upload shield states: \(error)")
+            #endif
         }
     }
     
@@ -615,6 +679,63 @@ class ChildBackgroundSyncService: ObservableObject {
     /// Trigger immediate subscription verification
     func triggerImmediateSubscriptionVerification() async {
         await verifyParentSubscription()
+    }
+
+    // MARK: - Shield State Sync Task (BGAppRefreshTask)
+
+    /// Handle shield state sync background app refresh task
+    /// This runs more frequently than BGProcessingTask to keep parent dashboard updated
+    func handleShieldStateSyncTask(_ task: BGAppRefreshTask) {
+        #if DEBUG
+        print("[ChildBackgroundSyncService] 🛡️ Handling shield state sync task")
+        #endif
+
+        // Check if still paired with parent before syncing
+        guard DevicePairingService.shared.hasValidPairing() else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⏭️ Skipping shield sync - no valid pairing")
+            #endif
+            task.setTaskCompleted(success: true)
+            return
+        }
+
+        task.expirationHandler = {
+            task.setTaskCompleted(success: false)
+        }
+
+        Task {
+            do {
+                // Sync extension state to CloudKit
+                await syncExtensionStateToCloudKit()
+
+                // Schedule next sync
+                scheduleShieldStateSync()
+
+                task.setTaskCompleted(success: true)
+
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ✅ Shield state sync completed")
+                #endif
+            }
+        }
+    }
+
+    /// Schedule shield state sync task (using BGAppRefreshTask for more frequent updates)
+    func scheduleShieldStateSync() {
+        let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.shield-state-sync")
+        // Request to run in 15 minutes (iOS may adjust based on usage patterns)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60)
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+            #if DEBUG
+            print("[ChildBackgroundSyncService] 🛡️ Scheduled shield state sync (15 min)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ❌ Failed to schedule shield state sync: \(error)")
+            #endif
+        }
     }
 
     // MARK: - Development Mode

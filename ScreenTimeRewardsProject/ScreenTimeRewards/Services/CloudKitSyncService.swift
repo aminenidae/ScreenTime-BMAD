@@ -2686,9 +2686,21 @@ class CloudKitSyncService: ObservableObject {
     // MARK: - Common Methods
     func handlePushNotification(userInfo: [AnyHashable: Any]) async {
         print("[CloudKit] Received push notification: \(userInfo)")
-        
-        // Process the notification and trigger any necessary sync operations
-        await processOfflineQueue()
+
+        // First, try to handle as a CloudKit database subscription notification
+        let handled = await handleCloudKitNotification(userInfo)
+
+        if handled {
+            #if DEBUG
+            print("[CloudKit] ✅ Handled as CloudKit subscription notification")
+            #endif
+        } else {
+            // Process the notification and trigger any necessary sync operations
+            #if DEBUG
+            print("[CloudKit] Processing as generic push notification")
+            #endif
+            await processOfflineQueue()
+        }
     }
 
     func forceSyncNow() async throws {
@@ -3662,4 +3674,206 @@ class CloudKitSyncService: ObservableObject {
 
         return count
     }
+
+    // MARK: - CloudKit Push Subscriptions
+
+    /// Subscription ID for parent config changes
+    private static let parentConfigSubscriptionID = "parent-config-changes"
+
+    /// Subscription ID for child usage updates
+    private static let childUsageSubscriptionID = "child-usage-updates"
+
+    /// Set up CloudKit database subscriptions for real-time push notifications
+    /// Call this during app initialization after user is signed into iCloud
+    func setupDatabaseSubscriptions() async {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Setting Up Database Subscriptions =====")
+        #endif
+
+        let deviceMode = DeviceModeManager.shared.currentMode
+
+        do {
+            if deviceMode == .childDevice {
+                // Child device subscribes to parent's shared database for config changes
+                try await setupChildSubscriptions()
+            } else {
+                // Parent device subscribes to private database for child usage updates
+                try await setupParentSubscriptions()
+            }
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Failed to setup subscriptions: \(error)")
+            #endif
+        }
+    }
+
+    /// Set up subscriptions for child device to receive parent config changes
+    private func setupChildSubscriptions() async throws {
+        let sharedDB = container.sharedCloudDatabase
+
+        // Check if subscription already exists
+        let existingSubscriptions = try await sharedDB.allSubscriptions()
+        if existingSubscriptions.contains(where: { $0.subscriptionID == Self.parentConfigSubscriptionID }) {
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Parent config subscription already exists")
+            #endif
+            return
+        }
+
+        // Create a database subscription for all record types in shared database
+        // This will notify us when parent pushes config commands
+        let subscription = CKDatabaseSubscription(subscriptionID: Self.parentConfigSubscriptionID)
+
+        // Configure notification info for silent push
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true  // Silent push for background processing
+        notificationInfo.shouldBadge = false
+        notificationInfo.soundName = nil
+        subscription.notificationInfo = notificationInfo
+
+        do {
+            _ = try await sharedDB.save(subscription)
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Created parent config subscription")
+            #endif
+        } catch let error as CKError where error.code == .serverRejectedRequest {
+            // Subscription may already exist or quota exceeded
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Server rejected subscription (may already exist): \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Set up subscriptions for parent device to receive child usage updates
+    private func setupParentSubscriptions() async throws {
+        let privateDB = container.privateCloudDatabase
+
+        // Check if subscription already exists
+        let existingSubscriptions = try await privateDB.allSubscriptions()
+        if existingSubscriptions.contains(where: { $0.subscriptionID == Self.childUsageSubscriptionID }) {
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Child usage subscription already exists")
+            #endif
+            return
+        }
+
+        // Create a database subscription for all record types in private database
+        // This will notify us when child syncs usage data or shield states
+        let subscription = CKDatabaseSubscription(subscriptionID: Self.childUsageSubscriptionID)
+
+        // Configure notification info for silent push
+        let notificationInfo = CKSubscription.NotificationInfo()
+        notificationInfo.shouldSendContentAvailable = true  // Silent push for background processing
+        notificationInfo.shouldBadge = false
+        notificationInfo.soundName = nil
+        subscription.notificationInfo = notificationInfo
+
+        do {
+            _ = try await privateDB.save(subscription)
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Created child usage subscription")
+            #endif
+        } catch let error as CKError where error.code == .serverRejectedRequest {
+            // Subscription may already exist or quota exceeded
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Server rejected subscription (may already exist): \(error.localizedDescription)")
+            #endif
+        }
+    }
+
+    /// Handle a CloudKit push notification (called from AppDelegate/SceneDelegate)
+    /// Returns true if the notification was handled
+    func handleCloudKitNotification(_ userInfo: [AnyHashable: Any]) async -> Bool {
+        guard let notification = CKNotification(fromRemoteNotificationDictionary: userInfo) else {
+            return false
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] 🔔 Received CloudKit push notification")
+        print("[CloudKitSyncService] Subscription ID: \(notification.subscriptionID ?? "nil")")
+        print("[CloudKitSyncService] Notification Type: \(notification.notificationType.rawValue)")
+        #endif
+
+        let deviceMode = DeviceModeManager.shared.currentMode
+
+        if deviceMode == .childDevice {
+            // Child received notification - check for config updates
+            if notification.subscriptionID == Self.parentConfigSubscriptionID {
+                #if DEBUG
+                print("[CloudKitSyncService] 📥 Processing parent config push notification")
+                #endif
+
+                do {
+                    try await ChildBackgroundSyncService.shared.checkForConfigurationUpdates()
+                    #if DEBUG
+                    print("[CloudKitSyncService] ✅ Processed config updates from push notification")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ Error processing config updates: \(error)")
+                    #endif
+                }
+                return true
+            }
+        } else {
+            // Parent received notification - refresh child data
+            if notification.subscriptionID == Self.childUsageSubscriptionID {
+                #if DEBUG
+                print("[CloudKitSyncService] 📥 Processing child usage push notification")
+                #endif
+
+                // Post notification for UI to refresh
+                await MainActor.run {
+                    NotificationCenter.default.post(name: .childDataUpdated, object: nil)
+                }
+                return true
+            }
+        }
+
+        return false
+    }
+
+    /// Remove all CloudKit subscriptions (call during logout/unpair)
+    func removeAllSubscriptions() async {
+        #if DEBUG
+        print("[CloudKitSyncService] ===== Removing All Database Subscriptions =====")
+        #endif
+
+        do {
+            // Remove from private database
+            let privateDB = container.privateCloudDatabase
+            let privateSubscriptions = try await privateDB.allSubscriptions()
+            for subscription in privateSubscriptions {
+                try? await privateDB.deleteSubscription(withID: subscription.subscriptionID)
+                #if DEBUG
+                print("[CloudKitSyncService] Removed private subscription: \(subscription.subscriptionID)")
+                #endif
+            }
+
+            // Remove from shared database
+            let sharedDB = container.sharedCloudDatabase
+            let sharedSubscriptions = try await sharedDB.allSubscriptions()
+            for subscription in sharedSubscriptions {
+                try? await sharedDB.deleteSubscription(withID: subscription.subscriptionID)
+                #if DEBUG
+                print("[CloudKitSyncService] Removed shared subscription: \(subscription.subscriptionID)")
+                #endif
+            }
+
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ All subscriptions removed")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Error removing subscriptions: \(error)")
+            #endif
+        }
+    }
+}
+
+// MARK: - Notification Names for CloudKit Updates
+
+extension Notification.Name {
+    /// Posted when parent receives child data update from CloudKit push
+    static let childDataUpdated = Notification.Name("childDataUpdated")
 }
