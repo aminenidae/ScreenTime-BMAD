@@ -3645,11 +3645,23 @@ func configureWithTestApplications() {
                 )
             }
 
+            // Get today's daily limit for the extension to enforce
+            let todayLimit = schedule.dailyLimits.todayLimit
+
+            // Get today's time window for downtime enforcement
+            let todayWindow = schedule.todayTimeWindow
+
             configs.append(ExtensionGoalConfig(
                 rewardAppLogicalID: logicalID,
                 rewardAppTokenData: tokenData,
                 linkedLearningApps: linkedGoals,
-                unlockMode: schedule.unlockMode.rawValue
+                unlockMode: schedule.unlockMode.rawValue,
+                dailyLimitMinutes: todayLimit,
+                allowedStartHour: todayWindow.startHour,
+                allowedStartMinute: todayWindow.startMinute,
+                allowedEndHour: todayWindow.endHour,
+                allowedEndMinute: todayWindow.endMinute,
+                isFullDayAllowed: todayWindow.isFullDay
             ))
         }
 

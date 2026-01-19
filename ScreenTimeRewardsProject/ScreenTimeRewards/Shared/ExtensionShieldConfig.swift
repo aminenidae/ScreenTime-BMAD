@@ -11,6 +11,14 @@ struct ExtensionGoalConfig: Codable, Equatable {
     let rewardAppTokenData: Data  // Serialized ApplicationToken
     let linkedLearningApps: [LinkedGoal]
     let unlockMode: String  // "all" or "any"
+    let dailyLimitMinutes: Int  // Daily limit in minutes (1440 = unlimited)
+
+    // Time window fields (for today's allowed window)
+    let allowedStartHour: Int      // 0-23
+    let allowedStartMinute: Int    // 0-59
+    let allowedEndHour: Int        // 0-23
+    let allowedEndMinute: Int      // 0-59
+    let isFullDayAllowed: Bool     // true = no time restriction
 
     struct LinkedGoal: Codable, Equatable {
         let learningAppLogicalID: String

@@ -683,11 +683,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    // MARK: - Unified Shield Blocking (when reward time expires)
+    // MARK: - Unified Shield Blocking (downtime, daily limit, or reward time expired)
     // Uses the same extensionShieldConfigs data as unlocking for consistency
 
-    /// Check if any reward app has exhausted its earned time and block it
-    /// Formula: rewardAppUsageMinutes >= earnedRewardMinutes → Re-apply shield
+    /// Check if current time is within the allowed time window
+    /// Returns true if within allowed window (app CAN be used), false if in downtime (app should be blocked)
+    private nonisolated func isCurrentTimeInAllowedWindow(_ goalConfig: ExtensionGoalConfigMinimal) -> Bool {
+        // Full day access = always allowed
+        if goalConfig.isFullDayAllowed { return true }
+
+        let now = Date()
+        let calendar = Calendar.current
+        let currentHour = calendar.component(.hour, from: now)
+        let currentMinute = calendar.component(.minute, from: now)
+        let currentTotalMinutes = currentHour * 60 + currentMinute
+
+        let startTotal = goalConfig.allowedStartHour * 60 + goalConfig.allowedStartMinute
+        let endTotal = goalConfig.allowedEndHour * 60 + goalConfig.allowedEndMinute
+
+        // Check if current time is within allowed window
+        return currentTotalMinutes >= startTotal && currentTotalMinutes < endTotal
+    }
+
+    /// Check if any reward app should be blocked due to downtime, daily limit, or exhausted earned time
+    /// Priority: Downtime (highest) > Daily limit > Reward time expired (lowest)
     /// This uses the same data source (extensionShieldConfigs) as the unlock logic
     private nonisolated func checkAndBlockIfRewardTimeExhausted(defaults: UserDefaults) {
         guard let data = defaults.data(forKey: "extensionShieldConfigs"),
@@ -696,15 +715,75 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         for goalConfig in configs.goalConfigs {
-            // 1. Calculate total earned minutes from met learning goals
-            let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
-
-            // 2. Get reward app usage (today)
+            // Get reward app usage (today)
             let usageKey = "usage_\(goalConfig.rewardAppLogicalID)_today"
             let usageSeconds = defaults.integer(forKey: usageKey)
             let usageMinutes = usageSeconds / 60
 
-            // 3. If usage >= earned AND earned > 0, re-apply shield
+            // Check 0: Downtime (HIGHEST priority)
+            // Block if current time is outside allowed window
+            if !isCurrentTimeInAllowedWindow(goalConfig) {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    // Record block state for main app to sync
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    // Persist blocking reason for ShieldConfigurationExtension
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,
+                        reasonType: "downtime",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+
+                    debugLog("DOWNTIME_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... outside allowed window \(goalConfig.allowedStartHour):\(goalConfig.allowedStartMinute)-\(goalConfig.allowedEndHour):\(goalConfig.allowedEndMinute)", defaults: defaults)
+                }
+                continue  // Skip other checks - downtime takes priority
+            }
+
+            // Check 1: Daily limit exceeded (higher priority)
+            // 1440 minutes = 24 hours = unlimited
+            let dailyLimit = goalConfig.dailyLimitMinutes
+            if dailyLimit < 1440 && usageMinutes >= dailyLimit {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    // Record block state for main app to sync
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    // Persist blocking reason for ShieldConfigurationExtension
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,
+                        reasonType: "dailyLimitReached",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+
+                    debugLog("DAILY_LIMIT_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... used=\(usageMinutes)min >= limit=\(dailyLimit)min", defaults: defaults)
+                }
+                continue  // Skip reward time check - daily limit takes priority
+            }
+
+            // Check 2: Reward time exhausted (lower priority)
+            // Calculate total earned minutes from met learning goals
+            let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
+
+            // If usage >= earned AND earned > 0, re-apply shield
             // (earned > 0 means goals were met at some point today)
             if earnedMinutes > 0 && usageMinutes >= earnedMinutes {
                 guard let token = try? PropertyListDecoder().decode(
@@ -722,7 +801,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                     // Persist blocking reason for ShieldConfigurationExtension
                     persistBlockingReason(
-                        tokenHash: goalConfig.rewardAppLogicalID,  // Use logicalID as key
+                        tokenHash: goalConfig.rewardAppLogicalID,
                         reasonType: "rewardTimeExpired",
                         usedMinutes: usageMinutes,
                         defaults: defaults
@@ -817,6 +896,14 @@ private struct ExtensionGoalConfigMinimal: Codable {
     let rewardAppTokenData: Data
     let linkedLearningApps: [LinkedGoalMinimal]
     let unlockMode: String
+    let dailyLimitMinutes: Int  // Daily limit in minutes (1440 = unlimited)
+
+    // Time window fields (for today's allowed window)
+    let allowedStartHour: Int      // 0-23
+    let allowedStartMinute: Int    // 0-59
+    let allowedEndHour: Int        // 0-23
+    let allowedEndMinute: Int      // 0-59
+    let isFullDayAllowed: Bool     // true = no time restriction
 
     struct LinkedGoalMinimal: Codable {
         let learningAppLogicalID: String
