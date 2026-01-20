@@ -132,8 +132,36 @@ class AppUsageViewModel: ObservableObject {
 
     /// Total earned reward minutes from all linked learning goals
     /// This is the total earned from learning - NOT affected by reward app usage
+    ///
+    /// IMPORTANT: We calculate based on UNIQUE learning apps to avoid double-counting
+    /// when multiple reward apps link to the same learning apps.
+    /// With 1:1 ratio: earned = total learning minutes
     var totalEarnedMinutes: Int {
-        BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: currentRewardTokens)
+        // Get all unique linked learning app IDs across all reward apps
+        var uniqueLinkedLearningIDs = Set<String>()
+        for token in currentRewardTokens {
+            guard let logicalID = service.getLogicalID(for: token),
+                  let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
+                continue
+            }
+            for linkedApp in schedule.linkedLearningApps {
+                uniqueLinkedLearningIDs.insert(linkedApp.logicalID)
+            }
+        }
+
+        // Sum usage only for learning apps that are linked to at least one reward app
+        // This avoids counting learning time from unlinked apps
+        var totalEarned = 0
+        for snapshot in learningSnapshots {
+            if uniqueLinkedLearningIDs.contains(snapshot.logicalID) {
+                // With 1:1 ratio, earned = usage minutes
+                // TODO: If we need to support different ratios per learning app,
+                // we'd need to look up the ratio from the linked app config
+                totalEarned += Int(snapshot.totalSeconds / 60)
+            }
+        }
+
+        return totalEarned
     }
 
     /// Total reward minutes used (from actual usage tracking)

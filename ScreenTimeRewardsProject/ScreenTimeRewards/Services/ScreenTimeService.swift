@@ -3641,6 +3641,7 @@ func configureWithTestApplications() {
                 ExtensionGoalConfig.LinkedGoal(
                     learningAppLogicalID: linked.logicalID,
                     minutesRequired: linked.minutesRequired,
+                    ratioLearningMinutes: linked.ratioLearningMinutes,
                     rewardMinutesEarned: linked.rewardMinutesEarned
                 )
             }

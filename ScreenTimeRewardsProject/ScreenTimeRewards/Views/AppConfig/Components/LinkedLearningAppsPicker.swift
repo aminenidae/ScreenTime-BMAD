@@ -513,7 +513,11 @@ struct LinkedLearningAppsPicker: View {
             linkedApps.remove(at: index)
             expandedAppIDs.remove(snapshot.logicalID)
         } else {
-            linkedApps.append(.defaultRequirement(logicalID: snapshot.logicalID))
+            // Store display name along with logicalID to enable fallback lookup
+            // This fixes the bug where stale logicalIDs prevent earned calculation
+            var newLinkedApp = LinkedLearningApp.defaultRequirement(logicalID: snapshot.logicalID)
+            newLinkedApp.displayName = snapshot.displayName
+            linkedApps.append(newLinkedApp)
         }
     }
 

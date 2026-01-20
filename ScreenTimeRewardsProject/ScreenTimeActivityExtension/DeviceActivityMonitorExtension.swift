@@ -825,9 +825,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
                 if usageMinutes >= linked.minutesRequired {
-                    // Calculate proportional reward (Threshold + Proportional)
-                    // Use max(1, ...) to prevent division by zero
-                    let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.minutesRequired))
+                    // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
+                    // E.g., 1:1 ratio = 1 reward per 1 learning minute
+                    let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
                     let earned = Double(usageMinutes) * ratio
                     return Int(earned)
                 }
@@ -844,9 +844,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 if usageMinutes < linked.minutesRequired {
                     return 0  // Not all goals met (threshold not reached)
                 }
-                // Calculate proportional reward (Threshold + Proportional)
-                // Use max(1, ...) to prevent division by zero
-                let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.minutesRequired))
+                // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
+                // E.g., 1:1 ratio = 1 reward per 1 learning minute
+                let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
                 let earned = Double(usageMinutes) * ratio
                 totalEarned += Int(earned)
             }
@@ -908,7 +908,8 @@ private struct ExtensionGoalConfigMinimal: Codable {
     struct LinkedGoalMinimal: Codable {
         let learningAppLogicalID: String
         let minutesRequired: Int
-        let rewardMinutesEarned: Int
+        let ratioLearningMinutes: Int  // Ratio input: every X minutes of learning...
+        let rewardMinutesEarned: Int   // Ratio output: ...grants Y minutes of reward
     }
 }
 

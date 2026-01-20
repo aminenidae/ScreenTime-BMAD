@@ -32,6 +32,14 @@ struct BlockingDecision {
     )
 }
 
+/// Simple data container for learning app usage from snapshots
+/// Used to pass already-resolved usage data to avoid stale logicalID lookup issues
+struct LearningSnapshotData {
+    let logicalID: String
+    let displayName: String
+    let todayMinutes: Int
+}
+
 /// Coordinates blocking decisions and ensures BlockingReasonService is called
 /// before shields are applied. Determines WHY an app is blocked and persists
 /// that reason for the ShieldConfigurationExtension to display.
@@ -196,6 +204,185 @@ class BlockingCoordinator: ObservableObject {
             total += getEarnedRewardMinutes(for: logicalID)
         }
         return total
+    }
+
+    // MARK: - Snapshot-Based Earned Calculation
+
+    /// Get total earned reward minutes using learning snapshots for accurate usage lookup.
+    /// This bypasses stale logicalID issues by using the already-resolved usage data from snapshots.
+    func getTotalEarnedRewardMinutes(for tokens: Set<ApplicationToken>, learningSnapshots: [LearningSnapshotData]) -> Int {
+        var total = 0
+        for token in tokens {
+            total += getEarnedRewardMinutes(for: token, learningSnapshots: learningSnapshots)
+        }
+        return total
+    }
+
+    /// Get earned reward minutes for a specific reward app using learning snapshots
+    func getEarnedRewardMinutes(for token: ApplicationToken, learningSnapshots: [LearningSnapshotData]) -> Int {
+        guard let service = screenTimeService,
+              let logicalID = service.getLogicalID(for: token) else {
+            return 0
+        }
+        let learningCheck = checkLearningGoal(logicalID: logicalID, learningSnapshots: learningSnapshots)
+        return learningCheck.rewardMinutesEarned
+    }
+
+    /// Check learning goal using snapshots for accurate usage lookup.
+    /// Matches linked apps against snapshots by display name (case-insensitive).
+    private func checkLearningGoal(logicalID: String, learningSnapshots: [LearningSnapshotData]) -> LearningGoalCheckResult {
+        guard let config = scheduleService.getSchedule(for: logicalID) else {
+            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
+        }
+
+        let linkedApps = config.linkedLearningApps
+
+        // No linked learning apps = goal is met (no requirement, no reward)
+        if linkedApps.isEmpty {
+            return LearningGoalCheckResult(isGoalMet: true, targetMinutes: 0, currentMinutes: 0, rewardMinutesEarned: 0)
+        }
+
+        // Helper to get usage from snapshots by logicalID OR display name
+        // IMPORTANT: Try logicalID FIRST because it's unique. Display names can be ambiguous
+        // (e.g., all apps might show as "Unknown App" when iOS doesn't provide the real name)
+        func getSnapshotMinutes(displayName: String?, linkedLogicalID: String) -> Int {
+            #if DEBUG
+            print("[BlockingCoordinator] 🔍 Matching linked app: displayName='\(displayName ?? "nil")', logicalID=\(linkedLogicalID.prefix(20))...")
+            print("[BlockingCoordinator]    Available snapshots:")
+            for snap in learningSnapshots {
+                print("[BlockingCoordinator]      - '\(snap.displayName)' logicalID=\(snap.logicalID.prefix(20))... minutes=\(snap.todayMinutes)")
+            }
+            #endif
+
+            // FIRST: Try logicalID match (most reliable - logicalIDs are unique)
+            if let snapshot = learningSnapshots.first(where: { $0.logicalID == linkedLogicalID }) {
+                #if DEBUG
+                print("[BlockingCoordinator]    ✅ MATCHED by logicalID: \(linkedLogicalID.prefix(20))... -> \(snapshot.todayMinutes) min")
+                #endif
+                return snapshot.todayMinutes
+            }
+
+            // FALLBACK: Try display name match (only if logicalID didn't match - handles stale IDs)
+            // But only use this if the display name is unique (not generic like "Unknown App")
+            if let name = displayName, !name.isEmpty, !name.hasPrefix("Unknown App") {
+                if let snapshot = learningSnapshots.first(where: { $0.displayName == name }) {
+                    #if DEBUG
+                    print("[BlockingCoordinator]    ✅ MATCHED by displayName: '\(name)' -> \(snapshot.todayMinutes) min")
+                    #endif
+                    return snapshot.todayMinutes
+                }
+                if let snapshot = learningSnapshots.first(where: { $0.displayName.lowercased() == name.lowercased() }) {
+                    #if DEBUG
+                    print("[BlockingCoordinator]    ✅ MATCHED by displayName (case-insensitive): '\(name)' -> \(snapshot.todayMinutes) min")
+                    #endif
+                    return snapshot.todayMinutes
+                }
+            }
+
+            #if DEBUG
+            print("[BlockingCoordinator]    ❌ NO MATCH FOUND for logicalID=\(linkedLogicalID.prefix(20))... or displayName='\(displayName ?? "nil")'")
+            #endif
+            return 0
+        }
+
+        var totalTarget = 0
+        var totalCurrent = 0
+        var totalRewardEarned = 0
+
+        #if DEBUG
+        print("[BlockingCoordinator] 📊 GOAL_CHECK for reward \(logicalID.prefix(12))...: mode=\(config.unlockMode), linkedApps=\(linkedApps.count)")
+        #endif
+
+        switch config.unlockMode {
+        case .all:
+            var allGoalsMet = true
+            for linkedApp in linkedApps {
+                totalTarget += linkedApp.minutesRequired
+                let currentMinutes = getSnapshotMinutes(displayName: linkedApp.displayName, linkedLogicalID: linkedApp.logicalID)
+                let cappedCurrent = min(currentMinutes, linkedApp.minutesRequired)
+                totalCurrent += cappedCurrent
+
+                #if DEBUG
+                print("[BlockingCoordinator]    📋 LinkedApp: required=\(linkedApp.minutesRequired)min, ratioLearning=\(linkedApp.ratioLearningMinutes), rewardMinutesEarned=\(linkedApp.rewardMinutesEarned), current=\(currentMinutes)min")
+                #endif
+
+                if currentMinutes >= linkedApp.minutesRequired {
+                    // Ratio: rewardMinutesEarned per ratioLearningMinutes (NOT per minutesRequired!)
+                    // E.g., 1:1 ratio = 1 reward per 1 learning minute
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    let earned = Double(currentMinutes) * ratio
+                    totalRewardEarned += Int(earned)
+                    #if DEBUG
+                    print("[BlockingCoordinator]    ✅ Goal MET: ratio=\(linkedApp.rewardMinutesEarned):\(linkedApp.ratioLearningMinutes)=\(ratio), earned=\(Int(earned))min")
+                    #endif
+                } else {
+                    allGoalsMet = false
+                    #if DEBUG
+                    print("[BlockingCoordinator]    ❌ Goal NOT MET: \(currentMinutes) < \(linkedApp.minutesRequired)")
+                    #endif
+                }
+            }
+
+            if !allGoalsMet {
+                #if DEBUG
+                print("[BlockingCoordinator]    ⚠️ Not all goals met, resetting totalRewardEarned to 0")
+                #endif
+                totalRewardEarned = 0
+            } else {
+                #if DEBUG
+                print("[BlockingCoordinator]    🎉 ALL goals met! totalRewardEarned=\(totalRewardEarned)min")
+                #endif
+            }
+
+        case .any:
+            var bestProgress: (target: Int, current: Int, reward: Int)? = nil
+
+            for linkedApp in linkedApps {
+                let currentMinutes = getSnapshotMinutes(displayName: linkedApp.displayName, linkedLogicalID: linkedApp.logicalID)
+                let target = linkedApp.minutesRequired
+
+                if currentMinutes >= target {
+                    // Ratio: rewardMinutesEarned per ratioLearningMinutes (NOT per minutesRequired!)
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    let earned = Double(currentMinutes) * ratio
+                    let earnedInt = Int(earned)
+
+                    return LearningGoalCheckResult(
+                        isGoalMet: true,
+                        targetMinutes: target,
+                        currentMinutes: currentMinutes,
+                        rewardMinutesEarned: earnedInt
+                    )
+                }
+
+                if bestProgress == nil || currentMinutes > bestProgress!.current {
+                    bestProgress = (target: target, current: currentMinutes, reward: linkedApp.rewardMinutesEarned)
+                }
+            }
+
+            if let best = bestProgress {
+                return LearningGoalCheckResult(
+                    isGoalMet: false,
+                    targetMinutes: best.target,
+                    currentMinutes: best.current,
+                    rewardMinutesEarned: 0
+                )
+            }
+
+            return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
+        }
+
+        let isGoalMet = totalCurrent >= totalTarget
+        let finalEarned = isGoalMet ? totalRewardEarned : 0
+        #if DEBUG
+        print("[BlockingCoordinator] 📊 GOAL_RESULT: isGoalMet=\(isGoalMet), totalTarget=\(totalTarget), totalCurrent=\(totalCurrent), finalEarned=\(finalEarned)")
+        #endif
+        return LearningGoalCheckResult(
+            isGoalMet: isGoalMet,
+            targetMinutes: totalTarget,
+            currentMinutes: totalCurrent,
+            rewardMinutesEarned: finalEarned
+        )
     }
 
     // MARK: - Condition Checks
@@ -523,16 +710,16 @@ class BlockingCoordinator: ObservableObject {
             var allGoalsMet = true
             for linkedApp in linkedApps {
                 totalTarget += linkedApp.minutesRequired
-                let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
+                let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID, displayName: linkedApp.displayName)
                 // Cap progress at requirement (no overcounting)
                 let cappedCurrent = min(currentMinutes, linkedApp.minutesRequired)
                 totalCurrent += cappedCurrent
 
                 // Check if this individual goal is met (at least 1 round completed)
                 if currentMinutes >= linkedApp.minutesRequired {
-                    // Calculate proportional reward (Threshold + Proportional)
-                    // Use max(1, ...) to prevent division by zero
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.minutesRequired))
+                    // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
+                    // E.g., 1:1 ratio = 1 reward per 1 learning minute
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
                     let earned = Double(currentMinutes) * ratio
                     totalRewardEarned += Int(earned)
                 } else {
@@ -550,14 +737,13 @@ class BlockingCoordinator: ObservableObject {
             var bestProgress: (target: Int, current: Int, reward: Int)? = nil
 
             for linkedApp in linkedApps {
-                let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID)
+                let currentMinutes = getTodayUsageMinutes(for: linkedApp.logicalID, displayName: linkedApp.displayName)
                 let target = linkedApp.minutesRequired
 
                 // Check if this app's goal is met (at least 1 round completed)
                 if currentMinutes >= target {
-                    // Calculate proportional reward (Threshold + Proportional)
-                    // Use max(1, ...) to prevent division by zero
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, target))
+                    // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
+                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
@@ -598,16 +784,35 @@ class BlockingCoordinator: ObservableObject {
         )
     }
 
-    private func getTodayUsageMinutes(for logicalID: String) -> Int {
+    private func getTodayUsageMinutes(for logicalID: String, displayName: String? = nil) -> Int {
         // Read from UsagePersistence (same source as app cards) instead of UserDefaults
         // This ensures bank card and app cards show consistent usage times
-        guard let persistedApp = screenTimeService?.usagePersistence.app(for: logicalID) else {
+        let startOfToday = Calendar.current.startOfDay(for: Date())
+
+        // Primary lookup: exact logicalID match
+        if let persistedApp = screenTimeService?.usagePersistence.app(for: logicalID) {
+            if persistedApp.lastResetDate >= startOfToday {
+                return persistedApp.todaySeconds / 60
+            }
             return 0
         }
-        let startOfToday = Calendar.current.startOfDay(for: Date())
-        if persistedApp.lastResetDate >= startOfToday {
-            return persistedApp.todaySeconds / 60
+
+        // Fallback: lookup by display name (handles stale logicalID from linked config)
+        // This fixes the bug where linked learning app logicalIDs become stale after token changes
+        if let name = displayName, !name.isEmpty {
+            let allApps = screenTimeService?.usagePersistence.loadAllApps() ?? [:]
+            for (_, app) in allApps {
+                if app.displayName.lowercased() == name.lowercased() {
+                    if app.lastResetDate >= startOfToday {
+                        #if DEBUG
+                        print("[BlockingCoordinator] ⚠️ Used display name fallback for '\(name)': found under \(app.logicalID)")
+                        #endif
+                        return app.todaySeconds / 60
+                    }
+                }
+            }
         }
+
         return 0
     }
 
