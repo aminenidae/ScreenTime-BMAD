@@ -3051,6 +3051,10 @@ class CloudKitSyncService: ObservableObject {
         dateFormatter.dateFormat = "yyyy-MM-dd"
         let dateStr = dateFormatter.string(from: date)
 
+        #if DEBUG
+        print("[EarnedMinutesDebug] UPLOAD: Using zone=\(zoneID.zoneName), owner=\(zoneID.ownerName)")
+        #endif
+
         // Calculate totals from app data
         var totalLearningSeconds = 0
         var totalRewardSeconds = 0
@@ -3065,8 +3069,27 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Get earned minutes from BlockingCoordinator (calculates per unique learning app to avoid double-counting)
-        let totalEarnedMinutes = BlockingCoordinator.shared.getTotalEarnedRewardMinutesForSnapshot()
+        // Calculate earned minutes using same logic as child device display (AppUsageViewModel.totalEarnedMinutes)
+        // This ensures CloudKit uploads match what the child sees
+        var uniqueLinkedLearningIDs = Set<String>()
+        for (logicalID, _) in allApps {
+            if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
+                for linkedApp in schedule.linkedLearningApps {
+                    uniqueLinkedLearningIDs.insert(linkedApp.logicalID)
+                }
+            }
+        }
+
+        var totalEarnedMinutes = 0
+        for (logicalID, app) in allApps where app.category == "Learning" {
+            if uniqueLinkedLearningIDs.contains(logicalID) {
+                totalEarnedMinutes += app.todaySeconds / 60
+            }
+        }
+
+        #if DEBUG
+        print("[EarnedMinutesDebug] UPLOAD: Calculated totalEarnedMinutes = \(totalEarnedMinutes) from \(uniqueLinkedLearningIDs.count) linked learning apps")
+        #endif
 
         // Calculate cumulative available minutes (rollover + today's remaining)
         let learningLogicalIDs = allApps.filter { $0.value.category == "Learning" }.map { $0.key }
@@ -3078,6 +3101,7 @@ class CloudKitSyncService: ObservableObject {
         let cumulativeAvailableMinutes = max(0, historicalRemaining + todayRemaining)
 
         #if DEBUG
+        print("[EarnedMinutesDebug] UPLOAD: Summary - earned=\(totalEarnedMinutes)m, used=\(totalRewardSeconds/60)m, historical=\(historicalRemaining)m, available=\(cumulativeAvailableMinutes)m")
         print("[CloudKitSyncService] 📊 Daily Snapshot: learning=\(totalLearningSeconds)s, reward=\(totalRewardSeconds)s, earned=\(totalEarnedMinutes)m, available=\(cumulativeAvailableMinutes)m")
         #endif
 
@@ -3093,13 +3117,37 @@ class CloudKitSyncService: ObservableObject {
         snapshot["CD_cumulativeAvailableMinutes"] = cumulativeAvailableMinutes as CKRecordValue
         snapshot["CD_syncTimestamp"] = Date() as CKRecordValue
 
+        #if DEBUG
+        print("[EarnedMinutesDebug] UPLOAD: Writing to CloudKit - CD_totalEarnedMinutes=\(totalEarnedMinutes), CD_cumulativeAvailableMinutes=\(cumulativeAvailableMinutes)")
+        #endif
+
         do {
+            // First, delete any existing stale snapshot to force a clean overwrite
+            // This ensures the new calculated value replaces the old buggy one
+            #if DEBUG
+            print("[EarnedMinutesDebug] UPLOAD: Deleting stale snapshot (if exists) before saving new one...")
+            #endif
+            do {
+                let (_, deleted) = try await sharedDB.modifyRecords(saving: [], deleting: [snapshotID])
+                #if DEBUG
+                print("[EarnedMinutesDebug] UPLOAD: Deleted \(deleted.count) stale record(s)")
+                #endif
+            } catch {
+                // Ignore error if record doesn't exist - that's fine
+                #if DEBUG
+                print("[EarnedMinutesDebug] UPLOAD: No existing record to delete (or error): \(error.localizedDescription)")
+                #endif
+            }
+
+            // Now save the new snapshot with correct values
             let (saved, _) = try await sharedDB.modifyRecords(saving: [snapshot], deleting: [])
             #if DEBUG
+            print("[EarnedMinutesDebug] UPLOAD: ✅ CloudKit save SUCCESS - \(saved.count) record")
             print("[CloudKitSyncService] ✅ Daily snapshot uploaded: \(saved.count) record")
             #endif
         } catch {
             #if DEBUG
+            print("[EarnedMinutesDebug] UPLOAD: ❌ CloudKit save FAILED - \(error.localizedDescription)")
             print("[CloudKitSyncService] ⚠️ Failed to upload daily snapshot: \(error.localizedDescription)")
             #endif
         }
@@ -3250,6 +3298,8 @@ class CloudKitSyncService: ObservableObject {
                     if case .success(let record) = res {
                         let dto = DailySnapshotDTO(from: record)
                         #if DEBUG
+                        print("[EarnedMinutesDebug] FETCH: Raw CloudKit record CD_totalEarnedMinutes=\(record["CD_totalEarnedMinutes"] ?? "nil")")
+                        print("[EarnedMinutesDebug] FETCH: DTO totalEarnedMinutes=\(dto.totalEarnedMinutes), cumulativeAvailableMinutes=\(dto.cumulativeAvailableMinutes)")
                         print("[CloudKitSyncService] ✅ Fetched daily snapshot: earned=\(dto.totalEarnedMinutes)m, learning=\(dto.totalLearningSeconds)s")
                         #endif
                         return dto
@@ -3283,6 +3333,8 @@ class CloudKitSyncService: ObservableObject {
                         if case .success(let record) = res {
                             let dto = DailySnapshotDTO(from: record)
                             #if DEBUG
+                            print("[EarnedMinutesDebug] FETCH: Raw CloudKit record CD_totalEarnedMinutes=\(record["CD_totalEarnedMinutes"] ?? "nil")")
+                            print("[EarnedMinutesDebug] FETCH: DTO totalEarnedMinutes=\(dto.totalEarnedMinutes), cumulativeAvailableMinutes=\(dto.cumulativeAvailableMinutes)")
                             print("[CloudKitSyncService] ✅ Fetched daily snapshot: earned=\(dto.totalEarnedMinutes)m, learning=\(dto.totalLearningSeconds)s")
                             #endif
                             return dto
