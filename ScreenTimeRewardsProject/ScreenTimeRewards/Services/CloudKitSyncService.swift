@@ -3065,8 +3065,8 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Get earned minutes from BlockingCoordinator using logicalIDs
-        let totalEarnedMinutes = BlockingCoordinator.shared.getTotalEarnedRewardMinutes(for: rewardLogicalIDs)
+        // Get earned minutes from BlockingCoordinator (calculates per unique learning app to avoid double-counting)
+        let totalEarnedMinutes = BlockingCoordinator.shared.getTotalEarnedRewardMinutesForSnapshot()
 
         // Calculate cumulative available minutes (rollover + today's remaining)
         let learningLogicalIDs = allApps.filter { $0.value.category == "Learning" }.map { $0.key }

@@ -206,6 +206,43 @@ class BlockingCoordinator: ObservableObject {
         return total
     }
 
+    /// Get total earned reward minutes for CloudKit snapshot (NO double-counting)
+    /// Calculates per LEARNING APP, not per reward app, to prevent double-counting
+    /// when multiple reward apps are linked to the same learning app.
+    func getTotalEarnedRewardMinutesForSnapshot() -> Int {
+        // 1. Collect all unique linked learning apps from all reward apps
+        var uniqueLearningApps: [String: LinkedLearningApp] = [:]  // keyed by logicalID
+
+        // scheduleService.schedules is [String: AppScheduleConfiguration]
+        for (_, schedule) in scheduleService.schedules where !schedule.linkedLearningApps.isEmpty {
+            for linkedApp in schedule.linkedLearningApps {
+                // Only keep the first occurrence (dedupe by learning app logicalID)
+                if uniqueLearningApps[linkedApp.logicalID] == nil {
+                    uniqueLearningApps[linkedApp.logicalID] = linkedApp
+                }
+            }
+        }
+
+        // 2. For each unique learning app, calculate earned minutes ONCE
+        var totalEarned = 0
+        for (learningLogicalID, linkedApp) in uniqueLearningApps {
+            // Get today's usage for this learning app
+            guard let usage = screenTimeService?.usagePersistence.app(for: learningLogicalID) else {
+                continue
+            }
+            let currentMinutes = usage.todaySeconds / 60
+
+            // Only earn if threshold is met
+            if currentMinutes >= linkedApp.minutesRequired {
+                let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                let earned = Double(currentMinutes) * ratio
+                totalEarned += Int(earned)
+            }
+        }
+
+        return totalEarned
+    }
+
     // MARK: - Snapshot-Based Earned Calculation
 
     /// Get total earned reward minutes using learning snapshots for accurate usage lookup.
