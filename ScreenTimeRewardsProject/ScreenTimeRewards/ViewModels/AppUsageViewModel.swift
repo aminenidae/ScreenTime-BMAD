@@ -1091,6 +1091,9 @@ class AppUsageViewModel: ObservableObject {
     
     /// Refresh data from the service
     func refreshData() {
+        #if DEBUG
+        service.usagePersistence.dumpAllAppHistory()
+        #endif
         appUsages = service.getAppUsages().sorted { $0.totalTime > $1.totalTime }
         appHistoryMapping = service.getDailyHistories()
         updateCategoryTotals()

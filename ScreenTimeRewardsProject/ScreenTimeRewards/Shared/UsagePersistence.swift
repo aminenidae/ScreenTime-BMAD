@@ -633,6 +633,28 @@ final class UsagePersistence {
         #endif
     }
 
+    /// Diagnostic function to dump all persisted app data including history.
+    /// Use this to debug issues where historical data appears missing.
+    func dumpAllAppHistory() {
+        #if DEBUG
+        let dateFormatter = DateFormatter()
+        dateFormatter.dateFormat = "yyyy-MM-dd"
+
+        print("========== PERSISTED APPS DUMP ==========")
+        for (logicalID, app) in cachedApps {
+            print("\n[\(app.category)] \(app.displayName)")
+            print("  logicalID: \(logicalID)")
+            print("  todaySeconds: \(app.todaySeconds)s (\(app.todaySeconds/60)m)")
+            print("  lastResetDate: \(dateFormatter.string(from: app.lastResetDate))")
+            print("  dailyHistory (\(app.dailyHistory.count) days):")
+            for summary in app.dailyHistory.suffix(7) {  // Last 7 days
+                print("    - \(dateFormatter.string(from: summary.date)): \(summary.seconds)s (\(summary.seconds/60)m)")
+            }
+        }
+        print("==========================================")
+        #endif
+    }
+
     // MARK: - Private helpers
 
     private func persistApps() {

@@ -1148,6 +1148,37 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     if isFromToday {
                         let deltaSeconds = extTodaySeconds - persistedApp.todaySeconds
 
+                        // FIX: Archive yesterday's data before overwriting if day changed
+                        // This ensures dailyHistory gets populated for historical charts
+                        let calendar = Calendar.current
+                        let today = calendar.startOfDay(for: Date())
+                        if !calendar.isDate(persistedApp.lastResetDate, inSameDayAs: today) {
+                            // Day changed - archive previous day's data before resetting
+                            if persistedApp.todaySeconds > 0 || persistedApp.todayPoints > 0 {
+                                let summary = UsagePersistence.DailyUsageSummary(
+                                    date: persistedApp.lastResetDate,
+                                    seconds: persistedApp.todaySeconds,
+                                    points: persistedApp.todayPoints,
+                                    hourlySeconds: persistedApp.todayHourlySeconds,
+                                    hourlyPoints: persistedApp.todayHourlyPoints
+                                )
+                                persistedApp.dailyHistory.append(summary)
+
+                                // Cleanup: keep only last 30 days
+                                if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
+                                    persistedApp.dailyHistory.removeAll { $0.date < cutoff }
+                                }
+
+                                #if DEBUG
+                                print("[ScreenTimeService] 📅 Archived \(persistedApp.displayName): \(persistedApp.todaySeconds)s from \(persistedApp.lastResetDate)")
+                                #endif
+                            }
+
+                            // Reset hourly data for new day
+                            persistedApp.todayHourlySeconds = nil
+                            persistedApp.todayHourlyPoints = nil
+                        }
+
                         if extTodaySeconds != persistedApp.todaySeconds {
                             // Track for summary log
                             syncedApps.append((name: persistedApp.displayName, delta: deltaSeconds))

@@ -172,11 +172,22 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
     // MARK: - Trends
 
     var dailyTotals: [DailyUsageTotals] {
+        #if DEBUG
+        print("[DailyTotals] Learning snapshots: \(viewModel.learningSnapshots.map { "\($0.displayName) (\($0.logicalID))" })")
+        print("[DailyTotals] Reward snapshots: \(viewModel.rewardSnapshots.map { "\($0.displayName) (\($0.logicalID))" })")
+        print("[DailyTotals] History keys: \(viewModel.appHistoryMapping.keys.sorted())")
+        #endif
+
         // Build from app history mapping
         var dateMap: [Date: (learning: Int, reward: Int)] = [:]
 
         // Aggregate learning apps
         for snapshot in viewModel.learningSnapshots {
+            #if DEBUG
+            let hasHistory = viewModel.appHistoryMapping[snapshot.logicalID] != nil
+            let historyCount = viewModel.appHistoryMapping[snapshot.logicalID]?.count ?? 0
+            print("[DailyTotals] Learning '\(snapshot.displayName)' logicalID=\(snapshot.logicalID) hasHistory=\(hasHistory) historyCount=\(historyCount)")
+            #endif
             if let history = viewModel.appHistoryMapping[snapshot.logicalID] {
                 for day in history {
                     let startOfDay = Calendar.current.startOfDay(for: day.date)
@@ -189,6 +200,11 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
 
         // Aggregate reward apps
         for snapshot in viewModel.rewardSnapshots {
+            #if DEBUG
+            let hasHistory = viewModel.appHistoryMapping[snapshot.logicalID] != nil
+            let historyCount = viewModel.appHistoryMapping[snapshot.logicalID]?.count ?? 0
+            print("[DailyTotals] Reward '\(snapshot.displayName)' logicalID=\(snapshot.logicalID) hasHistory=\(hasHistory) historyCount=\(historyCount)")
+            #endif
             if let history = viewModel.appHistoryMapping[snapshot.logicalID] {
                 for day in history {
                     let startOfDay = Calendar.current.startOfDay(for: day.date)
@@ -198,6 +214,10 @@ final class LocalDashboardDataAdapter: DashboardDataProvider {
                 }
             }
         }
+
+        #if DEBUG
+        print("[DailyTotals] Final dateMap has \(dateMap.count) dates")
+        #endif
 
         // Convert to array sorted by date (most recent first)
         return dateMap.map { DailyUsageTotals(date: $0.key, learningSeconds: $0.value.learning, rewardSeconds: $0.value.reward) }
