@@ -222,6 +222,7 @@ struct DailyUsageHistoryDTO: Identifiable {
     let seconds: Int
     let category: String
     let syncTimestamp: Date?
+    let hourlySeconds: [Int]  // 24 values, one per hour
 
     /// Create from a CloudKit record
     init(from record: CKRecord) {
@@ -232,6 +233,19 @@ struct DailyUsageHistoryDTO: Identifiable {
         self.seconds = record["CD_seconds"] as? Int ?? 0
         self.category = record["CD_category"] as? String ?? "Unknown"
         self.syncTimestamp = record["CD_syncTimestamp"] as? Date
+        self.hourlySeconds = record["CD_hourlySeconds"] as? [Int] ?? Array(repeating: 0, count: 24)
+    }
+
+    /// Memberwise initializer for creating placeholder entries
+    init(deviceID: String, logicalID: String, displayName: String, date: Date, seconds: Int, category: String, syncTimestamp: Date?, hourlySeconds: [Int] = Array(repeating: 0, count: 24)) {
+        self.deviceID = deviceID
+        self.logicalID = logicalID
+        self.displayName = displayName
+        self.date = date
+        self.seconds = seconds
+        self.category = category
+        self.syncTimestamp = syncTimestamp
+        self.hourlySeconds = hourlySeconds
     }
 
     /// Formatted time string (e.g., "1h 23m")
@@ -363,10 +377,20 @@ class ParentRemoteViewModel: ObservableObject {
 
     /// Aggregated daily totals from per-app history
     /// Returns array of (date, learningSeconds, rewardSeconds) sorted by date descending
+    /// Always returns 30 days of data, filling in 0 for days without usage
     var aggregatedDailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)] {
-        var totals: [Date: (learning: Int, reward: Int)] = [:]
         let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
 
+        // Initialize all days in the last 30 days with 0
+        var totals: [Date: (learning: Int, reward: Int)] = [:]
+        for dayOffset in 0..<30 {
+            if let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) {
+                totals[date] = (learning: 0, reward: 0)
+            }
+        }
+
+        // Aggregate actual data
         for record in childDailyUsageHistory {
             let dayStart = calendar.startOfDay(for: record.date)
             var current = totals[dayStart] ?? (learning: 0, reward: 0)
@@ -913,6 +937,13 @@ class ParentRemoteViewModel: ObservableObject {
 
                 // Daily snapshot with pre-calculated earnedMinutes
                 self.childDailySnapshot = snapshot
+                #if DEBUG
+                if let snap = snapshot {
+                    print("[EarnedMinutesDebug] PARENT_VM: Assigned snapshot - earnedMinutes=\(snap.totalEarnedMinutes), availableMinutes=\(snap.cumulativeAvailableMinutes)")
+                } else {
+                    print("[EarnedMinutesDebug] PARENT_VM: No snapshot received (nil)")
+                }
+                #endif
             }
 
             #if DEBUG

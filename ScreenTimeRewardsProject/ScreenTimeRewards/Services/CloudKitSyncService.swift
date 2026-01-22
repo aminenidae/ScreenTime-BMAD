@@ -2964,6 +2964,9 @@ class CloudKitSyncService: ObservableObject {
                 rec["CD_date"] = summary.date as CKRecordValue
                 rec["CD_seconds"] = summary.seconds as CKRecordValue
                 rec["CD_category"] = app.category as CKRecordValue
+                if let hourlyData = summary.hourlySeconds {
+                    rec["CD_hourlySeconds"] = hourlyData as CKRecordValue
+                }
                 rec["CD_syncTimestamp"] = Date() as CKRecordValue
 
                 toSave.append(rec)
@@ -2995,6 +2998,18 @@ class CloudKitSyncService: ObservableObject {
                 rec["CD_date"] = today as CKRecordValue
                 rec["CD_seconds"] = app.todaySeconds as CKRecordValue
                 rec["CD_category"] = app.category as CKRecordValue
+                // Read hourly breakdown directly from extension's UserDefaults (source of truth)
+                // This bypasses potentially stale persistence data
+                if let extDefaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
+                    var hourlySecondsFromExtension = Array(repeating: 0, count: 24)
+                    for hour in 0..<24 {
+                        hourlySecondsFromExtension[hour] = extDefaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
+                    }
+                    // Only upload if there's actual hourly data
+                    if hourlySecondsFromExtension.contains(where: { $0 > 0 }) {
+                        rec["CD_hourlySeconds"] = hourlySecondsFromExtension as CKRecordValue
+                    }
+                }
                 rec["CD_syncTimestamp"] = Date() as CKRecordValue
 
                 toSave.append(rec)

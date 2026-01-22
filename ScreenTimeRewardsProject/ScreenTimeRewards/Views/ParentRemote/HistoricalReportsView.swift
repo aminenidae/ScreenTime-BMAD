@@ -1,5 +1,6 @@
 import SwiftUI
 import CoreData
+import Charts
 
 struct HistoricalReportsView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
@@ -174,57 +175,79 @@ private struct UsageTrendChart: View {
                 .font(.headline)
                 .fontWeight(.medium)
 
-            GeometryReader { geometry in
-                let chartWidth = geometry.size.width
-                let chartHeight = geometry.size.height - 40 // Space for labels
+            if #available(iOS 16.0, *) {
+                chartView
+                    .frame(height: 200)
+            } else {
+                Text("Charts require iOS 16+")
+                    .font(.caption)
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .frame(height: 200)
+            }
+        }
+    }
 
-                ZStack(alignment: .bottomLeading) {
-                    // Grid lines
-                    ForEach(0..<5) { index in
-                        Path { path in
-                            let y = chartHeight - CGFloat(index) * (chartHeight / 4)
-                            path.move(to: CGPoint(x: 0, y: y))
-                            path.addLine(to: CGPoint(x: chartWidth, y: y))
-                        }
-                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 0.5)
-                    }
+    @available(iOS 16.0, *)
+    private var chartView: some View {
+        let sortedData = dailyTotals.sorted { $0.date < $1.date }
 
-                    // Data points and lines (show total time)
-                    if !dailyTotals.isEmpty && dailyTotals.count > 1 {
-                        let maxTime = dailyTotals.map { $0.learningSeconds + $0.rewardSeconds }.max() ?? 1
-                        let sortedByDate = dailyTotals.sorted { $0.date < $1.date }
+        return Chart {
+            ForEach(sortedData, id: \.date) { item in
+                BarMark(
+                    x: .value("Day", item.date, unit: .day),
+                    y: .value("Minutes", item.learningSeconds / 60)
+                )
+                .foregroundStyle(AppTheme.vibrantTeal.gradient)
+                .position(by: .value("Category", "Learning"))
 
-                        ForEach(Array(sortedByDate.enumerated()), id: \.element.date) { index, dayData in
-                            let totalSeconds = dayData.learningSeconds + dayData.rewardSeconds
-                            let x = CGFloat(index) * (chartWidth / CGFloat(sortedByDate.count - 1))
-                            let y = chartHeight - (CGFloat(totalSeconds) / CGFloat(maxTime)) * chartHeight
-
-                            // Point
-                            Circle()
-                                .fill(AppTheme.vibrantTeal)
-                                .frame(width: 8, height: 8)
-                                .position(x: x, y: y)
-
-                            // Line to next point
-                            if index < sortedByDate.count - 1 {
-                                let nextData = sortedByDate[index + 1]
-                                let nextTotal = nextData.learningSeconds + nextData.rewardSeconds
-                                let nextX = CGFloat(index + 1) * (chartWidth / CGFloat(sortedByDate.count - 1))
-                                let nextY = chartHeight - (CGFloat(nextTotal) / CGFloat(maxTime)) * chartHeight
-
-                                Path { path in
-                                    path.move(to: CGPoint(x: x, y: y))
-                                    path.addLine(to: CGPoint(x: nextX, y: nextY))
-                                }
-                                .stroke(AppTheme.vibrantTeal, lineWidth: 2)
-                            }
-                        }
+                BarMark(
+                    x: .value("Day", item.date, unit: .day),
+                    y: .value("Minutes", item.rewardSeconds / 60)
+                )
+                .foregroundStyle(AppTheme.playfulCoral.gradient)
+                .position(by: .value("Category", "Reward"))
+            }
+        }
+        .chartXAxis {
+            AxisMarks(values: .stride(by: .day, count: 1)) { value in
+                if let date = value.as(Date.self) {
+                    AxisValueLabel {
+                        Text(formatDateLabel(date))
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                     }
                 }
-                .frame(height: chartHeight)
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(AppTheme.vibrantTeal.opacity(0.15))
             }
-            .frame(height: 200)
         }
+        .chartYAxis {
+            AxisMarks { value in
+                AxisValueLabel {
+                    if let minutes = value.as(Int.self) {
+                        Text("\(minutes)m")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                    }
+                }
+                AxisGridLine(stroke: StrokeStyle(lineWidth: 0.5))
+                    .foregroundStyle(AppTheme.vibrantTeal.opacity(0.15))
+            }
+        }
+        .chartLegend(.hidden)
+        .chartPlotStyle { plotArea in
+            plotArea
+                .background(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                        .fill(AppTheme.vibrantTeal.opacity(0.03))
+                )
+        }
+    }
+
+    private func formatDateLabel(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "M/d"
+        return formatter.string(from: date)
     }
 }
 

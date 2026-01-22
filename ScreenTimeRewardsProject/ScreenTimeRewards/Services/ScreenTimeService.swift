@@ -1188,22 +1188,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                             persistedApp.lastUpdated = Date()
                             persistedApp.lastResetDate = Calendar.current.startOfDay(for: Date())
 
-                            // Bucket usage into the current hour for hourly chart
-                            let currentHour = Calendar.current.component(.hour, from: Date())
-                            if deltaSeconds > 0 {
-                                // Normal increase - add delta to current hour
-                                if persistedApp.todayHourlySeconds == nil {
-                                    persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
-                                    persistedApp.todayHourlySeconds?[currentHour] = extTodaySeconds
-                                } else {
-                                    persistedApp.todayHourlySeconds?[currentHour] += deltaSeconds
-                                }
-                            } else {
-                                // Correction (decrease) - reset hourly and set current hour to total
-                                // We don't know which hours were inflated, so reset all
-                                persistedApp.todayHourlySeconds = Array(repeating: 0, count: 24)
-                                persistedApp.todayHourlySeconds?[currentHour] = extTodaySeconds
+                            // Read hourly breakdown directly from extension's UserDefaults
+                            // The extension tracks usage by hour correctly, so we just copy it
+                            var hourlySecondsFromExtension = Array(repeating: 0, count: 24)
+                            for hour in 0..<24 {
+                                hourlySecondsFromExtension[hour] = defaults.integer(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
                             }
+                            persistedApp.todayHourlySeconds = hourlySecondsFromExtension
 
                             usagePersistence.saveApp(persistedApp)
 
