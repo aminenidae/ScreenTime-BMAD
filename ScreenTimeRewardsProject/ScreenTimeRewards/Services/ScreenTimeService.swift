@@ -778,8 +778,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
-        // Create 60 consecutive 1-minute threshold events per app (1 hour of tracking)
+        // PRE-SET 240 MINUTE THRESHOLDS PER APP:
+        // Create 240 consecutive 1-minute threshold events per app (4 hours of tracking)
         // Each threshold fires once when that minute is reached - NO re-arm/restart needed
         // Extension uses memory-efficient primitive key storage (not JSON parsing)
         // This avoids the bug where restarting monitoring resets iOS usage counters
@@ -795,16 +795,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             #if DEBUG
-            print("[ScreenTimeService] Creating 60 threshold events for \(applications.count) \(category.rawValue) app(s)")
+            print("[ScreenTimeService] Creating 240 threshold events for \(applications.count) \(category.rawValue) app(s)")
             #endif
 
             // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
-            // 60 minutes = 1 hour of reliable tracking per app
+            // 240 minutes = 4 hours of reliable tracking per app
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 60    // 1 hour - reduces phantom event surface area
+                let endMinute = 240   // 4 hours - extended tracking window
                 // Use stable app identifier instead of sequential index to prevent
                 // usage doubling when app list order changes
                 // NOTE: Using DJB2 hash instead of Swift's .hashValue because
@@ -832,7 +832,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         let totalEvents = monitoredEvents.count
-        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
+        print("[ScreenTimeService] Created \(totalEvents) total threshold events (240 per app)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -1712,7 +1712,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         // 7. Show total events configured (check for potential limit issues)
-        print("  📊 Configured events: \(monitoredEvents.count) (720 max recommended)")
+        print("  📊 Configured events: \(monitoredEvents.count) (testing 240/app limit)")
         if monitoredEvents.count > 500 {
             print("  ⚠️ WARNING: High event count may cause iOS to silently drop events!")
         }
