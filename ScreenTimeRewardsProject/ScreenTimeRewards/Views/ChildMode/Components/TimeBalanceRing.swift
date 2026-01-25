@@ -35,6 +35,24 @@ struct TimeBalanceRing: View {
         availableMinutes > 0 && availableMinutes < 5
     }
 
+    /// Formats available time as "X h Y min" when >= 60 minutes, otherwise just the number
+    private var formattedAvailableTime: String {
+        if availableMinutes >= 60 {
+            let hours = availableMinutes / 60
+            let mins = availableMinutes % 60
+            if mins == 0 {
+                return "\(hours) h"
+            }
+            return "\(hours) h \(mins) min"
+        }
+        return "\(availableMinutes)"
+    }
+
+    /// Label changes based on whether we're showing hours or minutes
+    private var timeLabel: String {
+        availableMinutes >= 60 ? "AVAILABLE" : "MIN AVAILABLE"
+    }
+
     var body: some View {
         ZStack {
             // Background ring (track)
@@ -61,15 +79,15 @@ struct TimeBalanceRing: View {
                     .font(.system(size: 24))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
 
-                // Balance amount (cumulative available)
-                Text("\(availableMinutes)")
+                // Balance amount (cumulative available) - shows h:mm when >= 60
+                Text(formattedAvailableTime)
                     .font(.system(size: 48, weight: .bold, design: .rounded))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.4), value: availableMinutes)
 
-                // Label
-                Text("MIN AVAILABLE")
+                // Label - removes "MIN" when showing hours
+                Text(timeLabel)
                     .font(.system(size: 11, weight: .medium))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))

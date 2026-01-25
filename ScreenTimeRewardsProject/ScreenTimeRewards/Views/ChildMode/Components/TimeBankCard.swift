@@ -111,6 +111,7 @@ struct TimeBankCard: View {
                 .tracking(1)
                 .foregroundColor(textColor.opacity(0.8))
         }
+        .frame(minWidth: 100) // Ensures consistent container width
         .padding(.horizontal, 16)
         .padding(.vertical, 10)
         .background(

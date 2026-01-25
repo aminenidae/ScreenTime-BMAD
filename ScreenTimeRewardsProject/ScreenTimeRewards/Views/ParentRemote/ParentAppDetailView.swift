@@ -25,9 +25,9 @@ struct ParentAppDetailView: View {
     }
 
     enum TimeRange: String, CaseIterable {
-        case daily = "7 DAYS"
-        case weekly = "4 WEEKS"
-        case monthly = "6 MONTHS"
+        case daily = "Daily"
+        case weekly = "Weekly"
+        case monthly = "Monthly"
 
         var days: Int {
             switch self {
@@ -105,6 +105,50 @@ struct ParentAppDetailView: View {
             return Array(repeating: 0, count: 24)
         }
         return todayRecord.hourlySeconds
+    }
+
+    /// Aggregated chart data based on selected time range
+    var chartData: [(date: Date, minutes: Int)] {
+        switch selectedTimeRange {
+        case .daily:
+            return filteredHistory.map { (date: $0.date, minutes: $0.seconds / 60) }
+        case .weekly:
+            return getWeeklyData()
+        case .monthly:
+            return getMonthlyData()
+        }
+    }
+
+    private func getWeeklyData() -> [(date: Date, minutes: Int)] {
+        let calendar = Calendar.current
+        var weeklyData: [Date: Int] = [:]
+
+        for item in filteredHistory {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: item.date)?.start {
+                weeklyData[weekStart, default: 0] += item.seconds / 60
+            }
+        }
+
+        return weeklyData
+            .sorted { $0.key < $1.key }
+            .suffix(4)
+            .map { (date: $0.key, minutes: $0.value) }
+    }
+
+    private func getMonthlyData() -> [(date: Date, minutes: Int)] {
+        let calendar = Calendar.current
+        var monthlyData: [Date: Int] = [:]
+
+        for item in filteredHistory {
+            if let monthStart = calendar.dateInterval(of: .month, for: item.date)?.start {
+                monthlyData[monthStart, default: 0] += item.seconds / 60
+            }
+        }
+
+        return monthlyData
+            .sorted { $0.key < $1.key }
+            .suffix(6)
+            .map { (date: $0.key, minutes: $0.value) }
     }
 
     // MARK: - Body
@@ -443,7 +487,7 @@ struct ParentAppDetailView: View {
                 }
             }
 
-            if filteredHistory.isEmpty {
+            if chartData.isEmpty {
                 VStack(spacing: AppTheme.Spacing.regular) {
                     Image(systemName: "chart.bar.xaxis")
                         .font(.system(size: 32))
@@ -458,7 +502,8 @@ struct ParentAppDetailView: View {
                 .frame(maxWidth: .infinity)
             } else {
                 UsageBarChart(
-                    history: filteredHistory,
+                    data: chartData,
+                    timeRange: selectedTimeRange,
                     categoryColor: categoryColor,
                     colorScheme: colorScheme
                 )
@@ -736,7 +781,8 @@ struct ParentAppDetailView: View {
 // MARK: - Usage Bar Chart
 
 private struct UsageBarChart: View {
-    let history: [DailyUsageHistoryDTO]
+    let data: [(date: Date, minutes: Int)]
+    let timeRange: ParentAppDetailView.TimeRange
     let categoryColor: Color
     let colorScheme: ColorScheme
 
@@ -750,24 +796,32 @@ private struct UsageBarChart: View {
         }
     }
 
+    private var xAxisUnit: Calendar.Component {
+        switch timeRange {
+        case .daily: return .day
+        case .weekly: return .weekOfYear
+        case .monthly: return .month
+        }
+    }
+
     @available(iOS 16.0, *)
     private var chartView: some View {
-        let sortedHistory = history.sorted { $0.date < $1.date }
+        let sortedData = data.sorted { $0.date < $1.date }
 
         return Chart {
-            ForEach(sortedHistory, id: \.id) { day in
+            ForEach(sortedData, id: \.date) { item in
                 BarMark(
-                    x: .value("Day", day.date, unit: .day),
-                    y: .value("Minutes", day.seconds / 60)
+                    x: .value("Date", item.date, unit: xAxisUnit),
+                    y: .value("Minutes", item.minutes)
                 )
                 .foregroundStyle(categoryColor.gradient)
             }
         }
         .chartXAxis {
-            AxisMarks(values: .stride(by: .day, count: axisStride)) { value in
+            AxisMarks(values: .stride(by: xAxisUnit)) { value in
                 if let date = value.as(Date.self) {
                     AxisValueLabel {
-                        Text(formatShortDate(date))
+                        Text(xAxisLabel(for: date))
                             .font(.system(size: 10, weight: .medium))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                     }
@@ -799,22 +853,31 @@ private struct UsageBarChart: View {
         }
     }
 
-    // Determine axis label stride based on data count
-    private var axisStride: Int {
-        let count = history.count
-        if count <= 7 {
-            return 1  // Show every day for week view
-        } else if count <= 28 {
-            return 7  // Show every 7 days for month view
-        } else {
-            return 30  // Show every 30 days for 6-month view
-        }
-    }
-
-    private func formatShortDate(_ date: Date) -> String {
+    private func xAxisLabel(for date: Date) -> String {
+        let calendar = Calendar.current
         let formatter = DateFormatter()
-        formatter.dateFormat = "M/d"
-        return formatter.string(from: date)
+
+        switch timeRange {
+        case .daily:
+            let today = calendar.startOfDay(for: Date())
+            if calendar.isDate(date, inSameDayAs: today) {
+                return "Today"
+            } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+                      calendar.isDate(date, inSameDayAs: yesterday) {
+                return "Yest."
+            } else {
+                formatter.dateFormat = "EEE"
+                return String(formatter.string(from: date).prefix(3))
+            }
+
+        case .weekly:
+            formatter.dateFormat = "M/d"
+            return formatter.string(from: date)
+
+        case .monthly:
+            formatter.dateFormat = "MMM"
+            return formatter.string(from: date)
+        }
     }
 }
 

@@ -362,16 +362,62 @@ private struct ChildHomeTabView: View {
 
 // MARK: - Remote Daily Usage Chart Card
 
-/// Chart card for remote context using DashboardDataProvider
+/// Time period options for the chart
+private enum ChartTimePeriod: String, CaseIterable, Identifiable {
+    case daily = "Daily"
+    case weekly = "Weekly"
+    case monthly = "Monthly"
+
+    var id: String { rawValue }
+}
+
+/// Chart card for remote context using DashboardDataProvider with period selection
 private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View {
     @ObservedObject var dataProvider: Provider
     @Environment(\.colorScheme) var colorScheme
+    @State private var selectedPeriod: ChartTimePeriod = .daily
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("Daily Trends")
-                .font(.headline)
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+            // Header with period selector
+            HStack {
+                Image(systemName: "chart.bar.xaxis")
+                    .font(.system(size: 18))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Text("USAGE TREND")
+                    .font(.system(size: 14, weight: .semibold))
+                    .tracking(1.5)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+
+                // Period selector dropdown
+                Menu {
+                    Picker("Period", selection: $selectedPeriod) {
+                        ForEach(ChartTimePeriod.allCases) { period in
+                            Text(period.rawValue).tag(period)
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 4) {
+                        Text(selectedPeriod.rawValue.uppercased())
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(1)
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+
+                        Image(systemName: "chevron.down")
+                            .font(.system(size: 10, weight: .medium))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 8)
+                    .background(
+                        RoundedRectangle(cornerRadius: 8)
+                            .fill(AppTheme.vibrantTeal.opacity(0.1))
+                    )
+                }
+            }
 
             if dataProvider.dailyTotals.isEmpty {
                 Text("No usage data available yet")
@@ -380,26 +426,26 @@ private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View 
                     .frame(maxWidth: .infinity, alignment: .center)
                     .padding(.vertical, 20)
             } else {
-                // Simple bar chart showing last 7 days
+                // Bar chart
                 HStack(alignment: .bottom, spacing: 8) {
-                    ForEach(last7Days, id: \.date) { day in
-                        DailyBar(
-                            date: day.date,
-                            learningMinutes: day.learningMinutes,
-                            rewardMinutes: day.rewardMinutes,
-                            maxMinutes: maxDailyMinutes
+                    ForEach(chartData, id: \.date) { item in
+                        ChartBar(
+                            date: item.date,
+                            learningMinutes: item.learningMinutes,
+                            rewardMinutes: item.rewardMinutes,
+                            maxMinutes: maxMinutes,
+                            period: selectedPeriod
                         )
                     }
                 }
                 .frame(height: 120)
                 .padding(.vertical, 8)
 
-                // Legend
+                // Legend with totals
                 HStack(spacing: 20) {
-                    LegendItem(color: AppTheme.vibrantTeal, label: "Learning")
-                    LegendItem(color: AppTheme.playfulCoral, label: "Rewards")
+                    chartLegendItem(color: AppTheme.vibrantTeal, label: "Learning", value: totalLearningMinutes)
+                    chartLegendItem(color: AppTheme.playfulCoral, label: "Rewards", value: totalRewardMinutes)
                 }
-                .font(.caption)
             }
         }
         .padding()
@@ -407,22 +453,101 @@ private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View 
         .cornerRadius(16)
     }
 
-    private var last7Days: [DailyUsageTotals] {
+    // MARK: - Data Aggregation
+
+    private var chartData: [DailyUsageTotals] {
         let sorted = dataProvider.dailyTotals.sorted { $0.date < $1.date }
-        return Array(sorted.suffix(7))
+
+        switch selectedPeriod {
+        case .daily:
+            return Array(sorted.suffix(7))
+
+        case .weekly:
+            return aggregateByWeek(sorted, weeks: 4)
+
+        case .monthly:
+            return aggregateByMonth(sorted, months: 6)
+        }
     }
 
-    private var maxDailyMinutes: Int {
-        let max = last7Days.map { $0.learningMinutes + $0.rewardMinutes }.max() ?? 1
-        return Swift.max(max, 1) // Avoid division by zero
+    private func aggregateByWeek(_ data: [DailyUsageTotals], weeks: Int) -> [DailyUsageTotals] {
+        let calendar = Calendar.current
+        var weeklyData: [Date: (learning: Int, reward: Int)] = [:]
+
+        for item in data {
+            if let weekStart = calendar.dateInterval(of: .weekOfYear, for: item.date)?.start {
+                let existing = weeklyData[weekStart] ?? (learning: 0, reward: 0)
+                weeklyData[weekStart] = (
+                    learning: existing.learning + item.learningSeconds,
+                    reward: existing.reward + item.rewardSeconds
+                )
+            }
+        }
+
+        return weeklyData
+            .sorted { $0.key < $1.key }
+            .suffix(weeks)
+            .map { DailyUsageTotals(date: $0.key, learningSeconds: $0.value.learning, rewardSeconds: $0.value.reward) }
+    }
+
+    private func aggregateByMonth(_ data: [DailyUsageTotals], months: Int) -> [DailyUsageTotals] {
+        let calendar = Calendar.current
+        var monthlyData: [Date: (learning: Int, reward: Int)] = [:]
+
+        for item in data {
+            if let monthStart = calendar.dateInterval(of: .month, for: item.date)?.start {
+                let existing = monthlyData[monthStart] ?? (learning: 0, reward: 0)
+                monthlyData[monthStart] = (
+                    learning: existing.learning + item.learningSeconds,
+                    reward: existing.reward + item.rewardSeconds
+                )
+            }
+        }
+
+        return monthlyData
+            .sorted { $0.key < $1.key }
+            .suffix(months)
+            .map { DailyUsageTotals(date: $0.key, learningSeconds: $0.value.learning, rewardSeconds: $0.value.reward) }
+    }
+
+    private var maxMinutes: Int {
+        let max = chartData.map { $0.learningMinutes + $0.rewardMinutes }.max() ?? 1
+        return Swift.max(max, 1)
+    }
+
+    private var totalLearningMinutes: Int {
+        chartData.reduce(0) { $0 + $1.learningMinutes }
+    }
+
+    private var totalRewardMinutes: Int {
+        chartData.reduce(0) { $0 + $1.rewardMinutes }
+    }
+
+    private func chartLegendItem(color: Color, label: String, value: Int) -> some View {
+        HStack(spacing: 8) {
+            RoundedRectangle(cornerRadius: 4)
+                .fill(color)
+                .frame(width: 12, height: 12)
+
+            Text(label.uppercased())
+                .font(.system(size: 11, weight: .medium))
+                .tracking(1)
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+
+            Text("\(value)M")
+                .font(.system(size: 12, weight: .bold))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+        }
     }
 }
 
-private struct DailyBar: View {
+/// Single bar in the chart with period-aware labels
+private struct ChartBar: View {
     let date: Date
     let learningMinutes: Int
     let rewardMinutes: Int
     let maxMinutes: Int
+    let period: ChartTimePeriod
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -442,8 +567,8 @@ private struct DailyBar: View {
             .cornerRadius(4)
             .frame(maxHeight: .infinity, alignment: .bottom)
 
-            // Day label
-            Text(dayLabel)
+            // Period-aware label
+            Text(dateLabel)
                 .font(.system(size: 10))
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
         }
@@ -452,26 +577,33 @@ private struct DailyBar: View {
 
     private func barHeight(for minutes: Int) -> CGFloat {
         guard maxMinutes > 0 else { return 0 }
-        return CGFloat(minutes) / CGFloat(maxMinutes) * 80 // Max bar height
+        return CGFloat(minutes) / CGFloat(maxMinutes) * 80
     }
 
-    private var dayLabel: String {
+    private var dateLabel: String {
+        let calendar = Calendar.current
         let formatter = DateFormatter()
-        formatter.dateFormat = "E"
-        return formatter.string(from: date).prefix(1).uppercased()
-    }
-}
 
-private struct LegendItem: View {
-    let color: Color
-    let label: String
+        switch period {
+        case .daily:
+            let today = calendar.startOfDay(for: Date())
+            if calendar.isDate(date, inSameDayAs: today) {
+                return "Today"
+            } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
+                      calendar.isDate(date, inSameDayAs: yesterday) {
+                return "Yest."
+            } else {
+                formatter.dateFormat = "EEE"
+                return String(formatter.string(from: date).prefix(3))
+            }
 
-    var body: some View {
-        HStack(spacing: 4) {
-            Circle()
-                .fill(color)
-                .frame(width: 8, height: 8)
-            Text(label)
+        case .weekly:
+            formatter.dateFormat = "M/d"
+            return formatter.string(from: date)
+
+        case .monthly:
+            formatter.dateFormat = "MMM"
+            return formatter.string(from: date)
         }
     }
 }

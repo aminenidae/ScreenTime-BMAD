@@ -715,13 +715,9 @@ private struct AppUsageChart: View {
 
 
     enum ChartPeriod: String, CaseIterable {
-
-        case daily = "7 DAYS"
-
-        case weekly = "4 WEEKS"
-
-        case monthly = "6 MONTHS"
-
+        case daily = "Daily"
+        case weekly = "Weekly"
+        case monthly = "Monthly"
     }
 
 
