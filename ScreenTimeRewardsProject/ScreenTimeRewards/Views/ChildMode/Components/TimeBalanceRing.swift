@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Animated circular ring showing reward time balance
-/// Displays available time as a filling ring (full = time available)
+/// Animated horizontal progress bar showing reward time balance
+/// Displays available time with a filling bar (full = time available)
 struct TimeBalanceRing: View {
     let availableMinutes: Int   // Cumulative available (rollover + today)
     let todayEarned: Int        // Today's earned (for progress calculation)
@@ -21,10 +21,7 @@ struct TimeBalanceRing: View {
         self.todayEarned = earnedMinutes
     }
 
-    // Design colors
-
     private var progress: Double {
-        // Show full ring if there's any available time, proportional otherwise
         // Use a 60-minute reference as "full" for meaningful progress display
         let reference = max(todayEarned, 60)
         guard reference > 0 else { return availableMinutes > 0 ? 1.0 : 0.0 }
@@ -53,49 +50,71 @@ struct TimeBalanceRing: View {
         availableMinutes >= 60 ? "AVAILABLE" : "MIN AVAILABLE"
     }
 
+    private var progressGradient: LinearGradient {
+        LinearGradient(
+            colors: isLowBalance
+                ? [AppTheme.playfulCoral, AppTheme.sunnyYellow]
+                : [AppTheme.vibrantTeal, AppTheme.sunnyYellow],
+            startPoint: .leading,
+            endPoint: .trailing
+        )
+    }
+
     var body: some View {
-        ZStack {
-            // Background ring (track)
-            Circle()
-                .stroke(
-                    AppTheme.vibrantTeal.opacity(0.1),
-                    style: StrokeStyle(lineWidth: 16, lineCap: .round)
-                )
+        GeometryReader { geometry in
+            ZStack(alignment: .leading) {
+                // Background track
+                Capsule()
+                    .fill(AppTheme.vibrantTeal.opacity(0.1))
 
-            // Progress ring
-            Circle()
-                .trim(from: 0, to: animatedProgress)
-                .stroke(
-                    ringGradient,
-                    style: StrokeStyle(lineWidth: 16, lineCap: .round)
-                )
-                .rotationEffect(.degrees(-90))
-                .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animatedProgress)
+                // Progress bar
+                Capsule()
+                    .fill(progressGradient)
+                    .frame(width: geometry.size.width * animatedProgress)
+                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animatedProgress)
 
-            // Center content
-            VStack(spacing: 4) {
-                // Game controller icon
-                Image(systemName: "gamecontroller.fill")
-                    .font(.system(size: 24))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+                // Content overlay
+                HStack(spacing: 12) {
+                    // Game controller icon
+                    Image(systemName: "gamecontroller.fill")
+                        .font(.system(size: 28))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
 
-                // Balance amount (cumulative available) - shows "X h Y min" when >= 60
-                Text(formattedAvailableTime)
-                    .font(.system(size: availableMinutes >= 60 ? 28 : 48, weight: .bold, design: .rounded))
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .lineLimit(1)
-                    .minimumScaleFactor(0.6)
-                    .contentTransition(.numericText())
-                    .animation(.spring(response: 0.4), value: availableMinutes)
+                    // Time display
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(formattedAvailableTime)
+                            .font(.system(size: 32, weight: .bold, design: .rounded))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.7)
+                            .contentTransition(.numericText())
+                            .animation(.spring(response: 0.4), value: availableMinutes)
 
-                // Label - removes "MIN" when showing hours
-                Text(timeLabel)
-                    .font(.system(size: 11, weight: .medium))
-                    .tracking(1)
-                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        Text(timeLabel)
+                            .font(.system(size: 11, weight: .medium))
+                            .tracking(1)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    }
+
+                    Spacer()
+                }
+                .padding(.horizontal, 20)
             }
         }
-        .frame(width: 160, height: 160)
+        .frame(height: 80)
+        .overlay {
+            // Low balance pulse effect
+            if isLowBalance {
+                Capsule()
+                    .stroke(AppTheme.playfulCoral.opacity(0.5), lineWidth: 3)
+                    .scaleEffect(x: 1.02, y: 1.05)
+                    .opacity(0.5)
+                    .animation(
+                        .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
+                        value: isLowBalance
+                    )
+            }
+        }
         .onAppear {
             withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.2)) {
                 animatedProgress = progress
@@ -106,83 +125,48 @@ struct TimeBalanceRing: View {
                 animatedProgress = newValue
             }
         }
-        // Low balance pulse effect
-        .overlay {
-            if isLowBalance {
-                Circle()
-                    .stroke(AppTheme.playfulCoral.opacity(0.5), lineWidth: 3)
-                    .scaleEffect(1.1)
-                    .opacity(0.5)
-                    .animation(
-                        .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
-                        value: isLowBalance
-                    )
-            }
-        }
-    }
-
-    private var ringGradient: AngularGradient {
-        AngularGradient(
-            colors: isLowBalance
-                ? [AppTheme.playfulCoral, AppTheme.sunnyYellow]
-                : [AppTheme.sunnyYellow, AppTheme.vibrantTeal],
-            center: .center,
-            startAngle: .degrees(0),
-            endAngle: .degrees(360)
-        )
     }
 }
 
 // MARK: - Preview
 
 #Preview("Full Balance") {
-    ZStack {
-        LinearGradient(
-            colors: [AppTheme.vibrantTeal, AppTheme.playfulCoral],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-
+    VStack {
         TimeBalanceRing(earnedMinutes: 45, usedMinutes: 0)
+            .padding()
     }
+    .background(AppTheme.background(for: .light))
 }
 
 #Preview("Partial Balance") {
-    ZStack {
-        LinearGradient(
-            colors: [AppTheme.vibrantTeal, AppTheme.playfulCoral],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-
+    VStack {
         TimeBalanceRing(earnedMinutes: 45, usedMinutes: 20)
+            .padding()
     }
+    .background(AppTheme.background(for: .light))
 }
 
 #Preview("Low Balance") {
-    ZStack {
-        LinearGradient(
-            colors: [AppTheme.vibrantTeal, AppTheme.playfulCoral],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-
+    VStack {
         TimeBalanceRing(earnedMinutes: 45, usedMinutes: 42)
+            .padding()
     }
+    .background(AppTheme.background(for: .light))
 }
 
-#Preview("Empty Balance") {
-    ZStack {
-        LinearGradient(
-            colors: [AppTheme.vibrantTeal, AppTheme.playfulCoral],
-            startPoint: .topLeading,
-            endPoint: .bottomTrailing
-        )
-        .ignoresSafeArea()
-
-        TimeBalanceRing(earnedMinutes: 45, usedMinutes: 45)
+#Preview("Hours Format") {
+    VStack {
+        TimeBalanceRing(availableMinutes: 90, todayEarned: 120)
+            .padding()
     }
+    .background(AppTheme.background(for: .light))
+}
+
+#Preview("Dark Mode") {
+    VStack {
+        TimeBalanceRing(earnedMinutes: 60, usedMinutes: 15)
+            .padding()
+    }
+    .background(AppTheme.background(for: .dark))
+    .preferredColorScheme(.dark)
 }
