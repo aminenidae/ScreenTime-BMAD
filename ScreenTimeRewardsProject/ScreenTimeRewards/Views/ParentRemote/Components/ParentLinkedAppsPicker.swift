@@ -28,12 +28,12 @@ struct ParentLinkedAppsPicker: View {
                         .font(.system(size: 14))
                         .foregroundColor(AppTheme.sunnyYellow)
 
-                    Text("UNLOCK REQUIREMENTS")
+                    Text("Unlock Requirements")
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
 
-                Text("LINK LEARNING APPS TO UNLOCK THIS REWARD")
+                Text("Link learning apps to unlock this reward")
                     .font(.system(size: 11))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
             }
@@ -407,7 +407,7 @@ struct ParentLinkedAppsPicker: View {
 
     private var unlockModeSection: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("UNLOCK MODE")
+            Text("Unlock Mode")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
 

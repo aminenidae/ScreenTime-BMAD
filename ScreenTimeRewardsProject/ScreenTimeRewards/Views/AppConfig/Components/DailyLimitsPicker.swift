@@ -55,25 +55,25 @@ struct DailyLimitsPicker: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header
             VStack(alignment: .leading, spacing: 4) {
-                Text("DAILY LIMITS")
+                Text("Daily Limits")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ChallengeBuilderTheme.text)
 
-                Text("HOW MUCH TIME PER DAY?")
+                Text("How much time per day?")
                     .font(.system(size: 13))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
             // Mode selector: No limit / Weekday/Weekend / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "NO LIMIT", isSelected: isNoLimit && !useAdvancedConfig) {
+                modeButton(title: "No Limit", isSelected: isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         setNoLimit()
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "WEEKDAY/WEEKEND", isSelected: !isNoLimit && !useAdvancedConfig) {
+                modeButton(title: "Weekday/Weekend", isSelected: !isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit {
@@ -83,7 +83,7 @@ struct DailyLimitsPicker: View {
                     }
                 }
 
-                modeButton(title: "PER-DAY", isSelected: useAdvancedConfig) {
+                modeButton(title: "Per-Day", isSelected: useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit && !useAdvancedConfig {
@@ -193,8 +193,8 @@ struct DailyLimitsPicker: View {
         VStack(spacing: 12) {
             // Weekday limit - use Monday's max as representative
             limitRow(
-                title: "WEEKDAYS",
-                subtitle: "MON - FRI",
+                title: "Weekdays",
+                subtitle: "Mon - Fri",
                 value: dailyLimits.weekdayLimit,
                 maxMinutes: effectiveMax(for: 2), // Monday
                 onChange: { newValue in
@@ -204,8 +204,8 @@ struct DailyLimitsPicker: View {
 
             // Weekend limit - use Saturday's max as representative
             limitRow(
-                title: "WEEKENDS",
-                subtitle: "SAT - SUN",
+                title: "Weekends",
+                subtitle: "Sat - Sun",
                 value: dailyLimits.weekendLimit,
                 maxMinutes: effectiveMax(for: 7), // Saturday
                 onChange: { newValue in
@@ -297,13 +297,13 @@ struct DailyLimitsPicker: View {
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "SUNDAY"
-        case 2: return "MONDAY"
-        case 3: return "TUESDAY"
-        case 4: return "WEDNESDAY"
-        case 5: return "THURSDAY"
-        case 6: return "FRIDAY"
-        case 7: return "SATURDAY"
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
         default: return ""
         }
     }

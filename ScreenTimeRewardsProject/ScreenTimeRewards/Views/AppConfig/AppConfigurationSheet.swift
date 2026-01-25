@@ -173,25 +173,23 @@ struct AppConfigurationSheet: View {
                 }
             }
             .background(AppTheme.background(for: colorScheme).ignoresSafeArea()) // Use AppTheme background
-            .navigationTitle("CONFIGURE APP")
+            .navigationTitle("Configure App")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
-                    Button("CANCEL") {
+                    Button("Cancel") {
                         onCancel()
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
-                    .textCase(.uppercase)
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
-                    Button("SAVE") {
+                    Button("Save") {
                         onSave(localConfig)
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
-                    .textCase(.uppercase)
                     .tutorialTarget("config_save")
                 }
             }
@@ -208,11 +206,10 @@ struct AppConfigurationSheet: View {
                     .font(.system(size: 14))
                     .foregroundColor(accentColor)
 
-                Text("SUMMARY")
+                Text("Summary")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
                     .foregroundColor(AppTheme.brandedText(for: colorScheme)) // Use AppTheme color
-                    .textCase(.uppercase)
             }
 
             VStack(alignment: .leading, spacing: AppTheme.Spacing.small) { // Use AppTheme.Spacing
@@ -226,7 +223,6 @@ struct AppConfigurationSheet: View {
                         Text(line)
                             .font(.system(size: 11, weight: .medium))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8)) // Use AppTheme color
-                            .textCase(.uppercase)
                     }
                 }
 
@@ -261,7 +257,7 @@ struct AppConfigurationSheet: View {
         } else {
             // Simple mode
             let timeWindow = localConfig.allowedTimeWindow
-            let timeRange = timeWindow.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) AND \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+            let timeRange = timeWindow.isFullDay ? "Anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
 
             if limits.weekdayLimit == limits.weekendLimit {
                 // 1 line - same for all days
@@ -269,8 +265,8 @@ struct AppConfigurationSheet: View {
             } else {
                 // 2 lines - weekday vs weekend
                 lines = [
-                    "WEEKDAYS (MON-FRI): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
-                    "WEEKENDS (SAT-SUN): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+                    "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
+                    "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
                 ]
             }
         }
@@ -301,27 +297,26 @@ struct AppConfigurationSheet: View {
             }
         } else {
             // Summarize for 5+ apps
-            let modeText = localConfig.unlockMode == .all ? "ALL" : "ANY"
+            let modeText = localConfig.unlockMode == .all ? "all" : "any"
             HStack(alignment: .top, spacing: AppTheme.Spacing.small) {
                 Text("•")
                     .font(.system(size: 11))
                     .foregroundColor(accentColor)
-                Text("COMPLETE \(modeText) \(linkedApps.count) APPS GOAL TO UNLOCK")
+                Text("Complete \(modeText) \(linkedApps.count) apps goal to unlock")
                     .font(.system(size: 11, weight: .medium))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
-                    .textCase(.uppercase)
             }
         }
     }
 
     /// Single row for an unlock app requirement with inline icons
     private func unlockAppRow(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
-        let periodText = app.goalPeriod == .daily ? "DAY" : "WEEK"
+        let periodText = app.goalPeriod == .daily ? "Day" : "Week"
         return HStack(alignment: .center, spacing: 4) {
             Text("•")
                 .font(.system(size: 11))
                 .foregroundColor(accentColor)
-            Text("USE")
+            Text("Use")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
             if #available(iOS 15.2, *) {
@@ -330,7 +325,7 @@ struct AppConfigurationSheet: View {
                     .scaleEffect(0.9)
                     .frame(width: 24, height: 24)
             }
-            Text("FOR \(formatDuration(app.minutesRequired))/\(periodText) TO UNLOCK")
+            Text("\(app.minutesRequired) minutes / \(periodText) to automatically unlock")
                 .font(.system(size: 11, weight: .medium))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
             if #available(iOS 15.2, *) {
@@ -355,7 +350,7 @@ struct AppConfigurationSheet: View {
         func summaryFor(weekday: Int) -> String {
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
             let limitMinutes = limits.limit(for: weekday)
-            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? "Anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
             return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
         }
 
@@ -373,15 +368,15 @@ struct AppConfigurationSheet: View {
         if Set(allKeys).count == 1 {
             // All 7 days identical - show 1 line
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: 2) : localConfig.allowedTimeWindow
-            let timeRange = window.isFullDay ? "ANYTIME" : "BETWEEN \(formatTime(hour: window.startHour, minute: window.startMinute)) AND \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? "Anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
             return [formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)]
         }
 
         // Check if weekdays same AND weekends same (classic pattern)
         if allWeekdaysSame && weekendSame {
             return [
-                "WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))",
-                "WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))"
+                "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))",
+                "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
             ]
         }
 
@@ -389,7 +384,7 @@ struct AppConfigurationSheet: View {
 
         // Weekdays: show grouped or individual
         if allWeekdaysSame {
-            lines.append("WEEKDAYS (MON-FRI): \(summaryFor(weekday: 2))")
+            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
         } else {
             // Show individual weekdays
             for weekday in 2...6 {
@@ -399,10 +394,10 @@ struct AppConfigurationSheet: View {
 
         // Weekend: show grouped or individual
         if weekendSame {
-            lines.append("WEEKENDS (SAT-SUN): \(summaryFor(weekday: 7))")
+            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
         } else {
-            lines.append("SATURDAY: \(summaryFor(weekday: 7))")
-            lines.append("SUNDAY: \(summaryFor(weekday: 1))")
+            lines.append("Saturday: \(summaryFor(weekday: 7))")
+            lines.append("Sunday: \(summaryFor(weekday: 1))")
         }
 
         return lines
@@ -411,52 +406,48 @@ struct AppConfigurationSheet: View {
     private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
             if timeWindow.isFullDay {
-                return "YOUR CHILD CAN USE THIS APP ANYTIME"
+                return "Your child can use this app anytime"
             } else {
-                return "YOUR CHILD CAN USE THIS APP \(timeRange)"
+                return "Your child can use this app \(timeRange)"
             }
         } else {
-            return "YOUR CHILD CAN USE THIS APP FOR \(formatDuration(minutes)) \(timeRange)"
+            return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
         }
     }
 
     private func formatUsageLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
-        var modifiedTimeRange = timeRange
-        modifiedTimeRange = modifiedTimeRange.replacingOccurrences(of: "between", with: "BETWEEN")
-        modifiedTimeRange = modifiedTimeRange.replacingOccurrences(of: "and", with: "AND")
-
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
-            return modifiedTimeRange
+            return timeRange
         } else {
-            return "\(formatDuration(minutes)) \(modifiedTimeRange)"
+            return "\(formatDuration(minutes)) \(timeRange)"
         }
     }
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "SUNDAY"
-        case 2: return "MONDAY"
-        case 3: return "TUESDAY"
-        case 4: return "WEDNESDAY"
-        case 5: return "THURSDAY"
-        case 6: return "FRIDAY"
-        case 7: return "SATURDAY"
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
         default: return ""
         }
     }
 
     private func formatDuration(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "UNLIMITED"
+            return "Unlimited"
         }
         let hours = minutes / 60
         let mins = minutes % 60
         if hours > 0 && mins > 0 {
-            return "\(hours)H \(mins)M"
+            return "\(hours)h \(mins)m"
         } else if hours > 0 {
-            return "\(hours)H"
+            return "\(hours)h"
         } else {
-            return "\(mins)M"
+            return "\(mins)m"
         }
     }
 
@@ -513,10 +504,9 @@ struct AppConfigurationSheet: View {
                     Image(systemName: appType == .learning ? "book.fill" : "gift.fill")
                         .font(.system(size: 10))
 
-                    Text(appType == .learning ? "LEARNING" : "REWARD")
+                    Text(appType == .learning ? "Learning" : "Reward")
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1)
-                        .textCase(.uppercase)
                 }
                 .foregroundColor(accentColor)
                 .padding(.horizontal, AppTheme.Spacing.regular) // Use AppTheme.Spacing

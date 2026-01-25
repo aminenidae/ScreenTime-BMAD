@@ -60,6 +60,13 @@ struct TimeBalanceRing: View {
         )
     }
 
+    /// Content color that contrasts against the progress bar gradient
+    private var contentColor: Color {
+        // White works well against both teal and coral gradients in light mode
+        // In dark mode, use cream for warmth
+        colorScheme == .dark ? AppTheme.lightCream : .white
+    }
+
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
@@ -78,13 +85,13 @@ struct TimeBalanceRing: View {
                     // Game controller icon
                     Image(systemName: "gamecontroller.fill")
                         .font(.system(size: 28))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+                        .foregroundColor(contentColor.opacity(0.9))
 
                     // Time display
                     VStack(alignment: .leading, spacing: 2) {
                         Text(formattedAvailableTime)
                             .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .foregroundColor(contentColor)
                             .lineLimit(1)
                             .minimumScaleFactor(0.7)
                             .contentTransition(.numericText())
@@ -93,7 +100,7 @@ struct TimeBalanceRing: View {
                         Text(timeLabel)
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .foregroundColor(contentColor.opacity(0.85))
                     }
 
                     Spacer()

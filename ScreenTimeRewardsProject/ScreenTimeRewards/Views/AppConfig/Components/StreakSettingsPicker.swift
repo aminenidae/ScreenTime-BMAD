@@ -47,7 +47,7 @@ struct StreakSettingsPicker: View {
                     .font(.system(size: 14))
                     .foregroundColor(AppTheme.sunnyYellow)
 
-                Text("STREAK REWARDS")
+                Text("Streak Rewards")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
@@ -117,7 +117,7 @@ struct StreakSettingsPicker: View {
 
     private func cycleSection(settings: AppStreakSettings) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("STREAK CYCLE")
+            Text("Streak Cycle")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             
@@ -148,7 +148,7 @@ struct StreakSettingsPicker: View {
 
     private func bonusSection(settings: AppStreakSettings) -> some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("BONUS REWARD")
+            Text("Bonus Reward")
                 .font(.system(size: 11, weight: .bold))
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 

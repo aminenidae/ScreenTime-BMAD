@@ -35,32 +35,32 @@ struct TimeWindowPicker: View {
         VStack(alignment: .leading, spacing: 16) {
             // Header (no toggle)
             VStack(alignment: .leading, spacing: 4) {
-                Text("ALLOWED HOURS")
+                Text("Allowed Hours")
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundColor(ChallengeBuilderTheme.text)
 
-                Text("WHEN CAN THIS APP BE USED?")
+                Text("When can this app be used?")
                     .font(.system(size: 13))
                     .foregroundColor(ChallengeBuilderTheme.mutedText)
             }
 
             // Mode selector: All day / Same every day / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "ALL DAY", isSelected: isFullDay) {
+                modeButton(title: "All Day", isSelected: isFullDay) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = true
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "SAME EVERY DAY", isSelected: !isFullDay && !useAdvancedConfig) {
+                modeButton(title: "Same Every Day", isSelected: !isFullDay && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "PER-DAY", isSelected: !isFullDay && useAdvancedConfig) {
+                modeButton(title: "Per-Day", isSelected: !isFullDay && useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = true
@@ -115,7 +115,7 @@ struct TimeWindowPicker: View {
         VStack(spacing: 12) {
             // Start time - use inline Binding to read/write directly from timeWindow
             HStack {
-                Text("FROM")
+                Text("From")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
                     .frame(width: 50, alignment: .leading)
@@ -145,7 +145,7 @@ struct TimeWindowPicker: View {
 
             // End time - use inline Binding to read/write directly from timeWindow
             HStack {
-                Text("UNTIL")
+                Text("Until")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(ChallengeBuilderTheme.text)
                     .frame(width: 50, alignment: .leading)
@@ -277,7 +277,7 @@ struct TimeWindowPicker: View {
         HStack(spacing: 6) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 12))
-            Text("END TIME MUST BE AFTER START TIME")
+            Text("End time must be after start time")
                 .font(.system(size: 12))
         }
         .foregroundColor(.orange)
@@ -287,7 +287,7 @@ struct TimeWindowPicker: View {
         HStack(spacing: 4) {
             Image(systemName: "exclamationmark.triangle.fill")
                 .font(.system(size: 10))
-            Text("INVALID RANGE")
+            Text("Invalid range")
                 .font(.system(size: 10))
         }
         .foregroundColor(.orange)
@@ -308,13 +308,13 @@ struct TimeWindowPicker: View {
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "SUNDAY"
-        case 2: return "MONDAY"
-        case 3: return "TUESDAY"
-        case 4: return "WEDNESDAY"
-        case 5: return "THURSDAY"
-        case 6: return "FRIDAY"
-        case 7: return "SATURDAY"
+        case 1: return "Sunday"
+        case 2: return "Monday"
+        case 3: return "Tuesday"
+        case 4: return "Wednesday"
+        case 5: return "Thursday"
+        case 6: return "Friday"
+        case 7: return "Saturday"
         default: return ""
         }
     }

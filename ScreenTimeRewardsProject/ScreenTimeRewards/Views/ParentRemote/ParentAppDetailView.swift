@@ -258,7 +258,7 @@ struct ParentAppDetailView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "gearshape.fill")
                         .font(.system(size: 16))
-                    Text("CONFIGURE")
+                    Text("Configure")
                         .font(.system(size: 14, weight: .bold))
                         .tracking(1)
                 }
@@ -349,23 +349,21 @@ struct ParentAppDetailView: View {
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     .lineLimit(1)
-                    .textCase(.uppercase)
 
                 // Category badge
                 HStack(spacing: AppTheme.Spacing.tiny) {
                     Image(systemName: config.category == "Learning" ? "book.fill" : "gift.fill")
                         .font(.system(size: 10))
 
-                    Text(config.category == "Learning" ? "LEARNING" : "REWARD")
+                    Text(config.category == "Learning" ? "Learning" : "Reward")
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1)
-                        .textCase(.uppercase)
 
                     // Status Badge (for reward apps)
                     if let state = shieldState {
                         Text("•")
                             .font(.system(size: 10))
-                        Text(state.isUnlocked ? "UNLOCKED" : "BLOCKED")
+                        Text(state.isUnlocked ? "Unlocked" : "Blocked")
                             .font(.system(size: 10, weight: .bold))
                             .foregroundColor(state.isUnlocked ? .green : .red)
                     }
@@ -402,7 +400,7 @@ struct ParentAppDetailView: View {
                     .font(.system(size: 16))
                     .foregroundColor(categoryColor)
 
-                Text("USAGE SUMMARY")
+                Text("Usage Summary")
                     .font(.system(size: 12, weight: .bold))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
@@ -416,7 +414,7 @@ struct ParentAppDetailView: View {
                     Text(TimeFormatting.formatSeconds(totalSeconds))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(categoryColor)
-                    Text("LAST \(selectedTimeRange.days) DAYS")
+                    Text("Last \(selectedTimeRange.days) days")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
@@ -431,7 +429,7 @@ struct ParentAppDetailView: View {
                     Text(TimeFormatting.formatSeconds(todaySeconds))
                         .font(.system(size: 24, weight: .bold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    Text("TODAY")
+                    Text("Today")
                         .font(.system(size: 11, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 }
@@ -454,24 +452,22 @@ struct ParentAppDetailView: View {
     private var usageChartSection: some View {
         VStack(alignment: .leading, spacing: AppTheme.Spacing.regular) {
             HStack {
-                Text("USAGE HISTORY")
+                Text("Usage History")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    .textCase(.uppercase)
 
                 Spacer()
 
                 Menu {
-                    Picker("PERIOD", selection: $selectedTimeRange) {
+                    Picker("Period", selection: $selectedTimeRange) {
                         ForEach(TimeRange.allCases, id: \.self) { period in
                             Text(period.rawValue).tag(period)
-                                .textCase(.uppercase)
                         }
                     }
                 } label: {
                     HStack(spacing: AppTheme.Spacing.tiny) {
-                        Text(selectedTimeRange.rawValue.uppercased())
+                        Text(selectedTimeRange.rawValue)
                             .font(.system(size: 11, weight: .medium))
                             .tracking(0.5)
                         Image(systemName: "chevron.down")
@@ -493,10 +489,9 @@ struct ParentAppDetailView: View {
                         .font(.system(size: 32))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
 
-                    Text("NO USAGE DATA YET")
+                    Text("No usage data yet")
                         .font(.system(size: 13, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                        .textCase(.uppercase)
                 }
                 .frame(height: 180)
                 .frame(maxWidth: .infinity)
@@ -531,7 +526,7 @@ struct ParentAppDetailView: View {
                     .font(.system(size: 16))
                     .foregroundColor(categoryColor)
 
-                Text("SCHEDULE")
+                Text("Schedule")
                     .font(.system(size: 12, weight: .bold))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
@@ -551,7 +546,7 @@ struct ParentAppDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         Spacer()
-                        Text(schedule.todayTimeWindow.isFullDay ? "ALL DAY" : schedule.todayTimeWindow.displayString.uppercased())
+                        Text(schedule.todayTimeWindow.isFullDay ? "All Day" : schedule.todayTimeWindow.displayString)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
@@ -570,7 +565,7 @@ struct ParentAppDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         Spacer()
-                        Text(schedule.dailyLimits.displaySummary.uppercased())
+                        Text(schedule.dailyLimits.displaySummary)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
@@ -619,7 +614,7 @@ struct ParentAppDetailView: View {
                     .font(.system(size: 16))
                     .foregroundColor(AppTheme.vibrantTeal)
 
-                Text("UNLOCK REQUIREMENTS")
+                Text("Unlock Requirements")
                     .font(.system(size: 12, weight: .bold))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
@@ -660,7 +655,7 @@ struct ParentAppDetailView: View {
 
                         Spacer()
 
-                        Text("\(linkedApp.minutesRequired) MIN")
+                        Text("\(linkedApp.minutesRequired) min")
                             .font(.system(size: 12, weight: .semibold))
                             .foregroundColor(AppTheme.vibrantTeal)
                             .padding(.horizontal, 8)
@@ -693,7 +688,7 @@ struct ParentAppDetailView: View {
                     .font(.system(size: 16))
                     .foregroundColor(AppTheme.sunnyYellow)
 
-                Text("STREAK SETTINGS")
+                Text("Streak Settings")
                     .font(.system(size: 12, weight: .bold))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .tracking(1)
@@ -705,7 +700,7 @@ struct ParentAppDetailView: View {
                     Image(systemName: "gift.fill")
                         .font(.system(size: 10))
                         .foregroundColor(AppTheme.sunnyYellow)
-                    Text(streak.bonusType == .percentage ? "+\(streak.bonusValue)%" : "+\(streak.bonusValue)M")
+                    Text(streak.bonusType == .percentage ? "+\(streak.bonusValue)%" : "+\(streak.bonusValue)m")
                         .font(.system(size: 10, weight: .bold))
                         .foregroundColor(AppTheme.sunnyYellow)
                 }
@@ -733,7 +728,7 @@ struct ParentAppDetailView: View {
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundColor(AppTheme.sunnyYellow)
                     +
-                    Text(" DAY CYCLE")
+                    Text(" Day Cycle")
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
@@ -912,18 +907,16 @@ private struct HourlyUsageChartCard: View {
                     .font(.system(size: 16))
                     .foregroundColor(accentColor)
 
-                Text("TODAY'S HOURLY USAGE")
+                Text("Today's Hourly Usage")
                     .font(.system(size: 12, weight: .semibold))
                     .tracking(1)
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    .textCase(.uppercase)
 
                 Spacer()
 
-                Text("\(totalMinutes)M TOTAL")
+                Text("\(totalMinutes)m total")
                     .font(.system(size: 13, weight: .medium))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    .textCase(.uppercase)
             }
 
             if totalMinutes == 0 {
@@ -957,7 +950,7 @@ private struct HourlyUsageChartCard: View {
                     AxisMarks { value in
                         AxisValueLabel {
                             if let minutes = value.as(Int.self) {
-                                Text("\(minutes)M")
+                                Text("\(minutes)m")
                                     .font(.system(size: 10, weight: .medium))
                                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                             }
@@ -992,10 +985,9 @@ private struct HourlyUsageChartCard: View {
                 .font(.system(size: 32))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
 
-            Text("NO USAGE RECORDED TODAY")
+            Text("No usage recorded today")
                 .font(.system(size: 13, weight: .medium))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                .textCase(.uppercase)
         }
         .frame(height: 160)
         .frame(maxWidth: .infinity)
