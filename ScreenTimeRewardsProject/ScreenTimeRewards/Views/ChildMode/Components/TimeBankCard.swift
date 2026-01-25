@@ -106,9 +106,9 @@ struct TimeBankCard: View {
                 .font(.system(size: 32, weight: .bold))
                 .foregroundColor(textColor)
 
-            Text("MIN \(label)")
-                .font(.system(size: 11, weight: .medium))
-                .tracking(1)
+            Text("\(label) TODAY")
+                .font(.system(size: 10, weight: .medium))
+                .tracking(0.5)
                 .foregroundColor(textColor.opacity(0.8))
         }
         .frame(minWidth: 100) // Ensures consistent container width
