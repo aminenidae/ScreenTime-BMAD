@@ -99,7 +99,11 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     var earnedMinutes: Int {
         // Use pre-calculated value from synced daily snapshot (includes threshold logic)
         // Falls back to 0 if snapshot not yet synced
-        viewModel.childDailySnapshot?.totalEarnedMinutes ?? 0
+        let value = viewModel.childDailySnapshot?.totalEarnedMinutes ?? 0
+        #if DEBUG
+        print("[EarnedMinutesDebug] DISPLAY: earnedMinutes accessed = \(value) (snapshot: \(viewModel.childDailySnapshot != nil ? "present" : "nil"))")
+        #endif
+        return value
     }
 
     var usedMinutes: Int {
@@ -120,7 +124,11 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
 
     var availableMinutes: Int {
         // Use cumulative available from synced daily snapshot (includes rollover)
-        viewModel.childDailySnapshot?.cumulativeAvailableMinutes ?? 0
+        let value = viewModel.childDailySnapshot?.cumulativeAvailableMinutes ?? 0
+        #if DEBUG
+        print("[EarnedMinutesDebug] DISPLAY: availableMinutes accessed = \(value)")
+        #endif
+        return value
     }
 
     // MARK: - Streaks
@@ -203,6 +211,20 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
 
     var errorMessage: String? {
         viewModel.errorMessage
+    }
+
+    // MARK: - Extension Sync Status (Remote Diagnostics)
+
+    /// Extension sync status for remote diagnostics
+    /// Shows if the child's DeviceActivityMonitor extension is syncing correctly
+    var extensionSyncStatus: ExtensionSyncStatusDTO? {
+        viewModel.extensionSyncStatus
+    }
+
+    /// Human-readable extension sync status for display
+    var extensionSyncDisplayStatus: String? {
+        // Always return a value in remote context so parent can see sync status
+        extensionSyncStatus?.displayStatus ?? "Extension has not synced yet"
     }
 
     // MARK: - Actions

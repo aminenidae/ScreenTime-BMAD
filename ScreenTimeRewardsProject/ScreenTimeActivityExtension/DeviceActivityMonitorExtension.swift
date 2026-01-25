@@ -148,6 +148,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // - Learning app usage might increase earned time (but we still check for exhaustion)
         checkAndBlockIfRewardTimeExhausted(defaults: defaults)
 
+        // EXTENSION CLOUDKIT SYNC: Sync usage directly to parent's CloudKit zone
+        // This enables real-time updates without requiring the main app to be opened
+        debugLog("TRIGGERING_CLOUDKIT_SYNC from recordUsageEfficiently", defaults: defaults)
+        ExtensionCloudKitSync.shared.syncUsageToParent(defaults: defaults)
+
         return true
     }
 
@@ -365,6 +370,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
         checkAndBlockIfRewardTimeExhausted(defaults: defaults)
+
+        // EXTENSION CLOUDKIT SYNC: Sync usage directly to parent's CloudKit zone
+        debugLog("TRIGGERING_CLOUDKIT_SYNC from recordUsageWithMapping", defaults: defaults)
+        ExtensionCloudKitSync.shared.syncUsageToParent(defaults: defaults)
 
         return true
     }

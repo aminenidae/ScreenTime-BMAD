@@ -210,35 +210,97 @@ class BlockingCoordinator: ObservableObject {
     /// Calculates per LEARNING APP, not per reward app, to prevent double-counting
     /// when multiple reward apps are linked to the same learning app.
     func getTotalEarnedRewardMinutesForSnapshot() -> Int {
+        #if DEBUG
+        print("[EarnedMinutesDebug] === getTotalEarnedRewardMinutesForSnapshot START ===")
+        print("[EarnedMinutesDebug] Total schedules: \(scheduleService.schedules.count)")
+        #endif
+
         // 1. Collect all unique linked learning apps from all reward apps
         var uniqueLearningApps: [String: LinkedLearningApp] = [:]  // keyed by logicalID
 
         // scheduleService.schedules is [String: AppScheduleConfiguration]
-        for (_, schedule) in scheduleService.schedules where !schedule.linkedLearningApps.isEmpty {
+        for (scheduleID, schedule) in scheduleService.schedules where !schedule.linkedLearningApps.isEmpty {
+            #if DEBUG
+            print("[EarnedMinutesDebug] Schedule '\(scheduleID)' has \(schedule.linkedLearningApps.count) linked learning apps")
+            #endif
             for linkedApp in schedule.linkedLearningApps {
+                #if DEBUG
+                print("[EarnedMinutesDebug]   Checking learning app: '\(linkedApp.displayName ?? "unknown")'")
+                print("[EarnedMinutesDebug]     FULL logicalID: '\(linkedApp.logicalID)'")
+                print("[EarnedMinutesDebug]     ratio: \(linkedApp.rewardMinutesEarned):\(linkedApp.ratioLearningMinutes)")
+                #endif
                 // Only keep the first occurrence (dedupe by learning app logicalID)
                 if uniqueLearningApps[linkedApp.logicalID] == nil {
                     uniqueLearningApps[linkedApp.logicalID] = linkedApp
+                    #if DEBUG
+                    print("[EarnedMinutesDebug]   ✅ ADDED as unique")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("[EarnedMinutesDebug]   ⏭️ SKIPPED (duplicate logicalID)")
+                    #endif
                 }
             }
         }
 
+        #if DEBUG
+        print("[EarnedMinutesDebug] Unique learning apps to process: \(uniqueLearningApps.count)")
+        #endif
+
         // 2. For each unique learning app, calculate earned minutes ONCE
+        #if DEBUG
+        print("[EarnedMinutesDebug] ========== CALCULATING EARNED ==========")
+        print("[EarnedMinutesDebug] Processing \(uniqueLearningApps.count) unique learning app(s)")
+        #endif
         var totalEarned = 0
         for (learningLogicalID, linkedApp) in uniqueLearningApps {
+            #if DEBUG
+            print("[EarnedMinutesDebug] -----")
+            print("[EarnedMinutesDebug] Learning app: '\(linkedApp.displayName ?? "unknown")'")
+            print("[EarnedMinutesDebug]   logicalID: '\(learningLogicalID)'")
+            #endif
+
             // Get today's usage for this learning app
             guard let usage = screenTimeService?.usagePersistence.app(for: learningLogicalID) else {
+                #if DEBUG
+                print("[EarnedMinutesDebug]   ❌ No usage found in persistence!")
+                #endif
                 continue
             }
             let currentMinutes = usage.todaySeconds / 60
+
+            #if DEBUG
+            print("[EarnedMinutesDebug]   usage.todaySeconds: \(usage.todaySeconds)")
+            print("[EarnedMinutesDebug]   currentMinutes: \(currentMinutes)")
+            print("[EarnedMinutesDebug]   minutesRequired (threshold): \(linkedApp.minutesRequired)")
+            print("[EarnedMinutesDebug]   ratio: \(linkedApp.rewardMinutesEarned):\(linkedApp.ratioLearningMinutes)")
+            #endif
 
             // Only earn if threshold is met
             if currentMinutes >= linkedApp.minutesRequired {
                 let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
                 let earned = Double(currentMinutes) * ratio
+                #if DEBUG
+                print("[EarnedMinutesDebug]   ✅ Threshold MET: \(currentMinutes) >= \(linkedApp.minutesRequired)")
+                print("[EarnedMinutesDebug]   Calculation: \(currentMinutes) * (\(linkedApp.rewardMinutesEarned)/\(linkedApp.ratioLearningMinutes)) = \(Int(earned))")
+                #endif
                 totalEarned += Int(earned)
+                #if DEBUG
+                print("[EarnedMinutesDebug]   Running total: \(totalEarned)min")
+                #endif
+            } else {
+                #if DEBUG
+                print("[EarnedMinutesDebug]   ⏳ Threshold NOT met: \(currentMinutes) < \(linkedApp.minutesRequired)")
+                print("[EarnedMinutesDebug]   Earned: 0 (threshold not reached)")
+                #endif
             }
         }
+
+        #if DEBUG
+        print("[EarnedMinutesDebug] ========== FINAL RESULT ==========")
+        print("[EarnedMinutesDebug] Total earned minutes: \(totalEarned)")
+        print("[EarnedMinutesDebug] =================================")
+        #endif
 
         return totalEarned
     }

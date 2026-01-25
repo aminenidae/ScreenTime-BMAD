@@ -99,6 +99,9 @@ class DeviceModeManager: ObservableObject {
 
         // Set the mode
         self.currentMode = storedMode
+
+        // Sync deviceID to App Group for extension CloudKit access
+        syncDeviceIDToAppGroup()
     }
     
     func setDeviceMode(_ mode: DeviceMode, deviceName: String? = nil) {
@@ -109,6 +112,8 @@ class DeviceModeManager: ObservableObject {
         if mode == .childDevice {
             // Child: Save deviceID to Keychain (persist across reinstall)
             Self.saveToKeychain(value: deviceID, service: keychainService, key: keychainDeviceIDKey)
+            // Also sync to App Group for extension CloudKit access
+            syncDeviceIDToAppGroup()
             #if DEBUG
             print("[DeviceModeManager] Child mode: Saved deviceID to Keychain for persistence")
             #endif
@@ -161,6 +166,24 @@ class DeviceModeManager: ObservableObject {
     
     var needsDeviceSelection: Bool {
         currentMode == nil
+    }
+
+    // MARK: - App Group Sync
+
+    /// Sync deviceID to App Group UserDefaults for extension CloudKit access
+    private func syncDeviceIDToAppGroup() {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            #if DEBUG
+            print("[DeviceModeManager] ❌ Failed to access App Group defaults")
+            #endif
+            return
+        }
+
+        defaults.set(deviceID, forKey: "ext_deviceID")
+
+        #if DEBUG
+        print("[DeviceModeManager] ✅ Synced deviceID to App Group for extension: \(deviceID.prefix(8))...")
+        #endif
     }
 
     // MARK: - Keychain Helpers

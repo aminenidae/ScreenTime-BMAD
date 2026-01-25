@@ -78,6 +78,12 @@ protocol DashboardDataProvider: ObservableObject {
     /// Error message if any
     var errorMessage: String? { get }
 
+    // MARK: - Extension Sync Status (Remote Diagnostics)
+
+    /// Human-readable extension sync status (for remote context only)
+    /// Shows if the child's DeviceActivityMonitor extension is syncing correctly
+    var extensionSyncDisplayStatus: String? { get }
+
     // MARK: - Actions
 
     /// Refresh all data
@@ -145,4 +151,7 @@ extension DashboardDataProvider {
 
     /// Default: empty per-app streaks (override in adapters)
     var perAppStreaks: [PerAppStreakInfo] { [] }
+
+    /// Default: no extension sync status (only available in remote context)
+    var extensionSyncDisplayStatus: String? { nil }
 }

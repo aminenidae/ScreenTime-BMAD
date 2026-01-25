@@ -1016,6 +1016,9 @@ class DevicePairingService: ObservableObject {
         parents.append(parent)
         savePairedParents(parents)
 
+        // Sync zone info to App Group for extension CloudKit access
+        syncParentZoneInfoToAppGroup()
+
         #if DEBUG
         print("[DevicePairingService] ✅ Added parent: \(parent.deviceName) (\(parent.id))")
         print("[DevicePairingService] Total paired parents: \(parents.count)")
@@ -1038,6 +1041,9 @@ class DevicePairingService: ObservableObject {
         var parents = getPairedParents()
         parents.removeAll { $0.id == parent.id }
         savePairedParents(parents)
+
+        // 3. Re-sync App Group with remaining parents (or clear if none)
+        syncParentZoneInfoToAppGroup()
 
         #if DEBUG
         print("[DevicePairingService] ✅ Removed parent: \(parent.deviceName) (\(parent.id))")
@@ -1153,6 +1159,11 @@ class DevicePairingService: ObservableObject {
         // Clear legacy storage (in case migration didn't happen)
         clearLegacyParentStorage()
 
+        // Clear App Group extension keys
+        if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
+            clearExtensionParentZoneInfo(defaults: defaults)
+        }
+
         #if DEBUG
         print("[DevicePairingService] ✅ All pairing data cleared")
         #endif
@@ -1167,6 +1178,86 @@ class DevicePairingService: ObservableObject {
     /// Get parent info for a specific parent ID
     func getParentInfo(deviceID: String) -> PairedParentInfo? {
         return getPairedParents().first { $0.id == deviceID }
+    }
+
+    // MARK: - Extension CloudKit Sync Support
+
+    /// Sync primary parent zone info to App Group UserDefaults for extension access
+    /// This enables the DeviceActivityMonitor extension to sync directly to CloudKit
+    func syncParentZoneInfoToAppGroup() {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Failed to access App Group defaults")
+            #endif
+            return
+        }
+
+        // Use first paired parent's zone info (primary parent)
+        let parents = getPairedParents()
+        guard let primary = parents.first,
+              let zoneID = primary.sharedZoneID,
+              let zoneOwner = primary.sharedZoneOwner,
+              let rootName = primary.rootRecordName else {
+            // Clear App Group keys if no valid parent
+            clearExtensionParentZoneInfo(defaults: defaults)
+            return
+        }
+
+        // Write zone info to App Group for extension access
+        defaults.set(zoneID, forKey: "ext_parentZoneID")
+        defaults.set(zoneOwner, forKey: "ext_parentZoneOwner")
+        defaults.set(rootName, forKey: "ext_parentRootRecordName")
+        defaults.set(true, forKey: "ext_parentSyncEnabled")
+
+        #if DEBUG
+        print("[DevicePairingService] ✅ Synced parent zone info to App Group")
+        print("   Zone: \(zoneID), Owner: \(zoneOwner.prefix(12))...")
+        #endif
+    }
+
+    /// Clear extension parent zone info from App Group
+    private func clearExtensionParentZoneInfo(defaults: UserDefaults) {
+        defaults.removeObject(forKey: "ext_parentZoneID")
+        defaults.removeObject(forKey: "ext_parentZoneOwner")
+        defaults.removeObject(forKey: "ext_parentRootRecordName")
+        defaults.set(false, forKey: "ext_parentSyncEnabled")
+
+        #if DEBUG
+        print("[DevicePairingService] 🗑️ Cleared extension parent zone info from App Group")
+        #endif
+    }
+
+    /// Migrate existing pairing to App Group if not already done
+    /// This handles devices that were paired BEFORE the extension CloudKit sync feature was added
+    /// Call this early in app lifecycle to ensure extension has zone info
+    func migrateExistingPairingToAppGroup() {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Migration: Failed to access App Group")
+            #endif
+            return
+        }
+
+        // Check if already migrated
+        let alreadySynced = defaults.bool(forKey: "ext_parentSyncEnabled")
+        if alreadySynced {
+            #if DEBUG
+            print("[DevicePairingService] ✓ Migration: Zone info already in App Group")
+            #endif
+            return
+        }
+
+        // Check if we have a valid pairing
+        guard hasValidPairing() else {
+            #if DEBUG
+            print("[DevicePairingService] ✓ Migration: No valid pairing to migrate")
+            #endif
+            return
+        }
+
+        // Sync the zone info
+        print("[DevicePairingService] 🔄 Migration: Syncing existing pairing zone info to App Group for extension")
+        syncParentZoneInfoToAppGroup()
     }
 
 }

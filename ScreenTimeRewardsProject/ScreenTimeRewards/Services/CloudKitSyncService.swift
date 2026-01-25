@@ -3168,6 +3168,119 @@ class CloudKitSyncService: ObservableObject {
         }
     }
 
+    // MARK: - Extension Retry Queue Processing
+
+    /// Process pending CloudKit syncs that failed in the extension
+    /// The extension queues failed syncs in App Group for the main app to retry
+    /// This is a fallback mechanism - the extension's blocking sync should usually succeed
+    func processExtensionRetryQueue() async {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return
+        }
+
+        let pendingKey = "ext_pending_cloudkit_sync"
+        guard let pending = defaults.array(forKey: pendingKey) as? [[String: Any]],
+              !pending.isEmpty else {
+            return
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] Processing \(pending.count) pending extension syncs")
+        #endif
+
+        // Get share context
+        guard let zoneInfo = getParentZoneInfo() else {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ No parent zone info - cannot process retry queue")
+            #endif
+            return
+        }
+
+        let deviceID = DeviceModeManager.shared.deviceID
+        let zoneID = CKRecordZone.ID(zoneName: zoneInfo.zoneName, ownerName: zoneInfo.zoneOwner)
+        let rootID = CKRecord.ID(recordName: zoneInfo.rootRecordName, zoneID: zoneID)
+        let sharedDB = container.sharedCloudDatabase
+
+        var recordsToSave: [CKRecord] = []
+
+        for entry in pending {
+            guard let appID = entry["appID"] as? String,
+                  let seconds = entry["seconds"] as? Int,
+                  let dateStr = entry["date"] as? String,
+                  let hourly = entry["hourly"] as? [Int],
+                  let category = entry["category"] as? String,
+                  !category.isEmpty,
+                  (category == "Learning" || category == "Reward") else {
+                continue
+            }
+
+            let displayName = entry["displayName"] as? String
+
+            let recordName = "DUH-\(deviceID)-\(appID)-\(dateStr)"
+            let recordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+            let record = CKRecord(recordType: "CD_DailyUsageHistory", recordID: recordID)
+            record.parent = CKRecord.Reference(recordID: rootID, action: .none)
+
+            record["CD_deviceID"] = deviceID as CKRecordValue
+            record["CD_logicalID"] = appID as CKRecordValue
+            record["CD_category"] = category as CKRecordValue
+            record["CD_seconds"] = seconds as CKRecordValue
+            record["CD_syncTimestamp"] = Date() as CKRecordValue
+            record["CD_syncSource"] = "main_app_retry" as CKRecordValue
+
+            // Parse date from string
+            let dateFormatter = DateFormatter()
+            dateFormatter.dateFormat = "yyyy-MM-dd"
+            if let date = dateFormatter.date(from: dateStr) {
+                record["CD_date"] = date as CKRecordValue
+            }
+
+            if let name = displayName, !name.isEmpty {
+                record["CD_displayName"] = name as CKRecordValue
+            }
+
+            if hourly.contains(where: { $0 > 0 }) {
+                record["CD_hourlySeconds"] = hourly as CKRecordValue
+            }
+
+            recordsToSave.append(record)
+        }
+
+        guard !recordsToSave.isEmpty else {
+            defaults.removeObject(forKey: pendingKey)
+            return
+        }
+
+        do {
+            let operation = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: nil)
+            operation.savePolicy = .changedKeys
+            operation.qualityOfService = .userInitiated
+
+            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+                operation.modifyRecordsResultBlock = { result in
+                    switch result {
+                    case .success:
+                        continuation.resume()
+                    case .failure(let error):
+                        continuation.resume(throwing: error)
+                    }
+                }
+                sharedDB.add(operation)
+            }
+
+            // Clear the queue on success
+            defaults.removeObject(forKey: pendingKey)
+
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Processed \(recordsToSave.count) pending extension syncs")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ❌ Failed to process retry queue: \(error.localizedDescription)")
+            #endif
+        }
+    }
+
     /// Fetch child's daily usage history from CloudKit shared zones
     /// Returns array of DailyUsageHistoryDTO with per-app daily summaries
     func fetchChildDailyUsageHistory(deviceID: String, daysToFetch: Int = 30, zoneID: String? = nil, zoneOwner: String? = nil) async throws -> [DailyUsageHistoryDTO] {
