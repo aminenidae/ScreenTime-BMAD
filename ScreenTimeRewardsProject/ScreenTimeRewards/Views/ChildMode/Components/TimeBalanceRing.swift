@@ -79,10 +79,12 @@ struct TimeBalanceRing: View {
                     .font(.system(size: 24))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
 
-                // Balance amount (cumulative available) - shows h:mm when >= 60
+                // Balance amount (cumulative available) - shows "X h Y min" when >= 60
                 Text(formattedAvailableTime)
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
+                    .font(.system(size: availableMinutes >= 60 ? 28 : 48, weight: .bold, design: .rounded))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.6)
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.4), value: availableMinutes)
 
