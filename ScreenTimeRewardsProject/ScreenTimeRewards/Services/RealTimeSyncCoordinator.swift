@@ -160,8 +160,8 @@ class RealTimeSyncCoordinator {
             return false
         }
 
-        // Check for pairing context
-        return UserDefaults.standard.string(forKey: "parentSharedZoneID") != nil
+        // Check for pairing using DevicePairingService (supports multi-parent storage format)
+        return !DevicePairingService.shared.getPairedParents().isEmpty
     }
 
     /// Check if enough time has passed since last sync

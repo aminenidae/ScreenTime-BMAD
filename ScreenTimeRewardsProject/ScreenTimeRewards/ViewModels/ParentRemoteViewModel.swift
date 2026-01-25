@@ -339,6 +339,59 @@ struct ChildStreakSummary {
     }
 }
 
+/// Extension sync status for remote diagnostics
+/// Allows parent to see if the child's extension is syncing correctly
+struct ExtensionSyncStatusDTO {
+    let deviceID: String
+    let lastAttemptTimestamp: Date?
+    let success: Bool
+    let recordCount: Int
+    let lastError: String?
+    let syncEnabled: Bool
+    let hasZoneInfo: Bool
+    let hasDeviceID: Bool
+    let diagnosticSummary: String
+
+    /// Create from a CloudKit record
+    init(from record: CKRecord) {
+        self.deviceID = record["CD_deviceID"] as? String ?? ""
+        self.lastAttemptTimestamp = record["CD_lastAttemptTimestamp"] as? Date
+        self.success = (record["CD_success"] as? Int ?? 0) == 1
+        self.recordCount = record["CD_recordCount"] as? Int ?? 0
+        self.lastError = record["CD_lastError"] as? String
+        self.syncEnabled = (record["CD_syncEnabled"] as? Int ?? 0) == 1
+        self.hasZoneInfo = (record["CD_hasZoneInfo"] as? Int ?? 0) == 1
+        self.hasDeviceID = (record["CD_hasDeviceID"] as? Int ?? 0) == 1
+        self.diagnosticSummary = record["CD_diagnosticSummary"] as? String ?? "Unknown"
+    }
+
+    /// Time since last sync attempt
+    var timeSinceLastAttempt: TimeInterval? {
+        guard let timestamp = lastAttemptTimestamp else { return nil }
+        return Date().timeIntervalSince(timestamp)
+    }
+
+    /// Human-readable status message for display
+    var displayStatus: String {
+        guard let timestamp = lastAttemptTimestamp else {
+            return "Extension has not synced yet"
+        }
+
+        let timeAgo = timeSinceLastAttempt ?? 0
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .abbreviated
+        let relativeTime = formatter.localizedString(for: timestamp, relativeTo: Date())
+
+        if success {
+            return "✅ Synced \(recordCount) records \(relativeTime)"
+        } else if let error = lastError {
+            return "❌ \(error) (\(relativeTime))"
+        } else {
+            return "❌ Unknown error (\(relativeTime))"
+        }
+    }
+}
+
 @MainActor
 class ParentRemoteViewModel: ObservableObject {
     @Published var linkedChildDevices: [RegisteredDevice] = []
@@ -374,6 +427,9 @@ class ParentRemoteViewModel: ObservableObject {
 
     // Daily snapshot with pre-calculated earnedMinutes (synced from CloudKit)
     @Published var childDailySnapshot: DailySnapshotDTO?
+
+    // Extension sync status (for remote diagnostics)
+    @Published var extensionSyncStatus: ExtensionSyncStatusDTO?
 
     /// Aggregated daily totals from per-app history
     /// Returns array of (date, learningSeconds, rewardSeconds) sorted by date descending
@@ -492,6 +548,13 @@ class ParentRemoteViewModel: ObservableObject {
                 #endif
                 Task { @MainActor in
                     await self.loadLinkedChildDevices()
+                    // Also refresh the currently selected device's data
+                    if let selectedDevice = self.selectedChildDevice {
+                        #if DEBUG
+                        print("[ParentRemoteViewModel] Auto-refreshing selected device data")
+                        #endif
+                        await self.loadChildData(for: selectedDevice)
+                    }
                 }
             }
             .store(in: &cancellables)
@@ -700,6 +763,7 @@ class ParentRemoteViewModel: ObservableObject {
         childStreakSummary = nil
         childStreakRecords = []
         childDailySnapshot = nil
+        extensionSyncStatus = nil
         usageRecords = []
         categorySummaries = []
         dailySummaries = []
@@ -753,6 +817,9 @@ class ParentRemoteViewModel: ObservableObject {
 
             // Load child streak records from CloudKit
             await loadChildStreakRecords(for: device)
+
+            // Load extension sync status for diagnostics
+            await loadExtensionSyncStatus(for: device)
         } catch let error as CKError {
             handleCloudKitError(error)
         } catch {
@@ -999,6 +1066,61 @@ class ParentRemoteViewModel: ObservableObject {
         } catch {
             print("[ParentRemoteViewModel] Error loading child streak records: \(error)")
             // Don't set error message - streaks are supplementary data, not critical
+        }
+    }
+
+    /// Load extension sync status for remote diagnostics
+    /// Allows parent to see if the child's DeviceActivityMonitor extension is syncing correctly
+    func loadExtensionSyncStatus(for device: RegisteredDevice) async {
+        guard let deviceID = device.deviceID,
+              let zoneID = device.sharedZoneID,
+              let zoneOwner = device.sharedZoneOwner else {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Cannot fetch extension sync status - missing device/zone info")
+            #endif
+            return
+        }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] ===== Loading Extension Sync Status =====")
+        print("[ParentRemoteViewModel] Device ID: \(deviceID)")
+        #endif
+
+        do {
+            // Query for the extension sync status record
+            let database = CKContainer(identifier: "iCloud.com.screentimerewards").sharedCloudDatabase
+            let recordZoneID = CKRecordZone.ID(zoneName: zoneID, ownerName: zoneOwner)
+
+            // Use deterministic record ID matching the extension's format
+            let statusRecordName = "ExtSyncStatus-\(deviceID)"
+            let statusRecordID = CKRecord.ID(recordName: statusRecordName, zoneID: recordZoneID)
+
+            let record = try await database.record(for: statusRecordID)
+            let status = ExtensionSyncStatusDTO(from: record)
+
+            await MainActor.run {
+                self.extensionSyncStatus = status
+            }
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] Extension sync status: \(status.displayStatus)")
+            print("[ParentRemoteViewModel] ===== End Loading Extension Sync Status =====")
+            #endif
+        } catch let error as CKError {
+            if error.code == .unknownItem {
+                // No status record exists yet - extension hasn't synced
+                #if DEBUG
+                print("[ParentRemoteViewModel] No extension sync status record found (extension may not have synced yet)")
+                #endif
+                await MainActor.run {
+                    self.extensionSyncStatus = nil
+                }
+            } else {
+                print("[ParentRemoteViewModel] Error loading extension sync status: \(error)")
+            }
+        } catch {
+            print("[ParentRemoteViewModel] Error loading extension sync status: \(error)")
+            // Don't set error message - extension status is supplementary data
         }
     }
 

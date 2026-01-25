@@ -52,6 +52,19 @@ struct ScreenTimeRewardsApp: App {
             case .active:
                 // Refresh usage data from extension when app becomes active
                 print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
+
+                // TEMP DEBUG: Print extension CloudKit logs
+                if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
+                    print("════════════════════════════════════════")
+                    print("📋 EXTENSION CLOUDKIT SYNC LOG:")
+                    print(defaults.string(forKey: "extension_cloudkit_log") ?? "❌ NO LOGS")
+                    print("────────────────────────────────────────")
+                    print("📊 SYNC HISTORY:")
+                    print(defaults.stringArray(forKey: "ext_cloudkit_sync_history") ?? [])
+                    print("────────────────────────────────────────")
+                    print("🔢 TOTAL EVENTS RECEIVED: \(defaults.integer(forKey: "ext_total_events_received"))")
+                    print("════════════════════════════════════════")
+                }
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
                 }
@@ -88,6 +101,24 @@ struct ScreenTimeRewardsApp: App {
                 Task {
                     await CloudKitSyncService.shared.setupDatabaseSubscriptions()
                     print("[ScreenTimeRewardsApp] 📡 CloudKit database subscriptions configured")
+                }
+
+                // Sync parent zone info to App Group for extension CloudKit access
+                // This ensures the extension can sync directly to parent's zone
+                if modeManager.isChildDevice {
+                    // First, migrate any existing pairing (for devices paired before this feature)
+                    DevicePairingService.shared.migrateExistingPairingToAppGroup()
+
+                    // Then sync current zone info (refreshes in case parent changed)
+                    DevicePairingService.shared.syncParentZoneInfoToAppGroup()
+                    print("[ScreenTimeRewardsApp] 📡 Synced parent zone info to App Group for extension")
+
+                    // Process any pending CloudKit syncs that failed in the extension
+                    // Extension may timeout on sync; main app retries as backup
+                    Task {
+                        await CloudKitSyncService.shared.processExtensionRetryQueue()
+                        print("[ScreenTimeRewardsApp] 📡 Processed extension CloudKit retry queue")
+                    }
                 }
 
                 // Sync app configurations to CloudKit for paired child devices
