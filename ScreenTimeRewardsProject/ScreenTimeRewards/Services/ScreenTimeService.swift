@@ -801,10 +801,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Create threshold events per app with STATIC minute thresholds
             // iOS automatically skips thresholds that already fired today
             // Using static thresholds avoids mismatch between our persistence and iOS's internal counter
-            // 240 minutes = 4 hours of reliable tracking per app
+            // NOTE: iOS silently drops events when too many are registered (limit ~500 total)
+            // With 60 events per app: 5 apps = 300 events (safe), 8 apps = 480 events (safe)
+            // 240 events caused under-counting due to iOS dropping events
             for app in applications {
                 let startMinute = 1   // Always start at 1 minute
-                let endMinute = 240   // 4 hours - extended tracking window
+                let endMinute = 60    // 1 hour - reliable tracking within iOS limits
                 // Use stable app identifier instead of sequential index to prevent
                 // usage doubling when app list order changes
                 // NOTE: Using DJB2 hash instead of Swift's .hashValue because
@@ -832,7 +834,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         let totalEvents = monitoredEvents.count
-        print("[ScreenTimeService] Created \(totalEvents) total threshold events (240 per app)")
+        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -1703,9 +1705,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         // 7. Show total events configured (check for potential limit issues)
-        print("  📊 Configured events: \(monitoredEvents.count) (testing 240/app limit)")
+        print("  📊 Configured events: \(monitoredEvents.count) (60/app, limit ~500 total)")
         if monitoredEvents.count > 500 {
-            print("  ⚠️ WARNING: High event count may cause iOS to silently drop events!")
+            print("  ⚠️ WARNING: High event count (>\(monitoredEvents.count)) may cause iOS to silently drop events!")
         }
 
         // 8. Check extension debug log for recent entries
