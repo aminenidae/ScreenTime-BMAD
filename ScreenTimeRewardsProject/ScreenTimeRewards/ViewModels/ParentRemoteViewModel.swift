@@ -487,6 +487,59 @@ class ParentRemoteViewModel: ObservableObject {
         return (learning, reward)
     }
 
+    // MARK: - Fallback Time Bank Calculations
+
+    /// Check if the daily snapshot is available and fresh (today's date)
+    var hasValidDailySnapshot: Bool {
+        guard let snapshot = childDailySnapshot else { return false }
+        return Calendar.current.isDateInToday(snapshot.date)
+    }
+
+    /// Get all unique learning app IDs that are linked to at least one reward app
+    private var uniqueLinkedLearningAppIDs: Set<String> {
+        var linkedIDs = Set<String>()
+        for rewardConfig in childRewardAppsFullConfig {
+            for linkedApp in rewardConfig.linkedLearningApps {
+                linkedIDs.insert(linkedApp.logicalID)
+            }
+        }
+        return linkedIDs
+    }
+
+    /// Calculate earned minutes from usage history (fallback when DailySnapshotDTO unavailable)
+    var fallbackEarnedMinutes: Int {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let linkedIDs = uniqueLinkedLearningAppIDs
+
+        // Sum ALL seconds first, then divide by 60 (avoids losing fractional minutes per record)
+        var totalSeconds = 0
+        for record in childDailyUsageHistory {
+            guard calendar.isDate(record.date, inSameDayAs: today),
+                  record.category == "Learning",
+                  linkedIDs.contains(record.logicalID) else {
+                continue
+            }
+            totalSeconds += record.seconds
+        }
+
+        let earnedMinutes = totalSeconds / 60
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] Fallback earnedMinutes: \(earnedMinutes) (\(totalSeconds)s from \(linkedIDs.count) linked learning apps)")
+        #endif
+
+        return earnedMinutes
+    }
+
+    /// Calculate available minutes from usage history (fallback when DailySnapshotDTO unavailable)
+    /// Note: This is today-only calculation; historical rollover requires child's main app
+    var fallbackAvailableMinutes: Int {
+        let earned = fallbackEarnedMinutes
+        let used = todayTotals.rewardSeconds / 60
+        return max(0, earned - used)
+    }
+
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
     private var cancellables = Set<AnyCancellable>()

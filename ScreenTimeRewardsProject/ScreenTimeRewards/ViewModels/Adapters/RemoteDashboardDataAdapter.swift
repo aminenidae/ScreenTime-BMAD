@@ -97,13 +97,21 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     // MARK: - Time Bank
 
     var earnedMinutes: Int {
-        // Use pre-calculated value from synced daily snapshot (includes threshold logic)
-        // Falls back to 0 if snapshot not yet synced
-        let value = viewModel.childDailySnapshot?.totalEarnedMinutes ?? 0
+        // Primary: Use pre-calculated value from synced daily snapshot
+        if viewModel.hasValidDailySnapshot,
+           let snapshot = viewModel.childDailySnapshot {
+            #if DEBUG
+            print("[RemoteDashboardDataAdapter] earnedMinutes = \(snapshot.totalEarnedMinutes) (from snapshot)")
+            #endif
+            return snapshot.totalEarnedMinutes
+        }
+
+        // Fallback: Calculate from usage history + linked app configs
+        let fallback = viewModel.fallbackEarnedMinutes
         #if DEBUG
-        print("[EarnedMinutesDebug] DISPLAY: earnedMinutes accessed = \(value) (snapshot: \(viewModel.childDailySnapshot != nil ? "present" : "nil"))")
+        print("[RemoteDashboardDataAdapter] earnedMinutes = \(fallback) (FALLBACK - no valid snapshot)")
         #endif
-        return value
+        return fallback
     }
 
     var usedMinutes: Int {
@@ -123,12 +131,21 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     }
 
     var availableMinutes: Int {
-        // Use cumulative available from synced daily snapshot (includes rollover)
-        let value = viewModel.childDailySnapshot?.cumulativeAvailableMinutes ?? 0
+        // Primary: Use cumulative available from synced daily snapshot (includes rollover)
+        if viewModel.hasValidDailySnapshot,
+           let snapshot = viewModel.childDailySnapshot {
+            #if DEBUG
+            print("[RemoteDashboardDataAdapter] availableMinutes = \(snapshot.cumulativeAvailableMinutes) (from snapshot)")
+            #endif
+            return snapshot.cumulativeAvailableMinutes
+        }
+
+        // Fallback: Calculate from usage history (today only, no rollover)
+        let fallback = viewModel.fallbackAvailableMinutes
         #if DEBUG
-        print("[EarnedMinutesDebug] DISPLAY: availableMinutes accessed = \(value)")
+        print("[RemoteDashboardDataAdapter] availableMinutes = \(fallback) (FALLBACK - today only)")
         #endif
-        return value
+        return fallback
     }
 
     // MARK: - Streaks
