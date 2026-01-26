@@ -400,7 +400,11 @@ class ParentRemoteViewModel: ObservableObject {
     @Published var categorySummaries: [CategoryUsageSummary] = []
     @Published var dailySummaries: [DailySummary] = []
     @Published var appConfigurations: [AppConfiguration] = []
-    @Published var isLoading = false
+    // Separate loading flags to prevent race conditions between operations
+    @Published var isLoadingDevices = false
+    @Published var isLoadingChildData = false
+    // Computed property for UI loading indicator (backwards compatible)
+    var isLoading: Bool { isLoadingDevices || isLoadingChildData }
     @Published var errorMessage: String?
 
     // Store summaries for each device (Multi-Child Device Support)
@@ -562,11 +566,19 @@ class ParentRemoteViewModel: ObservableObject {
     
     /// Load all linked child devices for the parent
     func loadLinkedChildDevices() async {
+        // Guard: Skip if already loading devices to prevent overlapping loads from CloudKit notifications
+        guard !isLoadingDevices else {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Skipping loadLinkedChildDevices - already loading")
+            #endif
+            return
+        }
+
         #if DEBUG
         print("[ParentRemoteViewModel] ===== Loading Linked Child Devices =====")
         #endif
 
-        isLoading = true
+        isLoadingDevices = true
         errorMessage = nil
 
         do {
@@ -597,7 +609,7 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Error loading child devices: \(error)")
         }
 
-        isLoading = false
+        isLoadingDevices = false
     }
 
     /// Load linked child devices with retry logic for CloudKit sync delays
@@ -701,7 +713,7 @@ class ParentRemoteViewModel: ObservableObject {
         print("[ParentRemoteViewModel] Device: \(device.deviceName ?? deviceID)")
         #endif
 
-        isLoading = true
+        isLoadingDevices = true
         errorMessage = nil
 
         do {
@@ -731,7 +743,7 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] ✅ Child device unpaired successfully")
             #endif
 
-            isLoading = false
+            isLoadingDevices = false
             return true
 
         } catch {
@@ -739,14 +751,22 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] ❌ Failed to unpair child: \(error)")
             #endif
             errorMessage = "Failed to remove child device: \(error.localizedDescription)"
-            isLoading = false
+            isLoadingDevices = false
             return false
         }
     }
 
     /// Load usage data and configurations for a specific child device
     func loadChildData(for device: RegisteredDevice) async {
-        isLoading = true
+        // Guard: Skip if already loading child data to prevent overlapping loads from CloudKit notifications
+        guard !isLoadingChildData else {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Skipping loadChildData - already loading")
+            #endif
+            return
+        }
+
+        isLoadingChildData = true
         errorMessage = nil
 
         // ALWAYS clear all cached data when loading a device
@@ -827,7 +847,7 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Error loading child data: \(error)")
         }
 
-        isLoading = false
+        isLoadingChildData = false
     }
 
     /// Load child's app configurations from CloudKit (all configured apps, even with 0 usage)
