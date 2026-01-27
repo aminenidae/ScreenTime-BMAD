@@ -24,6 +24,9 @@ struct SettingsTabView: View {
     @State private var showingChangePIN = false
     @State private var showingNotificationSettings = false
     @State private var showingAbout = false
+    @State private var showingTrialResetConfirmation = false
+    @State private var showingDiagnosticReport = false
+    @State private var diagnosticReportText = ""
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -129,6 +132,12 @@ struct SettingsTabView: View {
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                                 .padding(.horizontal, 4)
+                        }
+
+                        // Diagnostics Section (Debug)
+                        settingsSection(title: "DIAGNOSTICS") {
+                            diagnosticMappingRow
+                            cleanupMappingsRow
                         }
 
                     }
@@ -806,11 +815,126 @@ private extension SettingsTabView {
                     Text("Version \(appVersion)")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                        // Hidden 5-tap gesture to reset trial for testing (REMOVE BEFORE RELEASE)
+                        .onTapGesture(count: 5) {
+                            showingTrialResetConfirmation = true
+                        }
                 }
 
                 Spacer()
 
                 Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        // Hidden trial reset confirmation (REMOVE BEFORE RELEASE)
+        .alert("Reset Trial?", isPresented: $showingTrialResetConfirmation) {
+            Button("Reset Trial", role: .destructive) {
+                subscriptionManager.resetTrialForTesting()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will reset your trial to 14 days. Force quit and relaunch the app after resetting.")
+        }
+    }
+
+    var diagnosticMappingRow: some View {
+        Button(action: {
+            // Run diagnostic and get report
+            diagnosticReportText = screenTimeService.diagnosticValidateMappings()
+            // Copy to clipboard for easy sharing
+            UIPasteboard.general.string = diagnosticReportText
+            showingDiagnosticReport = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "stethoscope")
+                        .font(.system(size: 20))
+                        .foregroundColor(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Run Mapping Diagnostic")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Check for data corruption")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "doc.on.clipboard")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .alert("Diagnostic Report", isPresented: $showingDiagnosticReport) {
+            Button("OK") { }
+        } message: {
+            Text("Report copied to clipboard!\n\nPaste it in Notes or share it for analysis.")
+        }
+    }
+
+    var cleanupMappingsRow: some View {
+        Button(action: {
+            // Clean up stale mappings
+            screenTimeService.cleanupStaleMappings()
+            // Re-run diagnostic to show cleaned state
+            diagnosticReportText = screenTimeService.diagnosticValidateMappings()
+            UIPasteboard.general.string = diagnosticReportText
+            showingDiagnosticReport = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.red.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "trash.slash")
+                        .font(.system(size: 20))
+                        .foregroundColor(.red)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Clean Up Stale Mappings")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Remove orphaned event data")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "arrow.clockwise")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
             }

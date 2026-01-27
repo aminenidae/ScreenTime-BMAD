@@ -840,6 +840,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Save event name → logical ID mapping for extension
         saveEventMappings()
 
+        // Clean up orphaned extension keys for apps that are no longer monitored
+        // This fixes stale data that causes phantom/inflated usage when apps are removed then re-added
+        let currentLogicalIDs = Set(groupedApplications.values.flatMap { $0 }.map { $0.logicalID })
+        cleanupOrphanedExtensionKeys(currentLogicalIDs: currentLogicalIDs)
+
         hasSeededSampleData = false
 
         // CRITICAL FIX: Always reload from persistence to get updated rewardPoints configuration
@@ -946,6 +951,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
+        // CRITICAL FIX: Clean up all old event mappings before writing new ones
+        // This prevents stale mappings from threshold changes (240→60)
+        let allKeys = Array(sharedDefaults.dictionaryRepresentation().keys)
+        var cleanedCount = 0
+        for key in allKeys where key.hasPrefix("map_usage.app.") {
+            sharedDefaults.removeObject(forKey: key)
+            cleanedCount += 1
+        }
+        #if DEBUG
+        if cleanedCount > 0 {
+            print("[ScreenTimeService] 🧹 Cleaned \(cleanedCount) old event mapping keys before saving new ones")
+        }
+        #endif
+
         // Create mapping: eventName → (logicalID, rewardPoints, thresholdSeconds, incrementSeconds)
         var mappings: [String: [String: Any]] = [:]
         for (eventName, event) in monitoredEvents {
@@ -970,6 +989,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.set(Int(thresholdSeconds), forKey: "map_\(eventName.rawValue)_sec")
             // Add category for extension to detect reward apps and handle time expiration
             sharedDefaults.set(app.category.rawValue, forKey: "map_\(eventName.rawValue)_category")
+            // Also write using logicalID key for ExtensionCloudKitSync lookup
+            // (ExtensionCloudKitSync reads category by logicalID, not eventName)
+            sharedDefaults.set(app.category.rawValue, forKey: "map_\(app.logicalID)_category")
+            // Also write display name using logicalID key for ExtensionCloudKitSync lookup
+            // (Required for parent app to show real app names instead of "Privacy Protected App #X")
+            sharedDefaults.set(app.displayName, forKey: "map_\(app.logicalID)_name")
         }
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
@@ -2034,6 +2059,221 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         return []
     }
     #endif
+
+    /// Diagnostic: Validate all event mappings for corruption
+    /// Returns a detailed report string that can be displayed or copied
+    func diagnosticValidateMappings() -> String {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return "ERROR: Cannot access App Group defaults"
+        }
+
+        var report: [String] = ["=== MAPPING DIAGNOSTIC REPORT ==="]
+        let allKeys = defaults.dictionaryRepresentation()
+
+        // 1. Collect all map_{eventName}_id mappings
+        var eventMappings: [String: String] = [:] // eventName → logicalID
+        var logicalIDToEvents: [String: [String]] = [:] // logicalID → [eventNames]
+
+        for (key, value) in allKeys {
+            if key.hasPrefix("map_") && key.hasSuffix("_id") {
+                let eventName = String(key.dropFirst(4).dropLast(3)) // Remove "map_" and "_id"
+                if let logicalID = value as? String {
+                    eventMappings[eventName] = logicalID
+                    logicalIDToEvents[logicalID, default: []].append(eventName)
+                }
+            }
+        }
+
+        report.append("\n📊 Found \(eventMappings.count) event mappings")
+        report.append("📊 Mapping to \(logicalIDToEvents.count) unique logicalIDs")
+
+        // 2. Check for stableHash collisions
+        var stableHashToLogicalID: [UInt64: [String]] = [:]
+        for logicalID in logicalIDToEvents.keys {
+            let hash = stableHash(logicalID)
+            stableHashToLogicalID[hash, default: []].append(logicalID)
+        }
+
+        let collisions = stableHashToLogicalID.filter { $0.value.count > 1 }
+        if !collisions.isEmpty {
+            report.append("\n⚠️ HASH COLLISIONS DETECTED:")
+            for (hash, ids) in collisions {
+                report.append("  Hash \(hash): \(ids.joined(separator: ", "))")
+            }
+        } else {
+            report.append("\n✅ No stableHash collisions detected")
+        }
+
+        // 3. Check event count per app
+        report.append("\n📋 Events per logicalID:")
+        for (logicalID, events) in logicalIDToEvents.sorted(by: { $0.value.count > $1.value.count }) {
+            let shortID = String(logicalID.prefix(12))
+            let displayName = defaults.string(forKey: "map_\(logicalID)_name") ?? "Unknown"
+            report.append("  \(shortID)... (\(displayName)): \(events.count) events")
+            if events.count != 60 {
+                report.append("    ⚠️ Expected 60 events, found \(events.count)")
+            }
+        }
+
+        // 4. Check ext_usage keys match mappings
+        report.append("\n📋 ext_usage_* keys:")
+        var extUsageApps: Set<String> = []
+        for key in allKeys.keys where key.hasPrefix("ext_usage_") && key.hasSuffix("_today") {
+            let appID = String(key.dropFirst(10).dropLast(6)) // Remove "ext_usage_" and "_today"
+            extUsageApps.insert(appID)
+
+            let todaySeconds = defaults.integer(forKey: key)
+            let dateStr = defaults.string(forKey: "ext_usage_\(appID)_date") ?? "nil"
+            let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
+
+            let hasMapping = logicalIDToEvents[appID] != nil
+            let mappingStatus = hasMapping ? "✅" : "⚠️ NO MAPPING"
+
+            report.append("  \(appID.prefix(12))... (\(displayName)): \(todaySeconds)s, date=\(dateStr) \(mappingStatus)")
+        }
+
+        // 5. Check for orphaned mappings (mappings without ext_usage data)
+        let orphanedMappings = Set(logicalIDToEvents.keys).subtracting(extUsageApps)
+        if !orphanedMappings.isEmpty {
+            report.append("\n⚠️ Orphaned mappings (no ext_usage data):")
+            for appID in orphanedMappings {
+                let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
+                report.append("  \(appID.prefix(12))... (\(displayName))")
+            }
+        }
+
+        // 6. Check hourly distribution for anomalies
+        report.append("\n📋 Hourly Usage Distribution (hours with usage):")
+        for appID in extUsageApps.sorted() {
+            let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
+            var hourlyUsage: [String] = []
+            for hour in 0..<24 {
+                let seconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
+                if seconds > 0 {
+                    hourlyUsage.append("h\(hour)=\(seconds)s")
+                }
+            }
+            if !hourlyUsage.isEmpty {
+                report.append("  \(appID.prefix(12))... (\(displayName)): \(hourlyUsage.joined(separator: ", "))")
+            }
+        }
+
+        // 7. Check for currently monitored apps vs mappings
+        report.append("\n📋 Currently monitored apps (\(monitoredEvents.count) events):")
+        var monitoredLogicalIDs: Set<String> = []
+        for (_, event) in monitoredEvents {
+            if let app = event.applications.first {
+                monitoredLogicalIDs.insert(app.logicalID)
+            }
+        }
+        for logicalID in monitoredLogicalIDs.sorted() {
+            let shortID = String(logicalID.prefix(12))
+            let displayName = defaults.string(forKey: "map_\(logicalID)_name") ?? "Unknown"
+            let eventCount = logicalIDToEvents[logicalID]?.count ?? 0
+            report.append("  \(shortID)... (\(displayName)): \(eventCount) events")
+        }
+
+        // 8. Check for stale mappings (mappings not in current monitoring)
+        let staleMappings = Set(logicalIDToEvents.keys).subtracting(monitoredLogicalIDs)
+        if !staleMappings.isEmpty {
+            report.append("\n⚠️ Stale mappings (not currently monitored):")
+            for appID in staleMappings {
+                let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
+                let eventCount = logicalIDToEvents[appID]?.count ?? 0
+                report.append("  \(appID.prefix(12))... (\(displayName)): \(eventCount) orphaned events")
+            }
+        }
+
+        report.append("\n=== END DIAGNOSTIC REPORT ===")
+        return report.joined(separator: "\n")
+    }
+
+    /// Clean up all stale event mappings that don't match current monitoring configuration
+    /// This fixes corruption from threshold changes (240→60) and removed apps
+    func cleanupStaleMappings() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        let allKeys = Array(defaults.dictionaryRepresentation().keys)
+        var keysToRemove: [String] = []
+
+        // Get current valid event names from monitoredEvents
+        let validEventNames = Set(monitoredEvents.keys.map { $0.rawValue })
+        let currentLogicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Starting stale mapping cleanup...")
+        print("   - Valid event names: \(validEventNames.count)")
+        print("   - Current logical IDs: \(currentLogicalIDs.count)")
+        #endif
+
+        // Find all map_* keys that should be removed
+        for key in allKeys {
+            // Clean up event mappings for events not in current monitoring
+            if key.hasPrefix("map_") && key.hasSuffix("_id") {
+                let eventName = String(key.dropFirst(4).dropLast(3))
+                if !validEventNames.contains(eventName) {
+                    keysToRemove.append(key)
+                    // Also remove associated keys
+                    keysToRemove.append("map_\(eventName)_inc")
+                    keysToRemove.append("map_\(eventName)_sec")
+                    keysToRemove.append("map_\(eventName)_category")
+                }
+            }
+
+            // Clean up ext_usage_* keys for apps no longer monitored
+            if key.hasPrefix("ext_usage_") && key.contains("_today") {
+                let appID = key.replacingOccurrences(of: "ext_usage_", with: "")
+                    .replacingOccurrences(of: "_today", with: "")
+                if !currentLogicalIDs.contains(appID) {
+                    // Remove all ext_usage keys for this orphaned app
+                    keysToRemove.append("ext_usage_\(appID)_today")
+                    keysToRemove.append("ext_usage_\(appID)_total")
+                    keysToRemove.append("ext_usage_\(appID)_date")
+                    keysToRemove.append("ext_usage_\(appID)_hour")
+                    keysToRemove.append("ext_usage_\(appID)_timestamp")
+                    keysToRemove.append("ext_usage_\(appID)_hourly_date")
+                    for h in 0..<24 {
+                        keysToRemove.append("ext_usage_\(appID)_hourly_\(h)")
+                    }
+                }
+            }
+
+            // Clean up usage_* keys for apps no longer monitored
+            if key.hasPrefix("usage_") && key.hasSuffix("_today") {
+                let appID = String(key.dropFirst(6).dropLast(6))
+                if !currentLogicalIDs.contains(appID) {
+                    keysToRemove.append("usage_\(appID)_today")
+                    keysToRemove.append("usage_\(appID)_total")
+                    keysToRemove.append("usage_\(appID)_reset")
+                    keysToRemove.append("usage_\(appID)_lastThreshold")
+                    keysToRemove.append("usage_\(appID)_modified")
+                    keysToRemove.append("usage_\(appID)_lastEventTime")
+                }
+            }
+
+            // Clean up map_{logicalID}_* keys for apps no longer monitored
+            if key.hasPrefix("map_") && (key.hasSuffix("_name") || key.hasSuffix("_category")) {
+                // Extract logicalID from key like "map_{logicalID}_name"
+                let withoutPrefix = String(key.dropFirst(4))
+                if let suffixRange = withoutPrefix.range(of: "_name") ?? withoutPrefix.range(of: "_category") {
+                    let appID = String(withoutPrefix[..<suffixRange.lowerBound])
+                    if !currentLogicalIDs.contains(appID) {
+                        keysToRemove.append(key)
+                    }
+                }
+            }
+        }
+
+        // Remove duplicates and delete keys
+        let uniqueKeys = Set(keysToRemove)
+        for key in uniqueKeys {
+            defaults.removeObject(forKey: key)
+        }
+
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Cleaned up \(uniqueKeys.count) stale keys")
+        #endif
+    }
 
     private func scheduleActivity() throws {
         let schedule = DeviceActivitySchedule(
@@ -3772,7 +4012,9 @@ extension ScreenTimeService {
         let context = PersistenceController.shared.container.viewContext
         let logicalID = getLogicalID(for: token) ?? usagePersistence.tokenHash(for: token)
         let deviceID = DeviceModeManager.shared.deviceID  // Use consistent ID from registration
-        let displayName = getDisplayName(for: token) ?? "Unknown App"
+        // Use logicalID-based lookup first (reads from persisted apps - more reliable),
+        // fallback to token-based lookup (reads from familySelection), then "Unknown App"
+        let displayName = getDisplayName(for: logicalID) ?? getDisplayName(for: token) ?? "Unknown App"
 
         await context.perform {
             // Fetch or create AppConfiguration
@@ -3816,9 +4058,106 @@ extension ScreenTimeService {
         }
     }
 
+    /// Clean up all extension UserDefaults keys for a removed app
+    /// This prevents stale data from causing inflated/phantom usage when the app is re-added
+    private func cleanupExtensionKeys(for logicalID: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        // Remove all ext_usage_* keys for this app
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_today")
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_total")
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_date")
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_hour")
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_timestamp")
+        defaults.removeObject(forKey: "ext_usage_\(logicalID)_hourly_date")
+
+        // Remove hourly buckets (0-23)
+        for hour in 0..<24 {
+            defaults.removeObject(forKey: "ext_usage_\(logicalID)_hourly_\(hour)")
+        }
+
+        // Remove usage_* keys (extension internal tracking)
+        defaults.removeObject(forKey: "usage_\(logicalID)_today")
+        defaults.removeObject(forKey: "usage_\(logicalID)_total")
+        defaults.removeObject(forKey: "usage_\(logicalID)_reset")
+        defaults.removeObject(forKey: "usage_\(logicalID)_lastThreshold")
+        defaults.removeObject(forKey: "usage_\(logicalID)_modified")
+        defaults.removeObject(forKey: "usage_\(logicalID)_lastEventTime")
+
+        // Remove event mapping keys (for all 60 possible events)
+        let stableAppID = stableHash(logicalID)
+        for minute in 1...60 {
+            let eventName = "usage.app.\(stableAppID).min.\(minute)"
+            defaults.removeObject(forKey: "map_\(eventName)_id")
+            defaults.removeObject(forKey: "map_\(eventName)_inc")
+            defaults.removeObject(forKey: "map_\(eventName)_sec")
+            defaults.removeObject(forKey: "map_\(eventName)_category")
+        }
+
+        // Remove logicalID-based mappings
+        defaults.removeObject(forKey: "map_\(logicalID)_category")
+        defaults.removeObject(forKey: "map_\(logicalID)_name")
+
+        // Remove re-arm keys
+        defaults.removeObject(forKey: "rearm_\(logicalID)_requested")
+        defaults.removeObject(forKey: "rearm_\(logicalID)_time")
+
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 Cleaned up extension keys for \(logicalID)")
+        #endif
+    }
+
+    /// Clean up orphaned ext_usage keys for apps that are no longer monitored
+    /// This fixes existing stale data for users who already have phantom/inflated usage
+    /// Call this during configureMonitoring() to clean up on app restart
+    private func cleanupOrphanedExtensionKeys(currentLogicalIDs: Set<String>) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        let allKeys = defaults.dictionaryRepresentation().keys
+        var orphanedAppIDs = Set<String>()
+
+        // Find all app IDs by looking for ext_usage_*_today keys
+        for key in allKeys where key.hasPrefix("ext_usage_") && key.hasSuffix("_today") {
+            // Extract appID from "ext_usage_{appID}_today"
+            let prefixLen = "ext_usage_".count
+            let suffixLen = "_today".count
+            guard key.count > prefixLen + suffixLen else { continue }
+
+            let startIdx = key.index(key.startIndex, offsetBy: prefixLen)
+            let endIdx = key.index(key.endIndex, offsetBy: -suffixLen)
+            guard startIdx < endIdx else { continue }
+
+            let appID = String(key[startIdx..<endIdx])
+            guard !appID.isEmpty else { continue }
+
+            // If this appID is not in the current monitored set, it's orphaned
+            if !currentLogicalIDs.contains(appID) {
+                orphanedAppIDs.insert(appID)
+            }
+        }
+
+        // Clean up all orphaned apps
+        if !orphanedAppIDs.isEmpty {
+            #if DEBUG
+            print("[ScreenTimeService] 🧹 Found \(orphanedAppIDs.count) orphaned app(s) with stale data")
+            #endif
+
+            for orphanedID in orphanedAppIDs {
+                cleanupExtensionKeys(for: orphanedID)
+            }
+
+            #if DEBUG
+            print("[ScreenTimeService] ✅ Cleaned up orphaned extension keys for \(orphanedAppIDs.count) app(s)")
+            #endif
+        }
+    }
+
     /// Delete AppConfiguration entity from CoreData when an app is removed
     /// The CloudKit sync will detect this and delete the record from the cloud
     func deleteAppConfiguration(logicalID: String) {
+        // Clean up extension UserDefaults keys FIRST to prevent stale data
+        cleanupExtensionKeys(for: logicalID)
+
         let context = PersistenceController.shared.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID
 

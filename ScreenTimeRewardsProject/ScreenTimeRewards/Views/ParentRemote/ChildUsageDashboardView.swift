@@ -2,22 +2,19 @@ import SwiftUI
 import CoreData
 
 /// Full usage dashboard view with horizontal swipe navigation
-/// Shown after tapping a device card from the carousel
+/// Shown after tapping a device card from the carousel (multi-device mode)
 struct ChildUsageDashboardView: View {
     let devices: [RegisteredDevice]
     let selectedDeviceID: String?
-    /// When true, the view is embedded directly (single-device mode) rather than pushed via NavigationLink
-    let isEmbedded: Bool
 
     @StateObject private var viewModel = ParentRemoteViewModel()
     @State private var currentIndex: Int = 0
     @State private var hasLoadedInitialData = false
     @Environment(\.colorScheme) var colorScheme
 
-    init(devices: [RegisteredDevice], selectedDeviceID: String?, isEmbedded: Bool = false) {
+    init(devices: [RegisteredDevice], selectedDeviceID: String?) {
         self.devices = devices
         self.selectedDeviceID = selectedDeviceID
-        self.isEmbedded = isEmbedded
 
         // Find initial index based on selected device
         if let id = selectedDeviceID,
@@ -25,7 +22,7 @@ struct ChildUsageDashboardView: View {
             _currentIndex = State(initialValue: index)
         }
     }
-    
+
     var currentDevice: RegisteredDevice? {
         guard currentIndex < devices.count else { return nil }
         return devices[currentIndex]
@@ -53,59 +50,53 @@ struct ChildUsageDashboardView: View {
                 }
             }
         }
-        .navigationTitle(isEmbedded ? "" : (currentDevice?.deviceName ?? "Device"))
+        .navigationTitle(currentDevice?.deviceName ?? "Device")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
-            // Only show device navigation controls when not embedded (multi-device mode)
-            if !isEmbedded {
-                ToolbarItem(placement: .principal) {
-                    // Custom navigation header showing current device
-                    HStack(spacing: 12) {
-                        Button(action: {
-                            withAnimation {
-                                currentIndex = max(0, currentIndex - 1)
-                            }
-                        }) {
-                            Image(systemName: "chevron.left")
-                                .foregroundColor(currentIndex > 0 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
+            ToolbarItem(placement: .principal) {
+                // Custom navigation header showing current device
+                HStack(spacing: 12) {
+                    Button(action: {
+                        withAnimation {
+                            currentIndex = max(0, currentIndex - 1)
                         }
-                        .disabled(currentIndex == 0)
-
-                        VStack(spacing: 2) {
-                            Text(currentDevice?.deviceName ?? "Device")
-                                .font(.headline)
-
-                            Text("\(currentIndex + 1) of \(devices.count)")
-                                .font(.caption)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-
-                        Button(action: {
-                            withAnimation {
-                                currentIndex = min(devices.count - 1, currentIndex + 1)
-                            }
-                        }) {
-                            Image(systemName: "chevron.right")
-                                .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
-                        }
-                        .disabled(currentIndex >= devices.count - 1)
+                    }) {
+                        Image(systemName: "chevron.left")
+                            .foregroundColor(currentIndex > 0 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
                     }
+                    .disabled(currentIndex == 0)
+
+                    VStack(spacing: 2) {
+                        Text(currentDevice?.deviceName ?? "Device")
+                            .font(.headline)
+
+                        Text("\(currentIndex + 1) of \(devices.count)")
+                            .font(.caption)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    }
+
+                    Button(action: {
+                        withAnimation {
+                            currentIndex = min(devices.count - 1, currentIndex + 1)
+                        }
+                    }) {
+                        Image(systemName: "chevron.right")
+                            .foregroundColor(currentIndex < devices.count - 1 ? AppTheme.brandedText(for: colorScheme) : AppTheme.textSecondary(for: colorScheme))
+                    }
+                    .disabled(currentIndex >= devices.count - 1)
                 }
             }
 
-            // Only show refresh button when NOT embedded (parent dashboard handles refresh in embedded mode)
-            if !isEmbedded {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: {
-                        Task {
-                            if let device = currentDevice {
-                                await viewModel.loadChildData(for: device)
-                            }
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: {
+                    Task {
+                        if let device = currentDevice {
+                            await viewModel.loadChildData(for: device)
                         }
-                    }) {
-                        Image(systemName: "arrow.clockwise")
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }
+                }) {
+                    Image(systemName: "arrow.clockwise")
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
             }
         }

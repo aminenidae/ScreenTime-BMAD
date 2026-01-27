@@ -592,11 +592,25 @@ struct ParentAppDetailView: View {
 
     /// Get display name for a linked learning app by looking it up in childLearningApps
     private func displayNameForLinkedApp(_ linkedApp: LinkedLearningApp) -> String {
-        // Prefer the stored displayName, fall back to lookup from childLearningApps
-        if let name = linkedApp.displayName, !name.isEmpty {
-            return name
+        // Helper to check if a name is valid (not empty, not "Unknown App" variants)
+        func isValidDisplayName(_ name: String?) -> Bool {
+            guard let name = name, !name.isEmpty else { return false }
+            return !name.hasPrefix("Unknown App") && name != "Unknown"
         }
-        return childLearningApps.first { $0.logicalID == linkedApp.logicalID }?.displayName ?? "Learning App"
+
+        // 1. Try the stored displayName from the linked app
+        if isValidDisplayName(linkedApp.displayName) {
+            return linkedApp.displayName!
+        }
+
+        // 2. Try looking up from childLearningApps
+        if let childApp = childLearningApps.first(where: { $0.logicalID == linkedApp.logicalID }),
+           isValidDisplayName(childApp.displayName) {
+            return childApp.displayName
+        }
+
+        // 3. Final fallback
+        return "Learning App"
     }
 
     /// Filter linked apps to only include those that exist in childLearningApps

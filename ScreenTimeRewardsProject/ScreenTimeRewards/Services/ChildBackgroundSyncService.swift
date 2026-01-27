@@ -639,6 +639,19 @@ class ChildBackgroundSyncService: ObservableObject {
         #endif
     }
 
+    // MARK: - Testing Helper (REMOVE BEFORE RELEASE)
+    /// Reset trial for testing purposes - gives fresh 14 days
+    static func resetTrialForTesting() {
+        let defaults = UserDefaults.standard
+        // Set trial start to now (gives fresh 14 days)
+        defaults.set(ISO8601DateFormatter().string(from: Date()), forKey: "family_trial_start")
+        defaults.set(SubscriptionStatus.trial.rawValue, forKey: "cached_parent_subscription_status")
+        defaults.set(true, forKey: "cached_has_full_access")
+        defaults.set(14, forKey: "cached_trial_days_remaining")
+        defaults.synchronize()
+        print("[ChildBackgroundSyncService] 🔓 Trial reset for testing - 14 days from now")
+    }
+
     /// Cache subscription status locally
     private func cacheSubscriptionStatus() {
         UserDefaults.standard.set(parentSubscriptionStatus.rawValue, forKey: "cached_parent_subscription_status")

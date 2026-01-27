@@ -36,24 +36,20 @@ struct ParentRemoteDashboardView: View {
                 AppTheme.Gradients.parentBackground(for: colorScheme)
                     .ignoresSafeArea()
 
-                // Single device mode - show dashboard directly (outside ScrollView)
+                // Single device mode - embed ChildUsagePageView directly for proper viewModel observation
                 if let device = singleDevice {
-                    ChildUsageDashboardView(
-                        devices: viewModel.linkedChildDevices,
-                        selectedDeviceID: device.deviceID,
-                        isEmbedded: true
-                    )
-                    .id(device.deviceID) // Force recreation when device changes
-                    .overlay {
-                        // Syncing overlay for single-device mode
-                        if showingRefreshIndicator {
-                            SyncingOverlayView(
-                                deviceName: device.deviceName,
-                                message: "Syncing with \(device.deviceName ?? "Device")..."
-                            )
-                            .transition(.opacity)
+                    ChildUsagePageView(device: device, viewModel: viewModel)
+                        .id(device.deviceID) // Force recreation when device changes
+                        .overlay {
+                            // Syncing overlay for single-device mode
+                            if showingRefreshIndicator {
+                                SyncingOverlayView(
+                                    deviceName: device.deviceName,
+                                    message: "Syncing with \(device.deviceName ?? "Device")..."
+                                )
+                                .transition(.opacity)
+                            }
                         }
-                    }
                 } else if showInitialLoadingOverlay {
                     // Initial loading state - full screen overlay
                     SyncingOverlayView(
@@ -270,11 +266,7 @@ struct ParentRemoteDashboardView: View {
         }
 
         await viewModel.loadLinkedChildDevices()
-
-        // In single-device mode, also load the child's usage data
-        if let device = viewModel.linkedChildDevices.first, viewModel.linkedChildDevices.count == 1 {
-            await viewModel.loadChildData(for: device)
-        }
+        // Child data loading is handled by ChildUsagePageView.onAppear
     }
 }
 

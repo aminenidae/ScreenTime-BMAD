@@ -701,6 +701,49 @@ final class SubscriptionManager: NSObject, ObservableObject {
         print("[SubscriptionManager] 🔓 Dev subscription activated: \(tier.displayName)")
     }
     #endif
+
+    // MARK: - Testing Helper (REMOVE BEFORE RELEASE)
+    /// Completely resets trial for testing - clears ALL storage layers
+    func resetTrialForTesting() {
+        let now = Date()
+        let nowString = ISO8601DateFormatter().string(from: now)
+
+        // 1. Reset Keychain trial start date to NOW
+        let keychainQuery: [String: Any] = [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: keychainService,
+            kSecAttrAccount as String: keychainTrialStartKey
+        ]
+        SecItemDelete(keychainQuery as CFDictionary)
+
+        var addQuery = keychainQuery
+        addQuery[kSecValueData as String] = nowString.data(using: .utf8)!
+        SecItemAdd(addQuery as CFDictionary, nil)
+
+        // 2. Reset CoreData UserSubscription
+        let context = PersistenceController.shared.container.viewContext
+        let fetchRequest: NSFetchRequest<UserSubscription> = UserSubscription.fetchRequest()
+        if let subscriptions = try? context.fetch(fetchRequest) {
+            for sub in subscriptions {
+                sub.trialStartDate = now
+                sub.trialEndDate = Calendar.current.date(byAdding: .day, value: 14, to: now)
+                sub.statusEnum = .trial
+            }
+            try? context.save()
+        }
+
+        // 3. Reset in-memory state
+        currentTier = .trial
+        currentStatus = .trial
+
+        // 4. Reset ChildBackgroundSyncService cache
+        ChildBackgroundSyncService.resetTrialForTesting()
+
+        // 5. Clear Firebase cache
+        UserDefaults.standard.removeObject(forKey: "firebase_subscription_valid")
+
+        print("[SubscriptionManager] 🔓 FULL trial reset - all storage layers cleared")
+    }
 }
 
 // MARK: - PurchasesDelegate

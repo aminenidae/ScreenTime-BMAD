@@ -102,14 +102,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // 1. Read event mapping (primitives only)
         let mapIdKey = "map_\(eventName)_id"
+
+        // DIAGNOSTIC: Count total map keys for visibility
+        let allMapKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("map_") && $0.hasSuffix("_id") }
+        debugLog("EVENT_TRACE: eventName=\(eventName)", defaults: defaults)
+        debugLog("EVENT_TRACE: mapIdKey=\(mapIdKey) totalMapKeys=\(allMapKeys.count)", defaults: defaults)
+
         guard let appID = defaults.string(forKey: mapIdKey) else {
             // Try to read from JSON eventMappings as fallback
             if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
                 return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
             }
             debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
+            debugLog("EVENT_TRACE: ❌ No mapping found for key=\(mapIdKey)", defaults: defaults)
             return false
         }
+
+        // DIAGNOSTIC: Log the resolved appID and category
+        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Unknown"
+        let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
+        debugLog("EVENT_TRACE: ✅ Resolved appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
 
         // 2. Extract the minute number from event name (e.g., "usage.app.0.min.15" → 15)
         let thresholdMinutes = extractMinuteFromEventName(eventName)
