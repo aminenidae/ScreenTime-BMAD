@@ -255,15 +255,32 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let timeSinceRestart = nowTimestamp - restartTimestamp
 
+        // INVESTIGATION: Log phantom event detection state
+        let isInPhantomWindow = timeSinceRestart < 55.0 && restartTimestamp > 0
+        let wouldSkipIfChecked = thresholdSeconds < lastThreshold && isInPhantomWindow
+        debugLog("🔍 PHANTOM_CHECK appID=\(appID.prefix(8))...", defaults: defaults)
+        debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s restartTS=\(restartTimestamp > 0 ? "SET" : "UNSET")", defaults: defaults)
+        debugLog("   threshold=\(thresholdSeconds) lastThreshold=\(lastThreshold) comparison=\(thresholdSeconds < lastThreshold ? "DECREASED" : thresholdSeconds == lastThreshold ? "EQUAL" : "INCREASED")", defaults: defaults)
+        debugLog("   isPhantomWindow=\(isInPhantomWindow) wouldSkipIfChecked=\(wouldSkipIfChecked)", defaults: defaults)
+
+        // FIX: Global phantom protection - check BEFORE threshold comparison
+        // This catches phantom events on app launch where thresholds start from 0
+        // Previously this check was only inside Case 2 (threshold decreased), missing launch scenarios
+        if isInPhantomWindow {
+            debugLog("🛡️ SKIP_RESTART_GLOBAL appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 55s (PHANTOM BLOCKED)", defaults: defaults)
+            defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
+            return false
+        }
+
         // Case 1: Duplicate threshold
         if thresholdSeconds == lastThreshold {
-            debugLog("SKIP_DUP appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) == lastThreshold", defaults: defaults)
+            debugLog("📋 CASE_1_DUP: threshold=lastThreshold=\(thresholdSeconds) → SKIP", defaults: defaults)
             return false
         }
 
         // Case 2: Threshold decreased (could be catch-up OR new session)
         if thresholdSeconds < lastThreshold {
-            debugLog("THRESH_DECREASE appID=\(appID.prefix(8))... new=\(thresholdSeconds)s < last=\(lastThreshold)s, checking catch-up...", defaults: defaults)
+            debugLog("📋 CASE_2_DECREASE: \(thresholdSeconds) < \(lastThreshold) → checking catch-up filters", defaults: defaults)
 
             // Check 1: Within 50s of monitoring restart → ALWAYS skip (catch-up from app list change)
             if timeSinceRestart < 50.0 && restartTimestamp > 0 {
@@ -286,6 +303,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // Case 3: Normal progression (threshold > lastThreshold, or after reset)
+        debugLog("📋 CASE_3_PROGRESS: \(thresholdSeconds) > \(lastThreshold) → RECORDING +60s (isPhantomWindow=\(isInPhantomWindow))", defaults: defaults)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
         let newToday = currentToday + 60
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
