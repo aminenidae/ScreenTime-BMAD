@@ -100,28 +100,62 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
+        // === ENHANCED DIAGNOSTIC: Extract token hash from event name ===
+        // Format: usage.app.<tokenHash>.min.<minute>
+        let eventComponents = eventName.split(separator: ".")
+        let tokenHash: String
+        if eventComponents.count >= 3 && eventComponents[0] == "usage" && eventComponents[1] == "app" {
+            tokenHash = String(eventComponents[2])
+        } else {
+            tokenHash = "UNKNOWN"
+        }
+
+        debugLog("📥 EVENT_RECV: raw=\(eventName)", defaults: defaults)
+        debugLog("📥 EVENT_RECV: tokenHash=\(tokenHash)", defaults: defaults)
+
         // 1. Read event mapping (primitives only)
         let mapIdKey = "map_\(eventName)_id"
 
-        // DIAGNOSTIC: Count total map keys for visibility
+        // DIAGNOSTIC: Count total map keys and audit for duplicates
         let allMapKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("map_") && $0.hasSuffix("_id") }
-        debugLog("EVENT_TRACE: eventName=\(eventName)", defaults: defaults)
-        debugLog("EVENT_TRACE: mapIdKey=\(mapIdKey) totalMapKeys=\(allMapKeys.count)", defaults: defaults)
+
+        // Check how many events map to each appID (detect potential contamination)
+        var appIDCounts: [String: Int] = [:]
+        for key in allMapKeys {
+            if let id = defaults.string(forKey: key) {
+                appIDCounts[id, default: 0] += 1
+            }
+        }
+        let uniqueAppIDs = appIDCounts.keys.count
+        let maxEventsPerApp = appIDCounts.values.max() ?? 0
+        debugLog("📊 MAPPING_AUDIT: totalMaps=\(allMapKeys.count) uniqueApps=\(uniqueAppIDs) maxEventsPerApp=\(maxEventsPerApp)", defaults: defaults)
 
         guard let appID = defaults.string(forKey: mapIdKey) else {
             // Try to read from JSON eventMappings as fallback
             if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
                 return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
             }
-            debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
-            debugLog("EVENT_TRACE: ❌ No mapping found for key=\(mapIdKey)", defaults: defaults)
+            debugLog("❌ NO_MAPPING: tokenHash=\(tokenHash) mapKey=\(mapIdKey)", defaults: defaults)
             return false
         }
 
         // DIAGNOSTIC: Log the resolved appID and category
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Unknown"
         let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
-        debugLog("EVENT_TRACE: ✅ Resolved appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
+
+        // === CROSS-APP CORRELATION: Track which apps record in sequence ===
+        let lastRecordedAppID = defaults.string(forKey: "debug_last_recorded_appID") ?? "none"
+        let lastRecordedTime = defaults.double(forKey: "debug_last_recorded_time")
+        let lastRecordedName = defaults.string(forKey: "debug_last_recorded_name") ?? "none"
+        let now = Date().timeIntervalSince1970
+        let timeSinceLastRecord = lastRecordedTime > 0 ? Int(now - lastRecordedTime) : -1
+
+        if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 120 {
+            // Different app recorded recently - potential contamination signal
+            debugLog("⚠️ CROSS_APP: prev=\(lastRecordedName) (\(lastRecordedAppID.prefix(8))...) → now=\(displayName) (\(appID.prefix(8))...) gap=\(timeSinceLastRecord)s", defaults: defaults)
+        }
+
+        debugLog("✅ EVENT_RESOLVE: tokenHash=\(tokenHash) → appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
 
         // 2. Extract the minute number from event name (e.g., "usage.app.0.min.15" → 15)
         let thresholdMinutes = extractMinuteFromEventName(eventName)
@@ -136,10 +170,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         print("📝 [EXTENSION] Recording: app=\(appID.prefix(8))... minute=\(thresholdMinutes) currentToday=\(currentToday)s")
 
         // 3. SET usage to threshold value (not INCREMENT)
-        let now = Date().timeIntervalSince1970
+        let recordTime = Date().timeIntervalSince1970
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
 
         if !didUpdate {
+            debugLog("⏭️ EVENT_SKIPPED: appID=\(appID.prefix(8))... (phantom/duplicate/catch-up)", defaults: defaults)
             return false
         }
 
@@ -147,9 +182,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let newToday = defaults.integer(forKey: "usage_\(appID)_today")
         print("✅ [EXTENSION] Recorded +60s - total today: \(newToday)s")
 
+        // === UPDATE CROSS-APP TRACKING ===
+        defaults.set(appID, forKey: "debug_last_recorded_appID")
+        defaults.set(recordTime, forKey: "debug_last_recorded_time")
+        defaults.set(displayName, forKey: "debug_last_recorded_name")
+        debugLog("📝 RECORDED: appID=\(appID.prefix(8))... name=\(displayName) newTotal=\(newToday)s (+60s)", defaults: defaults)
+
         // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
-        defaults.set(now, forKey: "rearm_\(appID)_time")
+        defaults.set(recordTime, forKey: "rearm_\(appID)_time")
 
         // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
         checkAndUpdateShields(defaults: defaults)
@@ -205,6 +246,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let dateString = dateFormatter.string(from: now)
         let hour = calendar.component(.hour, from: now)
 
+        // === EARLY PHANTOM PROTECTION (BEFORE day rollover) ===
+        // Critical fix: Day rollover was bypassing phantom protection
+        // Must check phantom window BEFORE any data is written to prevent phantom events
+        // from being recorded on first event of new day
+        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
+        let timeSinceRestart = nowTimestamp - restartTimestamp
+        let phantomWindowSeconds = 55.0  // Keep at 55s to avoid blocking real usage
+
+        if timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0 {
+            debugLog("🛡️ PHANTOM_BLOCKED_EARLY appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < \(Int(phantomWindowSeconds))s (BEFORE day rollover)", defaults: defaults)
+            return false
+        }
+
         // Day rollover check
         if lastReset < startOfToday {
             // Check if we've already done a global reset today
@@ -219,11 +273,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
 
             // First event of new day = 60s
-            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s (was lastReset=\(lastReset) < startOfToday=\(startOfToday))", defaults: defaults)
+            // FIX: Set lastThreshold to 0 (not thresholdSeconds) to prevent phantom events
+            // from corrupting the threshold tracker. The next real event will be CASE_3 (increased).
+            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s lastThresh=0 (was lastReset=\(lastReset) < startOfToday=\(startOfToday))", defaults: defaults)
             defaults.set(60, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(60, forKey: totalKey)
-            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+            defaults.set(0, forKey: lastThresholdKey)  // Start fresh - don't inherit phantom threshold
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
             // === PROTECTED ext_ KEYS (TRUE Source of Truth) ===
@@ -251,26 +307,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let lastEventTime = defaults.double(forKey: "usage_\(appID)_lastEventTime")
         let timeSinceLastEvent = nowTimestamp - lastEventTime
 
-        // Global restart check - main app sets this when monitoring starts/restarts
-        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
-        let timeSinceRestart = nowTimestamp - restartTimestamp
+        // === SANITY CHECK: Reset corrupted lastThreshold ===
+        // If lastThreshold > currentToday, it's impossible (can't have seen a threshold > usage)
+        // This happens when phantom events corrupt the threshold tracker
+        if lastThreshold > currentToday && currentToday > 0 {
+            debugLog("🔧 THRESHOLD_SANITY_FIX appID=\(appID.prefix(8))... lastThresh=\(lastThreshold)s > currentToday=\(currentToday)s → resetting to 0", defaults: defaults)
+            lastThreshold = 0
+            defaults.set(0, forKey: lastThresholdKey)
+        }
 
-        // INVESTIGATION: Log phantom event detection state
-        let isInPhantomWindow = timeSinceRestart < 55.0 && restartTimestamp > 0
-        let wouldSkipIfChecked = thresholdSeconds < lastThreshold && isInPhantomWindow
+        // Note: restartTimestamp and timeSinceRestart already computed in early phantom check above
+        // Log diagnostic state for debugging (phantom already blocked if we reach here)
         debugLog("🔍 PHANTOM_CHECK appID=\(appID.prefix(8))...", defaults: defaults)
         debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s restartTS=\(restartTimestamp > 0 ? "SET" : "UNSET")", defaults: defaults)
         debugLog("   threshold=\(thresholdSeconds) lastThreshold=\(lastThreshold) comparison=\(thresholdSeconds < lastThreshold ? "DECREASED" : thresholdSeconds == lastThreshold ? "EQUAL" : "INCREASED")", defaults: defaults)
-        debugLog("   isPhantomWindow=\(isInPhantomWindow) wouldSkipIfChecked=\(wouldSkipIfChecked)", defaults: defaults)
-
-        // FIX: Global phantom protection - check BEFORE threshold comparison
-        // This catches phantom events on app launch where thresholds start from 0
-        // Previously this check was only inside Case 2 (threshold decreased), missing launch scenarios
-        if isInPhantomWindow {
-            debugLog("🛡️ SKIP_RESTART_GLOBAL appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 55s (PHANTOM BLOCKED)", defaults: defaults)
-            defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
-            return false
-        }
+        debugLog("   phantomWindow=\(Int(phantomWindowSeconds))s (passed early check)", defaults: defaults)
 
         // Case 1: Duplicate threshold
         if thresholdSeconds == lastThreshold {
@@ -282,9 +333,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if thresholdSeconds < lastThreshold {
             debugLog("📋 CASE_2_DECREASE: \(thresholdSeconds) < \(lastThreshold) → checking catch-up filters", defaults: defaults)
 
-            // Check 1: Within 50s of monitoring restart → ALWAYS skip (catch-up from app list change)
-            if timeSinceRestart < 50.0 && restartTimestamp > 0 {
-                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 50s", defaults: defaults)
+            // Check 1: Within phantom window of monitoring restart → ALWAYS skip (catch-up from app list change)
+            // Note: Should rarely reach here since early phantom check catches most cases
+            if timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0 {
+                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < \(Int(phantomWindowSeconds))s", defaults: defaults)
                 defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
                 return false
             }
@@ -303,7 +355,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // Case 3: Normal progression (threshold > lastThreshold, or after reset)
-        debugLog("📋 CASE_3_PROGRESS: \(thresholdSeconds) > \(lastThreshold) → RECORDING +60s (isPhantomWindow=\(isInPhantomWindow))", defaults: defaults)
+        debugLog("📋 CASE_3_PROGRESS: \(thresholdSeconds) > \(lastThreshold) → RECORDING +60s", defaults: defaults)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
         let newToday = currentToday + 60
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
