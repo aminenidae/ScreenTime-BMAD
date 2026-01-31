@@ -135,30 +135,48 @@ class AppUsageViewModel: ObservableObject {
     ///
     /// IMPORTANT: We calculate based on UNIQUE learning apps to avoid double-counting
     /// when multiple reward apps link to the same learning apps.
-    /// With 1:1 ratio: earned = total learning minutes
+    ///
+    /// THRESHOLD GATE LOGIC: A learning app only contributes to earned time if its usage
+    /// meets the LOWEST minutesRequired threshold among all reward apps that link to it.
+    /// - If usage >= lowestThreshold: all usage minutes count as earned
+    /// - If usage < lowestThreshold: 0 earned (gate closed)
     var totalEarnedMinutes: Int {
-        // Get all unique linked learning app IDs across all reward apps
-        var uniqueLinkedLearningIDs = Set<String>()
+        // Build map: learningAppLogicalID → lowest minutesRequired across all reward apps
+        var lowestThresholdPerLearningApp: [String: Int] = [:]
+
         for token in currentRewardTokens {
             guard let logicalID = service.getLogicalID(for: token),
                   let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
                 continue
             }
             for linkedApp in schedule.linkedLearningApps {
-                uniqueLinkedLearningIDs.insert(linkedApp.logicalID)
+                let learningID = linkedApp.logicalID
+                let threshold = linkedApp.minutesRequired
+
+                // Track the lowest threshold for this learning app
+                if let existing = lowestThresholdPerLearningApp[learningID] {
+                    lowestThresholdPerLearningApp[learningID] = min(existing, threshold)
+                } else {
+                    lowestThresholdPerLearningApp[learningID] = threshold
+                }
             }
         }
 
-        // Sum usage only for learning apps that are linked to at least one reward app
-        // This avoids counting learning time from unlinked apps
+        // Sum usage only for learning apps that meet their lowest threshold
         var totalEarned = 0
         for snapshot in learningSnapshots {
-            if uniqueLinkedLearningIDs.contains(snapshot.logicalID) {
-                // With 1:1 ratio, earned = usage minutes
-                // TODO: If we need to support different ratios per learning app,
-                // we'd need to look up the ratio from the linked app config
-                totalEarned += Int(snapshot.totalSeconds / 60)
+            guard let lowestThreshold = lowestThresholdPerLearningApp[snapshot.logicalID] else {
+                // Not linked to any reward app - skip
+                continue
             }
+
+            let usageMinutes = Int(snapshot.totalSeconds / 60)
+
+            // Gate logic: only count if threshold is met
+            if usageMinutes >= lowestThreshold {
+                totalEarned += usageMinutes
+            }
+            // else: earned 0 for this app (threshold not met)
         }
 
         return totalEarned
