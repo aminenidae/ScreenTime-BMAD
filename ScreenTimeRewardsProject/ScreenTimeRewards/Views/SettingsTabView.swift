@@ -139,6 +139,7 @@ struct SettingsTabView: View {
                             diagnosticMappingRow
                             cleanupMappingsRow
                             extensionLogsRow
+                            auditDatabaseRow
                         }
 
                     }
@@ -971,6 +972,48 @@ private extension SettingsTabView {
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text("Debug DeviceActivity events")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var auditDatabaseRow: some View {
+        NavigationLink(destination: AuditDatabaseDiagnosticView()) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "cylinder.split.1x2")
+                        .font(.system(size: 20))
+                        .foregroundColor(.purple)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Audit Database")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("SQLite usage integrity log")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 }
