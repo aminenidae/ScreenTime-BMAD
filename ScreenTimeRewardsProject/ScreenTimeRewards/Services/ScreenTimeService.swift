@@ -200,25 +200,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Apply adult content filter if this is a child device (always-on)
         applyAdultContentFilterIfNeeded()
 
-        // Validate usage data integrity against SQLite audit log
-        validateUsageDataIntegrity()
-
-        // Register for app lifecycle to re-validate on foreground
-        NotificationCenter.default.addObserver(
-            forName: UIApplication.willEnterForegroundNotification,
-            object: nil,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.validateUsageDataIntegrity()
-            }
-        }
-
-        // Start database polling for Xcode console logging (DEBUG only)
-        #if DEBUG
-        startDatabasePolling()
-        #endif
-
         // ALWAYS print this - not wrapped in DEBUG - to diagnose tracking issues
         print("=" + String(repeating: "=", count: 50))
         print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
@@ -227,69 +208,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] adultContentFilter: \(isAdultContentFilterEnabled ? "ENABLED" : "disabled")")
         print("=" + String(repeating: "=", count: 50))
     }
-
-    // MARK: - Database Polling (DEBUG only)
-
-    #if DEBUG
-    private var dbPollingTimer: Timer?
-    private var lastPolledEventTimestamp: TimeInterval = 0
-
-    private func startDatabasePolling() {
-        // Poll every 3 seconds for new database events
-        dbPollingTimer = Timer.scheduledTimer(withTimeInterval: 3.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.pollDatabaseForNewEvents()
-            }
-        }
-        print("[ScreenTimeService] 🔍 Database polling started (3s interval)")
-    }
-
-    private func pollDatabaseForNewEvents() {
-        let validator = UsageIntegrityValidator.shared
-        guard validator.isDatabaseAvailable else { return }
-
-        let newEvents = validator.getEventsSince(timestamp: lastPolledEventTimestamp)
-
-        for event in newEvents {
-            let timeFormatter = DateFormatter()
-            timeFormatter.dateFormat = "HH:mm:ss"
-            let timeStr = timeFormatter.string(from: event.timestamp)
-
-            print("[AUDIT_DB] 📝 NEW EVENT: \(event.appID.prefix(12))... +\(event.secondsAdded)s min=\(event.minute) at \(timeStr)")
-            lastPolledEventTimestamp = max(lastPolledEventTimestamp, event.timestamp.timeIntervalSince1970)
-        }
-    }
-    #endif
-
-    // MARK: - Usage Data Integrity Validation
-
-    /// Validate usage data against SQLite audit log and auto-repair discrepancies
-    private func validateUsageDataIntegrity() {
-        let validator = UsageIntegrityValidator.shared
-
-        guard validator.isDatabaseAvailable else {
-            print("[ScreenTimeService] Audit database not available yet - skipping validation")
-            return
-        }
-
-        let result = validator.validateUsageDataIntegrity(autoRepair: true)
-
-        if result.hasDiscrepancies {
-            print("[ScreenTimeService] ⚠️ Found \(result.discrepancies.count) usage discrepancies")
-            for d in result.discrepancies {
-                let direction = d.isInflated ? "INFLATED" : "DEFLATED"
-                print("  - \(d.appID.prefix(12))...: \(d.userDefaultsValue)s -> \(d.databaseValue)s (\(direction))")
-            }
-            if result.wasRepaired {
-                print("[ScreenTimeService] ✅ Auto-repaired from SQLite audit log")
-            }
-        } else {
-            print("[ScreenTimeService] ✅ Usage data integrity verified (\(result.totalEventsInDB) events in audit DB)")
-        }
-    }
-
-    // MARK: - Helper Methods
-
 
     // MARK: - FamilyActivitySelection Persistence
 

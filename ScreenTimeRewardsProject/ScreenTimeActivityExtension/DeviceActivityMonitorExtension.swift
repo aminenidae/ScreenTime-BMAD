@@ -283,28 +283,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // from corrupting the threshold tracker. The next real event will be CASE_3 (increased).
             debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s lastThresh=0 (was lastReset=\(lastReset) < startOfToday=\(startOfToday))", defaults: defaults)
 
-            // === SQLITE AUDIT LOG (SOURCE OF TRUTH) ===
-            // Write to SQLite FIRST before UserDefaults to ensure data integrity
-            let thresholdMinutes = thresholdSeconds / 60
-            let dbRecorded = UsageAuditDatabase.shared.recordUsageEvent(
-                appLogicalID: appID,
-                secondsAdded: 60,
-                thresholdMinute: thresholdMinutes,
-                date: dateString,
-                sessionID: Self.sessionID
-            )
-            if !dbRecorded {
-                debugLog("AUDIT_DB: NEW_DAY write failed for \(appID.prefix(8))... - NOT updating UserDefaults", defaults: defaults)
-                return false
-            }
-
             defaults.set(60, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(60, forKey: totalKey)
             defaults.set(0, forKey: lastThresholdKey)  // Start fresh - don't inherit phantom threshold
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-            // === PROTECTED ext_ KEYS (cache backed by SQLite audit log) ===
+            // === PROTECTED ext_ KEYS ===
             // Uses INCREMENT semantics: first event of new day = 60s
             debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=60 total=60 date=\(dateString) hour=\(hour)", defaults: defaults)
             defaults.set(60, forKey: "ext_usage_\(appID)_today")
@@ -379,21 +364,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Case 3: Normal progression (threshold > lastThreshold, or after reset)
         debugLog("📋 CASE_3_PROGRESS: \(thresholdSeconds) > \(lastThreshold) → RECORDING +60s", defaults: defaults)
 
-        // === SQLITE AUDIT LOG (SOURCE OF TRUTH) ===
-        // Write to SQLite FIRST before UserDefaults to ensure data integrity
-        let thresholdMinutes = thresholdSeconds / 60
-        let dbRecorded = UsageAuditDatabase.shared.recordUsageEvent(
-            appLogicalID: appID,
-            secondsAdded: 60,
-            thresholdMinute: thresholdMinutes,
-            date: dateString,
-            sessionID: Self.sessionID
-        )
-        if !dbRecorded {
-            debugLog("AUDIT_DB: CASE_3 write failed for \(appID.prefix(8))... - NOT updating UserDefaults", defaults: defaults)
-            return false
-        }
-
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
         let newToday = currentToday + 60
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
@@ -406,7 +376,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(newTotal, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-        // === PROTECTED ext_ KEYS (cache backed by SQLite audit log) ===
+        // === PROTECTED ext_ KEYS ===
         // Uses INCREMENT semantics: always add 60s for each valid event
         // Phantom events are already filtered by SKIP_RESTART and SKIP_RAPID above
         let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
