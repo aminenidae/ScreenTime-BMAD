@@ -507,29 +507,54 @@ class ParentRemoteViewModel: ObservableObject {
     }
 
     /// Calculate earned minutes from usage history (fallback when DailySnapshotDTO unavailable)
+    /// Uses threshold gate logic: only counts learning app usage if it meets the lowest threshold.
     var fallbackEarnedMinutes: Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
-        let linkedIDs = uniqueLinkedLearningAppIDs
 
-        // Sum ALL seconds first, then divide by 60 (avoids losing fractional minutes per record)
-        var totalSeconds = 0
+        // Build map: learningAppID → lowest minutesRequired across all reward apps
+        var lowestThresholdPerLearningApp: [String: Int] = [:]
+        for rewardConfig in childRewardAppsFullConfig {
+            for linkedApp in rewardConfig.linkedLearningApps {
+                let learningID = linkedApp.logicalID
+                let threshold = linkedApp.minutesRequired
+                if let existing = lowestThresholdPerLearningApp[learningID] {
+                    lowestThresholdPerLearningApp[learningID] = min(existing, threshold)
+                } else {
+                    lowestThresholdPerLearningApp[learningID] = threshold
+                }
+            }
+        }
+
+        // Aggregate today's usage per learning app (sum seconds before converting to minutes)
+        var usagePerApp: [String: Int] = [:]
         for record in childDailyUsageHistory {
             guard calendar.isDate(record.date, inSameDayAs: today),
                   record.category == "Learning",
-                  linkedIDs.contains(record.logicalID) else {
+                  lowestThresholdPerLearningApp[record.logicalID] != nil else {
                 continue
             }
-            totalSeconds += record.seconds
+            usagePerApp[record.logicalID, default: 0] += record.seconds
         }
 
-        let earnedMinutes = totalSeconds / 60
+        // Apply threshold gate logic: only count if usage >= lowestThreshold
+        var totalEarnedMinutes = 0
+        for (logicalID, totalSeconds) in usagePerApp {
+            guard let lowestThreshold = lowestThresholdPerLearningApp[logicalID] else {
+                continue
+            }
+            let usageMinutes = totalSeconds / 60
+            if usageMinutes >= lowestThreshold {
+                totalEarnedMinutes += usageMinutes
+            }
+            // else: earned 0 for this app (threshold not met)
+        }
 
         #if DEBUG
-        print("[ParentRemoteViewModel] Fallback earnedMinutes: \(earnedMinutes) (\(totalSeconds)s from \(linkedIDs.count) linked learning apps)")
+        print("[ParentRemoteViewModel] Fallback earnedMinutes: \(totalEarnedMinutes) (threshold gate applied, \(lowestThresholdPerLearningApp.count) linked learning apps)")
         #endif
 
-        return earnedMinutes
+        return totalEarnedMinutes
     }
 
     /// Calculate available minutes from usage history (fallback when DailySnapshotDTO unavailable)

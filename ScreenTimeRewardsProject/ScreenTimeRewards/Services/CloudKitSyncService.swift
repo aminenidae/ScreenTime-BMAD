@@ -3084,26 +3084,39 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Calculate earned minutes using same logic as child device display (AppUsageViewModel.totalEarnedMinutes)
-        // This ensures CloudKit uploads match what the child sees
-        var uniqueLinkedLearningIDs = Set<String>()
+        // Calculate earned minutes using threshold gate logic (matches AppUsageViewModel.totalEarnedMinutes)
+        // A learning app only contributes to earned time if its usage meets the LOWEST minutesRequired
+        // threshold among all reward apps that link to it.
+        var lowestThresholdPerLearningApp: [String: Int] = [:]
         for (logicalID, _) in allApps {
             if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
                 for linkedApp in schedule.linkedLearningApps {
-                    uniqueLinkedLearningIDs.insert(linkedApp.logicalID)
+                    let learningID = linkedApp.logicalID
+                    let threshold = linkedApp.minutesRequired
+                    if let existing = lowestThresholdPerLearningApp[learningID] {
+                        lowestThresholdPerLearningApp[learningID] = min(existing, threshold)
+                    } else {
+                        lowestThresholdPerLearningApp[learningID] = threshold
+                    }
                 }
             }
         }
 
+        // Apply threshold gate logic: only count if usage >= lowestThreshold
         var totalEarnedMinutes = 0
         for (logicalID, app) in allApps where app.category == "Learning" {
-            if uniqueLinkedLearningIDs.contains(logicalID) {
-                totalEarnedMinutes += app.todaySeconds / 60
+            guard let lowestThreshold = lowestThresholdPerLearningApp[logicalID] else {
+                continue // Not linked to any reward app
             }
+            let usageMinutes = app.todaySeconds / 60
+            if usageMinutes >= lowestThreshold {
+                totalEarnedMinutes += usageMinutes
+            }
+            // else: earned 0 for this app (threshold not met)
         }
 
         #if DEBUG
-        print("[EarnedMinutesDebug] UPLOAD: Calculated totalEarnedMinutes = \(totalEarnedMinutes) from \(uniqueLinkedLearningIDs.count) linked learning apps")
+        print("[EarnedMinutesDebug] UPLOAD: Calculated totalEarnedMinutes = \(totalEarnedMinutes) from \(lowestThresholdPerLearningApp.count) linked learning apps (threshold gate applied)")
         #endif
 
         // Calculate cumulative available minutes (rollover + today's remaining)
