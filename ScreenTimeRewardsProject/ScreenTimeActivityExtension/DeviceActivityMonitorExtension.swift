@@ -40,6 +40,42 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(log, forKey: "extension_debug_log")
     }
 
+    // MARK: - Phantom Flood Restart Signaling
+
+    /// Track phantom flood events and signal main app when restart is needed
+    /// This is called when SKIP_CROSS_APP or SKIP_RAPID filters trigger
+    private nonisolated func trackPhantomFloodForRestart(defaults: UserDefaults) {
+        let now = Date().timeIntervalSince1970
+        let phantomWindowStart = defaults.double(forKey: "phantom_flood_window_start")
+        var phantomCount = defaults.integer(forKey: "phantom_flood_count")
+
+        // Reset window if > 60s old
+        if now - phantomWindowStart > 60 || phantomWindowStart == 0 {
+            phantomCount = 1
+            defaults.set(now, forKey: "phantom_flood_window_start")
+        } else {
+            phantomCount += 1
+        }
+        defaults.set(phantomCount, forKey: "phantom_flood_count")
+
+        debugLog("📊 PHANTOM_FLOOD_TRACK: count=\(phantomCount) windowAge=\(Int(now - phantomWindowStart))s", defaults: defaults)
+
+        // If 5+ phantom events in 60s, signal restart needed
+        if phantomCount >= 5 {
+            debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events in 60s - signaling restart", defaults: defaults)
+            defaults.set(true, forKey: "phantom_restart_needed")
+            defaults.set(now, forKey: "phantom_restart_requested_at")
+            defaults.set(0, forKey: "phantom_flood_count") // Reset counter
+
+            // Post Darwin notification to wake main app
+            CFNotificationCenterPostNotification(
+                CFNotificationCenterGetDarwinNotifyCenter(),
+                CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString),
+                nil, nil, true
+            )
+        }
+    }
+
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
@@ -164,6 +200,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Phantom floods fire events within milliseconds for all apps.
         if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 5 {
             debugLog("🛡️ SKIP_CROSS_APP: Different app (\(displayName)) within \(timeSinceLastRecord)s of \(lastRecordedName) - phantom flood detected", defaults: defaults)
+
+            // === PHANTOM FLOOD RESTART SIGNALING ===
+            // Track phantom events to signal main app when restart is needed
+            trackPhantomFloodForRestart(defaults: defaults)
+
             return false
         }
 
@@ -273,6 +314,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         if timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0 {
             debugLog("🛡️ PHANTOM_BLOCKED_EARLY appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < \(Int(phantomWindowSeconds))s (BEFORE day rollover)", defaults: defaults)
+
+            // Track phantom flood for restart signaling
+            // When iOS sends catch-up events, it "consumes" thresholds and won't send new events
+            // We need to restart monitoring to reset iOS's threshold state
+            trackPhantomFloodForRestart(defaults: defaults)
+
             return false
         }
 
@@ -363,6 +410,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if timeSinceLastEvent < 30.0 && lastEventTime > 0 {
                 debugLog("SKIP_RAPID appID=\(appID.prefix(8))... timeSinceLastEvent=\(Int(timeSinceLastEvent))s < 30s", defaults: defaults)
                 defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
+                trackPhantomFloodForRestart(defaults: defaults)
                 return false
             }
 

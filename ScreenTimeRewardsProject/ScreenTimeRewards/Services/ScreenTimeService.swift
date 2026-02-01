@@ -46,6 +46,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Extension re-arm notification - sent when extension records usage and needs threshold re-armed
     private static let extensionUsageRecordedNotification = CFNotificationName("com.screentimerewards.usageRecorded" as CFString)
 
+    // Phantom restart notification - sent when extension detects phantom flood and needs monitoring restarted
+    private static let phantomRestartNotification = CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString)
+
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
 
@@ -1018,7 +1021,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
          Self.intervalDidEndNotification,
          Self.intervalWillStartNotification,
          Self.intervalWillEndNotification,
-         Self.extensionUsageRecordedNotification].forEach { notification in
+         Self.extensionUsageRecordedNotification,
+         Self.phantomRestartNotification].forEach { notification in
             CFNotificationCenterAddObserver(
                 center,
                 observer,
@@ -1082,8 +1086,41 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
+        case Self.phantomRestartNotification:
+            print("[ScreenTimeService] 🚨 Phantom restart requested by extension")
+            handlePhantomRestartRequest(defaults: sharedDefaults)
         default:
             break
+        }
+    }
+
+    // MARK: - Phantom Restart Handler
+
+    /// Handle phantom restart request from extension
+    /// When extension detects a phantom flood (5+ phantom events in 60s),
+    /// it signals the main app to restart monitoring to reset iOS's threshold state.
+    private func handlePhantomRestartRequest(defaults: UserDefaults) {
+        guard defaults.bool(forKey: "phantom_restart_needed") else {
+            print("[ScreenTimeService] Phantom restart flag not set, ignoring")
+            return
+        }
+
+        // Clear the flag
+        defaults.set(false, forKey: "phantom_restart_needed")
+
+        // Add grace period to prevent restart loops (minimum 2 min between restarts)
+        let lastRestart = defaults.double(forKey: "phantom_last_restart_time")
+        let now = Date().timeIntervalSince1970
+        if now - lastRestart < 120 && lastRestart > 0 {
+            print("[ScreenTimeService] ⏳ Restart throttled - last restart was \(Int(now - lastRestart))s ago")
+            return
+        }
+
+        defaults.set(now, forKey: "phantom_last_restart_time")
+
+        print("[ScreenTimeService] 🔄 Restarting monitoring to reset iOS threshold state (phantom flood recovery)...")
+        Task {
+            await restartMonitoring(reason: "phantom flood recovery", force: true)
         }
     }
 
