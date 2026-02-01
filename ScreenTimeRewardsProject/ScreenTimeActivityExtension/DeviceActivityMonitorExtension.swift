@@ -156,9 +156,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let now = Date().timeIntervalSince1970
         let timeSinceLastRecord = lastRecordedTime > 0 ? Int(now - lastRecordedTime) : -1
 
+        // === CROSS-APP PHANTOM FLOOD FILTER ===
+        // When iOS sends phantom events, it fires for ALL monitored apps within milliseconds.
+        // The per-app SKIP_RAPID check doesn't catch this because each app's lastEventTime is separate.
+        // This global check filters events when a DIFFERENT app was recorded within 5 seconds.
+        // Real app switching takes 5+ seconds (home screen → find app → tap → load).
+        // Phantom floods fire events within milliseconds for all apps.
+        if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 5 {
+            debugLog("🛡️ SKIP_CROSS_APP: Different app (\(displayName)) within \(timeSinceLastRecord)s of \(lastRecordedName) - phantom flood detected", defaults: defaults)
+            return false
+        }
+
+        // Log cross-app transitions that passed the filter (for diagnostics)
         if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 120 {
-            // Different app recorded recently - potential contamination signal
-            debugLog("⚠️ CROSS_APP: prev=\(lastRecordedName) (\(lastRecordedAppID.prefix(8))...) → now=\(displayName) (\(appID.prefix(8))...) gap=\(timeSinceLastRecord)s", defaults: defaults)
+            debugLog("✅ CROSS_APP_OK: prev=\(lastRecordedName) → now=\(displayName) gap=\(timeSinceLastRecord)s (>5s, allowed)", defaults: defaults)
         }
 
         debugLog("✅ EVENT_RESOLVE: tokenHash=\(tokenHash) → appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
