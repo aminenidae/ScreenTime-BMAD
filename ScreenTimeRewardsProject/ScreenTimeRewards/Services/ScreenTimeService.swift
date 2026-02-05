@@ -34,6 +34,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private let activityName = DeviceActivityName("ScreenTimeTracking")
     private var appUsages: [String: AppUsage] = [:]  // Key = logicalID
     private var hasSeededSampleData = false
+    private var phantomCheckTimer: Timer?  // Polls for delayed phantom restart
     private var authorizationGranted = false
     private(set) var isMonitoring = false
     private static let eventDidReachNotification = CFNotificationName(ScreenTimeNotifications.eventDidReachThreshold as CFString)
@@ -46,7 +47,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Extension re-arm notification - sent when extension records usage and needs threshold re-armed
     private static let extensionUsageRecordedNotification = CFNotificationName("com.screentimerewards.usageRecorded" as CFString)
 
-    // Phantom restart notification - sent when extension detects phantom flood and needs monitoring restarted
+    // Extension phantom restart notification - sent when phantom flood is detected and monitoring needs restart
     private static let phantomRestartNotification = CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString)
 
     // App Group identifier - must match extension
@@ -437,8 +438,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             )
 
             // Check if monitoring was previously active and restart it
-            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
-               sharedDefaults.bool(forKey: "wasMonitoringActive") {
+            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                let wasMonitoring = sharedDefaults.bool(forKey: "wasMonitoringActive")
+
+                // RECOVERY: If we have a valid selection but flag is false, assume user wants monitoring
+                // This recovers from the restartMonitoring() bug that incorrectly set the flag to false
+                if !wasMonitoring && !restoredSelection.applications.isEmpty {
+                    #if DEBUG
+                    print("[ScreenTimeService] 🔧 RECOVERY: Found valid selection (\(restoredSelection.applications.count) apps) but wasMonitoringActive=false")
+                    print("[ScreenTimeService] 🔧 RECOVERY: Auto-recovering by setting wasMonitoringActive=true")
+                    #endif
+                    sharedDefaults.set(true, forKey: "wasMonitoringActive")
+                }
+
+                if sharedDefaults.bool(forKey: "wasMonitoringActive") {
                 #if DEBUG
                 print("[ScreenTimeService] 🔄 Monitoring was previously active - restarting automatically...")
                 #endif
@@ -478,6 +491,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] ℹ️ Monitoring was not previously active - user must start manually")
                 #endif
             }
+            }  // Close: if let sharedDefaults
         } else {
             #if DEBUG
             print("[ScreenTimeService] ℹ️ No persisted selection found - starting fresh")
@@ -1086,41 +1100,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
+
         case Self.phantomRestartNotification:
-            print("[ScreenTimeService] 🚨 Phantom restart requested by extension")
+            // Extension detected phantom flood and is requesting monitoring restart
+            print("[ScreenTimeService] 🚨 Phantom restart notification received - restarting monitoring")
             handlePhantomRestartRequest(defaults: sharedDefaults)
+
         default:
             break
-        }
-    }
-
-    // MARK: - Phantom Restart Handler
-
-    /// Handle phantom restart request from extension
-    /// When extension detects a phantom flood (5+ phantom events in 60s),
-    /// it signals the main app to restart monitoring to reset iOS's threshold state.
-    private func handlePhantomRestartRequest(defaults: UserDefaults) {
-        guard defaults.bool(forKey: "phantom_restart_needed") else {
-            print("[ScreenTimeService] Phantom restart flag not set, ignoring")
-            return
-        }
-
-        // Clear the flag
-        defaults.set(false, forKey: "phantom_restart_needed")
-
-        // Add grace period to prevent restart loops (minimum 2 min between restarts)
-        let lastRestart = defaults.double(forKey: "phantom_last_restart_time")
-        let now = Date().timeIntervalSince1970
-        if now - lastRestart < 120 && lastRestart > 0 {
-            print("[ScreenTimeService] ⏳ Restart throttled - last restart was \(Int(now - lastRestart))s ago")
-            return
-        }
-
-        defaults.set(now, forKey: "phantom_last_restart_time")
-
-        print("[ScreenTimeService] 🔄 Restarting monitoring to reset iOS threshold state (phantom flood recovery)...")
-        Task {
-            await restartMonitoring(reason: "phantom flood recovery", force: true)
         }
     }
 
@@ -1287,6 +1274,108 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
         #endif
+    }
+
+    // MARK: - Phantom Restart Handler
+
+    /// Handle phantom flood restart request from extension
+    /// Called when extension detects 5+ phantom events in 60s and signals via Darwin notification
+    private func handlePhantomRestartRequest(defaults: UserDefaults) {
+        let now = Date().timeIntervalSince1970
+
+        // Throttle: Don't restart more than once every 2 minutes
+        let lastRestart = defaults.double(forKey: "phantom_restart_last_handled")
+        let timeSinceLastRestart = now - lastRestart
+
+        if lastRestart > 0 && timeSinceLastRestart < 120 {
+            print("[ScreenTimeService] 🚫 Phantom restart throttled - last restart was \(Int(timeSinceLastRestart))s ago")
+            return
+        }
+
+        // Update throttle timestamp
+        defaults.set(now, forKey: "phantom_restart_last_handled")
+
+        print("[ScreenTimeService] 🔄 Executing phantom restart to reset iOS threshold state...")
+
+        // Restart monitoring asynchronously
+        // The restartMonitoring() → scheduleActivity() flow will set monitoring_restart_timestamp
+        // which triggers the 55s phantom protection window in the extension
+        Task { @MainActor in
+            await self.restartMonitoring(reason: "phantom flood recovery", force: true)
+            print("[ScreenTimeService] ✅ Phantom restart complete - new monitoring session started")
+        }
+    }
+
+    // MARK: - Delayed Phantom Restart Timer
+
+    /// Start periodic timer to check for pending phantom restart
+    /// The extension flags phantom floods but doesn't trigger restart immediately
+    /// This timer polls and restarts AFTER phantom window + quiet period
+    private func startPhantomCheckTimer() {
+        phantomCheckTimer?.invalidate()
+        phantomCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.checkForPendingPhantomRestart()
+            }
+        }
+        #if DEBUG
+        print("[ScreenTimeService] 🕐 Started phantom check timer (30s interval)")
+        #endif
+    }
+
+    /// Stop the phantom check timer
+    private func stopPhantomCheckTimer() {
+        phantomCheckTimer?.invalidate()
+        phantomCheckTimer = nil
+        #if DEBUG
+        print("[ScreenTimeService] 🕐 Stopped phantom check timer")
+        #endif
+    }
+
+    /// Check if conditions are met for delayed phantom restart
+    /// Triggers restart when: phantom detected + window ended (60s) + quiet period (30s)
+    @MainActor
+    private func checkForPendingPhantomRestart() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
+        guard phantomDetected else { return }
+
+        let now = Date().timeIntervalSince1970
+        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
+        let lastEventTime = defaults.double(forKey: "phantom_flood_last_event_time")
+        let lastRestartRequest = defaults.double(forKey: "phantom_restart_last_request")
+
+        let timeSinceRestart = now - restartTimestamp
+        let timeSinceLastEvent = lastEventTime > 0 ? now - lastEventTime : 999.0
+        let timeSinceLastRestartRequest = lastRestartRequest > 0 ? now - lastRestartRequest : 999.0
+
+        #if DEBUG
+        print("[ScreenTimeService] 🔍 Phantom check: timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s timeSinceLastRequest=\(Int(timeSinceLastRestartRequest))s")
+        #endif
+
+        // Conditions for delayed restart:
+        // 1. Phantom flood was detected (already checked above)
+        // 2. Phantom window ended (> 60s since restart)
+        // 3. Quiet period passed (> 30s since last phantom event)
+        // 4. Not throttled (> 120s since last restart request)
+
+        if timeSinceRestart > 60.0
+            && timeSinceLastEvent > 30.0
+            && timeSinceLastRestartRequest > 120.0 {
+
+            print("[ScreenTimeService] 🔄 Triggering DELAYED phantom restart (window=\(Int(timeSinceRestart))s quiet=\(Int(timeSinceLastEvent))s)")
+
+            // Clear flags
+            defaults.set(false, forKey: "phantom_flood_detected")
+            defaults.set(0, forKey: "phantom_flood_count")
+            defaults.set(now, forKey: "phantom_restart_last_request")
+
+            Task { @MainActor in
+                await self.restartMonitoring(reason: "delayed phantom recovery", force: true)
+                print("[ScreenTimeService] ✅ Delayed phantom restart complete - fresh thresholds active")
+            }
+        }
     }
 
     // MARK: - UsageRecord Sync from Extension Data
@@ -1484,6 +1573,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
         isMonitoring = false
+
+        // Stop phantom check timer
+        stopPhantomCheckTimer()
 
         // Persist monitoring state so we don't auto-restart on next launch
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -2064,14 +2156,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Simple restart wrapper used by diagnostics views.
     func restartMonitoring(reason: String, force: Bool = false) async {
         #if DEBUG
-        print("[ScreenTimeService] ♻️ Restart requested (")
+        print("[ScreenTimeService] ♻️ Restart requested (\(reason))")
         #endif
         stopMonitoring()
         do {
             try scheduleActivity()
             isMonitoring = true
+
+            // FIX: Re-persist monitoring state after successful restart
+            // stopMonitoring() sets wasMonitoringActive=false, so we must restore it
+            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                sharedDefaults.set(true, forKey: "wasMonitoringActive")
+            }
+
             #if DEBUG
-            print("[ScreenTimeService] ✅ Restarted monitoring (")
+            print("[ScreenTimeService] ✅ Restarted monitoring (\(reason))")
             #endif
         } catch {
             #if DEBUG
@@ -2343,6 +2442,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         // Set monitoring start time for phantom event protection
         monitoringStartTime = Date()
+
+        // Start phantom check timer for delayed restart detection
+        startPhantomCheckTimer()
 
         #if DEBUG
         print("[ScreenTimeService] Successfully started monitoring")

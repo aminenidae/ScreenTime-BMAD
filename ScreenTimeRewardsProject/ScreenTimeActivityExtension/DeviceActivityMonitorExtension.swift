@@ -43,7 +43,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Phantom Flood Restart Signaling
 
     /// Track phantom flood events and signal main app when restart is needed
-    /// This is called when SKIP_CROSS_APP or SKIP_RAPID filters trigger
+    /// When iOS sends catch-up events after restart, they "consume" thresholds and iOS won't send new events
+    /// By detecting this flood and triggering a monitoring restart, we reset iOS's threshold state
     private nonisolated func trackPhantomFloodForRestart(defaults: UserDefaults) {
         let now = Date().timeIntervalSince1970
         let phantomWindowStart = defaults.double(forKey: "phantom_flood_window_start")
@@ -60,19 +61,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         debugLog("📊 PHANTOM_FLOOD_TRACK: count=\(phantomCount) windowAge=\(Int(now - phantomWindowStart))s", defaults: defaults)
 
-        // If 5+ phantom events in 60s, signal restart needed
-        if phantomCount >= 5 {
-            debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events in 60s - signaling restart", defaults: defaults)
-            defaults.set(true, forKey: "phantom_restart_needed")
-            defaults.set(now, forKey: "phantom_restart_requested_at")
-            defaults.set(0, forKey: "phantom_flood_count") // Reset counter
+        // Track last event time for quiet period detection
+        defaults.set(now, forKey: "phantom_flood_last_event_time")
 
-            // Post Darwin notification to wake main app
-            CFNotificationCenterPostNotification(
-                CFNotificationCenterGetDarwinNotifyCenter(),
-                CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString),
-                nil, nil, true
-            )
+        // If 5+ phantom events in 60s, flag for DELAYED restart
+        // NOTE: We do NOT trigger restart immediately - main app polls and restarts
+        // AFTER phantom window ends (60s) + quiet period (30s)
+        if phantomCount >= 5 {
+            debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - flagging for DELAYED restart", defaults: defaults)
+            defaults.set(true, forKey: "phantom_flood_detected")
+            // NOTE: Removed immediate Darwin notification - main app will poll instead
+            // This prevents restart loop where new session immediately triggers another flood
         }
     }
 
@@ -192,25 +191,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let now = Date().timeIntervalSince1970
         let timeSinceLastRecord = lastRecordedTime > 0 ? Int(now - lastRecordedTime) : -1
 
-        // === CROSS-APP PHANTOM FLOOD FILTER ===
-        // When iOS sends phantom events, it fires for ALL monitored apps within milliseconds.
-        // The per-app SKIP_RAPID check doesn't catch this because each app's lastEventTime is separate.
-        // This global check filters events when a DIFFERENT app was recorded within 5 seconds.
-        // Real app switching takes 5+ seconds (home screen → find app → tap → load).
-        // Phantom floods fire events within milliseconds for all apps.
-        if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 5 {
-            debugLog("🛡️ SKIP_CROSS_APP: Different app (\(displayName)) within \(timeSinceLastRecord)s of \(lastRecordedName) - phantom flood detected", defaults: defaults)
-
-            // === PHANTOM FLOOD RESTART SIGNALING ===
-            // Track phantom events to signal main app when restart is needed
-            trackPhantomFloodForRestart(defaults: defaults)
-
-            return false
-        }
-
-        // Log cross-app transitions that passed the filter (for diagnostics)
         if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 120 {
-            debugLog("✅ CROSS_APP_OK: prev=\(lastRecordedName) → now=\(displayName) gap=\(timeSinceLastRecord)s (>5s, allowed)", defaults: defaults)
+            // Different app recorded recently - potential contamination signal
+            debugLog("⚠️ CROSS_APP: prev=\(lastRecordedName) (\(lastRecordedAppID.prefix(8))...) → now=\(displayName) (\(appID.prefix(8))...) gap=\(timeSinceLastRecord)s", defaults: defaults)
         }
 
         debugLog("✅ EVENT_RESOLVE: tokenHash=\(tokenHash) → appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
@@ -283,15 +266,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return 1 // Default to 1 minute if can't parse
     }
 
-    /// Simple +60s per event when threshold exceeds lastThreshold
-    /// No session tracking needed - just track highest threshold seen today
-    /// Returns true if 60s was added, false if skipped (catch-up or duplicate)
-    /// Writes to ext_ keys using INCREMENT semantics (source of truth for main app sync)
+    /// Cadence-based INCREMENT: Add 60s per event, with phantom flood protection
+    /// Returns true if usage was recorded, false if phantom/duplicate skipped
+    ///
+    /// Key insight: Phantom floods arrive in rapid bursts (milliseconds apart),
+    /// while real usage arrives at ~60s cadence. We use timing to distinguish.
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults) -> Bool {
         let todayKey = "usage_\(appID)_today"
         let todayResetKey = "usage_\(appID)_reset"
         let totalKey = "usage_\(appID)_total"
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
+        let lastEventTimeKey = "usage_\(appID)_lastEventTime"
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
         let calendar = Calendar.current
@@ -304,24 +289,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let dateString = dateFormatter.string(from: now)
         let hour = calendar.component(.hour, from: now)
 
-        // === EARLY PHANTOM PROTECTION (BEFORE day rollover) ===
-        // Critical fix: Day rollover was bypassing phantom protection
-        // Must check phantom window BEFORE any data is written to prevent phantom events
-        // from being recorded on first event of new day
+        // === PHANTOM DETECTION SETUP ===
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let timeSinceRestart = nowTimestamp - restartTimestamp
-        let phantomWindowSeconds = 55.0  // Keep at 55s to avoid blocking real usage
+        let lastEventTime = defaults.double(forKey: lastEventTimeKey)
+        let timeSinceLastEvent = lastEventTime > 0 ? nowTimestamp - lastEventTime : 999.0  // Large value if no previous event
 
-        if timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0 {
-            debugLog("🛡️ PHANTOM_BLOCKED_EARLY appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < \(Int(phantomWindowSeconds))s (BEFORE day rollover)", defaults: defaults)
+        // Phantom window: first 60s after restart is when phantom floods occur
+        let phantomWindowSeconds = 60.0
+        let isInPhantomWindow = timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0
 
-            // Track phantom flood for restart signaling
-            // When iOS sends catch-up events, it "consumes" thresholds and won't send new events
-            // We need to restart monitoring to reset iOS's threshold state
-            trackPhantomFloodForRestart(defaults: defaults)
-
-            return false
-        }
+        // Rapid-fire detection: events < 10s apart are likely phantom
+        let isRapidFire = timeSinceLastEvent < 10.0
 
         // Day rollover check
         if lastReset < startOfToday {
@@ -336,19 +315,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 notifyMainApp()
             }
 
-            // First event of new day = 60s
-            // FIX: Set lastThreshold to 0 (not thresholdSeconds) to prevent phantom events
-            // from corrupting the threshold tracker. The next real event will be CASE_3 (increased).
-            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s lastThresh=0 (was lastReset=\(lastReset) < startOfToday=\(startOfToday))", defaults: defaults)
+            // First event of new day - always record (INCREMENT by 60s)
+            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s (first event)", defaults: defaults)
 
             defaults.set(60, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(60, forKey: totalKey)
-            defaults.set(0, forKey: lastThresholdKey)  // Start fresh - don't inherit phantom threshold
+            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+            defaults.set(nowTimestamp, forKey: lastEventTimeKey)
 
             // === PROTECTED ext_ KEYS ===
-            // Uses INCREMENT semantics: first event of new day = 60s
             debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=60 total=60 date=\(dateString) hour=\(hour)", defaults: defaults)
             defaults.set(60, forKey: "ext_usage_\(appID)_today")
             defaults.set(60, forKey: "ext_usage_\(appID)_total")
@@ -366,66 +343,40 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Same day - check for catch-up vs new session
+        // === SAME DAY PROCESSING ===
         let currentToday = defaults.integer(forKey: todayKey)
-        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
-        let lastEventTime = defaults.double(forKey: "usage_\(appID)_lastEventTime")
-        let timeSinceLastEvent = nowTimestamp - lastEventTime
+        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
 
-        // === SANITY CHECK: Reset corrupted lastThreshold ===
-        // If lastThreshold > currentToday, it's impossible (can't have seen a threshold > usage)
-        // This happens when phantom events corrupt the threshold tracker
-        if lastThreshold > currentToday && currentToday > 0 {
-            debugLog("🔧 THRESHOLD_SANITY_FIX appID=\(appID.prefix(8))... lastThresh=\(lastThreshold)s > currentToday=\(currentToday)s → resetting to 0", defaults: defaults)
-            lastThreshold = 0
-            defaults.set(0, forKey: lastThresholdKey)
-        }
+        // Log diagnostic info
+        debugLog("📥 CADENCE_CHECK appID=\(appID.prefix(8))... threshold=\(thresholdSeconds)s currentToday=\(currentToday)s", defaults: defaults)
+        debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s inPhantomWindow=\(isInPhantomWindow) rapidFire=\(isRapidFire)", defaults: defaults)
 
-        // Note: restartTimestamp and timeSinceRestart already computed in early phantom check above
-        // Log diagnostic state for debugging (phantom already blocked if we reach here)
-        debugLog("🔍 PHANTOM_CHECK appID=\(appID.prefix(8))...", defaults: defaults)
-        debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s restartTS=\(restartTimestamp > 0 ? "SET" : "UNSET")", defaults: defaults)
-        debugLog("   threshold=\(thresholdSeconds) lastThreshold=\(lastThreshold) comparison=\(thresholdSeconds < lastThreshold ? "DECREASED" : thresholdSeconds == lastThreshold ? "EQUAL" : "INCREASED")", defaults: defaults)
-        debugLog("   phantomWindow=\(Int(phantomWindowSeconds))s (passed early check)", defaults: defaults)
+        // === PHANTOM FLOOD DETECTION ===
+        // Phantom floods are rapid-fire events within the phantom window after restart
+        if isInPhantomWindow && isRapidFire {
+            debugLog("🛡️ PHANTOM_SKIP: rapid-fire (\(Int(timeSinceLastEvent))s) within phantom window (\(Int(timeSinceRestart))s since restart)", defaults: defaults)
+            defaults.set(nowTimestamp, forKey: lastEventTimeKey)
 
-        // Case 1: Duplicate threshold
-        if thresholdSeconds == lastThreshold {
-            debugLog("📋 CASE_1_DUP: threshold=lastThreshold=\(thresholdSeconds) → SKIP", defaults: defaults)
+            // Signal main app to restart monitoring after phantom flood
+            trackPhantomFloodForRestart(defaults: defaults)
+
             return false
         }
 
-        // Case 2: Threshold decreased (could be catch-up OR new session)
-        if thresholdSeconds < lastThreshold {
-            debugLog("📋 CASE_2_DECREASE: \(thresholdSeconds) < \(lastThreshold) → checking catch-up filters", defaults: defaults)
-
-            // Check 1: Within phantom window of monitoring restart → ALWAYS skip (catch-up from app list change)
-            // Note: Should rarely reach here since early phantom check catches most cases
-            if timeSinceRestart < phantomWindowSeconds && restartTimestamp > 0 {
-                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < \(Int(phantomWindowSeconds))s", defaults: defaults)
-                defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
-                return false
-            }
-
-            // Check 2: Rapid fire (< 30s since last event for this app) → catch-up, skip
-            if timeSinceLastEvent < 30.0 && lastEventTime > 0 {
-                debugLog("SKIP_RAPID appID=\(appID.prefix(8))... timeSinceLastEvent=\(Int(timeSinceLastEvent))s < 30s", defaults: defaults)
-                defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
-                trackPhantomFloodForRestart(defaults: defaults)
-                return false
-            }
-
-            // Both checks passed: likely a genuine new session → reset lastThreshold
-            debugLog("⚠️ THRESH_RESET appID=\(appID.prefix(8))... from=\(lastThreshold)s to=0 (new session detected, currentToday=\(currentToday)s)", defaults: defaults)
-            defaults.set(0, forKey: lastThresholdKey)
-            lastThreshold = 0
+        // === DUPLICATE THRESHOLD CHECK ===
+        // Same threshold as last event = true duplicate, skip
+        if thresholdSeconds == lastThreshold && lastThreshold > 0 {
+            debugLog("📋 DUPLICATE_SKIP: threshold=\(thresholdSeconds)s == lastThreshold", defaults: defaults)
+            defaults.set(nowTimestamp, forKey: lastEventTimeKey)
+            return false
         }
 
-        // Case 3: Normal progression (threshold > lastThreshold, or after reset)
-        debugLog("📋 CASE_3_PROGRESS: \(thresholdSeconds) > \(lastThreshold) → RECORDING +60s", defaults: defaults)
-
-        defaults.set(nowTimestamp, forKey: "usage_\(appID)_lastEventTime")
+        // === RECORD USAGE (INCREMENT) ===
+        // Normal cadence OR outside phantom window - this is real usage
         let newToday = currentToday + 60
-        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
+        debugLog("📋 INCREMENT: currentToday=\(currentToday)s +60 → newToday=\(newToday)s (cadence=\(Int(timeSinceLastEvent))s)", defaults: defaults)
+
+        defaults.set(nowTimestamp, forKey: lastEventTimeKey)
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
 
@@ -435,23 +386,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(newTotal, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-        // === PROTECTED ext_ KEYS ===
-        // Uses INCREMENT semantics: always add 60s for each valid event
-        // Phantom events are already filtered by SKIP_RESTART and SKIP_RAPID above
+        // === PROTECTED ext_ KEYS (INCREMENT) ===
         let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
         let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
         let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
 
         let newExtToday: Int
         if currentExtDate == dateString {
-            // Same day: INCREMENT by 60s (phantom detection already passed)
+            // Same day: INCREMENT by 60s
             newExtToday = currentExtToday + 60
         } else {
             // New day: start fresh with 60s
             newExtToday = 60
         }
 
-        // Always update ext_ keys - phantom events were filtered above
         debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + 60) hour=\(hour) (was today=\(currentExtToday))", defaults: defaults)
         defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
         defaults.set(currentExtTotal + 60, forKey: "ext_usage_\(appID)_total")
@@ -459,7 +407,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
         defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
-        // === HOURLY BUCKET TRACKING ===
+        // === HOURLY BUCKET TRACKING (INCREMENT) ===
         let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
         if storedHourlyDate != dateString {
             debugLog("HOURLY_RESET appID=\(appID.prefix(8))... date changed from \(storedHourlyDate ?? "nil") to \(dateString)", defaults: defaults)
