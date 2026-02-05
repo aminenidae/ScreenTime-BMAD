@@ -354,12 +354,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // === PHANTOM DETECTION ===
         // 1. Block rapid-fire events (<10s) at any time - these are always phantom
         // 2. Block session-boundary events (>100s gap) during phantom window - first phantom event
+        // 3. Block cross-app events (<55s gap) - user can't use multiple apps simultaneously
         let isSessionBoundary = timeSinceLastEvent > 100.0
         let isFirstPhantom = isInPhantomWindow && isSessionBoundary
 
-        if isRapidFire || isFirstPhantom {
+        let lastRecordedAppID = defaults.string(forKey: "last_recorded_appID") ?? "none"
+        let isCrossApp = lastRecordedAppID != appID && lastRecordedAppID != "none"
+        let isCrossAppPhantom = isCrossApp && timeSinceLastEvent < 55.0
+
+        if isRapidFire || isFirstPhantom || isCrossAppPhantom {
             let skipReason: String
-            if isFirstPhantom {
+            if isCrossAppPhantom {
+                skipReason = "CROSS_APP_PHANTOM_SKIP (different app within \(Int(timeSinceLastEvent))s)"
+            } else if isFirstPhantom {
                 skipReason = "FIRST_PHANTOM_SKIP (session boundary in window)"
             } else if isInPhantomWindow {
                 skipReason = "PHANTOM_SKIP (in window)"
@@ -397,6 +404,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let newTotal = currentTotal + 60
         defaults.set(newTotal, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+
+        // Track last recorded app for cross-app phantom detection
+        defaults.set(appID, forKey: "last_recorded_appID")
 
         // === PROTECTED ext_ KEYS (INCREMENT) ===
         let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
