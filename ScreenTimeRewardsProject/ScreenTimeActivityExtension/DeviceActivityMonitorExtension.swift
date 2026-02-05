@@ -351,14 +351,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         debugLog("📥 CADENCE_CHECK appID=\(appID.prefix(8))... threshold=\(thresholdSeconds)s currentToday=\(currentToday)s", defaults: defaults)
         debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s inPhantomWindow=\(isInPhantomWindow) rapidFire=\(isRapidFire)", defaults: defaults)
 
-        // === RAPID-FIRE PHANTOM DETECTION ===
-        // Block rapid-fire events regardless of phantom window
-        // Real usage arrives at ~60s cadence; rapid-fire (<10s) is always phantom
-        if isRapidFire && timeSinceLastEvent >= 0 {
-            let skipReason = isInPhantomWindow
-                ? "PHANTOM_SKIP (in window)"
-                : "LATE_PHANTOM_SKIP (outside window)"
-            debugLog("🛡️ \(skipReason): rapid-fire (\(Int(timeSinceLastEvent))s cadence) at \(Int(timeSinceRestart))s since restart", defaults: defaults)
+        // === PHANTOM DETECTION ===
+        // 1. Block rapid-fire events (<10s) at any time - these are always phantom
+        // 2. Block session-boundary events (>100s gap) during phantom window - first phantom event
+        let isSessionBoundary = timeSinceLastEvent > 100.0
+        let isFirstPhantom = isInPhantomWindow && isSessionBoundary
+
+        if isRapidFire || isFirstPhantom {
+            let skipReason: String
+            if isFirstPhantom {
+                skipReason = "FIRST_PHANTOM_SKIP (session boundary in window)"
+            } else if isInPhantomWindow {
+                skipReason = "PHANTOM_SKIP (in window)"
+            } else {
+                skipReason = "LATE_PHANTOM_SKIP (outside window)"
+            }
+            debugLog("🛡️ \(skipReason): cadence=\(Int(timeSinceLastEvent))s at \(Int(timeSinceRestart))s since restart", defaults: defaults)
             defaults.set(nowTimestamp, forKey: lastEventTimeKey)
 
             // Signal main app to restart monitoring after phantom flood
