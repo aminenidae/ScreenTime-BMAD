@@ -351,10 +351,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         debugLog("📥 CADENCE_CHECK appID=\(appID.prefix(8))... threshold=\(thresholdSeconds)s currentToday=\(currentToday)s", defaults: defaults)
         debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s inPhantomWindow=\(isInPhantomWindow) rapidFire=\(isRapidFire)", defaults: defaults)
 
-        // === PHANTOM FLOOD DETECTION ===
-        // Phantom floods are rapid-fire events within the phantom window after restart
-        if isInPhantomWindow && isRapidFire {
-            debugLog("🛡️ PHANTOM_SKIP: rapid-fire (\(Int(timeSinceLastEvent))s) within phantom window (\(Int(timeSinceRestart))s since restart)", defaults: defaults)
+        // === RAPID-FIRE PHANTOM DETECTION ===
+        // Block rapid-fire events regardless of phantom window
+        // Real usage arrives at ~60s cadence; rapid-fire (<10s) is always phantom
+        if isRapidFire && timeSinceLastEvent >= 0 {
+            let skipReason = isInPhantomWindow
+                ? "PHANTOM_SKIP (in window)"
+                : "LATE_PHANTOM_SKIP (outside window)"
+            debugLog("🛡️ \(skipReason): rapid-fire (\(Int(timeSinceLastEvent))s cadence) at \(Int(timeSinceRestart))s since restart", defaults: defaults)
             defaults.set(nowTimestamp, forKey: lastEventTimeKey)
 
             // Signal main app to restart monitoring after phantom flood
