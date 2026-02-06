@@ -304,13 +304,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if timeSinceRestart < 55.0 {
             debugLog("🛡️ MONITORING_GAP_BLOCK: \(Int(timeSinceRestart))s since restart (<55s)", defaults: defaults)
 
-            // Check if there's a buffered event - if so, this rapid event means the buffer was phantom too
+            // Check if there's a buffered event - count rapid events before discarding
+            // Only discard after 3+ rapid events (real flood), not just 1-2 (could be out-of-order)
             let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
             if bufferTimestamp > 0 {
                 let timeSinceBuffer = nowTimestamp - bufferTimestamp
                 if timeSinceBuffer < 15.0 {
-                    debugLog("🚨 PHANTOM_FLOOD: discarding buffered event (rapid-fire \(Int(timeSinceBuffer))s after buffer)", defaults: defaults)
-                    clearBuffer(defaults: defaults)
+                    let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
+                    defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
+
+                    if rapidCount >= 3 {
+                        debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
+                        clearBuffer(defaults: defaults)
+                    } else {
+                        debugLog("⚠️ RAPID_EVENT: count=\(rapidCount)/3 (keeping buffer, not a flood yet)", defaults: defaults)
+                    }
                 }
             }
 
@@ -325,13 +333,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if timeSinceLastRecorded < 55.0 {
             debugLog("🛡️ CADENCE_BLOCK: \(Int(timeSinceLastRecorded))s since last recorded (<55s)", defaults: defaults)
 
-            // Check if there's a buffered event - rapid-fire after buffer means phantom flood
+            // Check if there's a buffered event - count rapid events before discarding
+            // Only discard after 3+ rapid events (real flood), not just 1-2 (could be out-of-order)
             let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
             if bufferTimestamp > 0 {
                 let timeSinceBuffer = nowTimestamp - bufferTimestamp
                 if timeSinceBuffer < 15.0 {
-                    debugLog("🚨 PHANTOM_FLOOD: discarding buffered event (rapid-fire \(Int(timeSinceBuffer))s after buffer)", defaults: defaults)
-                    clearBuffer(defaults: defaults)
+                    let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
+                    defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
+
+                    if rapidCount >= 3 {
+                        debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
+                        clearBuffer(defaults: defaults)
+                    } else {
+                        debugLog("⚠️ RAPID_EVENT: count=\(rapidCount)/3 (keeping buffer, not a flood yet)", defaults: defaults)
+                    }
                 }
             }
 
@@ -355,11 +371,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let timeSinceBuffer = nowTimestamp - bufferTimestamp
 
             if timeSinceBuffer < 15.0 {
-                // New event arrived too soon after buffer - both might be phantom
-                // But since this new event passed filters 1 and 2, it's likely legitimate
-                // The rapid arrival suggests the BUFFERED event was phantom
-                debugLog("🚨 PHANTOM_FLOOD: new event \(Int(timeSinceBuffer))s after buffer - discarding buffer", defaults: defaults)
-                clearBuffer(defaults: defaults)
+                // New event arrived soon after buffer
+                // Count rapid events - only discard after 3+ (real flood pattern)
+                let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
+                defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
+
+                if rapidCount >= 3 {
+                    // 3+ rapid events = real flood, discard buffer
+                    debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
+                    clearBuffer(defaults: defaults)
+                } else {
+                    // 1-2 rapid events but new event passed filters = likely out-of-order
+                    // Flush the buffer (it's probably legitimate) and continue
+                    debugLog("⚠️ RAPID_BUT_VALID: count=\(rapidCount)/3, new event passed filters - flushing buffer", defaults: defaults)
+                    flushBufferedEvent(defaults: defaults)
+                }
                 // Continue to buffer the new event below
             } else {
                 // Buffer is old enough (>=15s) - record it as legitimate
@@ -494,6 +520,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(threshold, forKey: "phantom_buffer_threshold")
         defaults.set(Date().timeIntervalSince1970, forKey: "phantom_buffer_timestamp")
         defaults.set(eventName, forKey: "phantom_buffer_eventName")
+        // Reset rapid-fire counter when new buffer is created
+        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
         debugLog("📦 BUFFERED: \(appID.prefix(8))... threshold=\(threshold)s (waiting to validate)", defaults: defaults)
     }
 
@@ -505,6 +533,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.removeObject(forKey: "phantom_buffer_threshold")
         defaults.removeObject(forKey: "phantom_buffer_timestamp")
         defaults.removeObject(forKey: "phantom_buffer_eventName")
+        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
     }
 
     /// Flush the buffered event as legitimate usage (no rapid-fire followed)
@@ -522,11 +551,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Record the usage (bypass phantom filters - already validated)
         recordValidatedUsage(appID: appID, thresholdSeconds: threshold, eventName: eventName, defaults: defaults)
 
-        // Clear buffer
+        // Clear buffer and reset rapid-fire counter
         defaults.removeObject(forKey: "phantom_buffer_appID")
         defaults.removeObject(forKey: "phantom_buffer_threshold")
         defaults.removeObject(forKey: "phantom_buffer_timestamp")
         defaults.removeObject(forKey: "phantom_buffer_eventName")
+        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
     }
 
     /// Record usage that has been validated (passed phantom filters and buffer check)
