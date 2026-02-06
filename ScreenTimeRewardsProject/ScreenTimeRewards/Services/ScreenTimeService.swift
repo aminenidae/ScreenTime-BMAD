@@ -1318,8 +1318,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 self?.checkForPendingPhantomRestart()
             }
         }
+        // Add to common RunLoop mode so timer continues when app is backgrounded
+        if let timer = phantomCheckTimer {
+            RunLoop.current.add(timer, forMode: .common)
+        }
         #if DEBUG
-        print("[ScreenTimeService] 🕐 Started phantom check timer (30s interval)")
+        print("[ScreenTimeService] 🕐 Started phantom check timer (30s interval, RunLoop.common)")
         #endif
     }
 
