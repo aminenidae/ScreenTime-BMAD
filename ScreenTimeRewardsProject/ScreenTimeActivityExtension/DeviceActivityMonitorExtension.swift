@@ -356,6 +356,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
+        // === FILTER 3: LOCKED REWARD APP ===
+        // If a reward app is locked (shielded), any usage is phantom
+        // User can't use a locked app, so events are iOS catching up on old thresholds
+        if isRewardAppLocked(appID: appID, defaults: defaults) {
+            debugLog("🔒 LOCKED_REWARD_BLOCK: \(appID.prefix(8))... is locked - usage is phantom", defaults: defaults)
+            trackPhantomFloodForRestart(defaults: defaults)
+            return false
+        }
+
         // === DUPLICATE THRESHOLD CHECK ===
         // Same threshold as last recorded = true duplicate, skip
         if thresholdSeconds == lastThreshold && lastThreshold > 0 {
@@ -557,6 +566,35 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.removeObject(forKey: "phantom_buffer_timestamp")
         defaults.removeObject(forKey: "phantom_buffer_eventName")
         defaults.set(0, forKey: "rapid_fire_count_since_buffer")
+    }
+
+    /// Check if a reward app is currently locked (shielded)
+    /// Returns true if the app is a reward app AND is currently shielded
+    /// Used to filter phantom usage events for locked apps
+    private nonisolated func isRewardAppLocked(appID: String, defaults: UserDefaults) -> Bool {
+        // Check if this is a reward app
+        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Unknown"
+        guard category == "Reward" else { return false }
+
+        // Get the token for this reward app from extensionShieldConfigs
+        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
+              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+            return false
+        }
+
+        // Find the goalConfig for this appID
+        guard let goalConfig = configs.goalConfigs.first(where: { $0.rewardAppLogicalID == appID }) else {
+            return false
+        }
+
+        // Decode the token
+        guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
+            return false
+        }
+
+        // Check if token is in shields
+        let currentShields = managedSettingsStore.shield.applications ?? Set()
+        return currentShields.contains(token)
     }
 
     /// Record usage that has been validated (passed phantom filters and buffer check)
