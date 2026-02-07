@@ -1313,7 +1313,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// This timer polls and restarts AFTER phantom window + quiet period
     private func startPhantomCheckTimer() {
         phantomCheckTimer?.invalidate()
-        phantomCheckTimer = Timer.scheduledTimer(withTimeInterval: 30.0, repeats: true) { [weak self] _ in
+        phantomCheckTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
             Task { @MainActor in
                 self?.checkForPendingPhantomRestart()
             }
@@ -1323,7 +1323,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             RunLoop.current.add(timer, forMode: .common)
         }
         #if DEBUG
-        print("[ScreenTimeService] 🕐 Started phantom check timer (30s interval, RunLoop.common)")
+        print("[ScreenTimeService] 🕐 Started phantom check timer (15s interval, RunLoop.common)")
         #endif
     }
 
@@ -1337,7 +1337,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     /// Check if conditions are met for delayed phantom restart
-    /// Triggers restart when: phantom detected + window ended (60s) + quiet period (30s)
+    /// Triggers restart when: phantom detected + window ended (60s) + quiet period (20s)
     @MainActor
     private func checkForPendingPhantomRestart() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
@@ -1361,12 +1361,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Conditions for delayed restart:
         // 1. Phantom flood was detected (already checked above)
         // 2. Phantom window ended (> 60s since restart)
-        // 3. Quiet period passed (> 30s since last phantom event)
-        // 4. Not throttled (> 120s since last restart request)
+        // 3. Quiet period passed (> 20s since last phantom event)
+        // 4. Not throttled (> 90s since last restart request)
 
         if timeSinceRestart > 60.0
-            && timeSinceLastEvent > 30.0
-            && timeSinceLastRestartRequest > 120.0 {
+            && timeSinceLastEvent > 20.0
+            && timeSinceLastRestartRequest > 90.0 {
 
             print("[ScreenTimeService] 🔄 Triggering DELAYED phantom restart (window=\(Int(timeSinceRestart))s quiet=\(Int(timeSinceLastEvent))s)")
 
