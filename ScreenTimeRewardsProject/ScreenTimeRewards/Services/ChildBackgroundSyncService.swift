@@ -138,6 +138,15 @@ class ChildBackgroundSyncService: ObservableObject {
         print("[ChildBackgroundSyncService] Handling usage upload task")
         #endif
 
+        // Skip if subscription expired
+        guard SubscriptionManager.shared.hasAccess else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⏭️ Skipping upload - subscription expired")
+            #endif
+            task.setTaskCompleted(success: true)
+            return
+        }
+
         // Check if still paired with parent before syncing
         guard DevicePairingService.shared.hasValidPairing() else {
             #if DEBUG
@@ -181,6 +190,15 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling config check task")
         #endif
+
+        // Skip if subscription expired
+        guard SubscriptionManager.shared.hasAccess else {
+            #if DEBUG
+            print("[ChildBackgroundSyncService] ⏭️ Skipping config check - subscription expired")
+            #endif
+            task.setTaskCompleted(success: true)
+            return
+        }
 
         // Check if still paired with parent before syncing
         guard DevicePairingService.shared.hasValidPairing() else {

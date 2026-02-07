@@ -202,3 +202,35 @@ export const checkParentSubscription = functions.https.onCall(async (data: Check
     maxChildren
   };
 });
+
+/**
+ * Mark a family's subscription as expired
+ * Called when parent downgrades to Solo or subscription expires
+ */
+interface MarkFamilyExpiredData {
+  familyId: string;
+}
+
+export const markFamilyExpired = functions.https.onCall(async (data: MarkFamilyExpiredData, context) => {
+  const { familyId } = data;
+
+  if (!familyId) {
+    throw new functions.https.HttpsError('invalid-argument', 'Missing familyId');
+  }
+
+  const familyRef = db.collection('families').doc(familyId);
+  const familyDoc = await familyRef.get();
+
+  if (!familyDoc.exists) {
+    throw new functions.https.HttpsError('not-found', 'Family not found');
+  }
+
+  await familyRef.update({
+    subscriptionStatus: 'expired',
+    updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+  });
+
+  console.log(`Marked family ${familyId} as expired`);
+
+  return { success: true };
+});

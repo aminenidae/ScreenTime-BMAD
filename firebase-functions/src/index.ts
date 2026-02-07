@@ -11,5 +11,5 @@ admin.initializeApp();
 // Export all functions
 export { createFamily, updateFamilySubscription } from './family';
 export { createPairingToken, validateChildPairing, validateCoParentJoin } from './pairing';
-export { verifyFamilySubscription, updateSubscriptionStatus, checkParentSubscription } from './subscription';
+export { verifyFamilySubscription, updateSubscriptionStatus, checkParentSubscription, markFamilyExpired } from './subscription';
 export { revenueCatWebhook } from './webhooks';

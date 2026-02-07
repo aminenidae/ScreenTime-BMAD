@@ -48,6 +48,24 @@ struct SubscriptionLockoutView: View {
                 Text("You can still review your data from Settings.")
                     .font(.system(size: 12))
                     .foregroundColor(.secondary)
+
+                #if DEBUG
+                // Debug bypass button for testing
+                Button {
+                    Task {
+                        await activateDevSubscription()
+                    }
+                } label: {
+                    Text("🔓 DEV: Bypass Subscription")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(.orange)
+                        .padding(.vertical, 8)
+                        .padding(.horizontal, 16)
+                        .background(Color.orange.opacity(0.1))
+                        .cornerRadius(8)
+                }
+                .padding(.bottom, 16)
+                #endif
             }
         }
         .sheet(isPresented: $showPaywall) {
@@ -62,4 +80,28 @@ struct SubscriptionLockoutView: View {
             }
         }
     }
+
+    #if DEBUG
+    /// Activate dev subscription and restart monitoring (DEBUG only)
+    private func activateDevSubscription() async {
+        // Choose tier based on device mode
+        let tier: SubscriptionTier = modeManager.currentMode == .childDevice ? .solo : .individual
+
+        // Activate the dev subscription
+        subscriptionManager.activateDevSubscription(tier: tier)
+
+        // Restart monitoring services for child device
+        if modeManager.currentMode == .childDevice {
+            BlockingCoordinator.shared.startPeriodicRefresh()
+            let currentTokens = BlockingCoordinator.shared.currentRewardTokens
+            if !currentTokens.isEmpty {
+                ScreenTimeService.shared.syncRewardAppShields(currentRewardTokens: currentTokens)
+            }
+            ChildBackgroundSyncService.shared.scheduleNextUsageUpload()
+            ChildBackgroundSyncService.shared.scheduleNextConfigCheck()
+        }
+
+        print("[SubscriptionLockoutView] 🔓 DEV subscription activated: \(tier.displayName)")
+    }
+    #endif
 }

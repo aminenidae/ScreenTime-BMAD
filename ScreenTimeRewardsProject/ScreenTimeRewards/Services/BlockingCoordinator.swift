@@ -59,7 +59,7 @@ class BlockingCoordinator: ObservableObject {
     // MARK: - Refresh Timer
 
     private var refreshTimer: Timer?
-    private var currentRewardTokens: Set<ApplicationToken> = []
+    private(set) var currentRewardTokens: Set<ApplicationToken> = []
 
     // MARK: - Initialization
 
@@ -1182,6 +1182,15 @@ class BlockingCoordinator: ObservableObject {
     func startPeriodicRefresh() {
         stopPeriodicRefresh()
 
+        // Don't start monitoring if subscription expired
+        guard SubscriptionManager.shared.hasAccess else {
+            #if DEBUG
+            print("[BlockingCoordinator] Subscription expired - not starting periodic refresh")
+            #endif
+            ScreenTimeService.shared.clearAllShields()
+            return
+        }
+
         #if DEBUG
         print("[BlockingCoordinator] Starting periodic refresh (60s interval)")
         #endif
@@ -1206,6 +1215,15 @@ class BlockingCoordinator: ObservableObject {
 
     /// Refresh all blocking states for currently tracked reward apps
     func refreshAllBlockingStates() {
+        // Stop monitoring if subscription expired
+        guard SubscriptionManager.shared.hasAccess else {
+            #if DEBUG
+            print("[BlockingCoordinator] Subscription expired - clearing all shields")
+            #endif
+            ScreenTimeService.shared.clearAllShields()
+            return
+        }
+
         guard !currentRewardTokens.isEmpty else {
             return
         }

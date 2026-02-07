@@ -276,6 +276,32 @@ final class FirebaseValidationService: ObservableObject {
         #endif
     }
 
+    /// Mark a family's subscription as expired
+    /// Called when parent downgrades to Solo or subscription expires
+    func markFamilyExpired(familyId: String) async throws {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+
+        let data: [String: Any] = [
+            "familyId": familyId
+        ]
+
+        do {
+            _ = try await functions.httpsCallable("markFamilyExpired").call(data)
+
+            #if DEBUG
+            print("[FirebaseValidation] Marked family as expired: \(familyId)")
+            #endif
+        } catch {
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        throw FirebaseValidationError.notConfigured
+        #endif
+    }
+
     /// Create a pairing token for child or co-parent
     func createPairingToken(
         familyId: String,
