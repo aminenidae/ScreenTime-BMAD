@@ -479,10 +479,10 @@ final class FirebaseValidationService: ObservableObject {
 
             return isValid
         } catch {
-            // On network error, use cached value with grace period
+            // On network error, use cached value with grace period (3 days max)
             if let lastVerification = UserDefaults.standard.object(forKey: "firebase_last_verification") as? Date {
                 let daysSinceVerification = Calendar.current.dateComponents([.day], from: lastVerification, to: Date()).day ?? 0
-                if daysSinceVerification <= 7 {
+                if daysSinceVerification <= 3 {
                     // Within grace period - use cached value
                     return UserDefaults.standard.bool(forKey: "firebase_subscription_valid")
                 }

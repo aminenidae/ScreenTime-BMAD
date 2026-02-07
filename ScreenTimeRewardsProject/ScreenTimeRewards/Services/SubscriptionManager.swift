@@ -633,9 +633,14 @@ final class SubscriptionManager: NSObject, ObservableObject {
         }
     }
 
-    /// Whether the subscription allows pairing with parent devices
+    /// Whether the subscription allows pairing with child devices
+    /// Trial users CAN pair (to set up before subscribing)
+    /// Solo users CANNOT pair (no children allowed)
     var allowsParentPairing: Bool {
-        currentTier.requiresParentDevice && hasAccess
+        // Solo subscribers cannot pair - no children allowed
+        guard currentTier != .solo else { return false }
+        // Everyone else (trial, individual, family) can pair if they have access
+        return hasAccess
     }
 
     /// Whether the subscription is Solo (single device, no pairing)

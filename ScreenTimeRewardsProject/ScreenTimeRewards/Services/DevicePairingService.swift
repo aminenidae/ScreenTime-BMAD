@@ -269,6 +269,14 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] 🔵 Starting createPairingSession...")
         #endif
 
+        // Check if subscription allows pairing (Solo cannot pair)
+        guard SubscriptionManager.shared.allowsParentPairing else {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Subscription doesn't allow pairing (Solo or no access)")
+            #endif
+            throw PairingError.soloCannotPair
+        }
+
         // Check subscription limit - this also verifies CloudKit availability
         #if DEBUG
         print("[DevicePairingService] 🔵 Fetching linked child devices to check limit...")
@@ -465,11 +473,11 @@ class DevicePairingService: ObservableObject {
                 print("[DevicePairingService] ❌ Parent subscription check failed: \(reason ?? "unknown")")
                 #endif
 
+                // Note: Trial parents ARE allowed to pair (trial_subscription is not a rejection reason)
+                // Only Solo and expired subscriptions are blocked
                 switch reason {
                 case "solo_subscription":
                     throw PairingError.soloCannotPair
-                case "trial_subscription":
-                    throw PairingError.parentInTrial
                 case "subscription_expired":
                     throw PairingError.subscriptionExpired
                 case "child_limit_reached":

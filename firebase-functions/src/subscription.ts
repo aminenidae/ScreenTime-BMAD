@@ -164,18 +164,10 @@ export const checkParentSubscription = functions.https.onCall(async (data: Check
     };
   }
 
-  // Trial subscription cannot have children
-  if (subscriptionTier === 'trial' || subscriptionStatus === 'trial') {
-    return {
-      isValid: false,
-      reason: 'trial_subscription',
-      subscriptionTier,
-      subscriptionStatus
-    };
-  }
-
-  // Check if subscription is active
-  const validStatuses = ['active', 'grace'];
+  // Trial parents CAN pair with children - pairing is allowed during trial
+  // Access is determined by subscription status AFTER trial ends
+  // Only block expired subscriptions (trial ended without subscribing)
+  const validStatuses = ['active', 'grace', 'trial'];
   const isValid = validStatuses.includes(subscriptionStatus);
 
   if (!isValid) {
