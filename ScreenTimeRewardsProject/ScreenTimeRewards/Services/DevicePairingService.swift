@@ -501,6 +501,15 @@ class DevicePairingService: ObservableObject {
             // Allow pairing if Firebase is unavailable (legacy mode/offline)
         }
 
+        // Check QR code expiration (10 minutes)
+        let expirationTime = payload.timestamp.addingTimeInterval(600)
+        if Date() > expirationTime {
+            #if DEBUG
+            print("[DevicePairingService] ❌ QR code expired (older than 10 minutes)")
+            #endif
+            throw PairingError.tokenExpired
+        }
+
         isPairing = true
         defer { isPairing = false }
 
