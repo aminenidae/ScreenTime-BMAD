@@ -795,6 +795,8 @@ private struct UsageBarChart: View {
     let categoryColor: Color
     let colorScheme: ColorScheme
 
+    @State private var selectedDate: Date?
+
     var body: some View {
         if #available(iOS 16.0, *) {
             chartView
@@ -816,6 +818,7 @@ private struct UsageBarChart: View {
     @available(iOS 16.0, *)
     private var chartView: some View {
         let sortedData = data.sorted { $0.date < $1.date }
+        let maxY = max(Double(sortedData.map { $0.minutes }.max() ?? 0), 1) * 1.15
 
         return Chart {
             ForEach(sortedData, id: \.date) { item in
@@ -824,6 +827,31 @@ private struct UsageBarChart: View {
                     y: .value("Minutes", item.minutes)
                 )
                 .foregroundStyle(categoryColor.gradient)
+            }
+
+            // Selection indicator
+            if let selectedDate = selectedDate,
+               let item = sortedData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedDate, toGranularity: xAxisUnit) }) {
+                RuleMark(x: .value("Selected", selectedDate, unit: xAxisUnit))
+                    .foregroundStyle(categoryColor.opacity(0.3))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                    .annotation(position: .top, alignment: .center, spacing: 4) {
+                        VStack(spacing: 2) {
+                            Text(selectedDateLabel(for: selectedDate))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                            Text("\(item.minutes)m")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(categoryColor)
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(AppTheme.card(for: colorScheme))
+                                .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                        )
+                    }
             }
         }
         .chartXAxis {
@@ -853,6 +881,7 @@ private struct UsageBarChart: View {
             }
         }
         .chartLegend(.hidden)
+        .chartYScale(domain: 0...maxY)
         .chartPlotStyle { plotArea in
             plotArea
                 .background(
@@ -860,6 +889,38 @@ private struct UsageBarChart: View {
                         .fill(categoryColor.opacity(0.03))
                 )
         }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                if let date: Date = proxy.value(atX: xPos) {
+                                    selectedDate = date
+                                }
+                            }
+                            .onEnded { _ in
+                                selectedDate = nil
+                            }
+                    )
+            }
+        }
+    }
+
+    private func selectedDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        switch timeRange {
+        case .daily:
+            formatter.dateFormat = "EEE, MMM d"
+        case .weekly:
+            formatter.dateFormat = "'Week of' MMM d"
+        case .monthly:
+            formatter.dateFormat = "MMMM yyyy"
+        }
+        return formatter.string(from: date)
     }
 
     private func xAxisLabel(for date: Date) -> String {

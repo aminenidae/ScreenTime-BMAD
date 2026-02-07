@@ -5,6 +5,7 @@ struct DailyUsageChartCard: View {
     @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.colorScheme) var colorScheme
     @State private var selectedPeriod: TimePeriod = .daily
+    @State private var selectedDate: Date?
 
     enum TimePeriod: String, CaseIterable, Identifiable {
         case hourly = "Hourly"
@@ -128,6 +129,11 @@ struct DailyUsageChartCard: View {
             }
         }()
 
+        // Calculate max Y value to lock the scale (prevents rescaling when annotation appears)
+        let maxLearning = learningData.map { $0.minutes }.max() ?? 0
+        let maxReward = rewardData.map { $0.minutes }.max() ?? 0
+        let maxY = max(Double(maxLearning + maxReward), 1) * 1.15  // 15% padding for annotation
+
         return Chart {
             // Learning bars - stacked for hourly, side-by-side otherwise
             ForEach(learningData, id: \.date) { item in
@@ -164,6 +170,36 @@ struct DailyUsageChartCard: View {
                     .position(by: .value("Category", "Reward"))
                 }
             }
+
+            // Selection indicator
+            if let selectedDate = selectedDate {
+                let learningMin = learningData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedDate, toGranularity: xAxisUnit) })?.minutes ?? 0
+                let rewardMin = rewardData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedDate, toGranularity: xAxisUnit) })?.minutes ?? 0
+
+                RuleMark(x: .value("Selected", selectedDate, unit: xAxisUnit))
+                    .foregroundStyle(AppTheme.vibrantTeal.opacity(0.3))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                    .annotation(position: .top, alignment: .center, spacing: 4) {
+                        VStack(spacing: 2) {
+                            Text(selectedDateLabel(for: selectedDate))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                            Text("\(learningMin + rewardMin)m")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("Learning: \(learningMin)m | Reward: \(rewardMin)m")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(AppTheme.card(for: colorScheme))
+                                .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                        )
+                    }
+            }
         }
         .chartXAxis {
             AxisMarks(values: .stride(by: xAxisUnit, count: isHourly ? 3 : 1)) { value in
@@ -192,6 +228,7 @@ struct DailyUsageChartCard: View {
             }
         }
         .chartLegend(.hidden) // We have our own legend
+        .chartYScale(domain: 0...maxY)
         .chartPlotStyle { plotArea in
             plotArea
                 .background(
@@ -199,6 +236,40 @@ struct DailyUsageChartCard: View {
                         .fill(AppTheme.vibrantTeal.opacity(0.03))
                 )
         }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                if let date: Date = proxy.value(atX: xPos) {
+                                    selectedDate = date
+                                }
+                            }
+                            .onEnded { _ in
+                                selectedDate = nil
+                            }
+                    )
+            }
+        }
+    }
+
+    private func selectedDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        switch selectedPeriod {
+        case .hourly:
+            formatter.dateFormat = "h a"
+        case .daily:
+            formatter.dateFormat = "EEE, MMM d"
+        case .weekly:
+            formatter.dateFormat = "'Week of' MMM d"
+        case .monthly:
+            formatter.dateFormat = "MMMM yyyy"
+        }
+        return formatter.string(from: date)
     }
 
     // MARK: - Data Functions

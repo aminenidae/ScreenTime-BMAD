@@ -168,6 +168,7 @@ private struct StatItem: View {
 private struct UsageTrendChart: View {
     let dailyTotals: [(date: Date, learningSeconds: Int, rewardSeconds: Int)]
     @Environment(\.colorScheme) var colorScheme
+    @State private var selectedDate: Date?
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -190,6 +191,9 @@ private struct UsageTrendChart: View {
     @available(iOS 16.0, *)
     private var chartView: some View {
         let sortedData = dailyTotals.sorted { $0.date < $1.date }
+        let maxLearning = sortedData.map { $0.learningSeconds / 60 }.max() ?? 0
+        let maxReward = sortedData.map { $0.rewardSeconds / 60 }.max() ?? 0
+        let maxY = max(Double(max(maxLearning, maxReward)), 1) * 1.15
 
         return Chart {
             ForEach(sortedData, id: \.date) { item in
@@ -206,6 +210,37 @@ private struct UsageTrendChart: View {
                 )
                 .foregroundStyle(AppTheme.playfulCoral.gradient)
                 .position(by: .value("Category", "Reward"))
+            }
+
+            // Selection indicator
+            if let selectedDate = selectedDate,
+               let item = sortedData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedDate, toGranularity: .day) }) {
+                let learningMin = item.learningSeconds / 60
+                let rewardMin = item.rewardSeconds / 60
+
+                RuleMark(x: .value("Selected", selectedDate, unit: .day))
+                    .foregroundStyle(AppTheme.vibrantTeal.opacity(0.3))
+                    .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                    .annotation(position: .top, alignment: .center, spacing: 4) {
+                        VStack(spacing: 2) {
+                            Text(selectedDateLabel(for: selectedDate))
+                                .font(.system(size: 10, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                            Text("\(learningMin + rewardMin)m")
+                                .font(.system(size: 14, weight: .bold))
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("Learning: \(learningMin)m | Reward: \(rewardMin)m")
+                                .font(.system(size: 9, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                        }
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(
+                            RoundedRectangle(cornerRadius: 6)
+                                .fill(AppTheme.card(for: colorScheme))
+                                .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                        )
+                    }
             }
         }
         .chartXAxis {
@@ -235,6 +270,7 @@ private struct UsageTrendChart: View {
             }
         }
         .chartLegend(.hidden)
+        .chartYScale(domain: 0...maxY)
         .chartPlotStyle { plotArea in
             plotArea
                 .background(
@@ -242,6 +278,31 @@ private struct UsageTrendChart: View {
                         .fill(AppTheme.vibrantTeal.opacity(0.03))
                 )
         }
+        .chartOverlay { proxy in
+            GeometryReader { geometry in
+                Rectangle()
+                    .fill(Color.clear)
+                    .contentShape(Rectangle())
+                    .gesture(
+                        DragGesture(minimumDistance: 0)
+                            .onChanged { value in
+                                let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                if let date: Date = proxy.value(atX: xPos) {
+                                    selectedDate = date
+                                }
+                            }
+                            .onEnded { _ in
+                                selectedDate = nil
+                            }
+                    )
+            }
+        }
+    }
+
+    private func selectedDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, MMM d"
+        return formatter.string(from: date)
     }
 
     private func formatDateLabel(_ date: Date) -> String {

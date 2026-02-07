@@ -564,6 +564,7 @@ private struct HourlyUsageChartCard: View {
     let accentColor: Color
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedHour: Date?
 
     private var hourlyData: [(date: Date, minutes: Int)] {
         guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
@@ -621,6 +622,7 @@ private struct HourlyUsageChartCard: View {
             if totalMinutes == 0 {
                 emptyStateView
             } else {
+                let maxY = max(Double(hourlyData.map { $0.minutes }.max() ?? 0), 1) * 1.15
                 Chart {
                     ForEach(hourlyData, id: \.date) { item in
                         BarMark(
@@ -629,6 +631,31 @@ private struct HourlyUsageChartCard: View {
                         )
                         .foregroundStyle(accentColor.gradient)
                         .cornerRadius(AppTheme.CornerRadius.small)
+                    }
+
+                    // Selection indicator
+                    if let selectedHour = selectedHour,
+                       let item = hourlyData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedHour, toGranularity: .hour) }) {
+                        RuleMark(x: .value("Selected", selectedHour, unit: .hour))
+                            .foregroundStyle(accentColor.opacity(0.3))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                            .annotation(position: .top, alignment: .center, spacing: 4) {
+                                VStack(spacing: 2) {
+                                    Text(selectedHourLabel(for: selectedHour))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                                    Text("\(item.minutes)m")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(accentColor)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(AppTheme.card(for: colorScheme))
+                                        .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                                )
+                            }
                     }
                 }
                 .frame(height: 160)
@@ -658,12 +685,32 @@ private struct HourlyUsageChartCard: View {
                             .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                     }
                 }
+                .chartYScale(domain: 0...maxY)
                 .chartPlotStyle { plotArea in
                     plotArea
                         .background(
                             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
                                 .fill(AppTheme.vibrantTeal.opacity(0.03))
                         )
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { geometry in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                        if let date: Date = proxy.value(atX: xPos) {
+                                            selectedHour = date
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        selectedHour = nil
+                                    }
+                            )
+                    }
                 }
             }
         }
@@ -690,6 +737,12 @@ private struct HourlyUsageChartCard: View {
         let hour = Calendar.current.component(.hour, from: date)
         return String(format: "%02d", hour)
     }
+
+    private func selectedHourLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h a"
+        return formatter.string(from: date)
+    }
 }
 
 
@@ -712,7 +765,7 @@ private struct AppUsageChart: View {
 
     @Environment(\.colorScheme) private var colorScheme // Added for AppTheme.background
 
-
+    @State private var selectedDate: Date?
 
     enum ChartPeriod: String, CaseIterable {
         case daily = "Daily"
@@ -799,7 +852,7 @@ private struct AppUsageChart: View {
                 emptyStateView
 
             } else {
-
+                let maxY = max(Double(chartData.map { $0.minutes }.max() ?? 0), 1) * 1.15
                 Chart {
 
                     ForEach(chartData, id: \.date) { item in
@@ -816,6 +869,31 @@ private struct AppUsageChart: View {
 
                         .cornerRadius(AppTheme.CornerRadius.small) // Use AppTheme corner radius
 
+                    }
+
+                    // Selection indicator
+                    if let selectedDate = selectedDate,
+                       let item = chartData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedDate, toGranularity: xAxisUnit) }) {
+                        RuleMark(x: .value("Selected", selectedDate, unit: xAxisUnit))
+                            .foregroundStyle(accentColor.opacity(0.3))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                            .annotation(position: .top, alignment: .center, spacing: 4) {
+                                VStack(spacing: 2) {
+                                    Text(selectedDateLabel(for: selectedDate))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                                    Text("\(item.minutes)m")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(accentColor)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(AppTheme.card(for: colorScheme))
+                                        .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                                )
+                            }
                     }
 
                 }
@@ -873,6 +951,7 @@ private struct AppUsageChart: View {
                     }
 
                 }
+                .chartYScale(domain: 0...maxY)
 
                 .chartPlotStyle { plotArea in
 
@@ -886,6 +965,25 @@ private struct AppUsageChart: View {
 
                         )
 
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { geometry in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                        if let date: Date = proxy.value(atX: xPos) {
+                                            selectedDate = date
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        selectedDate = nil
+                                    }
+                            )
+                    }
                 }
 
             }
@@ -1108,6 +1206,19 @@ private struct AppUsageChart: View {
 
         }
 
+    }
+
+    private func selectedDateLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        switch selectedPeriod {
+        case .daily:
+            formatter.dateFormat = "EEE, MMM d"
+        case .weekly:
+            formatter.dateFormat = "'Week of' MMM d"
+        case .monthly:
+            formatter.dateFormat = "MMMM yyyy"
+        }
+        return formatter.string(from: date)
     }
 
 }
