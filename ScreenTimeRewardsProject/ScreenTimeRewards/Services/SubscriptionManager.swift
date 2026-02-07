@@ -240,17 +240,19 @@ final class SubscriptionManager: NSObject, ObservableObject {
         if entitlement.periodType == .trial {
             return .trial
         } else if entitlement.isActive {
-            if entitlement.willRenew {
-                return .active
-            } else {
-                // Active but won't renew - still has access until expiry
-                return .active
-            }
+            // Active subscription (whether renewing or not)
+            return .active
         } else if entitlement.billingIssueDetectedAt != nil {
+            // Billing issue - RevenueCat grace period
             return .grace
-        } else {
-            return .expired
+        } else if let expiryDate = entitlement.expirationDate {
+            // Check if within our app's grace period after expiration
+            let gracePeriodEnd = expiryDate.addingTimeInterval(gracePeriodDuration)
+            if Date() < gracePeriodEnd {
+                return .grace
+            }
         }
+        return .expired
     }
 
     /// Sync local CoreData with RevenueCat status
@@ -595,11 +597,31 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     // MARK: - Firebase Family Management
 
-    /// Create a Firebase family after subscription purchase (for Individual/Family tiers)
+    /// Create or update Firebase family for pairing tiers (Individual/Family)
+    /// Handles upgrades from Solo (which has no family) to pairing tiers
     func createFirebaseFamilyIfNeeded() async {
-        // Only create Firebase family for tiers that require parent device
+        // Only for tiers that require parent device (pairing tiers)
         guard currentTier.requiresParentDevice else { return }
+        guard deviceManager.currentMode == .parentDevice else { return }
 
+        // Check if family already exists (e.g., re-subscribing or upgrading from Individual to Family)
+        if let familyId = FirebaseValidationService.shared.currentFamilyId {
+            // Family exists - update tier (in case of upgrade/downgrade)
+            do {
+                try await FirebaseValidationService.shared.updateFamilySubscription(
+                    familyId: familyId,
+                    subscriptionTier: currentTier
+                )
+                #if DEBUG
+                print("[SubscriptionManager] Updated existing Firebase family: \(familyId)")
+                #endif
+            } catch {
+                print("[SubscriptionManager] Failed to update Firebase family: \(error)")
+            }
+            return
+        }
+
+        // No family exists - create one (upgrading from Solo or Trial)
         do {
             let familyId = try await FirebaseValidationService.shared.createFamily(subscriptionTier: currentTier)
 
@@ -619,6 +641,122 @@ final class SubscriptionManager: NSObject, ObservableObject {
     /// Whether the subscription is Solo (single device, no pairing)
     var isSoloSubscription: Bool {
         currentTier == .solo
+    }
+
+    /// Whether this is a child device receiving subscription access from a parent
+    /// True when child device has Individual/Family tier (which can only come from parent pairing)
+    var isParentPairedSubscription: Bool {
+        deviceManager.currentMode == .childDevice &&
+        (currentTier == .individual || currentTier == .family)
+    }
+
+    // MARK: - Excess Children Detection
+
+    /// Check if current paired children exceed tier limit (async - requires CloudKit query)
+    /// Returns (hasExcess, currentCount, limit, excessCount)
+    func checkExcessPairedChildren() async -> (hasExcess: Bool, currentCount: Int, limit: Int, excessCount: Int) {
+        guard deviceManager.currentMode == .parentDevice else {
+            return (false, 0, 0, 0)
+        }
+
+        let limit = currentTier.childDeviceLimit
+
+        do {
+            let devices = try await CloudKitSyncService.shared.fetchLinkedChildDevices()
+            let currentCount = devices.count
+            let excessCount = max(0, currentCount - limit)
+            let hasExcess = currentCount > limit
+
+            return (hasExcess, currentCount, limit, excessCount)
+        } catch {
+            #if DEBUG
+            print("[SubscriptionManager] Failed to fetch paired children: \(error)")
+            #endif
+            return (false, 0, limit, 0)
+        }
+    }
+
+    /// Whether child's inherited subscription has expired
+    var isParentSubscriptionExpired: Bool {
+        guard isParentPairedSubscription else { return false }
+        guard let expiryDate = subscription?.expiryDate else { return false }
+        return Date() > expiryDate
+    }
+
+    /// Whether child is paired with parent but parent doesn't have active subscription
+    /// This happens when: child paired during trial, but parent never subscribed, or parent subscription expired
+    var isPairedButParentNotSubscribed: Bool {
+        guard deviceManager.currentMode == .childDevice else { return false }
+
+        // Check if child has any paired parents
+        let hasPairedParent = DevicePairingService.shared.getPairedParentCount() > 0
+
+        guard hasPairedParent else { return false }
+
+        // Child is paired but still on trial tier or expired status
+        // (If parent had valid subscription, child would have Individual/Family tier)
+        return currentTier == .trial && (currentStatus == .expired || currentStatus == .trial)
+    }
+
+    // MARK: - Child Device Subscription Refresh
+
+    /// Refresh parent subscription status (child device only)
+    /// Called on app foreground to detect parent tier changes/expiration
+    func refreshParentSubscriptionIfNeeded() async {
+        guard deviceManager.currentMode == .childDevice else { return }
+
+        // Get paired parent device ID
+        let pairedParents = DevicePairingService.shared.getPairedParents()
+        guard let primaryParent = pairedParents.first else {
+            #if DEBUG
+            print("[SubscriptionManager] No paired parent - skipping refresh")
+            #endif
+            return
+        }
+
+        do {
+            let (tier, status, isValid) = try await CloudKitSyncService.shared.fetchParentSubscriptionStatus(
+                parentDeviceID: primaryParent.id
+            )
+
+            if isValid {
+                // Update tier if parent subscription is valid
+                if tier == .individual || tier == .family {
+                    if currentTier != tier {
+                        currentTier = tier
+                        #if DEBUG
+                        print("[SubscriptionManager] Updated child tier from parent: \(tier.rawValue)")
+                        #endif
+                    }
+                    currentStatus = status
+                } else {
+                    // Parent downgraded to Solo or Trial (can't have children)
+                    currentTier = .trial
+                    currentStatus = .expired
+                    #if DEBUG
+                    print("[SubscriptionManager] Parent downgraded - child access revoked")
+                    #endif
+                }
+            } else {
+                // Parent subscription expired/invalid
+                currentTier = .trial
+                currentStatus = .expired
+                #if DEBUG
+                print("[SubscriptionManager] Parent subscription invalid - child access revoked")
+                #endif
+            }
+
+            // Update local subscription record
+            if let sub = subscription {
+                sub.tierEnum = currentTier
+                sub.statusEnum = currentStatus
+                try? sub.managedObjectContext?.save()
+            }
+        } catch {
+            #if DEBUG
+            print("[SubscriptionManager] Failed to refresh parent status: \(error)")
+            #endif
+        }
     }
 
     // MARK: - Keychain Helpers (Trial Protection)
@@ -751,11 +889,31 @@ final class SubscriptionManager: NSObject, ObservableObject {
 extension SubscriptionManager: PurchasesDelegate {
     nonisolated func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
         Task { @MainActor in
+            let previousTier = self.currentTier
+
             self.customerInfo = customerInfo
             self.updateTierFromCustomerInfo()
 
             // Sync to CloudKit when subscription status changes
             await self.syncSubscriptionToCloudKit()
+
+            // Update Firebase family if tier changed and this is a parent device with pairing tier
+            if previousTier != self.currentTier,
+               self.deviceManager.currentMode == .parentDevice,
+               self.currentTier.requiresParentDevice,
+               let familyId = FirebaseValidationService.shared.currentFamilyId {
+                do {
+                    try await FirebaseValidationService.shared.updateFamilySubscription(
+                        familyId: familyId,
+                        subscriptionTier: self.currentTier
+                    )
+                    #if DEBUG
+                    print("[SubscriptionManager] Updated Firebase family for tier change: \(previousTier.rawValue) → \(self.currentTier.rawValue)")
+                    #endif
+                } catch {
+                    print("[SubscriptionManager] Failed to update Firebase family: \(error)")
+                }
+            }
 
             #if DEBUG
             print("[SubscriptionManager] Customer info updated via delegate")

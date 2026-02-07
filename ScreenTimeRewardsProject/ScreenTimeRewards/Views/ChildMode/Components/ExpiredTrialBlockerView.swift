@@ -123,16 +123,11 @@ struct ExpiredTrialBlockerView: View {
             ChildPairingPromptView()
         }
         .sheet(isPresented: $showPaywall) {
-            NavigationView {
-                SubscriptionPaywallView(
-                    isOnboarding: false,
-                    onComplete: {
-                        // Dismiss paywall when subscription is successful
-                        showPaywall = false
-                    }
-                )
-                .environmentObject(subscriptionManager)
-            }
+            // Child device: Show Solo plan only via ChildSubscriptionView
+            ChildSubscriptionView(onComplete: {
+                showPaywall = false
+            })
+            .environmentObject(subscriptionManager)
         }
     }
 }

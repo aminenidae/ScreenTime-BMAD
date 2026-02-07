@@ -159,6 +159,8 @@ struct SettingsTabView: View {
 
         .sheet(isPresented: $showingSubscriptionManagement) {
             SubscriptionManagementView()
+                .environmentObject(subscriptionManager)
+                .environmentObject(modeManager)
         }
 
         .sheet(isPresented: $showingPairingConfig) {
@@ -402,18 +404,25 @@ private extension SettingsTabView {
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                    Text(subscriptionManager.currentTierName)
-                        .font(.system(size: 12, weight: .bold))
-                        .foregroundColor(AppTheme.sunnyYellow)
+                    if subscriptionManager.isParentPairedSubscription {
+                        // Child device paired with parent
+                        Text("Managed by Parent")
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    } else {
+                        Text(subscriptionManager.currentTierName)
+                            .font(.system(size: 12, weight: .bold))
+                            .foregroundColor(AppTheme.sunnyYellow)
 
-                    if subscriptionManager.isInTrial, let days = subscriptionManager.trialDaysRemaining {
-                        Text("\(days) days left in trial")
-                            .font(.system(size: 11, weight: .medium))
-                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                    } else if subscriptionManager.isInGracePeriod {
-                        Text("Grace Period")
-                            .font(.system(size: 11, weight: .bold))
-                            .foregroundColor(AppTheme.playfulCoral)
+                        if subscriptionManager.isInTrial, let days = subscriptionManager.trialDaysRemaining {
+                            Text("\(days) days left in trial")
+                                .font(.system(size: 11, weight: .medium))
+                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                        } else if subscriptionManager.isInGracePeriod {
+                            Text("Grace Period")
+                                .font(.system(size: 11, weight: .bold))
+                                .foregroundColor(AppTheme.playfulCoral)
+                        }
                     }
                 }
 
@@ -759,7 +768,7 @@ private extension SettingsTabView {
     }
 
     var helpSupportRow: some View {
-        Link(destination: URL(string: "https://screentimerewards.app/support")!) {
+        Link(destination: URL(string: "https://i6dev.ca/screentimerewards/support.html")!) {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)

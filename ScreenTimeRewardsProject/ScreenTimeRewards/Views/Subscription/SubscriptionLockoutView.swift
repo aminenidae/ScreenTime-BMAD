@@ -3,6 +3,7 @@ import SwiftUI
 struct SubscriptionLockoutView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @Environment(\.colorScheme) private var colorScheme
+    @StateObject private var modeManager = DeviceModeManager.shared
     @State private var showPaywall = false
 
     var body: some View {
@@ -50,7 +51,15 @@ struct SubscriptionLockoutView: View {
             }
         }
         .sheet(isPresented: $showPaywall) {
-            SubscriptionPaywallView()
+            if modeManager.currentMode == .childDevice {
+                // Child device: Solo plan only
+                ChildSubscriptionView()
+                    .environmentObject(subscriptionManager)
+            } else {
+                // Parent device: Individual + Family plans
+                SubscriptionPaywallView()
+                    .environmentObject(subscriptionManager)
+            }
         }
     }
 }

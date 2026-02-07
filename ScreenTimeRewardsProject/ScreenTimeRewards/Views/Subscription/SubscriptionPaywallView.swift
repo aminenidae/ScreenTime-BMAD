@@ -387,9 +387,9 @@ private extension SubscriptionPaywallView {
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 16) {
-                Link("Terms of Service", destination: URL(string: "https://screentimerewards.com/terms")!)
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/screentimerewards/terms.html")!)
                 Text("•")
-                Link("Privacy Policy", destination: URL(string: "https://screentimerewards.com/privacy")!)
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/screentimerewards/privacy.html")!)
             }
             .font(.system(size: 11))
             .foregroundColor(.secondary)

@@ -243,6 +243,39 @@ final class FirebaseValidationService: ObservableObject {
         #endif
     }
 
+    /// Current family ID if this device is part of a family
+    var currentFamilyId: String? {
+        UserDefaults.standard.string(forKey: "firebase_family_id")
+    }
+
+    /// Update family's subscription tier (called when parent upgrades/downgrades)
+    /// Updates maxChildren limit in Firebase to match new tier
+    func updateFamilySubscription(familyId: String, subscriptionTier: SubscriptionTier) async throws {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+
+        let data: [String: Any] = [
+            "familyId": familyId,
+            "subscriptionTier": subscriptionTier.rawValue,
+            "maxChildren": subscriptionTier.childDeviceLimit
+        ]
+
+        do {
+            _ = try await functions.httpsCallable("updateFamilySubscription").call(data)
+
+            #if DEBUG
+            print("[FirebaseValidation] Updated family subscription: \(subscriptionTier.rawValue), maxChildren: \(subscriptionTier.childDeviceLimit)")
+            #endif
+        } catch {
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        throw FirebaseValidationError.notConfigured
+        #endif
+    }
+
     /// Create a pairing token for child or co-parent
     func createPairingToken(
         familyId: String,
@@ -459,6 +492,47 @@ final class FirebaseValidationService: ObservableObject {
         #else
         // If Firebase not configured, allow access (legacy mode)
         return true
+        #endif
+    }
+
+    /// Check if a parent device has an active subscription that can accept children
+    /// Used by legacy pairing path before accepting CloudKit share
+    func checkParentSubscription(parentDeviceId: String) async throws -> (isValid: Bool, reason: String?, tier: String?) {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+
+        let data: [String: Any] = [
+            "parentDeviceId": parentDeviceId
+        ]
+
+        do {
+            let result = try await functions.httpsCallable("checkParentSubscription").call(data)
+
+            guard let response = result.data as? [String: Any],
+                  let isValid = response["isValid"] as? Bool else {
+                throw FirebaseValidationError.serverError("Invalid response")
+            }
+
+            let reason = response["reason"] as? String
+            let tier = response["subscriptionTier"] as? String
+
+            #if DEBUG
+            print("[FirebaseValidation] Parent subscription check: \(isValid ? "valid" : "invalid"), reason: \(reason ?? "none")")
+            #endif
+
+            return (isValid, reason, tier)
+        } catch let error as NSError {
+            // Map Firebase error codes
+            if let code = error.userInfo["FIRFunctionsErrorCode"] as? Int {
+                throw mapFunctionsError(code: code, message: error.localizedDescription)
+            }
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        // If Firebase not configured, allow pairing (legacy mode)
+        return (true, nil, nil)
         #endif
     }
 

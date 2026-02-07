@@ -2,12 +2,21 @@ import SwiftUI
 
 struct SubscriptionManagementView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @EnvironmentObject var deviceModeManager: DeviceModeManager
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var showPaywall = false
+    @State private var showChildPaywall = false
+    @State private var showPairingView = false
     @State private var isRestoring = false
     @State private var restoreError: String?
     @State private var showRestoreAlert = false
+
+    // Excess children warning state
+    @State private var hasExcessChildren = false
+    @State private var pairedChildCount = 0
+    @State private var childLimit = 0
+    @State private var excessCount = 0
 
     var body: some View {
         ZStack(alignment: .top) {
@@ -15,17 +24,51 @@ struct SubscriptionManagementView: View {
             AppTheme.background(for: colorScheme)
                 .ignoresSafeArea()
 
-            VStack(spacing: 0) {
-                // Header
-                headerView
+            if deviceModeManager.currentMode == .childDevice {
+                childDeviceContent
+            } else {
+                parentDeviceContent
+            }
+        }
+        .sheet(isPresented: $showPaywall) {
+            SubscriptionPaywallView()
+        }
+        .sheet(isPresented: $showChildPaywall) {
+            ChildSubscriptionView()
+                .environmentObject(subscriptionManager)
+        }
+        .sheet(isPresented: $showPairingView) {
+            ChildPairingView()
+        }
+        .alert("Restore Failed", isPresented: $showRestoreAlert) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text(restoreError ?? "Unable to restore purchases. Please try again later.")
+        }
+    }
 
+    // MARK: - Child Device Content
+
+    @ViewBuilder
+    private var childDeviceContent: some View {
+        if subscriptionManager.isParentPairedSubscription {
+            // Child is paired with parent - show "Managed by Parent" status only
+            VStack(spacing: 0) {
+                headerView
+                ScrollView {
+                    VStack(spacing: 20) {
+                        managedByParentCard
+                    }
+                    .padding(20)
+                }
+            }
+        } else if subscriptionManager.currentTier == .solo {
+            // Child has Solo subscription - show management with parent pairing option
+            VStack(spacing: 0) {
+                headerView
                 ScrollView {
                     VStack(spacing: 20) {
                         currentStatusCard
-
-                        if subscriptionManager.isInTrial {
-                            trialCard
-                        }
 
                         if subscriptionManager.isInGracePeriod {
                             graceCard
@@ -35,21 +78,243 @@ struct SubscriptionManagementView: View {
                             benefitsCard
                         }
 
-                        upgradeCard
                         managementCard
+
+                        // Upgrade path: connect with parent for remote monitoring
+                        connectWithParentUpgradeCard
                     }
                     .padding(20)
                 }
             }
+        } else {
+            // Child is in trial - show ChildSubscriptionView
+            ChildSubscriptionView()
         }
-        .sheet(isPresented: $showPaywall) {
-            SubscriptionPaywallView()
+    }
+
+    // MARK: - Parent Device Content (unchanged from original)
+
+    private var parentDeviceContent: some View {
+        VStack(spacing: 0) {
+            headerView
+
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Show warning if too many paired children for current tier
+                    if hasExcessChildren {
+                        excessChildrenWarningCard
+                    }
+
+                    currentStatusCard
+
+                    if subscriptionManager.isInTrial {
+                        trialCard
+                    }
+
+                    if subscriptionManager.isInGracePeriod {
+                        graceCard
+                    }
+
+                    if subscriptionManager.hasAccess {
+                        benefitsCard
+                    }
+
+                    upgradeCard
+                    managementCard
+                }
+                .padding(20)
+            }
         }
-        .alert("Restore Failed", isPresented: $showRestoreAlert) {
-            Button("OK", role: .cancel) { }
-        } message: {
-            Text(restoreError ?? "Unable to restore purchases. Please try again later.")
+        .task {
+            // Check for excess paired children on appear
+            let result = await subscriptionManager.checkExcessPairedChildren()
+            hasExcessChildren = result.hasExcess
+            pairedChildCount = result.currentCount
+            childLimit = result.limit
+            excessCount = result.excessCount
         }
+    }
+
+    // MARK: - Connect with Parent Upgrade Card (for Solo users)
+
+    private var connectWithParentUpgradeCard: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: "person.2.fill")
+                    .foregroundColor(AppTheme.vibrantTeal)
+                Text("WANT REMOTE MONITORING?")
+                    .font(.system(size: 12, weight: .bold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .tracking(1)
+            }
+
+            Text("Connect with a parent's Individual or Family subscription to unlock remote monitoring features.")
+                .font(.system(size: 14))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+
+            Button {
+                showPairingView = true
+            } label: {
+                HStack {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 16))
+                    Text("Connect with Parent")
+                        .font(.system(size: 15, weight: .semibold))
+                }
+                .foregroundColor(AppTheme.vibrantTeal)
+                .frame(maxWidth: .infinity)
+                .frame(height: 44)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(AppTheme.vibrantTeal, lineWidth: 2)
+                )
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(AppTheme.vibrantTeal.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(AppTheme.vibrantTeal.opacity(0.2), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Excess Children Warning Card
+
+    private var excessChildrenWarningCard: some View {
+        VStack(spacing: 16) {
+            // Warning icon
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 40))
+                .foregroundColor(.orange)
+
+            // Title
+            Text("Too Many Paired Devices")
+                .font(.system(size: 20, weight: .bold))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+            // Description
+            Text("Your \(subscriptionManager.currentTier.displayName) plan supports up to \(childLimit) child device\(childLimit == 1 ? "" : "s"), but you have \(pairedChildCount) paired. Please unpair \(excessCount) device\(excessCount == 1 ? "" : "s") or upgrade your plan.")
+                .font(.system(size: 14))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                .multilineTextAlignment(.center)
+
+            // Action buttons
+            VStack(spacing: 12) {
+                // Manage Devices button
+                NavigationLink {
+                    LinkedDevicesView()
+                } label: {
+                    HStack {
+                        Image(systemName: "person.2")
+                            .font(.system(size: 16))
+                        Text("Manage Devices")
+                            .font(.system(size: 15, weight: .semibold))
+                    }
+                    .foregroundColor(.white)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 44)
+                    .background(Color.orange)
+                    .cornerRadius(12)
+                }
+
+                // Upgrade button (if not already on Family)
+                if subscriptionManager.currentTier != .family {
+                    Button {
+                        showPaywall = true
+                    } label: {
+                        HStack {
+                            Image(systemName: "arrow.up.circle")
+                                .font(.system(size: 16))
+                            Text("Upgrade Plan")
+                                .font(.system(size: 15, weight: .semibold))
+                        }
+                        .foregroundColor(.orange)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 44)
+                        .background(
+                            RoundedRectangle(cornerRadius: 12)
+                                .stroke(Color.orange, lineWidth: 2)
+                        )
+                    }
+                }
+            }
+        }
+        .padding(20)
+        .background(
+            RoundedRectangle(cornerRadius: 20)
+                .fill(Color.orange.opacity(0.1))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(Color.orange.opacity(0.3), lineWidth: 1)
+                )
+        )
+    }
+
+    // MARK: - Managed by Parent Card
+
+    private var managedByParentCard: some View {
+        VStack(spacing: 20) {
+            // Icon
+            ZStack {
+                Circle()
+                    .fill(AppTheme.vibrantTeal.opacity(0.15))
+                    .frame(width: 80, height: 80)
+
+                Image(systemName: "person.2.fill")
+                    .font(.system(size: 36))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+
+            // Title and description
+            VStack(spacing: 8) {
+                Text("Managed by Parent")
+                    .font(.system(size: 24, weight: .bold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Text("Your subscription is managed by your parent's device. Contact them for any changes.")
+                    .font(.system(size: 15))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
+            // Current plan badge
+            HStack(spacing: 8) {
+                Image(systemName: "crown.fill")
+                    .foregroundColor(AppTheme.sunnyYellow)
+                    .font(.system(size: 14))
+
+                Text(subscriptionManager.currentTierName)
+                    .font(.system(size: 14, weight: .bold))
+                    .foregroundColor(AppTheme.sunnyYellow)
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 8)
+            .background(
+                Capsule()
+                    .fill(AppTheme.sunnyYellow.opacity(0.15))
+            )
+
+            // Status
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .font(.system(size: 14))
+
+                Text(subscriptionManager.currentStatus.displayText)
+                    .font(.system(size: 14, weight: .medium))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity)
+        .background(
+            RoundedRectangle(cornerRadius: 24)
+                .fill(AppTheme.card(for: colorScheme))
+                .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 10, x: 0, y: 4)
+        )
     }
 }
 

@@ -16,6 +16,8 @@ enum PairingError: LocalizedError {
     case tokenAlreadyUsed
     case subscriptionExpired
     case soloCannotPair
+    case parentInTrial
+    case parentNotSubscribed
 
     var errorDescription: String? {
         switch self {
@@ -41,6 +43,10 @@ enum PairingError: LocalizedError {
             return "The parent's subscription has expired. Please ask the parent to renew their subscription."
         case .soloCannotPair:
             return "Solo subscription does not support device pairing. Upgrade to Individual or Family plan for remote monitoring."
+        case .parentInTrial:
+            return "The parent is still in their free trial. Please ask the parent to subscribe before connecting."
+        case .parentNotSubscribed:
+            return "The parent doesn't have an active subscription. Please ask the parent to subscribe first."
         }
     }
 }
@@ -444,6 +450,49 @@ class DevicePairingService: ObservableObject {
             throw PairingError.maxParentsReached
         }
 
+        // Verify parent has active subscription BEFORE accepting CloudKit share
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Verifying parent subscription status...")
+        #endif
+
+        do {
+            let (isValid, reason, _) = try await FirebaseValidationService.shared.checkParentSubscription(
+                parentDeviceId: payload.parentDeviceID
+            )
+
+            if !isValid {
+                #if DEBUG
+                print("[DevicePairingService] ❌ Parent subscription check failed: \(reason ?? "unknown")")
+                #endif
+
+                switch reason {
+                case "solo_subscription":
+                    throw PairingError.soloCannotPair
+                case "trial_subscription":
+                    throw PairingError.parentInTrial
+                case "subscription_expired":
+                    throw PairingError.subscriptionExpired
+                case "child_limit_reached":
+                    throw PairingError.deviceLimitReached
+                case "parent_not_found", "no_family":
+                    throw PairingError.parentNotSubscribed
+                default:
+                    throw PairingError.parentNotSubscribed
+                }
+            }
+
+            #if DEBUG
+            print("[DevicePairingService] ✅ Parent subscription verified")
+            #endif
+        } catch let error as PairingError {
+            throw error
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Firebase validation unavailable, allowing pairing (legacy mode)")
+            #endif
+            // Allow pairing if Firebase is unavailable (legacy mode/offline)
+        }
+
         isPairing = true
         defer { isPairing = false }
 
@@ -574,6 +623,9 @@ class DevicePairingService: ObservableObject {
             rootRecordID: metadata.rootRecordID,
             parentDeviceID: payload.parentDeviceID
         )
+
+        // 6. Refresh subscription status to inherit parent's tier
+        await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
 
         #if DEBUG
         print("[DevicePairingService] ✅ CloudKit pairing completed successfully!")
@@ -808,6 +860,9 @@ class DevicePairingService: ObservableObject {
             rootRecordID: rootID,
             parentDeviceID: payload.parentDeviceID
         )
+
+        // Refresh subscription status to inherit parent's tier
+        await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
 
         #if DEBUG
         print("[DevicePairingService] ✅ Secure pairing completed successfully!")

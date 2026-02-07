@@ -113,6 +113,12 @@ struct ScreenTimeRewardsApp: App {
                     DevicePairingService.shared.syncParentZoneInfoToAppGroup()
                     print("[ScreenTimeRewardsApp] 📡 Synced parent zone info to App Group for extension")
 
+                    // Refresh parent subscription status (detect tier changes/expiration)
+                    Task {
+                        await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
+                        print("[ScreenTimeRewardsApp] 🔄 Refreshed parent subscription status")
+                    }
+
                     // Process any pending CloudKit syncs that failed in the extension
                     // Extension may timeout on sync; main app retries as backup
                     Task {
