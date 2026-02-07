@@ -2157,29 +2157,57 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // MARK: - Diagnostics helpers
 
-    /// Simple restart wrapper used by diagnostics views.
+    /// Restart monitoring with retry logic for robustness.
+    /// If scheduleActivity() fails, retries up to 3 times with exponential backoff.
     func restartMonitoring(reason: String, force: Bool = false) async {
         #if DEBUG
         print("[ScreenTimeService] ♻️ Restart requested (\(reason))")
         #endif
+
         stopMonitoring()
-        do {
-            try scheduleActivity()
-            isMonitoring = true
 
-            // FIX: Re-persist monitoring state after successful restart
-            // stopMonitoring() sets wasMonitoringActive=false, so we must restore it
-            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-                sharedDefaults.set(true, forKey: "wasMonitoringActive")
+        // Clear any previous failure flag
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            sharedDefaults.set(false, forKey: "monitoring_restart_failed")
+        }
+
+        // Retry up to 3 times with exponential backoff
+        var lastError: Error?
+        for attempt in 1...3 {
+            do {
+                try scheduleActivity()
+                isMonitoring = true
+
+                // Re-persist monitoring state after successful restart
+                // stopMonitoring() sets wasMonitoringActive=false, so we must restore it
+                if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                    sharedDefaults.set(true, forKey: "wasMonitoringActive")
+                }
+
+                #if DEBUG
+                print("[ScreenTimeService] ✅ Restarted monitoring (\(reason)) on attempt \(attempt)")
+                #endif
+                return  // Success, exit
+
+            } catch {
+                lastError = error
+                print("[ScreenTimeService] ⚠️ Restart attempt \(attempt)/3 failed: \(error)")
+
+                if attempt < 3 {
+                    // Wait before retry (exponential backoff: 1s, 2s)
+                    try? await Task.sleep(nanoseconds: UInt64(attempt) * 1_000_000_000)
+                }
             }
+        }
 
-            #if DEBUG
-            print("[ScreenTimeService] ✅ Restarted monitoring (\(reason))")
-            #endif
-        } catch {
-            #if DEBUG
-            print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
-            #endif
+        // All retries failed - log error and set flag for potential UI notification
+        if let error = lastError {
+            print("[ScreenTimeService] ❌ CRITICAL: Failed to restart monitoring after 3 attempts: \(error)")
+
+            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                sharedDefaults.set(true, forKey: "monitoring_restart_failed")
+                sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_failed_time")
+            }
         }
     }
 
