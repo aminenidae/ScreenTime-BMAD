@@ -1,0 +1,229 @@
+{
+  "identifier" : "Products",
+  "nonRenewingSubscriptions" : [
+
+  ],
+  "products" : [
+
+  ],
+  "settings" : {
+    "_applicationInternalID" : "6504637647",
+    "_developerTeamID" : "VNSB6B5L49",
+    "_failTransactionsEnabled" : false,
+    "_lastSynchronizedDate" : 788140800,
+    "_locale" : "en_US",
+    "_storefront" : "USA",
+    "_storeKitErrors" : [
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Load Products"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Purchase"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Verification"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Store Sync"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Subscription Status"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "App Transaction"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Manage Subscriptions Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Refund Request Sheet"
+      },
+      {
+        "current" : null,
+        "enabled" : false,
+        "name" : "Offer Code Redeem Sheet"
+      }
+    ]
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "21574498",
+      "localizations" : [
+
+      ],
+      "name" : "ScreenTime Rewards Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "6.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "solo_monthly_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor your child's screen time on this device. Billed monthly.",
+              "displayName" : "Solo Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.solo.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Solo Monthly",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "49.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "solo_annual_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor your child's screen time on this device. Save 40% with annual billing.",
+              "displayName" : "Solo Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.solo.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Solo Annual",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "9.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "individual_monthly_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor 1 child remotely from your device. Billed monthly.",
+              "displayName" : "Individual Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.individual.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Individual Monthly",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "59.99",
+          "familyShareable" : false,
+          "groupNumber" : 2,
+          "internalID" : "individual_annual_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor 1 child remotely from your device. Save 40% with annual billing.",
+              "displayName" : "Individual Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.individual.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Individual Annual",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "12.49",
+          "familyShareable" : true,
+          "groupNumber" : 3,
+          "internalID" : "family_monthly_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor up to 5 children remotely. Billed monthly.",
+              "displayName" : "Family Monthly",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.family.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Family Monthly",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [
+
+          ],
+          "codeOffers" : [
+
+          ],
+          "displayPrice" : "74.99",
+          "familyShareable" : true,
+          "groupNumber" : 3,
+          "internalID" : "family_annual_001",
+          "introductoryOffer" : null,
+          "localizations" : [
+            {
+              "description" : "Monitor up to 5 children remotely. Save 40% with annual billing.",
+              "displayName" : "Family Annual",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.family.annual",
+          "recurringSubscriptionPeriod" : "P1Y",
+          "referenceName" : "Family Annual",
+          "subscriptionGroupID" : "21574498",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 4,
+    "minor" : 0
+  }
+}

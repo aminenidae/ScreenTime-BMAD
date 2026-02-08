@@ -1,0 +1,4 @@
+Target dependency graph (2 targets)
+Target 'ScreenTimeRewards' in project 'ScreenTimeRewards'
+➜ Implicit dependency on target 'ScreenTimeActivityExtension' in project 'ScreenTimeRewards' via file 'ScreenTimeActivityExtension.appex' in build phase 'Copy Files'
+Target 'ScreenTimeActivityExtension' in project 'ScreenTimeRewards' (no dependencies)

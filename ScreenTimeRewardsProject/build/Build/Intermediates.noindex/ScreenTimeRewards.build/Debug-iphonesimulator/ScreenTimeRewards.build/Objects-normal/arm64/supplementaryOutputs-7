@@ -1,0 +1,51 @@
+{
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/ChildDeviceSummaryCard.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildDeviceSummaryCard.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildDeviceSummaryCard.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildDeviceSummaryCard.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildDeviceSummaryCard.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildDeviceSummaryCard.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/ChildFullPageView.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildFullPageView.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildFullPageView.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildFullPageView.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildFullPageView.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildFullPageView.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/ChildUsageDashboardView.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildUsageDashboardView.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildUsageDashboardView.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildUsageDashboardView.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildUsageDashboardView.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/ChildUsageDashboardView.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/DeviceCardCarousel.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceCardCarousel.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceCardCarousel.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceCardCarousel.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceCardCarousel.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/DeviceCardCarousel.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/HistoricalReportsView.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/HistoricalReportsView.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/HistoricalReportsView.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/HistoricalReportsView.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/HistoricalReportsView.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/HistoricalReportsView.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/RemoteAppConfigurationView.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteAppConfigurationView.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteAppConfigurationView.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteAppConfigurationView.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteAppConfigurationView.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteAppConfigurationView.swiftdeps"
+  },
+  "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentRemote/RemoteUsageSummaryView.swift" : {
+    "const-values" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteUsageSummaryView.swiftconstvalues",
+    "dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteUsageSummaryView.d",
+    "diagnostics" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteUsageSummaryView.dia",
+    "object" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteUsageSummaryView.o",
+    "swift-dependencies" : "/Users/ameen/Documents/ScreenTime-BMAD/ScreenTimeRewardsProject/build/Build/Intermediates.noindex/ScreenTimeRewards.build/Debug-iphonesimulator/ScreenTimeRewards.build/Objects-normal/arm64/RemoteUsageSummaryView.swiftdeps"
+  }
+}

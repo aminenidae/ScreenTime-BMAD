@@ -1,0 +1,230 @@
+//
+//  ParentSettingsView.swift
+//  ScreenTimeRewards
+//
+//  Settings view for parent device mode.
+//
+
+import SwiftUI
+
+/// Settings view for parent device mode (used in ParentTabView)
+struct ParentSettingsView: View {
+    @EnvironmentObject var subscriptionManager: SubscriptionManager
+    @Environment(\.colorScheme) var colorScheme
+
+    @State private var showingSubscriptionManagement = false
+    @State private var showingLinkedDevices = false
+    @State private var showingWebRestrictions = false
+    @State private var showingNotificationSettings = false
+    @State private var showingAbout = false
+    @State private var showingChangePIN = false
+
+    var body: some View {
+        NavigationView {
+            ScrollView {
+                VStack(spacing: 20) {
+                    // Subscription Section
+                    subscriptionSection
+
+                    // Device Management Section
+                    deviceManagementSection
+
+                    // App Controls Section
+                    appControlsSection
+
+                    // Notifications Section
+                    notificationsSection
+
+                    // About Section
+                    aboutSection
+                }
+                .padding()
+            }
+            .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
+            .navigationTitle("Settings")
+            .navigationBarTitleDisplayMode(.large)
+        }
+        .sheet(isPresented: $showingSubscriptionManagement) {
+            SubscriptionManagementView()
+        }
+        .sheet(isPresented: $showingLinkedDevices) {
+            LinkedDevicesView()
+        }
+        .sheet(isPresented: $showingWebRestrictions) {
+            WebsiteBlockingView()
+        }
+        .sheet(isPresented: $showingNotificationSettings) {
+            ParentNotificationSettingsView()
+        }
+        .sheet(isPresented: $showingAbout) {
+            AboutView()
+        }
+        .fullScreenCover(isPresented: $showingChangePIN) {
+            ChangePINView(onSuccess: {
+                showingChangePIN = false
+            })
+        }
+    }
+
+    // MARK: - Subscription Section
+
+    private var subscriptionSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Subscription")
+
+            settingsButton(
+                icon: "crown.fill",
+                title: "Manage Subscription",
+                subtitle: subscriptionStatusText,
+                iconColor: .yellow
+            ) {
+                showingSubscriptionManagement = true
+            }
+        }
+    }
+
+    private var subscriptionStatusText: String {
+        switch subscriptionManager.currentStatus {
+        case .active:
+            return "Premium Active"
+        case .trial:
+            return "Trial Period"
+        case .grace:
+            return "Grace Period"
+        case .expired:
+            return "Expired"
+        case .cancelled:
+            return "Cancelled"
+        }
+    }
+
+    // MARK: - Device Management Section
+
+    private var deviceManagementSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Device Management")
+
+            settingsButton(
+                icon: "link",
+                title: "Linked Devices",
+                subtitle: "Manage paired child devices",
+                iconColor: .blue
+            ) {
+                showingLinkedDevices = true
+            }
+
+            settingsButton(
+                icon: "lock.fill",
+                title: "Change PIN",
+                subtitle: "Update your parent PIN",
+                iconColor: .purple
+            ) {
+                showingChangePIN = true
+            }
+        }
+    }
+
+    // MARK: - App Controls Section
+
+    private var appControlsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("App Controls")
+
+            settingsButton(
+                icon: "globe",
+                title: "Website Blocking",
+                subtitle: "Manage blocked websites and browsers",
+                iconColor: .red
+            ) {
+                showingWebRestrictions = true
+            }
+        }
+    }
+
+    // MARK: - Notifications Section
+
+    private var notificationsSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("Notifications")
+
+            settingsButton(
+                icon: "bell.fill",
+                title: "Notification Settings",
+                subtitle: "Configure alerts and reminders",
+                iconColor: .orange
+            ) {
+                showingNotificationSettings = true
+            }
+        }
+    }
+
+    // MARK: - About Section
+
+    private var aboutSection: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            sectionHeader("About")
+
+            settingsButton(
+                icon: "info.circle.fill",
+                title: "About",
+                subtitle: "Version, privacy, and support",
+                iconColor: .gray
+            ) {
+                showingAbout = true
+            }
+        }
+    }
+
+    // MARK: - Helper Views
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.system(size: 14, weight: .semibold))
+            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+            .textCase(.uppercase)
+    }
+
+    private func settingsButton(
+        icon: String,
+        title: String,
+        subtitle: String,
+        iconColor: Color,
+        action: @escaping () -> Void
+    ) -> some View {
+        Button(action: action) {
+            HStack(spacing: 16) {
+                Image(systemName: icon)
+                    .font(.system(size: 20))
+                    .foregroundColor(iconColor)
+                    .frame(width: 32, height: 32)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(title)
+                        .font(.system(size: 16, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text(subtitle)
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.3))
+            }
+            .padding(16)
+            .background(AppTheme.card(for: colorScheme))
+            .cornerRadius(12)
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Preview
+
+#Preview("Parent Settings View") {
+    ParentSettingsView()
+        .environmentObject(SubscriptionManager.shared)
+}
