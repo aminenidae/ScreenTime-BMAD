@@ -1,0 +1,351 @@
+:root {
+    --primary-teal: #007373; /* AppTheme.vibrantTeal */
+    --primary-coral: #FA8073; /* AppTheme.playfulCoral */
+    --sunny-yellow: #FACC4D; /* AppTheme.sunnyYellow */
+    --bg-color: #F5F3E1; /* AppTheme.lightCream */
+    --text-color: #073B4C; /* AppTheme.deepNavy */
+    --text-secondary: rgba(7, 59, 76, 0.7); /* Deep Navy 0.7 opacity */
+    --white: #FFFFFF;
+    
+    /* AppTheme.CornerRadius */
+    --radius-small: 8px;
+    --radius-medium: 16px;
+    --radius-large: 20px;
+    --radius-round: 999px;
+
+    /* AppTheme.Spacing */
+    --spacing-regular: 16px;
+    
+    --max-width: 1200px;
+    /* Updated Font Family to Lexend to match App */
+    --font-family: "Lexend", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
+/* Import Lexend Font */
+@import url('https://fonts.googleapis.com/css2?family=Lexend:wght@400;500;600;700&display=swap');
+
+* {
+    box-sizing: border-box;
+    margin: 0;
+    padding: 0;
+}
+
+body {
+    font-family: var(--font-family);
+    background-color: var(--bg-color);
+    color: var(--text-color);
+    line-height: 1.5;
+    font-size: 16px; /* AppTheme.Typography.body */
+    -webkit-font-smoothing: antialiased;
+}
+
+/* Typography matching AppTheme hierarchy */
+h1, h2, h3, h4, h5, h6 {
+    font-weight: 700; /* Bold */
+    letter-spacing: 0.02em; /* Adjusted for Uppercase */
+    margin-bottom: 0.5em;
+    color: var(--text-color);
+    text-transform: uppercase; /* Matching App's heavy uppercase usage */
+}
+
+/* Web Hero H1 - larger than app largeTitle for impact, but same weight */
+h1 { 
+    font-size: 3rem; 
+    line-height: 1.1; 
+}
+
+/* AppTheme.Typography.title1 (~23pt) scaled for web headings */
+h2 { 
+    font-size: 1.8rem; /* Approx 29px */
+}
+
+/* AppTheme.Typography.title2 (~19pt) */
+h3 { 
+    font-size: 1.4rem; /* Approx 22px */
+}
+
+p, li, span, div {
+    color: var(--text-color);
+}
+
+p {
+    margin-bottom: 1.5rem;
+}
+
+/* Links */
+a {
+    color: var(--primary-teal);
+    text-decoration: none;
+    transition: opacity 0.2s ease;
+    font-weight: 500;
+}
+
+a:hover {
+    opacity: 0.8;
+}
+
+/* Layout */
+.container {
+    width: 90%;
+    max-width: var(--max-width);
+    margin: 0 auto;
+    padding: 0 20px;
+}
+
+/* Navigation */
+header {
+    background-color: rgba(245, 243, 225, 0.95); /* Light Cream opacity */
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+    border-bottom: 1px solid rgba(0, 115, 115, 0.1); /* AppTheme.border */
+}
+
+nav {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    height: 70px;
+}
+
+.logo {
+    font-size: 1.1rem; /* AppTheme.headline size */
+    font-weight: 600; /* Semibold */
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-transform: uppercase; /* Logo Text Uppercase */
+    letter-spacing: 0.05em;
+}
+
+.logo img {
+    width: 32px;
+    height: 32px;
+    border-radius: var(--radius-small);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.nav-links {
+    display: flex;
+    gap: 24px;
+}
+
+.nav-links a {
+    color: var(--text-color);
+    font-size: 14px; /* Slightly smaller for nav */
+    font-weight: 600;
+    text-transform: uppercase; /* Nav Links Uppercase */
+    letter-spacing: 0.05em;
+}
+
+/* Buttons matching AppTheme Primary Action */
+.cta-button {
+    background-color: var(--primary-teal);
+    color: white !important;
+    padding: 12px 24px; /* Slightly larger click area */
+    border-radius: var(--radius-round);
+    font-weight: 700; /* Bold */
+    text-transform: uppercase; /* Buttons Uppercase */
+    letter-spacing: 0.05em;
+    /* AppTheme.Shadow.small */
+    box-shadow: 0 2px 1px rgba(0,0,0,0.05); 
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+    font-size: 14px;
+}
+
+.cta-button:hover {
+    transform: translateY(-2px);
+    /* AppTheme.Shadow.medium */
+    box-shadow: 0 4px 2px rgba(0,0,0,0.1);
+    opacity: 1;
+}
+
+/* Hero Section */
+.hero {
+    text-align: center;
+    padding: 100px 0 60px;
+    background: transparent;
+}
+
+.hero h1 {
+    margin-bottom: 20px;
+    color: var(--text-color);
+    text-transform: none; /* Keep Hero H1 natural case for readability, or remove this line to force uppercase */
+}
+
+/* Override H1 in hero to be Mixed Case if desired, but user asked for "capital font". 
+   I will make everything uppercase headers per user request for "capital font in the app". 
+   However, Hero text is often better mixed. I'll force uppercase on headers as requested. 
+*/
+.hero h1 {
+    text-transform: uppercase;
+    letter-spacing: 0.02em;
+}
+
+.hero .subtitle {
+    font-size: 1.3rem;
+    color: var(--text-secondary);
+    max-width: 600px;
+    margin: 0 auto 40px;
+    font-weight: 400;
+}
+
+.app-store-badge {
+    display: inline-block;
+    height: 50px;
+    transition: transform 0.2s;
+}
+
+.app-store-badge:hover {
+    transform: scale(1.05);
+}
+
+/* Features */
+.features {
+    padding: 80px 0;
+}
+
+.features-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+    gap: 40px;
+    margin-top: 50px;
+}
+
+/* Card Styling matching AppTheme.card */
+.feature-card {
+    background: rgba(255, 255, 255, 0.6); /* AppTheme.card light mode */
+    padding: 40px;
+    border-radius: var(--radius-large); /* AppTheme.CornerRadius.large */
+    /* AppTheme.border light mode */
+    border: 1px solid rgba(0, 115, 115, 0.1); 
+    /* AppTheme.Shadow.small */
+    box-shadow: 0 2px 1px rgba(0,0,0,0.05);
+    text-align: center;
+    transition: transform 0.3s ease;
+}
+
+.feature-card:hover {
+    transform: translateY(-5px);
+    /* AppTheme.Shadow.medium on hover */
+    box-shadow: 0 4px 2px rgba(0,0,0,0.1);
+}
+
+.feature-icon {
+    font-size: 3rem;
+    margin-bottom: 20px;
+    display: inline-block;
+}
+
+/* Content Pages (Privacy, Terms, Support) */
+.content-section {
+    padding: 60px 0 100px;
+}
+
+.content-section h1 {
+    margin-bottom: 40px;
+    text-align: center;
+}
+
+/* Card Styling for Content Blocks */
+.content-block {
+    background: rgba(255, 255, 255, 0.6);
+    padding: 60px;
+    border-radius: var(--radius-large);
+    border: 1px solid rgba(0, 115, 115, 0.1);
+    box-shadow: 0 2px 1px rgba(0,0,0,0.05);
+    margin-bottom: 40px;
+}
+
+.content-block h2 {
+    font-size: 1.5rem;
+    margin-top: 30px;
+    margin-bottom: 15px;
+    color: var(--primary-teal); /* Branded headers */
+    text-transform: uppercase;
+}
+
+.content-block h3 {
+    font-size: 1.2rem;
+    margin-top: 24px;
+    margin-bottom: 10px;
+    color: var(--text-color);
+    text-transform: uppercase;
+}
+
+.content-block ul, .content-block ol {
+    margin-bottom: 20px;
+    padding-left: 20px;
+    color: var(--text-color);
+}
+
+.content-block li {
+    margin-bottom: 8px;
+    color: var(--text-color);
+}
+
+/* Footer */
+footer {
+    background-color: rgba(255, 255, 255, 0.6);
+    padding: 60px 0;
+    border-top: 1px solid rgba(0, 115, 115, 0.1);
+    font-size: 0.9rem;
+}
+
+.footer-content {
+    display: flex;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: 40px;
+}
+
+.footer-links {
+    display: flex;
+    gap: 20px;
+}
+
+.footer-links a {
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    font-size: 13px;
+    font-weight: 600;
+    letter-spacing: 0.05em;
+}
+
+.footer-links a:hover {
+    color: var(--primary-teal);
+}
+
+.copyright {
+    color: var(--text-secondary);
+    margin-top: 40px;
+    font-size: 0.8rem;
+    text-align: center;
+}
+
+/* Responsive */
+@media (max-width: 768px) {
+    h1 { font-size: 2.2rem; }
+    
+    .nav-links {
+        display: none;
+    }
+    
+    .content-block {
+        padding: 30px;
+    }
+    
+    .footer-content {
+        flex-direction: column;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .footer-links {
+        flex-direction: column;
+        gap: 10px;
+    }
+}
