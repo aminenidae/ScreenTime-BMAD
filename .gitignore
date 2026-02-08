@@ -47,3 +47,18 @@ ScreenTimeRewardsProject/docs/
 USAGE_TRACKING_ACCURACY.md
 USAGE_DOUBLING_FIX_PLAN.md
 HASHVALUE_INSTABILITY_FIX.md
+
+# Firebase credentials (sensitive)
+GoogleService-Info.plist
+**/GoogleService-Info.plist
+
+# Firebase functions build artifacts
+firebase-functions/node_modules/
+firebase-functions/lib/
+
+# Claude local config
+.claude/
+**/.claude/
+
+# Website (separate repo)
+i6dev-website/
