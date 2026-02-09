@@ -927,6 +927,9 @@ final class SubscriptionManager: NSObject, ObservableObject {
         print("[SubscriptionManager] 🔄 Subscription activated - restarting monitoring services")
         #endif
 
+        // Restart DeviceActivity monitoring with fresh thresholds
+        await ScreenTimeService.shared.restartMonitoring(reason: "subscription reactivated", force: true)
+
         // Restart BlockingCoordinator periodic refresh and shield sync
         BlockingCoordinator.shared.startPeriodicRefresh()
 

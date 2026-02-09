@@ -92,6 +92,9 @@ struct SubscriptionLockoutView: View {
 
         // Restart monitoring services for child device
         if modeManager.currentMode == .childDevice {
+            // Restart DeviceActivity monitoring with fresh thresholds
+            await ScreenTimeService.shared.restartMonitoring(reason: "dev subscription bypass", force: true)
+
             BlockingCoordinator.shared.startPeriodicRefresh()
             let currentTokens = BlockingCoordinator.shared.currentRewardTokens
             if !currentTokens.isEmpty {

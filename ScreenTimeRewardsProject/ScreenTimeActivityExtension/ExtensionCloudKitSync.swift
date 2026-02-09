@@ -14,6 +14,14 @@ final class ExtensionCloudKitSync {
     /// Sync current usage data to CloudKit for parent device visibility
     /// Called from extension after each usage recording
     func syncUsageToParent(defaults: UserDefaults) {
+        // Throttle: only sync every 5 minutes to reduce extension CPU/memory pressure
+        // Main app already syncs on foreground activation, so extension provides periodic updates
+        let lastSync = defaults.double(forKey: "ext_cloudkit_last_sync")
+        let timeSinceSync = Date().timeIntervalSince1970 - lastSync
+        if timeSinceSync < 300 && lastSync > 0 {
+            return
+        }
+
         // Get child device ID from shared defaults
         guard let childDeviceID = defaults.string(forKey: "ext_deviceID"),
               !childDeviceID.isEmpty else {
