@@ -236,6 +236,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            // Clear monitoring-ended flag — monitoring is active again
+            defaults.set(0.0, forKey: "monitoring_ended_timestamp")
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
 
             // Log restart diagnostics (persisted values survive log truncation during floods)
@@ -263,6 +265,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 flushBufferedEvent(defaults: defaults)
             }
             debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+
+            // Flag that monitoring ended — main app recovery stack will detect and restart if needed
+            // Normal midnight: INTERVAL_START follows within ~1s and clears this flag
+            // Silent death: flag stays set → recovery triggers restart
+            defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_ended_timestamp")
+            debugLog("📡 INTERVAL_END: flagged monitoring_ended_timestamp (recovery via timer/BGTask)", defaults: defaults)
         }
     }
 

@@ -1310,9 +1310,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // MARK: - Phantom Restart Handler
 
-    /// Handle phantom flood restart request from extension
-    /// Called when extension detects 5+ phantom events in 60s and signals via Darwin notification
+    /// Handle restart request from extension via Darwin notification
+    /// Called when extension detects phantom flood OR monitoring ended unexpectedly
     private func handlePhantomRestartRequest(defaults: UserDefaults) {
+        // Check if restart is actually needed (flags may have been cleared by intervalDidStart)
+        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
+        let monitoringEnded = defaults.double(forKey: "monitoring_ended_timestamp") > 0
+        guard phantomDetected || monitoringEnded else {
+            print("[ScreenTimeService] 🔍 Darwin notification received but flags already cleared - skipping")
+            return
+        }
+
         let now = Date().timeIntervalSince1970
 
         // Throttle: Don't restart more than once every 2 minutes
@@ -1368,16 +1376,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
     }
 
-    /// Check if conditions are met for delayed phantom restart
-    /// Triggers restart when: phantom detected + window ended (60s) + quiet period (20s)
+    /// Check if conditions are met for monitoring restart
+    /// Triggers on: (A) phantom flood detected OR (B) monitoring ended unexpectedly (silent death)
     @MainActor
     func checkForPendingPhantomRestart() {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
-        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
-        guard phantomDetected else { return }
-
         let now = Date().timeIntervalSince1970
+        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
+        let monitoringEndedAt = defaults.double(forKey: "monitoring_ended_timestamp")
+        let monitoringEndedUnexpectedly = monitoringEndedAt > 0 && (now - monitoringEndedAt) > 30.0
+
+        // Need either a phantom flood detected OR monitoring ended unexpectedly (> 30s ago)
+        // The 30s threshold filters normal midnight restarts (END → START within ~1s clears the flag)
+        guard phantomDetected || monitoringEndedUnexpectedly else { return }
+
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let lastEventTime = defaults.double(forKey: "phantom_flood_last_event_time")
         let lastRestartRequest = defaults.double(forKey: "phantom_restart_last_request")
@@ -1386,30 +1399,36 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let timeSinceLastEvent = lastEventTime > 0 ? now - lastEventTime : 999.0
         let timeSinceLastRestartRequest = lastRestartRequest > 0 ? now - lastRestartRequest : 999.0
 
+        let triggerReason = phantomDetected ? "phantom_flood" : "monitoring_ended"
+
         #if DEBUG
-        print("[ScreenTimeService] 🔍 Phantom check: timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s timeSinceLastRequest=\(Int(timeSinceLastRestartRequest))s")
+        print("[ScreenTimeService] 🔍 Health check (\(triggerReason)): timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s timeSinceLastRequest=\(Int(timeSinceLastRestartRequest))s")
         #endif
 
-        // Conditions for delayed restart:
-        // 1. Phantom flood was detected (already checked above)
-        // 2. Phantom window ended (> 60s since restart)
-        // 3. Quiet period passed (> 20s since last phantom event)
-        // 4. Not throttled (> 90s since last restart request)
+        // For phantom floods: require window ended (60s) + quiet period (20s) + throttle (90s)
+        // For monitoring ended: only require throttle (90s) — no need to wait for quiet period
+        let shouldRestart: Bool
+        if phantomDetected {
+            shouldRestart = timeSinceRestart > 60.0
+                && timeSinceLastEvent > 20.0
+                && timeSinceLastRestartRequest > 90.0
+        } else {
+            // Monitoring ended unexpectedly — just check throttle
+            shouldRestart = timeSinceLastRestartRequest > 90.0
+        }
 
-        if timeSinceRestart > 60.0
-            && timeSinceLastEvent > 20.0
-            && timeSinceLastRestartRequest > 90.0 {
-
-            print("[ScreenTimeService] 🔄 Triggering DELAYED phantom restart (window=\(Int(timeSinceRestart))s quiet=\(Int(timeSinceLastEvent))s)")
+        if shouldRestart {
+            print("[ScreenTimeService] 🔄 Triggering restart (\(triggerReason)) window=\(Int(timeSinceRestart))s quiet=\(Int(timeSinceLastEvent))s")
 
             // Clear flags
             defaults.set(false, forKey: "phantom_flood_detected")
             defaults.set(0, forKey: "phantom_flood_count")
+            defaults.set(0.0, forKey: "monitoring_ended_timestamp")
             defaults.set(now, forKey: "phantom_restart_last_request")
 
             Task { @MainActor in
-                await self.restartMonitoring(reason: "delayed phantom recovery", force: true)
-                print("[ScreenTimeService] ✅ Delayed phantom restart complete - fresh thresholds active")
+                await self.restartMonitoring(reason: triggerReason, force: true)
+                print("[ScreenTimeService] ✅ Restart complete (\(triggerReason)) - fresh thresholds active")
             }
         }
     }
