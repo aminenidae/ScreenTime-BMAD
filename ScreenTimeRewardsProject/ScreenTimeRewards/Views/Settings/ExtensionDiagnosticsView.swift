@@ -321,6 +321,7 @@ struct ExtensionDiagnosticsView: View {
                         .stroke(Color.red.opacity(0.3), lineWidth: 1)
                 )
             }
+
         }
     }
 

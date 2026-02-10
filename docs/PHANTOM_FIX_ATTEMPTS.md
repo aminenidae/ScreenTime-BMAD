@@ -2,7 +2,7 @@
 
 **Created:** February 1, 2026
 **Updated:** February 8, 2026
-**Current Status:** 🔄 TESTING (Attempt 18 - Background Task Phantom Recovery)
+**Current Status:** ✅ WORKING (Attempts 19+20 - Extension Restart + Lightweight Flood Mode)
 **Target Issue:** Handle phantom events without losing real usage after monitoring restart
 
 ---
@@ -800,7 +800,7 @@ Added BEFORE the pairing/subscription guards because phantom floods happen regar
 
 ---
 
-### Attempt 19: Extension-Initiated Monitoring Restart 🔄 TESTING
+### Attempt 19: Extension-Initiated Monitoring Restart ✅ SUCCESS (with Attempt 20)
 **Date:** February 9, 2026
 **Approach:** Extension restarts monitoring directly via DeviceActivityCenter, eliminating the ~15 min gap
 
@@ -862,11 +862,11 @@ if timeSinceRestart > 120 || lastExtRestart == 0 {
 - If no tokens in UserDefaults (first launch) → falls back to flag-based approach
 - All existing recovery layers (timer, foreground, BGTask) remain as fallbacks
 
-**Test Result:** Restart works but catch-up flood kills extension (see Attempt 20)
+**Test Result:** ✅ Restart works. First test showed catch-up flood killed extension (see Attempt 20 for fix). Combined with Attempt 20's lightweight flood mode, restart diagnostic confirmed: `success:540events_9apps (73s ago)`. Extension restarts within seconds of flood detection (zero gap vs ~15 min before).
 
 ---
 
-### Attempt 20: Lightweight Flood Mode 🔄 TESTING
+### Attempt 20: Lightweight Flood Mode ✅ SUCCESS
 **Date:** February 9, 2026
 **Approach:** Skip heavy per-event processing during known floods to prevent iOS from killing the extension
 
@@ -914,7 +914,18 @@ if floodCount >= 5 {
 8. User continues using apps → thresholds fire → usage recorded
 ```
 
-**Test Result:** 🔄 TESTING
+**Test Result:** ✅ SUCCESS (February 9, 2026)
+
+**Evidence from test log:**
+- 96 `⚡ FLOOD_SKIP` events processed in ~4 seconds (lightweight mode)
+- Extension survived — same session ID throughout flood (no iOS kill)
+- Restart diagnostic: `📋 RESTART_DIAG: result=success:540events_9apps (73s ago)`
+- Post-flood: INTERVAL_END/INTERVAL_START fired normally
+- Real usage events resumed: min.1 through min.9 recorded at ~60s intervals
+- Usage incremented correctly: 1200s → 1260s → 1320s → ... → 1620s (420s = 7 minutes added)
+- Extended test confirmed usage recording continued working normally
+
+**Known limitation:** ~2 minutes of usage lost during the flood/restart window. The first real events after restart are consumed by the catch-up flood re-delivering earlier thresholds. This is inherent to iOS threshold behavior and unavoidable without a fundamentally different approach. Recovery time went from ~15+ minutes (pre-Attempt 19) to ~2 minutes.
 
 ---
 
@@ -949,9 +960,11 @@ if floodCount >= 5 {
 
 ---
 
-## Current Solution: Multi-Layer Phantom Protection (Attempts 12-20)
+## Current Solution: Multi-Layer Phantom Protection (Attempts 12-20) ✅ CONFIRMED WORKING
 
 **Core principle:** Multiple layers of protection with event buffering, locked app detection, prevention measures, and background recovery.
+
+**Status:** Tested February 9, 2026. Full recovery cycle confirmed: flood detection → extension restart → lightweight flood survival → real usage recording resumes. ~2 min tracking gap (down from ~15+ min).
 
 ### Layer 1: Event Filtering (Extension)
 | Priority | Filter | Condition | Action |

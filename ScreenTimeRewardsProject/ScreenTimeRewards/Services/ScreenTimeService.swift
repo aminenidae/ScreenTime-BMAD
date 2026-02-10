@@ -470,21 +470,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #endif
 
                 // Start monitoring with fresh event registrations
-                do {
-                    try scheduleActivity()
-                    isMonitoring = true
+                var skipRestart = false
+                #if DEBUG
+                if sharedDefaults.bool(forKey: "debug_ext_only_restart") {
+                    print("[ScreenTimeService] ⚠️ DEBUG: Skipping main app launch restart (ext-only test mode)")
+                    skipRestart = true
+                }
+                #endif
 
-                    #if DEBUG
-                    print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch (crash recovery)")
-                    #endif
-                } catch {
-                    // CRITICAL: Reset state on failure to prevent blocking manual start later
-                    isMonitoring = false
+                if !skipRestart {
+                    do {
+                        try scheduleActivity()
+                        isMonitoring = true
 
-                    #if DEBUG
-                    print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
-                    print("[ScreenTimeService] ⚠️ Reset isMonitoring to false - user must start manually")
-                    #endif
+                        #if DEBUG
+                        print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch (crash recovery)")
+                        #endif
+                    } catch {
+                        // CRITICAL: Reset state on failure to prevent blocking manual start later
+                        isMonitoring = false
+
+                        #if DEBUG
+                        print("[ScreenTimeService] ❌ Failed to restart monitoring: \(error)")
+                        print("[ScreenTimeService] ⚠️ Reset isMonitoring to false - user must start manually")
+                        #endif
+                    }
                 }
             } else {
                 #if DEBUG
@@ -2482,6 +2492,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Extension uses this to skip catch-up events within 55 seconds of restart
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
+            sharedDefaults.set("main_app", forKey: "last_restart_source")
             #if DEBUG
             print("[ScreenTimeService] 🕐 Set monitoring_restart_timestamp BEFORE startMonitoring")
             #endif

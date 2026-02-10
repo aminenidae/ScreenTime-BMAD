@@ -19,6 +19,7 @@ final class ExtensionCloudKitSync {
         let lastSync = defaults.double(forKey: "ext_cloudkit_last_sync")
         let timeSinceSync = Date().timeIntervalSince1970 - lastSync
         if timeSinceSync < 300 && lastSync > 0 {
+            debugLog("CLOUDKIT_SYNC: ⏩ Throttled (last sync \(Int(timeSinceSync))s ago, next in \(300 - Int(timeSinceSync))s)", defaults: defaults)
             return
         }
 

@@ -35,7 +35,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         var log = defaults.string(forKey: "extension_debug_log") ?? ""
         let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let trimmedLines = Array(lines.suffix(499)) // Keep last 499 to add 1 more (500 total)
+        let trimmedLines = Array(lines.suffix(1499)) // Keep last 1499 to add 1 more (1500 total)
         log = (trimmedLines + [entry]).joined(separator: "\n")
         defaults.set(log, forKey: "extension_debug_log")
     }
@@ -61,23 +61,50 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         debugLog("📊 PHANTOM_FLOOD_TRACK: count=\(phantomCount) windowAge=\(Int(now - phantomWindowStart))s", defaults: defaults)
 
-        // Track last event time for quiet period detection
+        // Read previous event time BEFORE updating (for quiet gap detection)
+        let previousEventTime = defaults.double(forKey: "phantom_flood_last_event_time")
+        let gapSincePrevious = previousEventTime > 0 ? now - previousEventTime : 0
         defaults.set(now, forKey: "phantom_flood_last_event_time")
 
-        // If 5+ phantom events in 60s, flag for restart and attempt direct restart from extension
+        // If 5+ phantom events in 60s, flag for main app restart
         if phantomCount >= 5 {
-            defaults.set(true, forKey: "phantom_flood_detected")
-
-            // Try to restart monitoring directly from extension (eliminates ~15 min gap)
-            // Throttle: at most once per 120s to prevent restart loops from catch-up floods
-            let lastExtRestart = defaults.double(forKey: "ext_last_monitoring_restart")
-            let timeSinceRestart = now - lastExtRestart
-            if timeSinceRestart > 120 || lastExtRestart == 0 {
-                debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - attempting DIRECT restart from extension", defaults: defaults)
-                restartMonitoringFromExtension(defaults: defaults)
-            } else {
-                debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - restart throttled (\(Int(timeSinceRestart))s < 120s), main app will handle", defaults: defaults)
+            // Flag for main-app restart (Darwin notification + BGTask + foreground check)
+            if !defaults.bool(forKey: "phantom_flood_detected") {
+                defaults.set(true, forKey: "phantom_flood_detected")
+                // Send Darwin notification for immediate main-app restart (if app is active)
+                CFNotificationCenterPostNotification(
+                    CFNotificationCenterGetDarwinNotifyCenter(),
+                    CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString),
+                    nil, nil, true
+                )
+                debugLog("🚨 FLOOD_DETECTED: count=\(phantomCount) - flagged for main app restart + Darwin notification sent", defaults: defaults)
             }
+
+            let floodDuration = now - phantomWindowStart
+            let floodSettled = gapSincePrevious > 20
+            let floodMostlyDone = floodDuration > 3 && phantomCount >= 20
+
+            if floodSettled || floodMostlyDone {
+                debugLog("🚨 FLOOD_SETTLED: gap=\(String(format: "%.1f", gapSincePrevious))s duration=\(String(format: "%.1f", floodDuration))s count=\(phantomCount) - awaiting main app restart", defaults: defaults)
+            } else {
+                debugLog("🚨 PHANTOM_FLOOD: count=\(phantomCount) gap=\(String(format: "%.1f", gapSincePrevious))s duration=\(String(format: "%.1f", floodDuration))s - waiting", defaults: defaults)
+            }
+        }
+    }
+
+    /// Track the highest threshold minute seen per app during a flood.
+    /// Used by restartMonitoringFromExtension to skip already-passed thresholds.
+    /// Lightweight: ~2 UserDefaults ops (1 read + 1 conditional write).
+    private nonisolated func trackFloodMaxThreshold(eventName: String, defaults: UserDefaults) {
+        let parts = eventName.split(separator: ".")
+        // Format: usage.app.<stableHash>.min.<N>
+        guard parts.count == 5, parts[0] == "usage", parts[1] == "app",
+              parts[3] == "min", let minute = Int(parts[4]) else { return }
+        let stableHash = String(parts[2])
+        let key = "flood_max_min_\(stableHash)"
+        let currentMax = defaults.integer(forKey: key)
+        if minute > currentMax {
+            defaults.set(minute, forKey: key)
         }
     }
 
@@ -104,7 +131,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // Step 2: Reconstruct events dictionary from event mappings + tokens
+        // Only register thresholds ABOVE each app's current usage to prevent catch-up floods
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        var skippedCount = 0
         for key in allKeys where key.hasPrefix("map_usage.app.") && key.hasSuffix("_id") {
             // Extract event name from key "map_<eventName>_id"
             let withoutPrefix = key.dropFirst(4)  // Remove "map_"
@@ -120,6 +149,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let thresholdSec = defaults.integer(forKey: "map_\(eventName)_sec")
             guard thresholdSec > 0 else { continue }
 
+            let thresholdMin = thresholdSec / 60
+            // Smart filtering: skip thresholds at or below current usage to prevent catch-up floods
+            let floodMaxMin = defaults.integer(forKey: "flood_max_min_\(stableHash)")
+            let appID = defaults.string(forKey: "map_\(eventName)_id") ?? ""
+            let currentTodayMin = appID.isEmpty ? 0 : defaults.integer(forKey: "usage_\(appID)_today") / 60
+            let skipBelow = max(floodMaxMin, currentTodayMin)
+            if skipBelow > 0 && thresholdMin <= skipBelow {
+                skippedCount += 1
+                continue
+            }
+
             // Reconstruct threshold as DateComponents (thresholds are whole minutes)
             let threshold = DateComponents(minute: thresholdSec / 60)
             events[DeviceActivityEvent.Name(eventName)] = DeviceActivityEvent(
@@ -127,6 +167,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 threshold: threshold
             )
         }
+        debugLog("🔄 EXT_RESTART: Built \(events.count) future events, skipped \(skippedCount) already-passed", defaults: defaults)
 
         guard !events.isEmpty else {
             debugLog("❌ EXT_RESTART: Could not reconstruct events (0 built) - falling back to main app", defaults: defaults)
@@ -150,6 +191,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let now = Date().timeIntervalSince1970
         defaults.set(now, forKey: "monitoring_restart_timestamp")
         defaults.set(now, forKey: "ext_last_monitoring_restart")
+        defaults.set("extension", forKey: "last_restart_source")
 
         // Step 6: Start fresh monitoring session
         do {
@@ -161,6 +203,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Clear flood flags on success - fresh session has all thresholds reset
             defaults.set(false, forKey: "phantom_flood_detected")
             defaults.set(0, forKey: "phantom_flood_count")
+            defaults.set(0, forKey: "phantom_flood_window_start") // Force catch-up to start own window
+            // Increment restart count (allows up to 3 per flood cycle)
+            // NOTE: flood_max_min keys intentionally NOT cleared — they accumulate
+            // across restarts so each subsequent restart skips more already-passed thresholds
+            defaults.set(defaults.integer(forKey: "ext_restart_count_this_flood") + 1, forKey: "ext_restart_count_this_flood")
         } catch {
             debugLog("❌ EXT_RESTART: startMonitoring failed - \(error.localizedDescription)", defaults: defaults)
             // Persist failure for diagnostics
@@ -197,6 +244,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let ago = restartTime > 0 ? "\(Int(Date().timeIntervalSince1970 - restartTime))s ago" : "unknown"
                 debugLog("📋 RESTART_DIAG: result=\(restartResult) (\(ago))", defaults: defaults)
             }
+            let restartSource = defaults.string(forKey: "last_restart_source") ?? "unknown"
+            debugLog("📋 RESTART_SOURCE: \(restartSource)", defaults: defaults)
             let floodCount = defaults.integer(forKey: "phantom_flood_count")
             if floodCount > 0 {
                 debugLog("📋 FLOOD_STATE: count=\(floodCount) detected=\(defaults.bool(forKey: "phantom_flood_detected"))", defaults: defaults)
@@ -227,6 +276,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Increment persistent counter to track total events received
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
+
+            // Track max threshold per app for ALL events (used by smart restart filtering)
+            trackFloodMaxThreshold(eventName: event.rawValue, defaults: defaults)
+
+            // === STALE FLOOD WINDOW CHECK ===
+            // After an ext restart, catch-up events (~1s) and the first real event (~55s)
+            // must NOT be counted in the same flood window. A 50s timeout cleanly separates them.
+            // Without this, the first real event pushes count to 20 → false FLOOD_RESTART.
+            let staleWindowStart = defaults.double(forKey: "phantom_flood_window_start")
+            if staleWindowStart > 0 {
+                let windowAge = Date().timeIntervalSince1970 - staleWindowStart
+                if windowAge > 50 {
+                    defaults.set(0, forKey: "phantom_flood_count")
+                    defaults.set(0, forKey: "phantom_flood_window_start")
+                    defaults.set(false, forKey: "phantom_flood_detected")
+                }
+            }
 
             // LIGHTWEIGHT FLOOD MODE: When a flood is in progress (5+ phantom events),
             // skip ALL heavy processing to prevent iOS from killing the extension.

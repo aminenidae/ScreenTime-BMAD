@@ -61,6 +61,7 @@ struct ExtensionLogViewerView: View {
                     .buttonStyle(.bordered)
                     .tint(.red)
                 }
+
             }
             .padding()
             .background(Color(.systemBackground))
