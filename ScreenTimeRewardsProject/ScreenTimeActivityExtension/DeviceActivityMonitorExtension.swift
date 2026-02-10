@@ -155,11 +155,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         do {
             try center.startMonitoring(activityName, during: schedule, events: events)
             debugLog("✅ EXT_RESTART: Successfully restarted monitoring with \(events.count) events (\(tokenCache.count) apps)", defaults: defaults)
+            // Persist result for diagnostics (survives log truncation)
+            defaults.set("success:\(events.count)events_\(tokenCache.count)apps", forKey: "ext_restart_result")
+            defaults.set(Date().timeIntervalSince1970, forKey: "ext_restart_result_time")
             // Clear flood flags on success - fresh session has all thresholds reset
             defaults.set(false, forKey: "phantom_flood_detected")
             defaults.set(0, forKey: "phantom_flood_count")
         } catch {
             debugLog("❌ EXT_RESTART: startMonitoring failed - \(error.localizedDescription)", defaults: defaults)
+            // Persist failure for diagnostics
+            defaults.set("failed:\(error.localizedDescription)", forKey: "ext_restart_result")
+            defaults.set(Date().timeIntervalSince1970, forKey: "ext_restart_result_time")
             // Re-flag so main app/BGTask can attempt restart
             defaults.set(true, forKey: "phantom_flood_detected")
         }
@@ -184,6 +190,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+
+            // Log restart diagnostics (persisted values survive log truncation during floods)
+            if let restartResult = defaults.string(forKey: "ext_restart_result") {
+                let restartTime = defaults.double(forKey: "ext_restart_result_time")
+                let ago = restartTime > 0 ? "\(Int(Date().timeIntervalSince1970 - restartTime))s ago" : "unknown"
+                debugLog("📋 RESTART_DIAG: result=\(restartResult) (\(ago))", defaults: defaults)
+            }
+            let floodCount = defaults.integer(forKey: "phantom_flood_count")
+            if floodCount > 0 {
+                debugLog("📋 FLOOD_STATE: count=\(floodCount) detected=\(defaults.bool(forKey: "phantom_flood_detected"))", defaults: defaults)
+            }
         }
         updateHeartbeat()
     }
@@ -207,13 +224,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Log FIRST - before any processing that could fail
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
             // Increment persistent counter to track total events received
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
 
-            // Show event count in console
-            print("🔔 [EXTENSION] Total events: \(eventCount)")
+            // LIGHTWEIGHT FLOOD MODE: When a flood is in progress (5+ phantom events),
+            // skip ALL heavy processing to prevent iOS from killing the extension.
+            // Normal path: ~50+ UserDefaults ops per event (MAPPING_AUDIT scans 500+ keys).
+            // Lightweight: ~5 ops (counter + log + flood tracking). 10x less resource pressure.
+            // Events during a flood are guaranteed phantoms, so zero data loss from skipping.
+            let floodCount = defaults.integer(forKey: "phantom_flood_count")
+            if floodCount >= 5 {
+                debugLog("⚡ FLOOD_SKIP: count=\(floodCount) event=\(event.rawValue.suffix(20))", defaults: defaults)
+                trackPhantomFloodForRestart(defaults: defaults)
+                return
+            }
+
+            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
         }
 
         updateHeartbeat()

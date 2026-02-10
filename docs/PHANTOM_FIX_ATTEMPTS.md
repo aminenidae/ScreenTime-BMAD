@@ -862,6 +862,58 @@ if timeSinceRestart > 120 || lastExtRestart == 0 {
 - If no tokens in UserDefaults (first launch) → falls back to flag-based approach
 - All existing recovery layers (timer, foreground, BGTask) remain as fallbacks
 
+**Test Result:** Restart works but catch-up flood kills extension (see Attempt 20)
+
+---
+
+### Attempt 20: Lightweight Flood Mode 🔄 TESTING
+**Date:** February 9, 2026
+**Approach:** Skip heavy per-event processing during known floods to prevent iOS from killing the extension
+
+**Problem:** Attempt 19's extension restart worked (confirmed by `timeSinceRestart=10s` in logs), but the new monitoring session triggered a catch-up flood of 100+ events. Each event performs **~50+ UserDefaults operations** (MAPPING_AUDIT scans 500+ keys per event). iOS killed the extension from resource pressure (session ID changed). Result: dead monitoring until user opened app 19 minutes later.
+
+**Root cause:** Per-event processing is too heavy for flood conditions:
+| Operation | Ops/Event | Purpose |
+|-----------|-----------|---------|
+| MAPPING_AUDIT | ~20 | Scans 500+ keys (diagnostic only!) |
+| Phantom filter | ~15 | Timestamp checks |
+| Buffer system | ~10 | Event buffering |
+| Debug logging | ~5 | Log buffer manipulation |
+| **Total** | **~50+** | **×100 events = 5000+ ops in 14s** |
+
+**Solution:** When `phantom_flood_count >= 5`, enter lightweight mode at the TOP of `eventDidReachThreshold()` — before any heavy processing:
+
+```swift
+let floodCount = defaults.integer(forKey: "phantom_flood_count")
+if floodCount >= 5 {
+    debugLog("⚡ FLOOD_SKIP: count=\(floodCount) event=...", defaults: defaults)
+    trackPhantomFloodForRestart(defaults: defaults)
+    return  // Skip MAPPING_AUDIT, phantom checks, buffer system
+}
+```
+
+**Per-event cost in lightweight mode:** ~5 ops (counter + log + flood tracking)
+**Exit condition:** Flood window expires naturally (>60s → count resets to 0)
+
+**Also added: Diagnostic persistence**
+- `ext_restart_result` + `ext_restart_result_time` — survives log truncation
+- Logged on next `intervalDidStart` for visibility
+
+**Files Modified:**
+- `DeviceActivityMonitorExtension.swift`: Lightweight flood mode in `eventDidReachThreshold()`, diagnostic persistence in `restartMonitoringFromExtension()` and `intervalDidStart()`
+
+**Expected behavior:**
+```
+1. Flood starts, count reaches 5
+2. Extension restart fires (Attempt 19)
+3. Catch-up flood: 100+ events in lightweight mode (~500 total ops vs 5000+)
+4. Extension SURVIVES (10x less resource pressure)
+5. Thresholds beyond iOS-tracked usage survive (min.40-60 from log data)
+6. After 55s: events processed normally
+7. After 60s: flood count resets, full normal processing resumes
+8. User continues using apps → thresholds fire → usage recorded
+```
+
 **Test Result:** 🔄 TESTING
 
 ---
@@ -897,7 +949,7 @@ if timeSinceRestart > 120 || lastExtRestart == 0 {
 
 ---
 
-## Current Solution: Multi-Layer Phantom Protection (Attempts 12-19)
+## Current Solution: Multi-Layer Phantom Protection (Attempts 12-20)
 
 **Core principle:** Multiple layers of protection with event buffering, locked app detection, prevention measures, and background recovery.
 
@@ -930,7 +982,8 @@ if timeSinceRestart > 120 || lastExtRestart == 0 {
 
 ### Layer 4: Prevention (Reduce Extension Kills)
 - CloudKit sync throttled to every 5 minutes (Attempt 17)
-- Reduces extension CPU/memory pressure → fewer iOS kills → fewer floods
+- **Lightweight flood mode**: When flood count >= 5, skip all heavy per-event processing (~5 ops instead of ~50) (Attempt 20)
+- Reduces extension CPU/memory pressure → fewer iOS kills → extension survives catch-up floods
 
 ### Why previous approaches failed:
 | Attempt | Approach | Failure Mode |
