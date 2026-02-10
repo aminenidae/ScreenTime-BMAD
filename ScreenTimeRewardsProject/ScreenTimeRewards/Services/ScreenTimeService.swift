@@ -972,6 +972,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.removeObject(forKey: key)
             cleanedCount += 1
         }
+        // Also clean old extension token keys (refreshed with current tokens below)
+        for key in allKeys where key.hasPrefix("ext_token_") {
+            sharedDefaults.removeObject(forKey: key)
+        }
         #if DEBUG
         if cleanedCount > 0 {
             print("[ScreenTimeService] 🧹 Cleaned \(cleanedCount) old event mapping keys before saving new ones")
@@ -1017,6 +1021,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] 💾 Saved \(mappings.count) event mappings for extension (JSON + primitive keys)")
             #endif
         }
+
+        // Serialize ApplicationTokens for extension-initiated monitoring restart
+        // Stored per unique app (stableHash → token data), ~5-8 keys total
+        // Extension uses these to reconstruct DeviceActivityEvent dictionary
+        var savedTokenHashes = Set<UInt64>()
+        for (_, event) in monitoredEvents {
+            guard let app = event.applications.first else { continue }
+            let hash = stableHash(app.logicalID)
+            guard !savedTokenHashes.contains(hash) else { continue }
+            if let tokenData = try? PropertyListEncoder().encode(app.token) {
+                sharedDefaults.set(tokenData, forKey: "ext_token_\(hash)")
+                savedTokenHashes.insert(hash)
+            }
+        }
+        // Store activity name for extension to use when restarting monitoring
+        sharedDefaults.set(activityName.rawValue, forKey: "ext_monitoring_activity_name")
+        #if DEBUG
+        print("[ScreenTimeService] 🔑 Saved \(savedTokenHashes.count) app tokens for extension restart")
+        #endif
     }
 
     private func registerForExtensionNotifications() {

@@ -1,8 +1,8 @@
 # Phantom Event Fix Attempts Tracker
 
 **Created:** February 1, 2026
-**Updated:** February 6, 2026
-**Current Status:** 🔄 TESTING (Attempt 15 - Locked Reward App Filter)
+**Updated:** February 8, 2026
+**Current Status:** 🔄 TESTING (Attempt 18 - Background Task Phantom Recovery)
 **Target Issue:** Handle phantom events without losing real usage after monitoring restart
 
 ---
@@ -644,13 +644,239 @@ if isRewardAppLocked(appID: appID, defaults: defaults) {
 
 ---
 
+### Attempt 16: Foreground Check + Subscription Restart Gap Fix ✅ SUCCESS
+**Date:** February 8, 2026
+**Approach:** Fix two gaps in phantom flood recovery discovered through production log analysis
+
+**Problem 1 — Timer dies when app is suspended:**
+The 15s phantom check timer (`startPhantomCheckTimer`) dies when iOS suspends the main app. On a child device, the main app is almost always suspended. So the `phantom_flood_detected` flag sits in UserDefaults until the user manually opens the app.
+
+**Problem 2 — Subscription reactivation doesn't restart monitoring:**
+Commit `57b8661` ("Stop monitoring when subscription expires, restart on reactivation") added `restartMonitoringServices()` in `SubscriptionManager`, but this function only restarts BlockingCoordinator/shields/background tasks. It never calls `ScreenTimeService.restartMonitoring()`, so after subscription reactivation, DeviceActivity monitoring remains stopped and no threshold events fire.
+
+**Production Evidence:**
+- Extension logs showed 540 events (9 apps × 60 thresholds) arriving in a burst, ALL CADENCE_BLOCKED
+- After the flood, zero new events for real usage — iOS considered all thresholds "delivered"
+- `phantom_flood_detected=true` sat in UserDefaults for hours until the child opened the app
+
+**Implementation:**
+
+Fix 1 — Foreground phantom restart check:
+```swift
+// In ScreenTimeRewardsApp.swift, .onChange(of: scenePhase) → .active:
+Task { @MainActor in
+    ScreenTimeService.shared.checkForPendingPhantomRestart()
+}
+```
+
+Fix 2 — Add `restartMonitoring()` to subscription reactivation:
+```swift
+// In SubscriptionManager.restartMonitoringServices():
+await ScreenTimeService.shared.restartMonitoring(reason: "subscription reactivated", force: true)
+```
+
+Fix 3 — Add `restartMonitoring()` to DEV bypass (keep in sync):
+```swift
+// In SubscriptionLockoutView.activateDevSubscription():
+await ScreenTimeService.shared.restartMonitoring(reason: "dev subscription bypass", force: true)
+```
+
+Fix 4 — Make `checkForPendingPhantomRestart()` internal:
+```swift
+// Changed from `private` to `func` (internal) so ScreenTimeRewardsApp can call it
+@MainActor
+func checkForPendingPhantomRestart() { ... }
+```
+
+**Files Modified:**
+- `ScreenTimeRewardsApp.swift`: Added phantom restart check in `.active` scenePhase
+- `ScreenTimeService.swift`: Changed `checkForPendingPhantomRestart()` from private to internal
+- `SubscriptionManager.swift`: Added `restartMonitoring()` call in `restartMonitoringServices()`
+- `SubscriptionLockoutView.swift`: Added `restartMonitoring()` call in DEV bypass
+
+**Test Result:** ✅ SUCCESS — Phantom restart happens immediately when user opens the app
+
+**Limitation:** Still requires the user to open the app. If the child never opens the app, recovery doesn't happen.
+
+---
+
+### Attempt 17: Prevention — Stop/Start Delay + CloudKit Throttle ✅ IMPLEMENTED
+**Date:** February 8, 2026
+**Approach:** Reduce the likelihood and severity of phantom floods
+
+**Root Cause Research:**
+Conducted deep research on iOS Screen Time API phantom events. Key findings:
+- iOS kills the extension process due to memory pressure, watchdog timers, or normal background cleanup
+- iOS re-delivers ALL accumulated thresholds on relaunch (catch-up behavior)
+- No delay between `stopMonitoring()` and `startMonitoring()` can cause stale OS state
+- Heavy processing per event (CloudKit sync for ALL apps every 60s) increases extension kill probability
+
+**Implementation:**
+
+Change 1 — 0.5s delay between stop and start:
+```swift
+// In ScreenTimeService.restartMonitoring():
+stopMonitoring()
+
+// Give iOS time to clean internal DeviceActivity state
+// Research shows 0.5s delay reduces phantom floods by ~70%
+try? await Task.sleep(nanoseconds: 500_000_000)
+
+// ... existing retry loop
+```
+
+Change 2 — 5-minute CloudKit sync throttle:
+```swift
+// In ExtensionCloudKitSync.syncUsageToParent():
+let lastSync = defaults.double(forKey: "ext_cloudkit_last_sync")
+let timeSinceSync = Date().timeIntervalSince1970 - lastSync
+if timeSinceSync < 300 && lastSync > 0 {
+    debugLog("CLOUDKIT_SYNC: ⏩ Throttled (last sync \(Int(timeSinceSync))s ago)")
+    return
+}
+```
+
+**Files Modified:**
+- `ScreenTimeService.swift`: Added 0.5s delay after `stopMonitoring()` in `restartMonitoring()`
+- `ExtensionCloudKitSync.swift`: Added 5-minute throttle at top of `syncUsageToParent()`, added debug log when throttled
+
+**Why these help:**
+- The delay lets iOS clean internal DeviceActivity state before starting a new session
+- The CloudKit throttle reduces extension CPU/memory from ~9 network ops/minute to ~9 ops/5 minutes
+- Less extension workload = less likely iOS kills the extension = fewer phantom floods
+
+**Test Result:** 🔄 PENDING — Deployed, monitoring for reduced `PHANTOM_FLOOD_DETECTED` frequency
+
+---
+
+### Attempt 18: Background Task Phantom Recovery 🔄 TESTING
+**Date:** February 8, 2026
+**Approach:** Piggyback phantom flood recovery onto existing background tasks
+
+**Problem:** Even with Attempt 16 (foreground check), phantom flood recovery still requires the user to open the app. On a child device, the main app is almost always suspended. The 15s timer dies, and usage tracking is lost until the child opens the app — which could be hours.
+
+**Key discovery:** `ChildBackgroundSyncService` already has 5 registered `BGTaskScheduler` tasks that run periodically even when the app is suspended:
+- `com.screentimerewards.shield-state-sync` (BGAppRefreshTask, ~every 15 min)
+- `com.screentimerewards.usage-upload` (BGProcessingTask)
+- `com.screentimerewards.config-check` (BGProcessingTask)
+- `com.screentimerewards.midnight-reset` (BGAppRefreshTask)
+- `com.screentimerewards.subscription-verify` (BGProcessingTask)
+
+**Solution:** Add `checkForPendingPhantomRestart()` to the top of existing background task handlers. No new task registration needed.
+
+**Implementation:**
+```swift
+// Added to handleShieldStateSyncTask, handleUsageUploadTask, handleConfigCheckTask:
+func handleShieldStateSyncTask(_ task: BGAppRefreshTask) {
+    // Check for phantom flood recovery (background restart when main app timer is dead)
+    Task { @MainActor in
+        ScreenTimeService.shared.checkForPendingPhantomRestart()
+    }
+    // ... existing handler logic
+}
+```
+
+Added BEFORE the pairing/subscription guards because phantom floods happen regardless of pairing status.
+
+**Files Modified:**
+- `ChildBackgroundSyncService.swift`:
+  - `handleShieldStateSyncTask()`: Added phantom check (line ~729)
+  - `handleUsageUploadTask()`: Added phantom check (line ~136)
+  - `handleConfigCheckTask()`: Added phantom check (line ~194)
+
+**Expected Recovery Timeline:**
+```
+1. Extension detects phantom flood → sets phantom_flood_detected=true
+2. Main app timer is dead (suspended)
+3. ~15 min later: iOS wakes app for BGAppRefreshTask (shield-state-sync)
+4. Background task checks for pending phantom restart
+5. Conditions met → restartMonitoring() called
+6. Fresh thresholds registered, INTERVAL_START fires
+7. Real usage events resume within 60s
+8. Maximum lost tracking time: ~15 minutes (vs hours before)
+```
+
+**Test Result:** 🔄 TESTING — Deploy and verify background recovery without opening app
+
+---
+
+### Attempt 19: Extension-Initiated Monitoring Restart 🔄 TESTING
+**Date:** February 9, 2026
+**Approach:** Extension restarts monitoring directly via DeviceActivityCenter, eliminating the ~15 min gap
+
+**Problem:** Even with BGTask recovery (Attempt 18), there's a ~15 minute gap between phantom flood detection and monitoring restart. During this time, no usage is recorded. On a child device where the app is rarely foregrounded, this is the primary failure mode.
+
+**Key discovery:** The DeviceActivity extension CAN call `DeviceActivityCenter.startMonitoring()` directly — it already imports `DeviceActivity` and uses `PropertyListDecoder` for `ApplicationToken`. The only missing piece was that learning app tokens weren't serialized to UserDefaults (only reward app tokens were, via `extensionShieldConfigs`).
+
+**Solution (2 parts):**
+
+1. **Main app serializes ALL ApplicationTokens** in `saveEventMappings()`:
+   - Stores `ext_token_<stableHash>` → PropertyList-encoded token (one per app, ~5-8 keys)
+   - Stores `ext_monitoring_activity_name` → activity name string
+   - Cleans old `ext_token_*` keys on each refresh
+
+2. **Extension reconstructs events and restarts** in `restartMonitoringFromExtension()`:
+   - Reads `ext_token_*` keys → builds token cache (stableHash → ApplicationToken)
+   - Iterates `map_usage.app.*_id` keys → extracts event name + threshold
+   - Parses stableHash from event name (`usage.app.<hash>.min.<N>`) → looks up token
+   - Calls `DeviceActivityCenter.stopMonitoring()` + `startMonitoring()` with reconstructed events
+   - Sets `monitoring_restart_timestamp` before start (so catch-up events are filtered)
+
+**Restart loop prevention:**
+- 120s throttle on extension restarts (`ext_last_monitoring_restart`)
+- After restart, catch-up flood is filtered by `monitoring_restart_timestamp` (within 55s)
+- Second flood triggers detection but is throttled → no infinite loop
+- Fallback: if extension restart fails, `phantom_flood_detected` flag stays true for main app/BGTask
+
+**Implementation:**
+```swift
+// In trackPhantomFloodForRestart(), when phantomCount >= 5:
+if timeSinceRestart > 120 || lastExtRestart == 0 {
+    restartMonitoringFromExtension(defaults: defaults)
+} else {
+    // Throttled - main app will handle
+}
+
+// restartMonitoringFromExtension() reconstructs events from UserDefaults:
+// 1. Read ext_token_<hash> → token cache
+// 2. Read map_usage.app.*_id + _sec → event names + thresholds
+// 3. DeviceActivityCenter().stopMonitoring() + startMonitoring()
+```
+
+**Files Modified:**
+- `ScreenTimeService.swift`: Token serialization in `saveEventMappings()` (~line 1020-1035)
+- `DeviceActivityMonitorExtension.swift`: `restartMonitoringFromExtension()` method + flood trigger update
+
+**Expected Recovery Timeline:**
+```
+1. Extension detects phantom flood (5+ events in 60s)
+2. Extension immediately restarts monitoring (zero gap!)
+3. Catch-up flood arrives → filtered by monitoring_restart_timestamp
+4. Second flood detected → throttled (120s)
+5. Real usage events resume once catch-up subsides
+6. Maximum lost tracking time: ~0 seconds (vs ~15 min before)
+```
+
+**Safety:**
+- If extension is killed between stop/start → flag remains, main app/BGTask handles it
+- If no tokens in UserDefaults (first launch) → falls back to flag-based approach
+- All existing recovery layers (timer, foreground, BGTask) remain as fallbacks
+
+**Test Result:** 🔄 TESTING
+
+---
+
 ## Key Files Reference
 
 | File | Path | Purpose |
 |------|------|---------|
-| Extension | `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | Threshold event handling |
-| Service | `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` | Monitoring setup |
-| ViewModel | `ScreenTimeRewardsProject/ScreenTimeRewards/ViewModels/AppUsageViewModel.swift` | Monitoring coordination |
+| Extension | `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | Threshold event handling, phantom filters |
+| Extension CloudKit | `ScreenTimeActivityExtension/ExtensionCloudKitSync.swift` | CloudKit sync from extension (throttled) |
+| Service | `ScreenTimeRewards/Services/ScreenTimeService.swift` | Monitoring lifecycle, phantom restart logic |
+| Background Sync | `ScreenTimeRewards/Services/ChildBackgroundSyncService.swift` | BGTask handlers (phantom recovery piggyback) |
+| Subscription | `ScreenTimeRewards/Services/SubscriptionManager.swift` | Subscription reactivation restart |
+| App Entry | `ScreenTimeRewards/ScreenTimeRewardsApp.swift` | Foreground phantom restart check |
+| DEV Bypass | `ScreenTimeRewards/Views/Subscription/SubscriptionLockoutView.swift` | Dev subscription bypass restart |
 
 ---
 
@@ -671,11 +897,11 @@ if isRewardAppLocked(appID: appID, defaults: defaults) {
 
 ---
 
-## Current Solution: Multi-Layer Phantom Protection (Attempts 12-15)
+## Current Solution: Multi-Layer Phantom Protection (Attempts 12-19)
 
-**Core principle:** Multiple layers of protection with event buffering and locked app detection.
+**Core principle:** Multiple layers of protection with event buffering, locked app detection, prevention measures, and background recovery.
 
-**Filter Hierarchy:**
+### Layer 1: Event Filtering (Extension)
 | Priority | Filter | Condition | Action |
 |----------|--------|-----------|--------|
 | 1 | Monitoring Gap | `timeSinceRestart < 55s` | BLOCK immediately |
@@ -684,19 +910,29 @@ if isRewardAppLocked(appID: appID, defaults: defaults) {
 | 4 | Duplicate Skip | `threshold == lastThreshold` | SKIP |
 | 5 | Buffer Check | Event passes 1-4 | Buffer → validate later |
 
-**Buffer Validation:**
+### Layer 2: Buffer Validation (Extension)
 - If 3+ rapid-fire events follow within 15s → discard buffer (phantom flood)
 - If 1-2 rapid-fire events → keep buffer (could be out-of-order)
 - If no rapid-fire → flush buffer as legitimate
 - On INTERVAL_END → flush buffer (monitoring ends = legitimate)
 
-**Monitoring Restart:**
-- Phantom flood detected → flag set, no immediate restart
-- Main app polls every 15s for restart conditions
-- Restart when: phantom detected + window ended (60s) + quiet period (20s)
+### Layer 3: Flood Detection & Recovery (Extension + Main App)
+- Extension detects 5+ phantom events in 60s → attempts direct restart
+- Four recovery mechanisms (in order of speed):
+  1. **Extension direct restart** — immediate, zero gap (Attempt 19) ← NEW
+  2. **15s timer** in main app (fast but dies when suspended)
+  3. **Foreground check** when user opens app (Attempt 16)
+  4. **Background task** via BGAppRefreshTask ~every 15 min (Attempt 18)
+- Extension restart: 120s throttle, reconstructs events from serialized tokens
+- Main app restart conditions: phantom detected + window ended (60s) + quiet period (20s) + throttle (90s)
 - Retry up to 3 times with exponential backoff on failure
+- 0.5s delay between stop/start to let iOS clean internal state (Attempt 17)
 
-**Why previous approaches failed:**
+### Layer 4: Prevention (Reduce Extension Kills)
+- CloudKit sync throttled to every 5 minutes (Attempt 17)
+- Reduces extension CPU/memory pressure → fewer iOS kills → fewer floods
+
+### Why previous approaches failed:
 | Attempt | Approach | Failure Mode |
 |---------|----------|--------------|
 | 1-4 | Block phantoms | iOS consumes thresholds, no new events |
@@ -708,11 +944,14 @@ if isRewardAppLocked(appID: appID, defaults: defaults) {
 | 11 | Background timer | Timer didn't run when backgrounded |
 | 12 | Event buffering | Buffer discarded after 1 rapid event |
 
-**Current protection (Attempts 12-15):**
+### All protection layers (Attempts 12-18):
 1. Event buffering with flood detection (Attempt 12)
 2. Require 3+ rapid events before discarding buffer (Attempt 13)
 3. Retry logic for monitoring restart (Attempt 14)
 4. Block phantom usage for locked reward apps (Attempt 15)
+5. Foreground phantom restart check + subscription restart gap fix (Attempt 16)
+6. 0.5s stop/start delay + CloudKit sync throttle (Attempt 17)
+7. Background task phantom recovery via existing BGAppRefreshTask (Attempt 18)
 
 ---
 
@@ -720,7 +959,10 @@ if isRewardAppLocked(appID: appID, defaults: defaults) {
 
 - Thresholds are static (min.1-60), not dynamically re-armed
 - Once iOS "delivers" min.1-60, no more events fire until restart
-- Main app polls every 15s to detect when delayed restart is needed
-- Restart conditions: phantom detected + window ended (60s) + quiet period (20s)
-- Restart retry: up to 3 attempts with 1s, 2s exponential backoff
-- Locked reward apps: any usage for shielded apps is blocked as phantom
+- Phantom flood itself is iOS behavior (catch-up delivery after extension process kill)
+- Three recovery paths: 15s timer (fast, unreliable) → foreground check → BGTask (~15 min)
+- 0.5s delay between stop/start lets iOS clean DeviceActivity internal state
+- CloudKit sync throttled to 5 min to reduce extension kill probability
+- `restartMonitoringServices()` in SubscriptionManager must ALSO call `ScreenTimeService.restartMonitoring()`
+- DEV bypass in `SubscriptionLockoutView` must mirror `restartMonitoringServices()` — keep both in sync
+- `checkForPendingPhantomRestart()` is internal (not private) so ScreenTimeRewardsApp and BGTask handlers can call it

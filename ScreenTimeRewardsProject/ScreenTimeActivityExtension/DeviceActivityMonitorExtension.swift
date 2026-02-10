@@ -64,14 +64,104 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Track last event time for quiet period detection
         defaults.set(now, forKey: "phantom_flood_last_event_time")
 
-        // If 5+ phantom events in 60s, flag for DELAYED restart
-        // NOTE: We do NOT trigger restart immediately - main app polls and restarts
-        // AFTER phantom window ends (60s) + quiet period (30s)
+        // If 5+ phantom events in 60s, flag for restart and attempt direct restart from extension
         if phantomCount >= 5 {
-            debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - flagging for DELAYED restart", defaults: defaults)
             defaults.set(true, forKey: "phantom_flood_detected")
-            // NOTE: Removed immediate Darwin notification - main app will poll instead
-            // This prevents restart loop where new session immediately triggers another flood
+
+            // Try to restart monitoring directly from extension (eliminates ~15 min gap)
+            // Throttle: at most once per 120s to prevent restart loops from catch-up floods
+            let lastExtRestart = defaults.double(forKey: "ext_last_monitoring_restart")
+            let timeSinceRestart = now - lastExtRestart
+            if timeSinceRestart > 120 || lastExtRestart == 0 {
+                debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - attempting DIRECT restart from extension", defaults: defaults)
+                restartMonitoringFromExtension(defaults: defaults)
+            } else {
+                debugLog("🚨 PHANTOM_FLOOD_DETECTED: \(phantomCount) events - restart throttled (\(Int(timeSinceRestart))s < 120s), main app will handle", defaults: defaults)
+            }
+        }
+    }
+
+    /// Restart monitoring directly from the extension by reconstructing events from UserDefaults
+    /// This eliminates the ~15 min gap of waiting for main app or BGTask to restart
+    private nonisolated func restartMonitoringFromExtension(defaults: UserDefaults) {
+        debugLog("🔄 EXT_RESTART: Attempting monitoring restart from extension", defaults: defaults)
+
+        let allKeys = Array(defaults.dictionaryRepresentation().keys)
+
+        // Step 1: Build token cache from ext_token_<stableHash> keys
+        var tokenCache: [String: ApplicationToken] = [:]
+        for key in allKeys where key.hasPrefix("ext_token_") {
+            let stableHash = String(key.dropFirst("ext_token_".count))
+            if let data = defaults.data(forKey: key),
+               let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: data) {
+                tokenCache[stableHash] = token
+            }
+        }
+
+        guard !tokenCache.isEmpty else {
+            debugLog("❌ EXT_RESTART: No tokens found - falling back to main app restart", defaults: defaults)
+            return
+        }
+
+        // Step 2: Reconstruct events dictionary from event mappings + tokens
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        for key in allKeys where key.hasPrefix("map_usage.app.") && key.hasSuffix("_id") {
+            // Extract event name from key "map_<eventName>_id"
+            let withoutPrefix = key.dropFirst(4)  // Remove "map_"
+            let eventName = String(withoutPrefix.dropLast(3))  // Remove "_id"
+
+            // Parse stableHash from event name "usage.app.<stableHash>.min.<N>"
+            let parts = eventName.split(separator: ".")
+            guard parts.count == 5 else { continue }
+            let stableHash = String(parts[2])
+
+            guard let token = tokenCache[stableHash] else { continue }
+
+            let thresholdSec = defaults.integer(forKey: "map_\(eventName)_sec")
+            guard thresholdSec > 0 else { continue }
+
+            // Reconstruct threshold as DateComponents (thresholds are whole minutes)
+            let threshold = DateComponents(minute: thresholdSec / 60)
+            events[DeviceActivityEvent.Name(eventName)] = DeviceActivityEvent(
+                applications: Set([token]),
+                threshold: threshold
+            )
+        }
+
+        guard !events.isEmpty else {
+            debugLog("❌ EXT_RESTART: Could not reconstruct events (0 built) - falling back to main app", defaults: defaults)
+            return
+        }
+
+        // Step 3: Get activity name (stored by main app)
+        let activityNameRaw = defaults.string(forKey: "ext_monitoring_activity_name") ?? "ScreenTimeTracking"
+        let activityName = DeviceActivityName(activityNameRaw)
+        let schedule = DeviceActivitySchedule(
+            intervalStart: DateComponents(hour: 0, minute: 0),
+            intervalEnd: DateComponents(hour: 23, minute: 59),
+            repeats: true
+        )
+
+        // Step 4: Stop current monitoring
+        let center = DeviceActivityCenter()
+        center.stopMonitoring([activityName])
+
+        // Step 5: Set restart timestamp BEFORE starting (for phantom event filtering)
+        let now = Date().timeIntervalSince1970
+        defaults.set(now, forKey: "monitoring_restart_timestamp")
+        defaults.set(now, forKey: "ext_last_monitoring_restart")
+
+        // Step 6: Start fresh monitoring session
+        do {
+            try center.startMonitoring(activityName, during: schedule, events: events)
+            debugLog("✅ EXT_RESTART: Successfully restarted monitoring with \(events.count) events (\(tokenCache.count) apps)", defaults: defaults)
+            // Clear flood flags on success - fresh session has all thresholds reset
+            defaults.set(false, forKey: "phantom_flood_detected")
+            defaults.set(0, forKey: "phantom_flood_count")
+        } catch {
+            debugLog("❌ EXT_RESTART: startMonitoring failed - \(error.localizedDescription)", defaults: defaults)
+            // Re-flag so main app/BGTask can attempt restart
+            defaults.set(true, forKey: "phantom_flood_detected")
         }
     }
 
