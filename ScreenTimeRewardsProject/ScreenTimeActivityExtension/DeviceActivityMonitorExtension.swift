@@ -150,7 +150,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data)
         }()
 
-        // 3. Record usage with filter chain (restart window, global cooldown, shielded app, duplicate)
+        // 3. Record usage with filter chain (restart window, per-app cooldown, min threshold, shielded app, progression)
         let now = Date().timeIntervalSince1970
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults, shieldConfigs: shieldConfigs)
 
@@ -198,13 +198,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// Record +60s per valid event with robust filter chain
-    /// Filter order: restart window → global cooldown → shielded app → duplicate threshold
+    /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
     /// All filters applied BEFORE any recording (including day rollover)
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
 
         // ═══════════ FILTER CHAIN — applied to ALL events before any recording ═══════════
+        // Compute calendar values once for use in both filters and recording
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
         // Filter 1: 60s restart window
         // iOS fires catch-up events for ALL cumulative usage on restart — none are genuine
@@ -216,16 +219,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Filter 2: 55s global cooldown (any app)
-        // One event per 55s across ALL apps — genuine events arrive every 60s, floods arrive ms apart
-        let lastRecorded = defaults.double(forKey: "last_recorded_timestamp")
-        let timeSinceLastRecorded = nowTimestamp - lastRecorded
-        if timeSinceLastRecorded < 55.0 && lastRecorded > 0 {
-            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastRecorded=\(Int(timeSinceLastRecorded))s < 55s", defaults: defaults)
+        // Filter 2: 55s per-app cooldown
+        // Same app can't legitimately fire twice in <55s (thresholds are 60s apart)
+        // Different apps CAN fire close together when user switches between apps
+        let perAppCooldownKey = "last_recorded_\(appID)"
+        let lastRecordedForApp = defaults.double(forKey: perAppCooldownKey)
+        let timeSinceLastForApp = nowTimestamp - lastRecordedForApp
+        if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 {
+            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s", defaults: defaults)
             return false
         }
 
-        // Filter 3: Shielded reward app — user can't use a blocked app, so events are phantom
+        // Filter 3: Minimum threshold validation
+        // All configured thresholds are >= 60s (1 minute minimum)
+        // Values below 60 indicate OS regression (0-minute phantom fires)
+        if thresholdSeconds < 60 {
+            debugLog("SKIP_INVALID appID=\(appID.prefix(8))... thresholdSeconds=\(thresholdSeconds) < 60", defaults: defaults)
+            return false
+        }
+
+        // Filter 4: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         if category == "Reward", let configs = shieldConfigs {
             for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
@@ -240,27 +253,37 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 4: Duplicate threshold
+        // Filter 5: Threshold progression
+        // Same day: cumulative usage only grows, so thresholds must strictly increase
+        // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
         let lastThreshold = defaults.integer(forKey: lastThresholdKey)
-        if thresholdSeconds == lastThreshold {
-            debugLog("SKIP_DUP appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) == lastThreshold", defaults: defaults)
-            return false
+        let todayResetKey = "usage_\(appID)_reset"
+        let lastResetTimestamp = defaults.double(forKey: todayResetKey)
+
+        if lastResetTimestamp >= startOfToday {
+            // Same day: threshold must strictly increase (usage is monotonic within a day)
+            if thresholdSeconds <= lastThreshold {
+                debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
+                return false
+            }
+        } else {
+            // Cross-day: thresholds restart from min.1, just block exact duplicates
+            if thresholdSeconds == lastThreshold {
+                debugLog("SKIP_DUP appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) == lastThreshold (cross-day)", defaults: defaults)
+                return false
+            }
         }
 
         // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
 
         let todayKey = "usage_\(appID)_today"
-        let todayResetKey = "usage_\(appID)_reset"
         let totalKey = "usage_\(appID)_total"
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
-        let lastReset = defaults.double(forKey: todayResetKey)
         let dateString = Self.dayDateFormatter.string(from: now)
         let hour = calendar.component(.hour, from: now)
 
         // Day rollover check
-        if lastReset < startOfToday {
+        if lastResetTimestamp < startOfToday {
             let globalResetKey = "global_daily_reset_timestamp"
             let lastGlobalReset = defaults.double(forKey: globalResetKey)
 
@@ -295,7 +318,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
 
             trackAppID(appID, defaults: defaults)
-            defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
+            defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
+            defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
             return true
         }
 
@@ -338,7 +362,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
 
         trackAppID(appID, defaults: defaults)
-        defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
+        defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
+        defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
         return true
     }
 

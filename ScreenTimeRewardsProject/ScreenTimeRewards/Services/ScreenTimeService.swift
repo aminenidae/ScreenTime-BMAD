@@ -136,10 +136,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         func deviceActivityEvent() -> DeviceActivityEvent {
             let tokens = applications.map { $0.token }
-            return DeviceActivityEvent(
-                applications: Set(tokens),
-                threshold: threshold
-            )
+            if #available(iOS 17.4, *) {
+                return DeviceActivityEvent(
+                    applications: Set(tokens),
+                    threshold: threshold,
+                    includesPastActivity: false
+                )
+            } else {
+                return DeviceActivityEvent(
+                    applications: Set(tokens),
+                    threshold: threshold
+                )
+            }
         }
     }
 
