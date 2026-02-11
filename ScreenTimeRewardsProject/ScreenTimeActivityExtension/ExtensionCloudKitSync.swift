@@ -89,21 +89,8 @@ final class ExtensionCloudKitSync {
     private func collectUsageData(defaults: UserDefaults) -> [String: UsageData] {
         var result: [String: UsageData] = [:]
 
-        let allKeys = defaults.dictionaryRepresentation().keys
-
-        // Find all app IDs by looking for ext_usage keys
-        var appIDs = Set<String>()
-        for key in allKeys {
-            if key.hasPrefix("ext_usage_") && key.hasSuffix("_today") {
-                // Extract app ID from "ext_usage_<appID>_today"
-                let startIndex = key.index(key.startIndex, offsetBy: 10) // Skip "ext_usage_"
-                let endIndex = key.index(key.endIndex, offsetBy: -6) // Remove "_today"
-                if startIndex < endIndex {
-                    let appID = String(key[startIndex..<endIndex])
-                    appIDs.insert(appID)
-                }
-            }
-        }
+        // Use tracked app list instead of materializing all UserDefaults keys
+        let appIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
 
         // Collect data for each app
         for appID in appIDs {
@@ -130,17 +117,28 @@ final class ExtensionCloudKitSync {
         return result
     }
 
-    /// Debug logging to shared UserDefaults
+    /// Cached DateFormatter
+    private static let logDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+
+    /// O(1) append-only debug log — shares buffer with main extension
     private func debugLog(_ message: String, defaults: UserDefaults) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        let timestamp = formatter.string(from: Date())
-        let entry = "[\(timestamp)][SYNC] \(message)"
+        let timestamp = Self.logDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)][SYNC] \(message)\n"
 
         var log = defaults.string(forKey: "extension_debug_log") ?? ""
-        let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let trimmedLines = Array(lines.suffix(499))
-        log = (trimmedLines + [entry]).joined(separator: "\n")
+        log.append(entry)
+
+        // Size-based trim (same thresholds as main extension)
+        if log.utf8.count > 50_000 {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(200)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
         defaults.set(log, forKey: "extension_debug_log")
     }
 }

@@ -34,7 +34,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private let activityName = DeviceActivityName("ScreenTimeTracking")
     private var appUsages: [String: AppUsage] = [:]  // Key = logicalID
     private var hasSeededSampleData = false
-    private var phantomCheckTimer: Timer?  // Polls for delayed phantom restart
     private var authorizationGranted = false
     private(set) var isMonitoring = false
     private static let eventDidReachNotification = CFNotificationName(ScreenTimeNotifications.eventDidReachThreshold as CFString)
@@ -46,9 +45,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Extension re-arm notification - sent when extension records usage and needs threshold re-armed
     private static let extensionUsageRecordedNotification = CFNotificationName("com.screentimerewards.usageRecorded" as CFString)
-
-    // Extension phantom restart notification - sent when phantom flood is detected and monitoring needs restart
-    private static let phantomRestartNotification = CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString)
 
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
@@ -164,12 +160,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private var lastThresholdTime: [String: Date] = [:]
     /// Configuration gate to enable/disable snapshot reconciliation
     private var enableSnapshotReconciliation: Bool = true
-
-    // MARK: - Phantom event protection
-    /// Track when monitoring last started to ignore phantom events
-    private var monitoringStartTime: Date?
-    /// Grace period after monitoring starts to ignore all events (prevents phantom historical events)
-    private let phantomEventGracePeriod: TimeInterval = 30.0
 
     // MARK: - Stable Hash Function
     /// DJB2 hash - deterministic across app launches (unlike Swift's .hashValue)
@@ -456,35 +446,29 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 print("[ScreenTimeService] 🔄 Monitoring was previously active - restarting automatically...")
                 #endif
 
-                // CRITICAL FIX: Always stop monitoring first to clear potentially stale iOS state
-                // This is especially important after a crash where iOS may have stale event registrations
+                // Check if monitoring is already active at the OS level
+                // DeviceActivity monitoring persists across app/extension process deaths
+                // Calling startMonitoring() unnecessarily creates a new session,
+                // which causes iOS to fire catch-up events for ALL cumulative daily usage (phantom floods)
                 let registeredActivities = deviceActivityCenter.activities
                 #if DEBUG
                 print("[ScreenTimeService] 📊 Currently registered activities with iOS: \(registeredActivities.map { $0.rawValue })")
                 #endif
 
-                // Force stop any existing monitoring to ensure clean state
-                deviceActivityCenter.stopMonitoring([activityName])
-                #if DEBUG
-                print("[ScreenTimeService] 🛑 Stopped existing monitoring (crash recovery)")
-                #endif
-
-                // Start monitoring with fresh event registrations
-                var skipRestart = false
-                #if DEBUG
-                if sharedDefaults.bool(forKey: "debug_ext_only_restart") {
-                    print("[ScreenTimeService] ⚠️ DEBUG: Skipping main app launch restart (ext-only test mode)")
-                    skipRestart = true
-                }
-                #endif
-
-                if !skipRestart {
+                if registeredActivities.contains(activityName) {
+                    // Monitoring already active at OS level — don't restart
+                    isMonitoring = true
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Monitoring already active at OS level — skipping restart to prevent phantom floods")
+                    #endif
+                } else {
+                    // Monitoring genuinely dead — restart needed
                     do {
                         try scheduleActivity()
                         isMonitoring = true
 
                         #if DEBUG
-                        print("[ScreenTimeService] ✅ Monitoring automatically restarted after app launch (crash recovery)")
+                        print("[ScreenTimeService] ✅ Monitoring restarted (was genuinely dead)")
                         #endif
                     } catch {
                         // CRITICAL: Reset state on failure to prevent blocking manual start later
@@ -982,10 +966,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.removeObject(forKey: key)
             cleanedCount += 1
         }
-        // Also clean old extension token keys (refreshed with current tokens below)
-        for key in allKeys where key.hasPrefix("ext_token_") {
-            sharedDefaults.removeObject(forKey: key)
-        }
         #if DEBUG
         if cleanedCount > 0 {
             print("[ScreenTimeService] 🧹 Cleaned \(cleanedCount) old event mapping keys before saving new ones")
@@ -1032,24 +1012,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             #endif
         }
 
-        // Serialize ApplicationTokens for extension-initiated monitoring restart
-        // Stored per unique app (stableHash → token data), ~5-8 keys total
-        // Extension uses these to reconstruct DeviceActivityEvent dictionary
-        var savedTokenHashes = Set<UInt64>()
-        for (_, event) in monitoredEvents {
-            guard let app = event.applications.first else { continue }
-            let hash = stableHash(app.logicalID)
-            guard !savedTokenHashes.contains(hash) else { continue }
-            if let tokenData = try? PropertyListEncoder().encode(app.token) {
-                sharedDefaults.set(tokenData, forKey: "ext_token_\(hash)")
-                savedTokenHashes.insert(hash)
-            }
-        }
-        // Store activity name for extension to use when restarting monitoring
-        sharedDefaults.set(activityName.rawValue, forKey: "ext_monitoring_activity_name")
-        #if DEBUG
-        print("[ScreenTimeService] 🔑 Saved \(savedTokenHashes.count) app tokens for extension restart")
-        #endif
     }
 
     private func registerForExtensionNotifications() {
@@ -1067,8 +1029,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
          Self.intervalDidEndNotification,
          Self.intervalWillStartNotification,
          Self.intervalWillEndNotification,
-         Self.extensionUsageRecordedNotification,
-         Self.phantomRestartNotification].forEach { notification in
+         Self.extensionUsageRecordedNotification].forEach { notification in
             CFNotificationCenterAddObserver(
                 center,
                 observer,
@@ -1132,11 +1093,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
-
-        case Self.phantomRestartNotification:
-            // Extension detected phantom flood and is requesting monitoring restart
-            print("[ScreenTimeService] 🚨 Phantom restart notification received - restarting monitoring")
-            handlePhantomRestartRequest(defaults: sharedDefaults)
 
         default:
             break
@@ -1306,131 +1262,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
         #endif
-    }
-
-    // MARK: - Phantom Restart Handler
-
-    /// Handle restart request from extension via Darwin notification
-    /// Called when extension detects phantom flood OR monitoring ended unexpectedly
-    private func handlePhantomRestartRequest(defaults: UserDefaults) {
-        // Check if restart is actually needed (flags may have been cleared by intervalDidStart)
-        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
-        let monitoringEnded = defaults.double(forKey: "monitoring_ended_timestamp") > 0
-        guard phantomDetected || monitoringEnded else {
-            print("[ScreenTimeService] 🔍 Darwin notification received but flags already cleared - skipping")
-            return
-        }
-
-        let now = Date().timeIntervalSince1970
-
-        // Throttle: Don't restart more than once every 2 minutes
-        let lastRestart = defaults.double(forKey: "phantom_restart_last_handled")
-        let timeSinceLastRestart = now - lastRestart
-
-        if lastRestart > 0 && timeSinceLastRestart < 120 {
-            print("[ScreenTimeService] 🚫 Phantom restart throttled - last restart was \(Int(timeSinceLastRestart))s ago")
-            return
-        }
-
-        // Update throttle timestamp
-        defaults.set(now, forKey: "phantom_restart_last_handled")
-
-        print("[ScreenTimeService] 🔄 Executing phantom restart to reset iOS threshold state...")
-
-        // Restart monitoring asynchronously
-        // The restartMonitoring() → scheduleActivity() flow will set monitoring_restart_timestamp
-        // which triggers the 55s phantom protection window in the extension
-        Task { @MainActor in
-            await self.restartMonitoring(reason: "phantom flood recovery", force: true)
-            print("[ScreenTimeService] ✅ Phantom restart complete - new monitoring session started")
-        }
-    }
-
-    // MARK: - Delayed Phantom Restart Timer
-
-    /// Start periodic timer to check for pending phantom restart
-    /// The extension flags phantom floods but doesn't trigger restart immediately
-    /// This timer polls and restarts AFTER phantom window + quiet period
-    private func startPhantomCheckTimer() {
-        phantomCheckTimer?.invalidate()
-        phantomCheckTimer = Timer.scheduledTimer(withTimeInterval: 15.0, repeats: true) { [weak self] _ in
-            Task { @MainActor in
-                self?.checkForPendingPhantomRestart()
-            }
-        }
-        // Add to common RunLoop mode so timer continues when app is backgrounded
-        if let timer = phantomCheckTimer {
-            RunLoop.current.add(timer, forMode: .common)
-        }
-        #if DEBUG
-        print("[ScreenTimeService] 🕐 Started phantom check timer (15s interval, RunLoop.common)")
-        #endif
-    }
-
-    /// Stop the phantom check timer
-    private func stopPhantomCheckTimer() {
-        phantomCheckTimer?.invalidate()
-        phantomCheckTimer = nil
-        #if DEBUG
-        print("[ScreenTimeService] 🕐 Stopped phantom check timer")
-        #endif
-    }
-
-    /// Check if conditions are met for monitoring restart
-    /// Triggers on: (A) phantom flood detected OR (B) monitoring ended unexpectedly (silent death)
-    @MainActor
-    func checkForPendingPhantomRestart() {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-
-        let now = Date().timeIntervalSince1970
-        let phantomDetected = defaults.bool(forKey: "phantom_flood_detected")
-        let monitoringEndedAt = defaults.double(forKey: "monitoring_ended_timestamp")
-        let monitoringEndedUnexpectedly = monitoringEndedAt > 0 && (now - monitoringEndedAt) > 30.0
-
-        // Need either a phantom flood detected OR monitoring ended unexpectedly (> 30s ago)
-        // The 30s threshold filters normal midnight restarts (END → START within ~1s clears the flag)
-        guard phantomDetected || monitoringEndedUnexpectedly else { return }
-
-        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
-        let lastEventTime = defaults.double(forKey: "phantom_flood_last_event_time")
-        let lastRestartRequest = defaults.double(forKey: "phantom_restart_last_request")
-
-        let timeSinceRestart = now - restartTimestamp
-        let timeSinceLastEvent = lastEventTime > 0 ? now - lastEventTime : 999.0
-        let timeSinceLastRestartRequest = lastRestartRequest > 0 ? now - lastRestartRequest : 999.0
-
-        let triggerReason = phantomDetected ? "phantom_flood" : "monitoring_ended"
-
-        #if DEBUG
-        print("[ScreenTimeService] 🔍 Health check (\(triggerReason)): timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s timeSinceLastRequest=\(Int(timeSinceLastRestartRequest))s")
-        #endif
-
-        // For phantom floods: require window ended (60s) + quiet period (20s) + throttle (90s)
-        // For monitoring ended: only require throttle (90s) — no need to wait for quiet period
-        let shouldRestart: Bool
-        if phantomDetected {
-            shouldRestart = timeSinceRestart > 60.0
-                && timeSinceLastEvent > 20.0
-                && timeSinceLastRestartRequest > 90.0
-        } else {
-            // Monitoring ended unexpectedly — just check throttle
-            shouldRestart = timeSinceLastRestartRequest > 90.0
-        }
-
-        if shouldRestart {
-            print("[ScreenTimeService] 🔄 Triggering restart (\(triggerReason)) window=\(Int(timeSinceRestart))s quiet=\(Int(timeSinceLastEvent))s")
-
-            // Clear flags
-            defaults.set(false, forKey: "phantom_flood_detected")
-            defaults.set(0, forKey: "phantom_flood_count")
-            defaults.set(0.0, forKey: "monitoring_ended_timestamp")
-            defaults.set(now, forKey: "phantom_restart_last_request")
-
-            Task { @MainActor in
-                await self.restartMonitoring(reason: triggerReason, force: true)
-                print("[ScreenTimeService] ✅ Restart complete (\(triggerReason)) - fresh thresholds active")
-            }
-        }
     }
 
     // MARK: - UsageRecord Sync from Extension Data
@@ -1628,9 +1459,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
         isMonitoring = false
-
-        // Stop phantom check timer
-        stopPhantomCheckTimer()
 
         // Persist monitoring state so we don't auto-restart on next launch
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -2217,15 +2045,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         stopMonitoring()
 
-        // Give iOS time to clean internal DeviceActivity state before restarting
-        // Research shows a 0.5s delay reduces phantom event floods by ~70%
-        try? await Task.sleep(nanoseconds: 500_000_000)
-
-        // Clear any previous failure flag
-        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-            sharedDefaults.set(false, forKey: "monitoring_restart_failed")
-        }
-
         // Retry up to 3 times with exponential backoff
         var lastError: Error?
         for attempt in 1...3 {
@@ -2255,14 +2074,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
-        // All retries failed - log error and set flag for potential UI notification
+        // All retries failed
         if let error = lastError {
             print("[ScreenTimeService] ❌ CRITICAL: Failed to restart monitoring after 3 attempts: \(error)")
-
-            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-                sharedDefaults.set(true, forKey: "monitoring_restart_failed")
-                sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_failed_time")
-            }
         }
     }
 
@@ -2511,7 +2325,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Extension uses this to skip catch-up events within 55 seconds of restart
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
-            sharedDefaults.set("main_app", forKey: "last_restart_source")
             #if DEBUG
             print("[ScreenTimeService] 🕐 Set monitoring_restart_timestamp BEFORE startMonitoring")
             #endif
@@ -2528,15 +2341,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("   - Activity name: \(activityName)")
         #endif
 
-        // Set monitoring start time for phantom event protection
-        monitoringStartTime = Date()
-
-        // Start phantom check timer for delayed restart detection
-        startPhantomCheckTimer()
-
         #if DEBUG
         print("[ScreenTimeService] Successfully started monitoring")
-        print("[ScreenTimeService] 🛡️ Phantom event protection: ignoring events for \(phantomEventGracePeriod)s")
         #endif
     }
     
@@ -3607,23 +3413,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("   - Timestamp: \(timestamp)")
         print("   - Thread: \(Thread.isMainThread ? "Main" : "Background")")
         #endif
-
-        // === PHANTOM EVENT PROTECTION ===
-        // When monitoring starts, iOS fires ALL past threshold events for apps with historical usage
-        // Ignore all events that occur within grace period after monitoring started
-        if let startTime = monitoringStartTime {
-            let timeSinceMonitoringStarted = timestamp.timeIntervalSince(startTime)
-            if timeSinceMonitoringStarted < phantomEventGracePeriod {
-                #if DEBUG
-                print("[ScreenTimeService] 🛡️ PHANTOM EVENT IGNORED")
-                print("[ScreenTimeService]    Event: \(event.rawValue)")
-                print("[ScreenTimeService]    Time since monitoring started: \(String(format: "%.1f", timeSinceMonitoringStarted))s")
-                print("[ScreenTimeService]    Grace period: \(phantomEventGracePeriod)s")
-                print("[ScreenTimeService]    Reason: Historical threshold event fired on monitoring start")
-                #endif
-                return
-            }
-        }
 
         guard let configuration = monitoredEvents[event] else {
             #if DEBUG

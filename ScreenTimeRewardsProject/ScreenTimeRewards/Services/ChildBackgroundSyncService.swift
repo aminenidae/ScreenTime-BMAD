@@ -95,14 +95,6 @@ class ChildBackgroundSyncService: ObservableObject {
         // Schedule shield state sync (more frequent than BGProcessingTask)
         scheduleShieldStateSync()
 
-        // Register phantom-recovery task (dedicated lightweight BGTask for faster phantom recovery)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.screentimerewards.phantom-recovery",
-            using: nil
-        ) { task in
-            self.handlePhantomRecoveryTask(task as! BGAppRefreshTask)
-        }
-        schedulePhantomRecovery()
     }
     
     /// Schedule a usage upload task
@@ -143,11 +135,6 @@ class ChildBackgroundSyncService: ObservableObject {
     
     /// Handle usage upload background task
     func handleUsageUploadTask(_ task: BGTask) {
-        // Check for phantom flood recovery (background restart when main app timer is dead)
-        Task { @MainActor in
-            ScreenTimeService.shared.checkForPendingPhantomRestart()
-        }
-
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling usage upload task")
         #endif
@@ -201,11 +188,6 @@ class ChildBackgroundSyncService: ObservableObject {
     
     /// Handle configuration check background task
     func handleConfigCheckTask(_ task: BGTask) {
-        // Check for phantom flood recovery (background restart when main app timer is dead)
-        Task { @MainActor in
-            ScreenTimeService.shared.checkForPendingPhantomRestart()
-        }
-
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling config check task")
         #endif
@@ -736,11 +718,6 @@ class ChildBackgroundSyncService: ObservableObject {
     /// Handle shield state sync background app refresh task
     /// This runs more frequently than BGProcessingTask to keep parent dashboard updated
     func handleShieldStateSyncTask(_ task: BGAppRefreshTask) {
-        // Check for phantom flood recovery (background restart when main app timer is dead)
-        Task { @MainActor in
-            ScreenTimeService.shared.checkForPendingPhantomRestart()
-        }
-
         #if DEBUG
         print("[ChildBackgroundSyncService] 🛡️ Handling shield state sync task")
         #endif
@@ -789,35 +766,6 @@ class ChildBackgroundSyncService: ObservableObject {
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule shield state sync: \(error)")
-            #endif
-        }
-    }
-
-    // MARK: - Phantom Recovery Task
-
-    /// Handle phantom recovery background app refresh task
-    /// Lightweight task that only checks for pending phantom flood restarts
-    func handlePhantomRecoveryTask(_ task: BGAppRefreshTask) {
-        Task { @MainActor in
-            ScreenTimeService.shared.checkForPendingPhantomRestart()
-        }
-        schedulePhantomRecovery()
-        task.setTaskCompleted(success: true)
-    }
-
-    /// Schedule phantom recovery task (5-minute intervals for faster recovery)
-    func schedulePhantomRecovery() {
-        let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.phantom-recovery")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 5 * 60) // 5 minutes
-
-        do {
-            try BGTaskScheduler.shared.submit(request)
-            #if DEBUG
-            print("[ChildBackgroundSyncService] 🔄 Scheduled phantom recovery (5 min)")
-            #endif
-        } catch {
-            #if DEBUG
-            print("[ChildBackgroundSyncService] ❌ Failed to schedule phantom recovery: \(error)")
             #endif
         }
     }

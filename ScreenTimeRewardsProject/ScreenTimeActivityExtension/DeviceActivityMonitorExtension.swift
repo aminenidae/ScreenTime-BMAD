@@ -26,196 +26,40 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private let managedSettingsStore = ManagedSettingsStore()
 
     // MARK: - Debug Logging
-    /// Write debug log entry to shared UserDefaults buffer (last 500 entries)
+    /// Cached DateFormatters — Apple warns against creating these repeatedly
+    private static let logDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "HH:mm:ss.SSS"
+        return f
+    }()
+    private static let dayDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        return f
+    }()
+
+    /// Max log size in bytes before trimming (~50KB)
+    private static let maxLogBytes = 50_000
+    /// Lines to keep after trim
+    private static let trimToLines = 200
+
+    /// O(1) append-only debug log — avoids catastrophic read-parse-rewrite cycle
+    /// Only trims when buffer exceeds size threshold
     private nonisolated func debugLog(_ message: String, defaults: UserDefaults) {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "HH:mm:ss.SSS"
-        let timestamp = formatter.string(from: Date())
-        let entry = "[\(timestamp)][\(Self.sessionID)] \(message)"
+        let timestamp = Self.logDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)][\(Self.sessionID)] \(message)\n"
 
         var log = defaults.string(forKey: "extension_debug_log") ?? ""
-        let lines = log.components(separatedBy: "\n").filter { !$0.isEmpty }
-        let trimmedLines = Array(lines.suffix(1499)) // Keep last 1499 to add 1 more (1500 total)
-        log = (trimmedLines + [entry]).joined(separator: "\n")
+        log.append(entry)
+
+        // Size-based trim: only when exceeding threshold (rare, amortized O(1))
+        if log.utf8.count > Self.maxLogBytes {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(Self.trimToLines)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
         defaults.set(log, forKey: "extension_debug_log")
-    }
-
-    // MARK: - Phantom Flood Restart Signaling
-
-    /// Track phantom flood events and signal main app when restart is needed
-    /// When iOS sends catch-up events after restart, they "consume" thresholds and iOS won't send new events
-    /// By detecting this flood and triggering a monitoring restart, we reset iOS's threshold state
-    private nonisolated func trackPhantomFloodForRestart(defaults: UserDefaults) {
-        let now = Date().timeIntervalSince1970
-        let phantomWindowStart = defaults.double(forKey: "phantom_flood_window_start")
-        var phantomCount = defaults.integer(forKey: "phantom_flood_count")
-
-        // Reset window if > 60s old
-        if now - phantomWindowStart > 60 || phantomWindowStart == 0 {
-            phantomCount = 1
-            defaults.set(now, forKey: "phantom_flood_window_start")
-        } else {
-            phantomCount += 1
-        }
-        defaults.set(phantomCount, forKey: "phantom_flood_count")
-
-        debugLog("📊 PHANTOM_FLOOD_TRACK: count=\(phantomCount) windowAge=\(Int(now - phantomWindowStart))s", defaults: defaults)
-
-        // Read previous event time BEFORE updating (for quiet gap detection)
-        let previousEventTime = defaults.double(forKey: "phantom_flood_last_event_time")
-        let gapSincePrevious = previousEventTime > 0 ? now - previousEventTime : 0
-        defaults.set(now, forKey: "phantom_flood_last_event_time")
-
-        // If 5+ phantom events in 60s, flag for main app restart
-        if phantomCount >= 5 {
-            // Flag for main-app restart (Darwin notification + BGTask + foreground check)
-            if !defaults.bool(forKey: "phantom_flood_detected") {
-                defaults.set(true, forKey: "phantom_flood_detected")
-                // Send Darwin notification for immediate main-app restart (if app is active)
-                CFNotificationCenterPostNotification(
-                    CFNotificationCenterGetDarwinNotifyCenter(),
-                    CFNotificationName("com.screentimerewards.phantomRestartNeeded" as CFString),
-                    nil, nil, true
-                )
-                debugLog("🚨 FLOOD_DETECTED: count=\(phantomCount) - flagged for main app restart + Darwin notification sent", defaults: defaults)
-            }
-
-            let floodDuration = now - phantomWindowStart
-            let floodSettled = gapSincePrevious > 20
-            let floodMostlyDone = floodDuration > 3 && phantomCount >= 20
-
-            if floodSettled || floodMostlyDone {
-                debugLog("🚨 FLOOD_SETTLED: gap=\(String(format: "%.1f", gapSincePrevious))s duration=\(String(format: "%.1f", floodDuration))s count=\(phantomCount) - awaiting main app restart", defaults: defaults)
-            } else {
-                debugLog("🚨 PHANTOM_FLOOD: count=\(phantomCount) gap=\(String(format: "%.1f", gapSincePrevious))s duration=\(String(format: "%.1f", floodDuration))s - waiting", defaults: defaults)
-            }
-        }
-    }
-
-    /// Track the highest threshold minute seen per app during a flood.
-    /// Used by restartMonitoringFromExtension to skip already-passed thresholds.
-    /// Lightweight: ~2 UserDefaults ops (1 read + 1 conditional write).
-    private nonisolated func trackFloodMaxThreshold(eventName: String, defaults: UserDefaults) {
-        let parts = eventName.split(separator: ".")
-        // Format: usage.app.<stableHash>.min.<N>
-        guard parts.count == 5, parts[0] == "usage", parts[1] == "app",
-              parts[3] == "min", let minute = Int(parts[4]) else { return }
-        let stableHash = String(parts[2])
-        let key = "flood_max_min_\(stableHash)"
-        let currentMax = defaults.integer(forKey: key)
-        if minute > currentMax {
-            defaults.set(minute, forKey: key)
-        }
-    }
-
-    /// Restart monitoring directly from the extension by reconstructing events from UserDefaults
-    /// This eliminates the ~15 min gap of waiting for main app or BGTask to restart
-    private nonisolated func restartMonitoringFromExtension(defaults: UserDefaults) {
-        debugLog("🔄 EXT_RESTART: Attempting monitoring restart from extension", defaults: defaults)
-
-        let allKeys = Array(defaults.dictionaryRepresentation().keys)
-
-        // Step 1: Build token cache from ext_token_<stableHash> keys
-        var tokenCache: [String: ApplicationToken] = [:]
-        for key in allKeys where key.hasPrefix("ext_token_") {
-            let stableHash = String(key.dropFirst("ext_token_".count))
-            if let data = defaults.data(forKey: key),
-               let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: data) {
-                tokenCache[stableHash] = token
-            }
-        }
-
-        guard !tokenCache.isEmpty else {
-            debugLog("❌ EXT_RESTART: No tokens found - falling back to main app restart", defaults: defaults)
-            return
-        }
-
-        // Step 2: Reconstruct events dictionary from event mappings + tokens
-        // Only register thresholds ABOVE each app's current usage to prevent catch-up floods
-        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
-        var skippedCount = 0
-        for key in allKeys where key.hasPrefix("map_usage.app.") && key.hasSuffix("_id") {
-            // Extract event name from key "map_<eventName>_id"
-            let withoutPrefix = key.dropFirst(4)  // Remove "map_"
-            let eventName = String(withoutPrefix.dropLast(3))  // Remove "_id"
-
-            // Parse stableHash from event name "usage.app.<stableHash>.min.<N>"
-            let parts = eventName.split(separator: ".")
-            guard parts.count == 5 else { continue }
-            let stableHash = String(parts[2])
-
-            guard let token = tokenCache[stableHash] else { continue }
-
-            let thresholdSec = defaults.integer(forKey: "map_\(eventName)_sec")
-            guard thresholdSec > 0 else { continue }
-
-            let thresholdMin = thresholdSec / 60
-            // Smart filtering: skip thresholds at or below current usage to prevent catch-up floods
-            let floodMaxMin = defaults.integer(forKey: "flood_max_min_\(stableHash)")
-            let appID = defaults.string(forKey: "map_\(eventName)_id") ?? ""
-            let currentTodayMin = appID.isEmpty ? 0 : defaults.integer(forKey: "usage_\(appID)_today") / 60
-            let skipBelow = max(floodMaxMin, currentTodayMin)
-            if skipBelow > 0 && thresholdMin <= skipBelow {
-                skippedCount += 1
-                continue
-            }
-
-            // Reconstruct threshold as DateComponents (thresholds are whole minutes)
-            let threshold = DateComponents(minute: thresholdSec / 60)
-            events[DeviceActivityEvent.Name(eventName)] = DeviceActivityEvent(
-                applications: Set([token]),
-                threshold: threshold
-            )
-        }
-        debugLog("🔄 EXT_RESTART: Built \(events.count) future events, skipped \(skippedCount) already-passed", defaults: defaults)
-
-        guard !events.isEmpty else {
-            debugLog("❌ EXT_RESTART: Could not reconstruct events (0 built) - falling back to main app", defaults: defaults)
-            return
-        }
-
-        // Step 3: Get activity name (stored by main app)
-        let activityNameRaw = defaults.string(forKey: "ext_monitoring_activity_name") ?? "ScreenTimeTracking"
-        let activityName = DeviceActivityName(activityNameRaw)
-        let schedule = DeviceActivitySchedule(
-            intervalStart: DateComponents(hour: 0, minute: 0),
-            intervalEnd: DateComponents(hour: 23, minute: 59),
-            repeats: true
-        )
-
-        // Step 4: Stop current monitoring
-        let center = DeviceActivityCenter()
-        center.stopMonitoring([activityName])
-
-        // Step 5: Set restart timestamp BEFORE starting (for phantom event filtering)
-        let now = Date().timeIntervalSince1970
-        defaults.set(now, forKey: "monitoring_restart_timestamp")
-        defaults.set(now, forKey: "ext_last_monitoring_restart")
-        defaults.set("extension", forKey: "last_restart_source")
-
-        // Step 6: Start fresh monitoring session
-        do {
-            try center.startMonitoring(activityName, during: schedule, events: events)
-            debugLog("✅ EXT_RESTART: Successfully restarted monitoring with \(events.count) events (\(tokenCache.count) apps)", defaults: defaults)
-            // Persist result for diagnostics (survives log truncation)
-            defaults.set("success:\(events.count)events_\(tokenCache.count)apps", forKey: "ext_restart_result")
-            defaults.set(Date().timeIntervalSince1970, forKey: "ext_restart_result_time")
-            // Clear flood flags on success - fresh session has all thresholds reset
-            defaults.set(false, forKey: "phantom_flood_detected")
-            defaults.set(0, forKey: "phantom_flood_count")
-            defaults.set(0, forKey: "phantom_flood_window_start") // Force catch-up to start own window
-            // Increment restart count (allows up to 3 per flood cycle)
-            // NOTE: flood_max_min keys intentionally NOT cleared — they accumulate
-            // across restarts so each subsequent restart skips more already-passed thresholds
-            defaults.set(defaults.integer(forKey: "ext_restart_count_this_flood") + 1, forKey: "ext_restart_count_this_flood")
-        } catch {
-            debugLog("❌ EXT_RESTART: startMonitoring failed - \(error.localizedDescription)", defaults: defaults)
-            // Persist failure for diagnostics
-            defaults.set("failed:\(error.localizedDescription)", forKey: "ext_restart_result")
-            defaults.set(Date().timeIntervalSince1970, forKey: "ext_restart_result_time")
-            // Re-flag so main app/BGTask can attempt restart
-            defaults.set(true, forKey: "phantom_flood_detected")
-        }
     }
 
     // MARK: - Lifecycle
@@ -224,53 +68,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(true, forKey: "extension_initialized_flag")
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_initialized")
-
-            // Fallback: ensure restart timestamp exists to prevent phantom events
-            // This covers edge cases where extension initializes before main app sets the timestamp
-            if defaults.double(forKey: "monitoring_restart_timestamp") == 0 {
-                defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
-            }
         }
     }
 
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            // Clear monitoring-ended flag — monitoring is active again
-            defaults.set(0.0, forKey: "monitoring_ended_timestamp")
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
-
-            // Log restart diagnostics (persisted values survive log truncation during floods)
-            if let restartResult = defaults.string(forKey: "ext_restart_result") {
-                let restartTime = defaults.double(forKey: "ext_restart_result_time")
-                let ago = restartTime > 0 ? "\(Int(Date().timeIntervalSince1970 - restartTime))s ago" : "unknown"
-                debugLog("📋 RESTART_DIAG: result=\(restartResult) (\(ago))", defaults: defaults)
-            }
-            let restartSource = defaults.string(forKey: "last_restart_source") ?? "unknown"
-            debugLog("📋 RESTART_SOURCE: \(restartSource)", defaults: defaults)
-            let floodCount = defaults.integer(forKey: "phantom_flood_count")
-            if floodCount > 0 {
-                debugLog("📋 FLOOD_STATE: count=\(floodCount) detected=\(defaults.bool(forKey: "phantom_flood_detected"))", defaults: defaults)
-            }
         }
         updateHeartbeat()
     }
 
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            // Flush any buffered event - if monitoring ends without rapid-fire, it's legitimate
-            let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
-            if bufferTimestamp > 0 {
-                debugLog("✅ INTERVAL_END_FLUSH: recording buffered event (monitoring ended without flood)", defaults: defaults)
-                flushBufferedEvent(defaults: defaults)
-            }
             debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
-
-            // Flag that monitoring ended — main app recovery stack will detect and restart if needed
-            // Normal midnight: INTERVAL_START follows within ~1s and clears this flag
-            // Silent death: flag stays set → recovery triggers restart
-            defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_ended_timestamp")
-            debugLog("📡 INTERVAL_END: flagged monitoring_ended_timestamp (recovery via timer/BGTask)", defaults: defaults)
         }
     }
 
@@ -281,40 +92,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Log FIRST - before any processing that could fail
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
             // Increment persistent counter to track total events received
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
 
-            // Track max threshold per app for ALL events (used by smart restart filtering)
-            trackFloodMaxThreshold(eventName: event.rawValue, defaults: defaults)
-
-            // === STALE FLOOD WINDOW CHECK ===
-            // After an ext restart, catch-up events (~1s) and the first real event (~55s)
-            // must NOT be counted in the same flood window. A 50s timeout cleanly separates them.
-            // Without this, the first real event pushes count to 20 → false FLOOD_RESTART.
-            let staleWindowStart = defaults.double(forKey: "phantom_flood_window_start")
-            if staleWindowStart > 0 {
-                let windowAge = Date().timeIntervalSince1970 - staleWindowStart
-                if windowAge > 50 {
-                    defaults.set(0, forKey: "phantom_flood_count")
-                    defaults.set(0, forKey: "phantom_flood_window_start")
-                    defaults.set(false, forKey: "phantom_flood_detected")
-                }
-            }
-
-            // LIGHTWEIGHT FLOOD MODE: When a flood is in progress (5+ phantom events),
-            // skip ALL heavy processing to prevent iOS from killing the extension.
-            // Normal path: ~50+ UserDefaults ops per event (MAPPING_AUDIT scans 500+ keys).
-            // Lightweight: ~5 ops (counter + log + flood tracking). 10x less resource pressure.
-            // Events during a flood are guaranteed phantoms, so zero data loss from skipping.
-            let floodCount = defaults.integer(forKey: "phantom_flood_count")
-            if floodCount >= 5 {
-                debugLog("⚡ FLOOD_SKIP: count=\(floodCount) event=\(event.rawValue.suffix(20))", defaults: defaults)
-                trackPhantomFloodForRestart(defaults: defaults)
-                return
-            }
-
-            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
+            // Show event count in console
+            print("🔔 [EXTENSION] Total events: \(eventCount)")
         }
 
         updateHeartbeat()
@@ -331,69 +115,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Memory-Efficient Usage Recording
 
     /// Record usage using only primitive values - no JSON, no structs
-    /// KEY FIX: Uses SET semantics based on threshold minute, not INCREMENT
-    /// This prevents phantom usage from accumulating
+    /// Uses +60s INCREMENT per valid event with basic catch-up protection
     private nonisolated func recordUsageEfficiently(for eventName: String) -> Bool {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
             return false
         }
 
-        // === ENHANCED DIAGNOSTIC: Extract token hash from event name ===
-        // Format: usage.app.<tokenHash>.min.<minute>
-        let eventComponents = eventName.split(separator: ".")
-        let tokenHash: String
-        if eventComponents.count >= 3 && eventComponents[0] == "usage" && eventComponents[1] == "app" {
-            tokenHash = String(eventComponents[2])
-        } else {
-            tokenHash = "UNKNOWN"
-        }
-
-        debugLog("📥 EVENT_RECV: raw=\(eventName)", defaults: defaults)
-        debugLog("📥 EVENT_RECV: tokenHash=\(tokenHash)", defaults: defaults)
-
         // 1. Read event mapping (primitives only)
         let mapIdKey = "map_\(eventName)_id"
-
-        // DIAGNOSTIC: Count total map keys and audit for duplicates
-        let allMapKeys = defaults.dictionaryRepresentation().keys.filter { $0.hasPrefix("map_") && $0.hasSuffix("_id") }
-
-        // Check how many events map to each appID (detect potential contamination)
-        var appIDCounts: [String: Int] = [:]
-        for key in allMapKeys {
-            if let id = defaults.string(forKey: key) {
-                appIDCounts[id, default: 0] += 1
-            }
-        }
-        let uniqueAppIDs = appIDCounts.keys.count
-        let maxEventsPerApp = appIDCounts.values.max() ?? 0
-        debugLog("📊 MAPPING_AUDIT: totalMaps=\(allMapKeys.count) uniqueApps=\(uniqueAppIDs) maxEventsPerApp=\(maxEventsPerApp)", defaults: defaults)
-
         guard let appID = defaults.string(forKey: mapIdKey) else {
             // Try to read from JSON eventMappings as fallback
             if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
                 return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
             }
-            debugLog("❌ NO_MAPPING: tokenHash=\(tokenHash) mapKey=\(mapIdKey)", defaults: defaults)
+            debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
             return false
         }
-
-        // DIAGNOSTIC: Log the resolved appID and category
-        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Unknown"
-        let displayName = defaults.string(forKey: "map_\(appID)_name") ?? "Unknown"
-
-        // === CROSS-APP CORRELATION: Track which apps record in sequence ===
-        let lastRecordedAppID = defaults.string(forKey: "debug_last_recorded_appID") ?? "none"
-        let lastRecordedTime = defaults.double(forKey: "debug_last_recorded_time")
-        let lastRecordedName = defaults.string(forKey: "debug_last_recorded_name") ?? "none"
-        let now = Date().timeIntervalSince1970
-        let timeSinceLastRecord = lastRecordedTime > 0 ? Int(now - lastRecordedTime) : -1
-
-        if lastRecordedAppID != appID && lastRecordedAppID != "none" && timeSinceLastRecord >= 0 && timeSinceLastRecord < 120 {
-            // Different app recorded recently - potential contamination signal
-            debugLog("⚠️ CROSS_APP: prev=\(lastRecordedName) (\(lastRecordedAppID.prefix(8))...) → now=\(displayName) (\(appID.prefix(8))...) gap=\(timeSinceLastRecord)s", defaults: defaults)
-        }
-
-        debugLog("✅ EVENT_RESOLVE: tokenHash=\(tokenHash) → appID=\(appID.prefix(12))... name=\(displayName) cat=\(category)", defaults: defaults)
 
         // 2. Extract the minute number from event name (e.g., "usage.app.0.min.15" → 15)
         let thresholdMinutes = extractMinuteFromEventName(eventName)
@@ -407,33 +144,41 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Console visibility for development
         print("📝 [EXTENSION] Recording: app=\(appID.prefix(8))... minute=\(thresholdMinutes) currentToday=\(currentToday)s")
 
-        // 3. Process event through phantom filter + buffer system
-        // Note: setUsageToThreshold now buffers valid events instead of recording immediately
-        // Recording happens when buffer is flushed (on next validated event or INTERVAL_END)
-        _ = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults, eventName: eventName)
+        // Decode shield configs ONCE — used by filter chain (shielded app check) and post-recording shield updates
+        let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+            guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+            return try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data)
+        }()
 
-        // Check if event was buffered (vs blocked)
-        // If phantom_buffer_appID matches this appID, the event is waiting for validation
-        let bufferedAppID = defaults.string(forKey: "phantom_buffer_appID") ?? ""
-        let wasBuffered = bufferedAppID == appID
+        // 3. Record usage with filter chain (restart window, global cooldown, shielded app, duplicate)
+        let now = Date().timeIntervalSince1970
+        let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults, shieldConfigs: shieldConfigs)
 
-        if wasBuffered {
-            // Event is buffered, waiting for validation
-            // Recording + notifications will happen when buffer is flushed
-            debugLog("📦 EVENT_BUFFERED: appID=\(appID.prefix(8))... name=\(displayName) (waiting for validation)", defaults: defaults)
-
-            // Update debug tracking for buffered event
-            defaults.set(appID, forKey: "debug_last_buffered_appID")
-            defaults.set(Date().timeIntervalSince1970, forKey: "debug_last_buffered_time")
-            defaults.set(displayName, forKey: "debug_last_buffered_name")
-        } else {
-            // Event was blocked (phantom/duplicate)
-            debugLog("⏭️ EVENT_BLOCKED: appID=\(appID.prefix(8))... name=\(displayName) (phantom/duplicate)", defaults: defaults)
+        if !didUpdate {
+            return false
         }
 
-        // Return false - actual recording happens via buffer flush
-        // The triggerPostRecordActions in recordValidatedUsage handles re-arm, shields, CloudKit, etc.
-        return false
+        // Confirm recording success in console
+        let newToday = defaults.integer(forKey: "usage_\(appID)_today")
+        print("✅ [EXTENSION] Recorded +60s - total today: \(newToday)s")
+
+        // 4. Signal re-arm request for continuous tracking
+        defaults.set(true, forKey: "rearm_\(appID)_requested")
+        defaults.set(now, forKey: "rearm_\(appID)_time")
+
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
+        checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
+
+        // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
+        checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
+
+        // EXTENSION CLOUDKIT SYNC: Only if explicitly enabled (disabled by default to save ~1-2MB)
+        // Main app handles CloudKit sync on foreground activation
+        if defaults.bool(forKey: "ext_cloudkit_sync_enabled") {
+            ExtensionCloudKitSync.shared.syncUsageToParent(defaults: defaults)
+        }
+
+        return true
     }
 
     /// Extract minute number from event name like "usage.app.0.min.15" → 15
@@ -452,159 +197,149 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return 1 // Default to 1 minute if can't parse
     }
 
-    /// Phantom-protected usage recording with event buffering
-    /// Returns true if event was buffered (will be recorded later), false if blocked
-    ///
-    /// ATTEMPT 12: Simplified filter hierarchy with delayed recording
-    /// 1. Filter 1: timeSinceRestart < 55s → BLOCK (can't have 60s usage in <55s)
-    /// 2. Filter 2: timeSinceLastRecordedEvent < 55s → BLOCK (thresholds are 60s apart)
-    /// 3. Events passing both filters → BUFFER (validate later when next event arrives)
-    ///
-    /// The buffer catches the first phantom event retroactively when rapid-fire follows
-    private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, eventName: String = "") -> Bool {
-        let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        let lastEventTimeKey = "usage_\(appID)_lastEventTime"
+    /// Record +60s per valid event with robust filter chain
+    /// Filter order: restart window → global cooldown → shielded app → duplicate threshold
+    /// All filters applied BEFORE any recording (including day rollover)
+    private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
 
-        // === PHANTOM DETECTION SETUP ===
+        // ═══════════ FILTER CHAIN — applied to ALL events before any recording ═══════════
+
+        // Filter 1: 60s restart window
+        // iOS fires catch-up events for ALL cumulative usage on restart — none are genuine
+        // Genuine events can't arrive until 60s+ (1-minute threshold minimum)
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
-        let timeSinceRestart = restartTimestamp > 0 ? nowTimestamp - restartTimestamp : 999.0
+        let timeSinceRestart = nowTimestamp - restartTimestamp
+        if timeSinceRestart < 60.0 && restartTimestamp > 0 {
+            debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 60s", defaults: defaults)
+            return false
+        }
 
-        // Use last RECORDED timestamp (not last event timestamp) for cadence check
-        // This ensures we measure against validated events, not phantom events
-        let lastRecordedTimestamp = defaults.double(forKey: "last_recorded_timestamp")
-        let timeSinceLastRecorded = lastRecordedTimestamp > 0 ? nowTimestamp - lastRecordedTimestamp : 999.0
+        // Filter 2: 55s global cooldown (any app)
+        // One event per 55s across ALL apps — genuine events arrive every 60s, floods arrive ms apart
+        let lastRecorded = defaults.double(forKey: "last_recorded_timestamp")
+        let timeSinceLastRecorded = nowTimestamp - lastRecorded
+        if timeSinceLastRecorded < 55.0 && lastRecorded > 0 {
+            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastRecorded=\(Int(timeSinceLastRecorded))s < 55s", defaults: defaults)
+            return false
+        }
 
-        // Also track last event time for logging purposes
-        let lastEventTime = defaults.double(forKey: lastEventTimeKey)
-        let timeSinceLastEvent = lastEventTime > 0 ? nowTimestamp - lastEventTime : 999.0
+        // Filter 3: Shielded reward app — user can't use a blocked app, so events are phantom
+        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+        if category == "Reward", let configs = shieldConfigs {
+            for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
+                if let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
+                    let currentShields = managedSettingsStore.shield.applications ?? Set()
+                    if currentShields.contains(token) {
+                        debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
+                        return false
+                    }
+                }
+                break
+            }
+        }
 
-        // Update last event time (track all events, even blocked ones)
-        defaults.set(nowTimestamp, forKey: lastEventTimeKey)
-
-        // Log diagnostic info
-        let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+        // Filter 4: Duplicate threshold
+        let lastThresholdKey = "usage_\(appID)_lastThreshold"
         let lastThreshold = defaults.integer(forKey: lastThresholdKey)
-        debugLog("📥 PHANTOM_CHECK appID=\(appID.prefix(8))... threshold=\(thresholdSeconds)s currentToday=\(currentToday)s", defaults: defaults)
-        debugLog("   timeSinceRestart=\(Int(timeSinceRestart))s timeSinceLastRecorded=\(Int(timeSinceLastRecorded))s timeSinceLastEvent=\(Int(timeSinceLastEvent))s", defaults: defaults)
+        if thresholdSeconds == lastThreshold {
+            debugLog("SKIP_DUP appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) == lastThreshold", defaults: defaults)
+            return false
+        }
 
-        // === FILTER 1: MONITORING GAP ===
-        // Block events within 55s of monitoring restart
-        // Rationale: Can't accumulate 60s of app usage in less than 55s after restart
-        if timeSinceRestart < 55.0 {
-            debugLog("🛡️ MONITORING_GAP_BLOCK: \(Int(timeSinceRestart))s since restart (<55s)", defaults: defaults)
+        // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
 
-            // Check if there's a buffered event - count rapid events before discarding
-            // Only discard after 3+ rapid events (real flood), not just 1-2 (could be out-of-order)
-            let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
-            if bufferTimestamp > 0 {
-                let timeSinceBuffer = nowTimestamp - bufferTimestamp
-                if timeSinceBuffer < 15.0 {
-                    let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
-                    defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
+        let todayKey = "usage_\(appID)_today"
+        let todayResetKey = "usage_\(appID)_reset"
+        let totalKey = "usage_\(appID)_total"
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
+        let lastReset = defaults.double(forKey: todayResetKey)
+        let dateString = Self.dayDateFormatter.string(from: now)
+        let hour = calendar.component(.hour, from: now)
 
-                    if rapidCount >= 3 {
-                        debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
-                        clearBuffer(defaults: defaults)
-                    } else {
-                        debugLog("⚠️ RAPID_EVENT: count=\(rapidCount)/3 (keeping buffer, not a flood yet)", defaults: defaults)
-                    }
-                }
+        // Day rollover check
+        if lastReset < startOfToday {
+            let globalResetKey = "global_daily_reset_timestamp"
+            let lastGlobalReset = defaults.double(forKey: globalResetKey)
+
+            if lastGlobalReset < startOfToday {
+                debugLog("DAY_ROLLOVER appID=\(appID.prefix(8))... globalReset triggered", defaults: defaults)
+                resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
+                defaults.set(startOfToday, forKey: globalResetKey)
+                notifyMainApp()
             }
 
-            // Track for flood detection (triggers delayed restart)
-            trackPhantomFloodForRestart(defaults: defaults)
-            return false
-        }
+            // First event of new day = 60s
+            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s", defaults: defaults)
+            defaults.set(60, forKey: todayKey)
+            defaults.set(startOfToday, forKey: todayResetKey)
+            defaults.set(60, forKey: totalKey)
+            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+            defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-        // === FILTER 2: EVENT CADENCE ===
-        // Block events within 55s of last RECORDED event
-        // Rationale: Threshold events fire every 60s of usage - can't have two within 55s
-        if timeSinceLastRecorded < 55.0 {
-            debugLog("🛡️ CADENCE_BLOCK: \(Int(timeSinceLastRecorded))s since last recorded (<55s)", defaults: defaults)
+            // ext_ keys
+            debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=60 total=60 date=\(dateString) hour=\(hour)", defaults: defaults)
+            defaults.set(60, forKey: "ext_usage_\(appID)_today")
+            defaults.set(60, forKey: "ext_usage_\(appID)_total")
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
+            defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
+            defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
 
-            // Check if there's a buffered event - count rapid events before discarding
-            // Only discard after 3+ rapid events (real flood), not just 1-2 (could be out-of-order)
-            let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
-            if bufferTimestamp > 0 {
-                let timeSinceBuffer = nowTimestamp - bufferTimestamp
-                if timeSinceBuffer < 15.0 {
-                    let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
-                    defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
-
-                    if rapidCount >= 3 {
-                        debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
-                        clearBuffer(defaults: defaults)
-                    } else {
-                        debugLog("⚠️ RAPID_EVENT: count=\(rapidCount)/3 (keeping buffer, not a flood yet)", defaults: defaults)
-                    }
-                }
+            // Hourly buckets
+            for h in 0..<24 {
+                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
             }
+            defaults.set(60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
 
-            // Track for flood detection
-            trackPhantomFloodForRestart(defaults: defaults)
-            return false
+            trackAppID(appID, defaults: defaults)
+            defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
+            return true
         }
 
-        // === FILTER 3: LOCKED REWARD APP ===
-        // If a reward app is locked (shielded), any usage is phantom
-        // User can't use a locked app, so events are iOS catching up on old thresholds
-        if isRewardAppLocked(appID: appID, defaults: defaults) {
-            debugLog("🔒 LOCKED_REWARD_BLOCK: \(appID.prefix(8))... is locked - usage is phantom", defaults: defaults)
-            trackPhantomFloodForRestart(defaults: defaults)
-            return false
-        }
-
-        // === DUPLICATE THRESHOLD CHECK ===
-        // Same threshold as last recorded = true duplicate, skip
-        if thresholdSeconds == lastThreshold && lastThreshold > 0 {
-            debugLog("📋 DUPLICATE_SKIP: threshold=\(thresholdSeconds)s == lastThreshold", defaults: defaults)
-            return false
-        }
-
-        // === EVENT PASSED FILTERS - CHECK BUFFER ===
-        let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
-
-        if bufferTimestamp > 0 {
-            // There's a buffered event waiting for validation
-            let timeSinceBuffer = nowTimestamp - bufferTimestamp
-
-            if timeSinceBuffer < 15.0 {
-                // New event arrived soon after buffer
-                // Count rapid events - only discard after 3+ (real flood pattern)
-                let rapidCount = defaults.integer(forKey: "rapid_fire_count_since_buffer") + 1
-                defaults.set(rapidCount, forKey: "rapid_fire_count_since_buffer")
-
-                if rapidCount >= 3 {
-                    // 3+ rapid events = real flood, discard buffer
-                    debugLog("🚨 PHANTOM_FLOOD: \(rapidCount) rapid events - discarding buffer", defaults: defaults)
-                    clearBuffer(defaults: defaults)
-                } else {
-                    // 1-2 rapid events but new event passed filters = likely out-of-order
-                    // Flush the buffer (it's probably legitimate) and continue
-                    debugLog("⚠️ RAPID_BUT_VALID: count=\(rapidCount)/3, new event passed filters - flushing buffer", defaults: defaults)
-                    flushBufferedEvent(defaults: defaults)
-                }
-                // Continue to buffer the new event below
-            } else {
-                // Buffer is old enough (>=15s) - record it as legitimate
-                debugLog("✅ BUFFER_VALIDATED: no rapid-fire within 15s - flushing buffer", defaults: defaults)
-                flushBufferedEvent(defaults: defaults)
-            }
-        }
-
-        // === BUFFER THE CURRENT EVENT ===
-        // Don't record immediately - wait to see if rapid-fire follows
-        debugLog("📦 BUFFERING: \(appID.prefix(8))... threshold=\(thresholdSeconds)s (will validate on next event or INTERVAL_END)", defaults: defaults)
-        bufferEvent(appID: appID, threshold: thresholdSeconds, eventName: eventName, defaults: defaults)
-
-        // Update last threshold for duplicate detection
+        // Same day — normal progression: record +60s
+        let currentToday = defaults.integer(forKey: todayKey)
+        let newToday = currentToday + 60
+        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
+        defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
 
-        // Return false because we haven't recorded yet (event is buffered)
-        // The actual recording happens in flushBufferedEvent
-        return false
+        // Update total
+        let currentTotal = defaults.integer(forKey: totalKey)
+        defaults.set(currentTotal + 60, forKey: totalKey)
+        defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+
+        // ext_ keys (source of truth)
+        let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
+        let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
+        let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
+
+        let newExtToday = (currentExtDate == dateString) ? currentExtToday + 60 : 60
+
+        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + 60) hour=\(hour)", defaults: defaults)
+        defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
+        defaults.set(currentExtTotal + 60, forKey: "ext_usage_\(appID)_total")
+        defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
+        defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
+        defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
+
+        // Hourly buckets
+        let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
+        if storedHourlyDate != dateString {
+            debugLog("HOURLY_RESET appID=\(appID.prefix(8))... date changed from \(storedHourlyDate ?? "nil") to \(dateString)", defaults: defaults)
+            for h in 0..<24 {
+                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+            }
+            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
+        }
+        let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
+        defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
+
+        trackAppID(appID, defaults: defaults)
+        defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
+        return true
     }
 
     /// Fallback: Read mapping from JSON eventMappings (for compatibility)
@@ -626,27 +361,44 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     }
 
     /// Record usage using JSON fallback mapping
-    /// Note: With buffering system, this now delegates to setUsageToThreshold
-    /// Actual recording happens when buffer is flushed via triggerPostRecordActions
     private nonisolated func recordUsageWithMapping(_ mapping: (appID: String, increment: Int, displayName: String, category: String, rewardPoints: Int), eventName: String, defaults: UserDefaults) -> Bool {
+        let now = Date().timeIntervalSince1970
+
         // Extract threshold minutes from event name
         let thresholdMinutes = extractMinuteFromEventName(eventName)
         let thresholdSeconds = thresholdMinutes * 60
 
-        // Process through phantom filter + buffer system
-        _ = setUsageToThreshold(appID: mapping.appID, thresholdSeconds: thresholdSeconds, defaults: defaults, eventName: eventName)
+        // Decode shield configs ONCE — used by filter chain and post-recording shield updates
+        let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+            guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+            return try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data)
+        }()
 
-        // Check if event was buffered
-        let bufferedAppID = defaults.string(forKey: "phantom_buffer_appID") ?? ""
-        let wasBuffered = bufferedAppID == mapping.appID
+        let didUpdate = setUsageToThreshold(appID: mapping.appID, thresholdSeconds: thresholdSeconds, defaults: defaults, shieldConfigs: shieldConfigs)
 
-        if wasBuffered {
-            debugLog("📦 EVENT_BUFFERED (mapping): appID=\(mapping.appID.prefix(8))... name=\(mapping.displayName)", defaults: defaults)
+        if !didUpdate {
+            return false
         }
 
-        // Return false - actual recording happens via buffer flush
-        // JSON persistence update is handled in triggerPostRecordActions
-        return false
+        // Update JSON persistence for compatibility
+        updateJSONPersistence(appID: mapping.appID, increment: 60, rewardPoints: mapping.rewardPoints, defaults: defaults)
+
+        // Signal re-arm request
+        defaults.set(true, forKey: "rearm_\(mapping.appID)_requested")
+        defaults.set(now, forKey: "rearm_\(mapping.appID)_time")
+
+        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
+        checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
+
+        // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
+        checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
+
+        // EXTENSION CLOUDKIT SYNC: Only if explicitly enabled (disabled by default to save ~1-2MB)
+        if defaults.bool(forKey: "ext_cloudkit_sync_enabled") {
+            ExtensionCloudKitSync.shared.syncUsageToParent(defaults: defaults)
+        }
+
+        return true
     }
 
     /// Update JSON persistence for backward compatibility with main app
@@ -710,222 +462,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
     }
 
-    // MARK: - Event Buffer (Phantom Flood Detection)
-
-    /// Buffer an event for later validation (don't record immediately)
-    /// If rapid-fire events follow, this was phantom - discard it
-    /// If no rapid-fire follows, this was legitimate - record it
-    private nonisolated func bufferEvent(appID: String, threshold: Int, eventName: String, defaults: UserDefaults) {
-        defaults.set(appID, forKey: "phantom_buffer_appID")
-        defaults.set(threshold, forKey: "phantom_buffer_threshold")
-        defaults.set(Date().timeIntervalSince1970, forKey: "phantom_buffer_timestamp")
-        defaults.set(eventName, forKey: "phantom_buffer_eventName")
-        // Reset rapid-fire counter when new buffer is created
-        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
-        debugLog("📦 BUFFERED: \(appID.prefix(8))... threshold=\(threshold)s (waiting to validate)", defaults: defaults)
-    }
-
-    /// Clear the buffer without recording (phantom flood detected)
-    private nonisolated func clearBuffer(defaults: UserDefaults) {
-        let appID = defaults.string(forKey: "phantom_buffer_appID") ?? "unknown"
-        debugLog("🗑️ BUFFER_DISCARDED: \(appID.prefix(8))... (phantom flood detected)", defaults: defaults)
-        defaults.removeObject(forKey: "phantom_buffer_appID")
-        defaults.removeObject(forKey: "phantom_buffer_threshold")
-        defaults.removeObject(forKey: "phantom_buffer_timestamp")
-        defaults.removeObject(forKey: "phantom_buffer_eventName")
-        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
-    }
-
-    /// Flush the buffered event as legitimate usage (no rapid-fire followed)
-    private nonisolated func flushBufferedEvent(defaults: UserDefaults) {
-        guard let appID = defaults.string(forKey: "phantom_buffer_appID"),
-              !appID.isEmpty else { return }
-
-        let threshold = defaults.integer(forKey: "phantom_buffer_threshold")
-        let eventName = defaults.string(forKey: "phantom_buffer_eventName") ?? ""
-        let bufferTimestamp = defaults.double(forKey: "phantom_buffer_timestamp")
-        let age = Int(Date().timeIntervalSince1970 - bufferTimestamp)
-
-        debugLog("✅ BUFFER_FLUSH: recording \(appID.prefix(8))... threshold=\(threshold)s (buffered \(age)s ago)", defaults: defaults)
-
-        // Record the usage (bypass phantom filters - already validated)
-        recordValidatedUsage(appID: appID, thresholdSeconds: threshold, eventName: eventName, defaults: defaults)
-
-        // Clear buffer and reset rapid-fire counter
-        defaults.removeObject(forKey: "phantom_buffer_appID")
-        defaults.removeObject(forKey: "phantom_buffer_threshold")
-        defaults.removeObject(forKey: "phantom_buffer_timestamp")
-        defaults.removeObject(forKey: "phantom_buffer_eventName")
-        defaults.set(0, forKey: "rapid_fire_count_since_buffer")
-    }
-
-    /// Check if a reward app is currently locked (shielded)
-    /// Returns true if the app is a reward app AND is currently shielded
-    /// Used to filter phantom usage events for locked apps
-    private nonisolated func isRewardAppLocked(appID: String, defaults: UserDefaults) -> Bool {
-        // Check if this is a reward app
-        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Unknown"
-        guard category == "Reward" else { return false }
-
-        // Get the token for this reward app from extensionShieldConfigs
-        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
-              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
-            return false
-        }
-
-        // Find the goalConfig for this appID
-        guard let goalConfig = configs.goalConfigs.first(where: { $0.rewardAppLogicalID == appID }) else {
-            return false
-        }
-
-        // Decode the token
-        guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
-            return false
-        }
-
-        // Check if token is in shields
-        let currentShields = managedSettingsStore.shield.applications ?? Set()
-        return currentShields.contains(token)
-    }
-
-    /// Record usage that has been validated (passed phantom filters and buffer check)
-    /// This is the actual recording logic, extracted from setUsageToThreshold
-    private nonisolated func recordValidatedUsage(appID: String, thresholdSeconds: Int, eventName: String, defaults: UserDefaults) {
-        let todayKey = "usage_\(appID)_today"
-        let todayResetKey = "usage_\(appID)_reset"
-        let totalKey = "usage_\(appID)_total"
-        let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        let now = Date()
-        let nowTimestamp = now.timeIntervalSince1970
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
-        let lastReset = defaults.double(forKey: todayResetKey)
-
-        // Date string for ext_ keys
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let dateString = dateFormatter.string(from: now)
-        let hour = calendar.component(.hour, from: now)
-
-        // Day rollover check
-        if lastReset < startOfToday {
-            // Check if we've already done a global reset today
-            let globalResetKey = "global_daily_reset_timestamp"
-            let lastGlobalReset = defaults.double(forKey: globalResetKey)
-
-            if lastGlobalReset < startOfToday {
-                debugLog("DAY_ROLLOVER appID=\(appID.prefix(8))... globalReset triggered", defaults: defaults)
-                resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
-                defaults.set(startOfToday, forKey: globalResetKey)
-                notifyMainApp()
-            }
-
-            // First event of new day
-            debugLog("NEW_DAY appID=\(appID.prefix(8))... setting today=60s (first event)", defaults: defaults)
-
-            defaults.set(60, forKey: todayKey)
-            defaults.set(startOfToday, forKey: todayResetKey)
-            defaults.set(60, forKey: totalKey)
-            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
-            defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
-            defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
-            defaults.set(appID, forKey: "last_recorded_appID")
-
-            // === PROTECTED ext_ KEYS ===
-            debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=60 total=60 date=\(dateString) hour=\(hour)", defaults: defaults)
-            defaults.set(60, forKey: "ext_usage_\(appID)_today")
-            defaults.set(60, forKey: "ext_usage_\(appID)_total")
-            defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
-            defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
-            defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-
-            // === HOURLY BUCKET TRACKING ===
-            for h in 0..<24 {
-                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
-            }
-            defaults.set(60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
-            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
-
-            // Signal re-arm and trigger side effects
-            triggerPostRecordActions(appID: appID, eventName: eventName, defaults: defaults)
-            return
-        }
-
-        // === SAME DAY: INCREMENT ===
-        let currentToday = defaults.integer(forKey: todayKey)
-        let newToday = currentToday + 60
-
-        debugLog("📋 VALIDATED_INCREMENT: \(appID.prefix(8))... currentToday=\(currentToday)s +60 → newToday=\(newToday)s", defaults: defaults)
-        print("✅ [EXTENSION] Validated +60s for \(appID.prefix(8))... - total today: \(newToday)s")
-
-        defaults.set(newToday, forKey: todayKey)
-        defaults.set(thresholdSeconds, forKey: lastThresholdKey)
-        defaults.set(nowTimestamp, forKey: "last_recorded_timestamp")
-        defaults.set(appID, forKey: "last_recorded_appID")
-
-        // Update total
-        let currentTotal = defaults.integer(forKey: totalKey)
-        let newTotal = currentTotal + 60
-        defaults.set(newTotal, forKey: totalKey)
-        defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
-
-        // === PROTECTED ext_ KEYS (INCREMENT) ===
-        let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
-        let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
-        let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
-
-        let newExtToday: Int
-        if currentExtDate == dateString {
-            newExtToday = currentExtToday + 60
-        } else {
-            newExtToday = 60
-        }
-
-        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + 60) hour=\(hour) (was today=\(currentExtToday))", defaults: defaults)
-        defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
-        defaults.set(currentExtTotal + 60, forKey: "ext_usage_\(appID)_total")
-        defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
-        defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
-        defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-
-        // === HOURLY BUCKET TRACKING (INCREMENT) ===
-        let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
-        if storedHourlyDate != dateString {
-            debugLog("HOURLY_RESET appID=\(appID.prefix(8))... date changed from \(storedHourlyDate ?? "nil") to \(dateString)", defaults: defaults)
-            for h in 0..<24 {
-                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
-            }
-            defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
-        }
-        let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
-        defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
-
-        // Signal re-arm and trigger side effects
-        triggerPostRecordActions(appID: appID, eventName: eventName, defaults: defaults)
-    }
-
-    /// Trigger all post-record actions (re-arm signal, shield check, CloudKit sync)
-    private nonisolated func triggerPostRecordActions(appID: String, eventName: String, defaults: UserDefaults) {
-        let now = Date().timeIntervalSince1970
-
-        // Signal re-arm request for continuous tracking
-        defaults.set(true, forKey: "rearm_\(appID)_requested")
-        defaults.set(now, forKey: "rearm_\(appID)_time")
-
-        // EXTENSION SHIELD CONTROL: Check if any reward app goals are now met (unlocking)
-        checkAndUpdateShields(defaults: defaults)
-
-        // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
-        checkAndBlockIfRewardTimeExhausted(defaults: defaults)
-
-        // EXTENSION CLOUDKIT SYNC: Sync usage directly to parent's CloudKit zone
-        debugLog("TRIGGERING_CLOUDKIT_SYNC from recordValidatedUsage", defaults: defaults)
-        ExtensionCloudKitSync.shared.syncUsageToParent(defaults: defaults)
-
-        // Notify main app
-        notifyMainApp()
-    }
-
     // MARK: - Utilities
 
     /// Get current memory usage in MB using task_vm_info for accuracy
@@ -950,6 +486,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return Double(info.phys_footprint) / (1024.0 * 1024.0)
     }
 
+    /// Ensure appID is in the tracked app list (for efficient enumeration without dictionaryRepresentation)
+    private nonisolated func trackAppID(_ appID: String, defaults: UserDefaults) {
+        var ids = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        if !ids.contains(appID) {
+            ids.append(appID)
+            defaults.set(ids, forKey: "tracked_app_ids")
+        }
+    }
+
     /// Update heartbeat for diagnostics
     private nonisolated func updateHeartbeat() {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -961,22 +506,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     /// Reset daily counters for all tracked apps
     private nonisolated func resetAllDailyCounters(defaults: UserDefaults, startOfToday: Double) {
-        // Get all keys that match our usage pattern
-        let allKeys = defaults.dictionaryRepresentation().keys
-
-        // Find all app IDs by looking for usage keys
-        var appIDs = Set<String>()
-        for key in allKeys {
-            if key.hasPrefix("usage_") && key.hasSuffix("_today") {
-                // Extract app ID from "usage_<appID>_today"
-                let startIndex = key.index(key.startIndex, offsetBy: 6) // Skip "usage_"
-                let endIndex = key.index(key.endIndex, offsetBy: -6) // Remove "_today"
-                if startIndex < endIndex {
-                    let appID = String(key[startIndex..<endIndex])
-                    appIDs.insert(appID)
-                }
-            }
-        }
+        // Use tracked app list instead of materializing all UserDefaults keys
+        let appIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
 
         // Reset each app's daily counters
         for appID in appIDs {
@@ -1033,16 +564,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     /// Check all reward app goals and update shields accordingly
     /// Called after each usage recording to immediately unblock reward apps when goals are met
-    private nonisolated func checkAndUpdateShields(defaults: UserDefaults) {
+    private nonisolated func checkAndUpdateShields(configs: ExtensionShieldConfigsMinimal?, defaults: UserDefaults) {
         debugLog("SHIELD_CHECK: Starting shield update check", defaults: defaults)
 
-        guard let data = defaults.data(forKey: "extensionShieldConfigs") else {
-            debugLog("SHIELD_CHECK: ❌ NO extensionShieldConfigs data found - ensure main app synced configs", defaults: defaults)
-            return
-        }
-
-        guard let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
-            debugLog("SHIELD_CHECK: ❌ DECODE FAILED for extensionShieldConfigs - data may be corrupted", defaults: defaults)
+        guard let configs = configs else {
+            debugLog("SHIELD_CHECK: ❌ NO extensionShieldConfigs - ensure main app synced configs", defaults: defaults)
             return
         }
 
@@ -1145,9 +671,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Extensions CAN schedule local notifications - they share notification permissions with the main app
     private nonisolated func scheduleGoalCompletedNotification(rewardMinutes: Int, rewardAppID: String, defaults: UserDefaults) {
         // Check if we already sent this notification today to avoid duplicates
-        let dateFormatter = DateFormatter()
-        dateFormatter.dateFormat = "yyyy-MM-dd"
-        let todayKey = dateFormatter.string(from: Date())
+        let todayKey = Self.dayDateFormatter.string(from: Date())
         let notificationSentKey = "ext_goal_notification_\(rewardAppID)_\(todayKey)"
 
         if defaults.bool(forKey: notificationSentKey) {
@@ -1204,9 +728,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Check if any reward app should be blocked due to downtime, daily limit, or exhausted earned time
     /// Priority: Downtime (highest) > Daily limit > Reward time expired (lowest)
     /// This uses the same data source (extensionShieldConfigs) as the unlock logic
-    private nonisolated func checkAndBlockIfRewardTimeExhausted(defaults: UserDefaults) {
-        guard let data = defaults.data(forKey: "extensionShieldConfigs"),
-              let configs = try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data) else {
+    private nonisolated func checkAndBlockIfRewardTimeExhausted(configs: ExtensionShieldConfigsMinimal?, defaults: UserDefaults) {
+        guard let configs = configs else {
             return
         }
 

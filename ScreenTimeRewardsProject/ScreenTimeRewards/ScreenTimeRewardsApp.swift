@@ -81,11 +81,6 @@ struct ScreenTimeRewardsApp: App {
                     print("[ScreenTimeRewardsApp] 🔓 Checked extension unlock state")
                 }
 
-                // Check for pending phantom restart (timer may have been dead while app was suspended)
-                Task { @MainActor in
-                    ScreenTimeService.shared.checkForPendingPhantomRestart()
-                }
-
                 // Start background sync as safety net for missed Darwin notifications
                 ScreenTimeService.shared.startBackgroundSync()
                 print("[ScreenTimeRewardsApp] 🔄 Started background sync timer (5min polling)")
