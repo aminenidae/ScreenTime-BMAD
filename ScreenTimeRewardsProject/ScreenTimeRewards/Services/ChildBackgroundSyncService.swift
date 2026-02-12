@@ -74,7 +74,7 @@ class ChildBackgroundSyncService: ObservableObject {
             self.handleSubscriptionVerifyTask(task)
         }
 
-        // Register shield state sync task (BGAppRefreshTask for more frequent updates)
+        // Register shield state sync task (BGAppRefreshTask — kept as on-demand fallback, not auto-scheduled)
         BGTaskScheduler.shared.register(
             forTaskWithIdentifier: "com.screentimerewards.shield-state-sync",
             using: nil
@@ -92,8 +92,10 @@ class ChildBackgroundSyncService: ObservableObject {
         // Schedule initial subscription verification
         scheduleSubscriptionVerification()
 
-        // Schedule shield state sync (more frequent than BGProcessingTask)
-        scheduleShieldStateSync()
+        // NOTE: shield-state-sync is no longer auto-scheduled on startup.
+        // Shield states are now uploaded as part of the usage-upload task (every 30 min)
+        // to reduce energy budget consumption. The shield-state-sync BGTask registration
+        // is kept as a fallback that can be triggered on-demand if needed.
 
     }
     
@@ -165,22 +167,28 @@ class ChildBackgroundSyncService: ObservableObject {
             do {
                 // Upload usage records to parent's shared zone (Task 7)
                 try await self.uploadUsageRecordsToParent()
-                
+
                 // Process the offline queue which includes other uploads
                 await self.offlineQueue.processQueue()
-                
+
+                // Sync shield states to parent (merged from shield-state-sync task to reduce energy usage)
+                await self.syncExtensionStateToCloudKit()
+
                 // Schedule next task
                 self.scheduleNextUsageUpload()
-                
+
                 task.setTaskCompleted(success: true)
             } catch {
                 #if DEBUG
                 print("[ChildBackgroundSyncService] Usage upload task failed: \(error)")
                 #endif
-                
+
+                // Still attempt shield state sync even if usage upload failed
+                await self.syncExtensionStateToCloudKit()
+
                 // Schedule next task even on failure
                 self.scheduleNextUsageUpload()
-                
+
                 task.setTaskCompleted(success: false)
             }
         }
@@ -349,16 +357,16 @@ class ChildBackgroundSyncService: ObservableObject {
         }
     }
     
-    /// Schedule next config check task
+    /// Schedule next config check task (6-hour fallback — CloudKit push handles real-time delivery)
     func scheduleNextConfigCheck() {
         let request = BGProcessingTaskRequest(identifier: "com.screentimerewards.config-check")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 15 * 60) // 15 minutes
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 6 * 60 * 60) // 6 hours (fallback for missed silent pushes)
         request.requiresNetworkConnectivity = true
 
         do {
             try BGTaskScheduler.shared.submit(request)
             #if DEBUG
-            print("[ChildBackgroundSyncService] Scheduled next config check task")
+            print("[ChildBackgroundSyncService] Scheduled next config check task (6h fallback)")
             #endif
         } catch {
             #if DEBUG

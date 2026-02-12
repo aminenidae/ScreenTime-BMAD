@@ -478,6 +478,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         #if DEBUG
                         print("[ScreenTimeService] ✅ Monitoring restarted (was genuinely dead)")
                         #endif
+
+                        // FLOOD RECOVERY: Schedule a second restart after 65s for fresh thresholds.
+                        // The first restart triggers a catch-up flood (all cumulative usage events).
+                        // Our 60s filter blocks them, but iOS considers thresholds "delivered."
+                        // The second restart gives iOS a fresh session with new thresholds.
+                        // 65s ensures the 60s filter window from this restart has fully passed.
+                        Task { [weak self] in
+                            try? await Task.sleep(nanoseconds: 65_000_000_000) // 65 seconds
+                            guard let self = self else { return }
+                            #if DEBUG
+                            print("[ScreenTimeService] ♻️ Post-flood delayed restart firing (65s after crash recovery)")
+                            #endif
+                            await self.restartMonitoring(reason: "post-flood threshold refresh")
+                        }
                     } catch {
                         // CRITICAL: Reset state on failure to prevent blocking manual start later
                         isMonitoring = false

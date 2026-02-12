@@ -216,7 +216,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let timeSinceRestart = nowTimestamp - restartTimestamp
         if timeSinceRestart < 60.0 && restartTimestamp > 0 {
             debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 60s", defaults: defaults)
+
+            // Flood detection: count SKIP_RESTART events to signal main app for recovery
+            let skipCount = defaults.integer(forKey: "flood_skip_count") + 1
+            defaults.set(skipCount, forKey: "flood_skip_count")
+            if skipCount > 10 && !defaults.bool(forKey: "flood_detected") {
+                defaults.set(true, forKey: "flood_detected")
+                defaults.set(nowTimestamp, forKey: "flood_detected_time")
+                debugLog("FLOOD_DETECTED skipCount=\(skipCount) — flagged for main app recovery", defaults: defaults)
+            }
+
             return false
+        }
+
+        // Past the 60s window — reset flood counter (flood window has passed)
+        if defaults.integer(forKey: "flood_skip_count") > 0 {
+            defaults.set(0, forKey: "flood_skip_count")
         }
 
         // Filter 2: 55s per-app cooldown

@@ -53,6 +53,24 @@ struct ScreenTimeRewardsApp: App {
                 // Refresh usage data from extension when app becomes active
                 print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
 
+                // FLOOD RECOVERY (Layer 3): If extension detected a flood and the auto-restart
+                // didn't complete (app killed before 65s delay), recover on next foreground.
+                if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
+                   defaults.bool(forKey: "flood_detected") {
+                    let floodTime = defaults.double(forKey: "flood_detected_time")
+                    let timeSinceFlood = Date().timeIntervalSince1970 - floodTime
+                    if timeSinceFlood > 65.0 {
+                        print("[ScreenTimeRewardsApp] 🚨 Flood recovery: detected stale flood flag (\(Int(timeSinceFlood))s ago) — triggering restart")
+                        defaults.set(false, forKey: "flood_detected")
+                        defaults.set(0, forKey: "flood_skip_count")
+                        Task {
+                            await ScreenTimeService.shared.restartMonitoring(reason: "foreground flood recovery")
+                        }
+                    } else {
+                        print("[ScreenTimeRewardsApp] ⏳ Flood detected \(Int(timeSinceFlood))s ago — waiting for auto-restart (65s threshold)")
+                    }
+                }
+
                 // TEMP DEBUG: Print extension CloudKit logs
                 if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
                     print("════════════════════════════════════════")
