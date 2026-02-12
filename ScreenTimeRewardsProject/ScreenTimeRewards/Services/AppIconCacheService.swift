@@ -128,6 +128,15 @@ class AppIconCacheService {
         }
     }
 
+    /// Clear only the in-memory cache (keeps disk cache intact).
+    /// Called on memory warnings to free RAM without losing cached icons on disk.
+    func clearMemoryCache() {
+        memoryCache.removeAll()
+        #if DEBUG
+        print("[AppIconCacheService] Memory cache cleared (disk cache retained)")
+        #endif
+    }
+
     /// Clear all cached icons
     func clearCache() {
         memoryCache.removeAll()

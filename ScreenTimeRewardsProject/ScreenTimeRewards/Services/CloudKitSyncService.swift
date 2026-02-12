@@ -160,7 +160,7 @@ class CloudKitSyncService: ObservableObject {
         for recordType in recordTypes {
             do {
                 let query = CKQuery(recordType: recordType, predicate: NSPredicate(value: true))
-                let (matches, _) = try await database.records(matching: query, inZoneWith: zoneID)
+                let (matches, _) = try await database.records(matching: query, inZoneWith: zoneID, resultsLimit: 200)
 
                 let recordIDsToDelete = matches.compactMap { (recordID, result) -> CKRecord.ID? in
                     if case .success(_) = result { return recordID }
@@ -2472,10 +2472,10 @@ class CloudKitSyncService: ObservableObject {
                     print("[CloudKitSyncService] ⚠️ Schema not ready for zone \(zoneName). Trying fallback...")
                     #endif
 
-                    // Fallback: fetch all records in zone and filter client-side
+                    // Fallback: fetch records in zone and filter client-side (capped to prevent memory spikes)
                     let fallbackPredicate = NSPredicate(value: true)
                     let fallbackQuery = CKQuery(recordType: "CD_UsageRecord", predicate: fallbackPredicate)
-                    let (matches, _) = try await db.records(matching: fallbackQuery, inZoneWith: specificZoneID)
+                    let (matches, _) = try await db.records(matching: fallbackQuery, inZoneWith: specificZoneID, resultsLimit: 200)
                     let all = mapUsageMatchResults(matches)
                     results = all.filter { rec in
                         guard let did = rec.deviceID,
@@ -2538,10 +2538,10 @@ class CloudKitSyncService: ObservableObject {
                     print("[CloudKitSyncService] ⚠️ Schema not ready for zone \(zone.zoneID.zoneName). Trying fallback...")
                     #endif
 
-                    // Fallback: fetch all records in zone and filter client-side
+                    // Fallback: fetch records in zone and filter client-side (capped to prevent memory spikes)
                     let fallbackPredicate = NSPredicate(value: true)
                     let fallbackQuery = CKQuery(recordType: "CD_UsageRecord", predicate: fallbackPredicate)
-                    let (matches, _) = try await db.records(matching: fallbackQuery, inZoneWith: zone.zoneID)
+                    let (matches, _) = try await db.records(matching: fallbackQuery, inZoneWith: zone.zoneID, resultsLimit: 200)
                     let all = mapUsageMatchResults(matches)
                     let filtered = all.filter { rec in
                         guard let did = rec.deviceID,

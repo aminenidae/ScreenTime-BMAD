@@ -29,6 +29,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         ChildBackgroundSyncService.shared.registerBackgroundTasks()
 
         setupMidnightResetObserver()
+        setupMemoryWarningObserver()
 
         // FIX: Also check for day change on app launch
         // The .NSCalendarDayChanged notification only fires if the app is running at midnight
@@ -211,6 +212,20 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         formatter.timeStyle = .medium
         print("[AppDelegate] ⏰ Scheduled midnight check timer for \(formatter.string(from: nextCheck))")
         #endif
+    }
+
+    /// Release in-memory caches when iOS signals memory pressure
+    private func setupMemoryWarningObserver() {
+        NotificationCenter.default.addObserver(
+            forName: UIApplication.didReceiveMemoryWarningNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Task { @MainActor in
+                AppIconCacheService.shared.clearMemoryCache()
+            }
+            print("[AppDelegate] ⚠️ Memory warning received — cleared in-memory caches")
+        }
     }
 
     deinit {

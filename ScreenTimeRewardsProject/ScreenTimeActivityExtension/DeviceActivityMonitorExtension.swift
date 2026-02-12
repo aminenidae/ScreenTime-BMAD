@@ -38,6 +38,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return f
     }()
 
+    // MARK: - Cached Expensive Objects
+    /// Decoders/encoders are expensive to create (~50-100KB each). Cache as static lets.
+    private static let propertyListDecoder = PropertyListDecoder()
+    private static let jsonDecoder = JSONDecoder()
+    private static let jsonEncoder = JSONEncoder()
+    /// Calendar.current triggers locale/timezone resolution each call
+    private static let calendar = Calendar.current
+
     /// Max log size in bytes before trimming (~50KB)
     private static let maxLogBytes = 50_000
     /// Lines to keep after trim
@@ -147,7 +155,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Decode shield configs ONCE — used by filter chain (shielded app check) and post-recording shield updates
         let shieldConfigs: ExtensionShieldConfigsMinimal? = {
             guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
-            return try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data)
+            return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
         }()
 
         // 3. Record usage with filter chain (restart window, per-app cooldown, min threshold, shielded app, progression)
@@ -206,7 +214,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // ═══════════ FILTER CHAIN — applied to ALL events before any recording ═══════════
         // Compute calendar values once for use in both filters and recording
-        let calendar = Calendar.current
+        let calendar = Self.calendar
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
         // Filter 1: 60s restart window
@@ -257,7 +265,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         if category == "Reward", let configs = shieldConfigs {
             for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
-                if let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
+                if let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
                     let currentShields = managedSettingsStore.shield.applications ?? Set()
                     if currentShields.contains(token) {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
@@ -411,7 +419,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Decode shield configs ONCE — used by filter chain and post-recording shield updates
         let shieldConfigs: ExtensionShieldConfigsMinimal? = {
             guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
-            return try? JSONDecoder().decode(ExtensionShieldConfigsMinimal.self, from: data)
+            return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
         }()
 
         let didUpdate = setUsageToThreshold(appID: mapping.appID, thresholdSeconds: thresholdSeconds, defaults: defaults, shieldConfigs: shieldConfigs)
@@ -444,14 +452,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Update JSON persistence for backward compatibility with main app
     private nonisolated func updateJSONPersistence(appID: String, increment: Int, rewardPoints: Int, defaults: UserDefaults) {
         guard let data = defaults.data(forKey: "persistedApps_v3"),
-              var apps = try? JSONDecoder().decode([String: PersistedAppMinimal].self, from: data),
+              var apps = try? Self.jsonDecoder.decode([String: PersistedAppMinimal].self, from: data),
               var app = apps[appID] else {
             return
         }
 
         // Check for day rollover
         let now = Date()
-        let calendar = Calendar.current
+        let calendar = Self.calendar
         let today = calendar.startOfDay(for: now)
 
         if !calendar.isDate(app.lastResetDate, inSameDayAs: today) {
@@ -470,7 +478,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         apps[appID] = app
 
-        if let encoded = try? JSONEncoder().encode(apps) {
+        if let encoded = try? Self.jsonEncoder.encode(apps) {
             defaults.set(encoded, forKey: "persistedApps_v3")
         }
     }
@@ -487,7 +495,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let todayResetKey = "usage_\(appID)_reset"
         let lastReset = defaults.double(forKey: todayResetKey)
         let now = Date()
-        let startOfToday = Calendar.current.startOfDay(for: now).timeIntervalSince1970
+        let startOfToday = Self.calendar.startOfDay(for: now).timeIntervalSince1970
 
         if lastReset < startOfToday {
             // New day - reset today counter
@@ -620,7 +628,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("SHIELD_CHECK: \(shortID)... goalMet=\(isGoalMet)", defaults: defaults)
 
             if isGoalMet {
-                guard let token = try? PropertyListDecoder().decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
+                guard let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
                     debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
                     continue
                 }
@@ -753,7 +761,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if goalConfig.isFullDayAllowed { return true }
 
         let now = Date()
-        let calendar = Calendar.current
+        let calendar = Self.calendar
         let currentHour = calendar.component(.hour, from: now)
         let currentMinute = calendar.component(.minute, from: now)
         let currentTotalMinutes = currentHour * 60 + currentMinute

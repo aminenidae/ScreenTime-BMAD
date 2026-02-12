@@ -357,16 +357,16 @@ class ChildBackgroundSyncService: ObservableObject {
         }
     }
     
-    /// Schedule next config check task (6-hour fallback — CloudKit push handles real-time delivery)
+    /// Schedule next config check task (24-hour fallback — CloudKit push handles real-time delivery)
     func scheduleNextConfigCheck() {
         let request = BGProcessingTaskRequest(identifier: "com.screentimerewards.config-check")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 6 * 60 * 60) // 6 hours (fallback for missed silent pushes)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 24 * 60 * 60) // 24 hours (safety net for missed silent pushes)
         request.requiresNetworkConnectivity = true
 
         do {
             try BGTaskScheduler.shared.submit(request)
             #if DEBUG
-            print("[ChildBackgroundSyncService] Scheduled next config check task (6h fallback)")
+            print("[ChildBackgroundSyncService] Scheduled next config check task (24h fallback)")
             #endif
         } catch {
             #if DEBUG
