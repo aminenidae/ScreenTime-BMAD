@@ -78,29 +78,19 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         print("[AppDelegate] 🔍 needsReset: \(needsReset), needsForceReset: \(needsForceReset)")
 
         if needsForceReset {
-            // v7 fix: Reset ALL apps regardless of lastResetDate
-            // Use ScreenTimeService's public method which resets, reloads, and notifies
             print("[AppDelegate] 🚀 Calling forceResetAllDailyCounters SYNCHRONOUSLY...")
-
-            // Use the public method on ScreenTimeService which internally:
-            // 1. Resets usagePersistence.forceResetAllDailyCounters()
-            // 2. Reloads from disk
-            // 3. Notifies observers
             ScreenTimeService.shared.forceResetAllDailyCounters()
-            ScreenTimeService.shared.usagePersistence.printDebugInfo()
-
             print("[AppDelegate] ✅ Force reset complete - data should now show 0")
         } else if needsReset {
             print("[AppDelegate] 🚀 Calling handleMidnightTransition SYNCHRONOUSLY...")
-            // Use the public method that resets, reloads, and notifies
             ScreenTimeService.shared.handleMidnightTransition()
-            ScreenTimeService.shared.usagePersistence.printDebugInfo()
             print("[AppDelegate] ✅ Daily reset complete")
         } else {
-            // Still print debug info to see current state
-            print("[AppDelegate] ℹ️ No reset needed, printing current state:")
-            ScreenTimeService.shared.usagePersistence.printDebugInfo()
+            print("[AppDelegate] ℹ️ No reset needed")
         }
+
+        // Print debug info once after the reset decision
+        ScreenTimeService.shared.usagePersistence.printDebugInfo()
 
         // Update last launch date
         defaults.set(Date(), forKey: lastLaunchDateKey)

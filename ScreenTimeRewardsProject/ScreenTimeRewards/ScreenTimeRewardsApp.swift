@@ -71,18 +71,37 @@ struct ScreenTimeRewardsApp: App {
                     }
                 }
 
-                // TEMP DEBUG: Print extension CloudKit logs
-                if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
-                    print("════════════════════════════════════════")
-                    print("📋 EXTENSION CLOUDKIT SYNC LOG:")
-                    print(defaults.string(forKey: "extension_cloudkit_log") ?? "❌ NO LOGS")
-                    print("────────────────────────────────────────")
-                    print("📊 SYNC HISTORY:")
-                    print(defaults.stringArray(forKey: "ext_cloudkit_sync_history") ?? [])
-                    print("────────────────────────────────────────")
-                    print("🔢 TOTAL EVENTS RECEIVED: \(defaults.integer(forKey: "ext_total_events_received"))")
-                    print("════════════════════════════════════════")
+                // HEARTBEAT GAP DETECTION: If monitoring should be active but extension
+                // hasn't fired in >5 minutes, log the gap for diagnostics
+                if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
+                   defaults.bool(forKey: "wasMonitoringActive") {
+                    let lastHeartbeat = defaults.double(forKey: "extension_heartbeat")
+                    if lastHeartbeat > 0 {
+                        let gapSeconds = Date().timeIntervalSince1970 - lastHeartbeat
+                        if gapSeconds > 300 { // 5 minutes
+                            let gapMinutes = Int(gapSeconds / 60)
+                            let hbDate = Date(timeIntervalSince1970: lastHeartbeat)
+                            let formatter = DateFormatter()
+                            formatter.dateFormat = "HH:mm:ss"
+                            let hbString = formatter.string(from: hbDate)
+
+                            let lcFormatter = DateFormatter()
+                            lcFormatter.dateFormat = "yyyy-MM-dd HH:mm:ss"
+                            let timestamp = lcFormatter.string(from: Date())
+                            let entry = "[\(timestamp)] EXTENSION_GAP — no heartbeat for \(gapMinutes)m (last: \(hbString))\n"
+
+                            var log = defaults.string(forKey: "monitoring_lifecycle_log") ?? ""
+                            log.append(entry)
+                            if log.utf8.count > 100_000 {
+                                let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+                                let kept = lines.suffix(400)
+                                log = kept.joined(separator: "\n") + "\n"
+                            }
+                            defaults.set(log, forKey: "monitoring_lifecycle_log")
+                        }
+                    }
                 }
+
                 Task { @MainActor in
                     ScreenTimeService.shared.refreshFromExtension()
                 }

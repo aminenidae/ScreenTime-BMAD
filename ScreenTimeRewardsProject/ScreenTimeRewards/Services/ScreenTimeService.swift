@@ -36,6 +36,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private var hasSeededSampleData = false
     private var authorizationGranted = false
     private(set) var isMonitoring = false
+    /// Suppresses MONITORING_STOP/START logs when called internally by restart/reload paths
+    private var isInternalRestart = false
     private static let eventDidReachNotification = CFNotificationName(ScreenTimeNotifications.eventDidReachThreshold as CFString)
     private static let eventWillReachNotification = CFNotificationName(ScreenTimeNotifications.eventWillReachThreshold as CFString)
     private static let intervalDidStartNotification = CFNotificationName(ScreenTimeNotifications.intervalDidStart as CFString)
@@ -59,6 +61,32 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private var diagnosticPollingTimer: Timer?
     private var diagnosticPollCount = 0
     private var lastPolledUsageValues: [String: Int] = [:]  // logicalID -> todaySeconds
+
+    // MARK: - Monitoring Lifecycle Log
+
+    private static let lifecycleDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    /// Write to the dedicated monitoring lifecycle log (shared with extension via app group)
+    private func lifecycleLog(_ message: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        let timestamp = Self.lifecycleDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)] \(message)\n"
+
+        var log = defaults.string(forKey: "monitoring_lifecycle_log") ?? ""
+        log.append(entry)
+
+        if log.utf8.count > 100_000 {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(400)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
+        defaults.set(log, forKey: "monitoring_lifecycle_log")
+    }
 
     // MARK: - App Name Extraction Helpers
 
@@ -374,20 +402,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let validLogicalIDs = Set(restoredSelection.applicationTokens.compactMap { getLogicalID(for: $0) })
             usagePersistence.reconcileWithSelection(validLogicalIDs: validLogicalIDs)
 
-            // CLOUDKIT RECONCILIATION: Purge stale records from CloudKit
-            // This triggers orphan detection and deletion in uploadAppConfigurationsToParent()
-            Task {
-                do {
-                    try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
-                    #if DEBUG
-                    print("[ScreenTimeService] ✅ CloudKit reconciliation complete")
-                    #endif
-                } catch {
-                    #if DEBUG
-                    print("[ScreenTimeService] ⚠️ CloudKit reconciliation failed: \(error)")
-                    #endif
-                }
-            }
+            // NOTE: CloudKit reconciliation (uploadAppConfigurationsToParent) is NOT called here.
+            // The startup flow in ScreenTimeRewardsApp.swift already handles this — it runs
+            // backfillAppConfigurations then uploadAppConfigurationsToParent in sequence.
+            // Calling it here too would create duplicate records that immediately get deduped.
 
             // Rebuild categoryAssignments and rewardPointsAssignments from loaded apps
             // We need to map tokens back to their categories/points
@@ -466,6 +484,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 if registeredActivities.contains(activityName) {
                     // Monitoring already active at OS level — don't restart
                     isMonitoring = true
+                    lifecycleLog("MONITORING_ALIVE — OS confirms active, skipping restart (app launch)")
                     #if DEBUG
                     print("[ScreenTimeService] ✅ Monitoring already active at OS level — skipping restart to prevent phantom floods")
                     #endif
@@ -474,6 +493,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     do {
                         try scheduleActivity()
                         isMonitoring = true
+                        lifecycleLog("MONITORING_RECOVERED — was dead, restarted on app launch")
 
                         #if DEBUG
                         print("[ScreenTimeService] ✅ Monitoring restarted (was genuinely dead)")
@@ -626,26 +646,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         self.rewardPointsAssignments = rewardPoints
 
         #if DEBUG
-        print("[ScreenTimeService] Configuring monitoring with \(selection.applications.count) applications")
-        print("[ScreenTimeService] Storing \(categoryAssignments.count) category assignments and \(rewardPoints.count) reward points")
-        print("[ScreenTimeService] Selection details:")
-        print("[ScreenTimeService]   Applications count: \(selection.applications.count)")
-        print("[ScreenTimeService]   Categories count: \(selection.categories.count)")
-        print("[ScreenTimeService]   WebDomains count: \(selection.webDomains.count)")
+        print("[ScreenTimeService] Configuring monitoring with \(selection.applications.count) apps, \(categoryAssignments.count) categories, \(rewardPoints.count) reward points")
         #endif
-    
-        // Log detailed information about each selected application
-        // FIX: Use sorted applications to ensure consistent iteration order
+
+        // Use sorted applications to ensure consistent iteration order
         let sortedApplications = selection.sortedApplications(using: usagePersistence)
-        for (index, application) in sortedApplications.enumerated() {
-            #if DEBUG
-            print("[ScreenTimeService]   Application \(index):")
-            print("[ScreenTimeService]     Localized display name: \(application.localizedDisplayName ?? "nil")")
-            print("[ScreenTimeService]     Bundle identifier: \(application.bundleIdentifier ?? "nil")")
-            print("[ScreenTimeService]     Token: \(application.token != nil ? "Available" : "nil")")
-            print("[ScreenTimeService]     Has token: \(application.token != nil)")
-            #endif
-        }
     
         let providedThresholds = thresholds ?? [:]
 
@@ -675,13 +680,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let category: AppUsage.AppCategory
             if let assignedCategory = categoryAssignments[token] {
                 category = assignedCategory
-                #if DEBUG
-                print("[ScreenTimeService] Processing application: \(displayName)")
-                print("[ScreenTimeService]   Display Name: \(displayName)")
-                print("[ScreenTimeService]   Bundle ID: \(bundleIdentifier ?? "nil (this is normal)")")
-                print("[ScreenTimeService]   Token: Available")
-                print("[ScreenTimeService]   Category: \(category.rawValue) (user-assigned ✓)")
-                #endif
             } else {
                 // Fallback: auto-categorize by bundle ID or display name
                 if let bundleId = bundleIdentifier, !bundleId.isEmpty {
@@ -689,29 +687,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 } else {
                     category = categorizeApp(bundleIdentifier: displayName.lowercased())
                 }
-                #if DEBUG
-                print("[ScreenTimeService] Processing application: \(displayName)")
-                print("[ScreenTimeService]   Display Name: \(displayName)")
-                print("[ScreenTimeService]   Bundle ID: \(bundleIdentifier ?? "nil (this is normal)")")
-                print("[ScreenTimeService]   Token: Available")
-                print("[ScreenTimeService]   Category: \(category.rawValue) (auto-categorized)")
-                print("[ScreenTimeService]   ⚠️ No user assignment - using auto-categorization")
-                #endif
             }
             
             // Use user-assigned reward points if available, otherwise use defaults
             let points: Int
             if let assignedPoints = rewardPoints[token] {
                 points = assignedPoints
-                #if DEBUG
-                print("[ScreenTimeService]   Reward Points: \(points) (user-assigned ✓)")
-                #endif
             } else {
-                // Use default points based on category
                 points = getDefaultRewardPoints(for: category)
-                #if DEBUG
-                print("[ScreenTimeService]   Reward Points: \(points) (default)")
-                #endif
             }
 
             // Resolve logical ID (stable across launches) and token hash
@@ -723,10 +706,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let logicalID = mapping.logicalID
             let tokenArchiveHash = mapping.tokenHash
 
-            #if DEBUG
-            print("[ScreenTimeService]   Logical ID: \(logicalID)")
-            print("[ScreenTimeService]   Token archive hash: \(tokenArchiveHash.prefix(20))...")
-            #endif
 
             let monitored = MonitoredApplication(
                 token: token,
@@ -775,36 +754,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             )
             usagePersistence.saveApp(persistedApp)
 
-            #if DEBUG
-            if let existingApp {
-                print("[ScreenTimeService]   💾 Updated app configuration (preserved total: \(existingApp.totalSeconds)s, \(existingApp.earnedPoints)pts, today: \(existingApp.todaySeconds)s, \(existingApp.todayPoints)pts)")
-            } else {
-                print("[ScreenTimeService]   💾 Saved app configuration to persistence")
-            }
-            #endif
         }
 
-        // INSTRUMENTATION: Log service ordering before writing to persistence
         #if DEBUG
-        print("[ScreenTimeService] === SERVICE ORDERING LOG ===")
+        // Summary log instead of per-app verbosity
         for (category, apps) in groupedApplications {
-            print("[ScreenTimeService] Category: \(category.rawValue)")
-            for (index, app) in apps.enumerated() {
-                let totalSeconds = usagePersistence.app(for: app.logicalID)?.totalSeconds ?? 0
-                print("[ScreenTimeService]   \(index): tokenHash=\(usagePersistence.tokenHash(for: app.token).prefix(20))..., logicalID=\(app.logicalID), displayName=\(app.displayName), rewardPoints=\(app.rewardPoints), totalSeconds=\(totalSeconds)")
-            }
-        }
-        print("[ScreenTimeService] === END SERVICE ORDERING LOG ===")
-        #endif
-        // END INSTRUMENTATION
-
-        #if DEBUG
-        print("[ScreenTimeService] Grouped applications by category:")
-        for (category, apps) in groupedApplications {
-            print("[ScreenTimeService]   \(category.rawValue): \(apps.count) applications")
-            for app in apps {
-                print("[ScreenTimeService]     - \(app.displayName) (\(app.bundleIdentifier ?? "nil")) - \(app.rewardPoints) points")
-            }
+            let names = apps.map { $0.displayName }.joined(separator: ", ")
+            print("[ScreenTimeService] \(category.rawValue): \(apps.count) apps (\(names))")
         }
         #endif
 
@@ -885,9 +841,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 // Always reload from persistence to get the latest configuration
                 if let persisted = usagePersistence.app(for: app.logicalID) {
                     refreshedUsages[app.logicalID] = appUsage(from: persisted)
-                    #if DEBUG
-                    print("[ScreenTimeService] Reloaded \(app.displayName): \(persisted.rewardPoints) pts/min, \(persisted.earnedPoints) earned, \(persisted.totalSeconds)s total")
-                    #endif
                 }
             }
         }
@@ -895,14 +848,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         notifyUsageChange()
 
         if isMonitoring {
+            lifecycleLog("MONITORING_RELOAD — threshold refresh")
+            isInternalRestart = true
             deviceActivityCenter.stopMonitoring([activityName])
             do {
                 try scheduleActivity()
             } catch {
+                lifecycleLog("MONITORING_RELOAD_FAILED — \(error.localizedDescription)")
                 #if DEBUG
                 print("Failed to reschedule monitoring: \(error)")
                 #endif
             }
+            isInternalRestart = false
         }
     }
     
@@ -1481,6 +1438,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func stopMonitoring() {
         deviceActivityCenter.stopMonitoring([activityName])
         isMonitoring = false
+        if !isInternalRestart {
+            lifecycleLog("MONITORING_STOP — user/app action")
+        }
 
         // Persist monitoring state so we don't auto-restart on next launch
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -2065,6 +2025,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] ♻️ Restart requested (\(reason))")
         #endif
 
+        lifecycleLog("MONITORING_RESTART — reason: \(reason)")
+        isInternalRestart = true
         stopMonitoring()
 
         // Retry up to 3 times with exponential backoff
@@ -2073,6 +2035,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             do {
                 try scheduleActivity()
                 isMonitoring = true
+                isInternalRestart = false
 
                 // Re-persist monitoring state after successful restart
                 // stopMonitoring() sets wasMonitoringActive=false, so we must restore it
@@ -2080,6 +2043,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     sharedDefaults.set(true, forKey: "wasMonitoringActive")
                 }
 
+                lifecycleLog("MONITORING_RESTART_OK — reason: \(reason), attempt \(attempt)")
                 #if DEBUG
                 print("[ScreenTimeService] ✅ Restarted monitoring (\(reason)) on attempt \(attempt)")
                 #endif
@@ -2097,7 +2061,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         // All retries failed
+        isInternalRestart = false
         if let error = lastError {
+            lifecycleLog("MONITORING_RESTART_FAILED — reason: \(reason), error: \(error.localizedDescription)")
             print("[ScreenTimeService] ❌ CRITICAL: Failed to restart monitoring after 3 attempts: \(error)")
         }
     }
@@ -2353,6 +2319,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
+
+        if !isInternalRestart {
+            lifecycleLog("MONITORING_START — events=\(events.count)")
+        }
 
         #if DEBUG
         let totalApps = appUsages.values.filter { $0.category == .learning }.count + appUsages.values.filter { $0.category == .reward }.count

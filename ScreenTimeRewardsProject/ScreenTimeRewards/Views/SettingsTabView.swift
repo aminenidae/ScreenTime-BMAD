@@ -139,6 +139,7 @@ struct SettingsTabView: View {
                             diagnosticMappingRow
                             cleanupMappingsRow
                             extensionLogsRow
+                            monitoringLogRow
                         }
 
                     }
@@ -1003,6 +1004,47 @@ private extension SettingsTabView {
         .buttonStyle(PlainButtonStyle())
     }
 
+    var monitoringLogRow: some View {
+        NavigationLink(destination: MonitoringLifecycleLogView()) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.green.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "power.circle")
+                        .font(.system(size: 20))
+                        .foregroundColor(.green)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Monitoring Log")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Start/stop/kill lifecycle events")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
 
 }
 

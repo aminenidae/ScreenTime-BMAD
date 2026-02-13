@@ -15,6 +15,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let id = UUID().uuidString.prefix(8)
         return String(id)
     }()
+    /// Ensures lifecycle log only fires once per process (init() is called per event)
+    private static var hasLoggedSession = false
 
     // MARK: - Constants
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
@@ -37,6 +39,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         f.dateFormat = "yyyy-MM-dd"
         return f
     }()
+    private static let lifecycleDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
 
     // MARK: - Cached Expensive Objects
     /// Decoders/encoders are expensive to create (~50-100KB each). Cache as static lets.
@@ -50,6 +57,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private static let maxLogBytes = 50_000
     /// Lines to keep after trim
     private static let trimToLines = 200
+
+    /// Lifecycle log limits (larger — events are rare, ~5-20/day)
+    private static let maxLifecycleLogBytes = 100_000
+    private static let lifecycleTrimToLines = 400
 
     /// O(1) append-only debug log — avoids catastrophic read-parse-rewrite cycle
     /// Only trims when buffer exceeds size threshold
@@ -70,19 +81,51 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(log, forKey: "extension_debug_log")
     }
 
+    /// Dedicated lifecycle log — ONLY start/stop/kill events for monitoring diagnostics
+    private nonisolated func lifecycleLog(_ message: String, defaults: UserDefaults) {
+        let timestamp = Self.lifecycleDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)] \(message)\n"
+
+        var log = defaults.string(forKey: "monitoring_lifecycle_log") ?? ""
+        log.append(entry)
+
+        if log.utf8.count > Self.maxLifecycleLogBytes {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(Self.lifecycleTrimToLines)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
+        defaults.set(log, forKey: "monitoring_lifecycle_log")
+    }
+
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             defaults.set(true, forKey: "extension_initialized_flag")
             defaults.set(Date().timeIntervalSince1970, forKey: "extension_initialized")
+
+            // Only log session lifecycle once per process (init() is called per event)
+            if !Self.hasLoggedSession {
+                Self.hasLoggedSession = true
+                let lastSessionID = defaults.string(forKey: "ext_last_session_id")
+                if let lastSessionID = lastSessionID, lastSessionID != Self.sessionID {
+                    lifecycleLog("EXTENSION_KILLED — new session detected (was: \(lastSessionID), now: \(Self.sessionID))", defaults: defaults)
+                }
+                defaults.set(Self.sessionID, forKey: "ext_last_session_id")
+                lifecycleLog("EXTENSION_INIT session=\(Self.sessionID)", defaults: defaults)
+            }
         }
     }
 
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+            // Set restart timestamp so filter chain treats iOS-initiated restarts
+            // the same as app-initiated restarts (60s catch-up window + lastThreshold reset)
+            defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
+            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID) — set restart timestamp", defaults: defaults)
+            lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
         }
         updateHeartbeat()
     }
@@ -90,6 +133,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
+            lifecycleLog("INTERVAL_END — iOS daily cycle (activity=\(activity.rawValue))", defaults: defaults)
         }
     }
 
@@ -237,8 +281,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Past the 60s window — reset flood counter (flood window has passed)
-        if defaults.integer(forKey: "flood_skip_count") > 0 {
+        // Past the 60s window — reset flood counter AND stale lastThreshold values
+        // When monitoring restarts (app-initiated or iOS INTERVAL_START), iOS resets its
+        // cumulative counter. lastThreshold values from the pre-restart epoch would cause
+        // SKIP_REGRESSION to block ALL genuine post-restart events.
+        let lastHandledRestart = defaults.double(forKey: "ext_lastHandledRestartTimestamp")
+        if restartTimestamp > lastHandledRestart && restartTimestamp > 0 {
+            // New restart detected — reset lastThreshold for all tracked apps
+            let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+            for trackedAppID in trackedAppIDs {
+                defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
+            }
+            defaults.set(restartTimestamp, forKey: "ext_lastHandledRestartTimestamp")
+            defaults.set(0, forKey: "flood_skip_count")
+            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps after monitoring restart", defaults: defaults)
+        } else if defaults.integer(forKey: "flood_skip_count") > 0 {
             defaults.set(0, forKey: "flood_skip_count")
         }
 
@@ -346,16 +403,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Same day — normal progression: record +60s
+        // Same day — use threshold delta to capture full usage since last recording.
+        // iOS may batch events hourly; flat +60 would lose accumulated minutes.
         let currentToday = defaults.integer(forKey: todayKey)
-        let newToday = currentToday + 60
-        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +60 = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
+        let delta = max(60, thresholdSeconds - lastThreshold)
+        let newToday = currentToday + delta
+        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
 
         // Update total
         let currentTotal = defaults.integer(forKey: totalKey)
-        defaults.set(currentTotal + 60, forKey: totalKey)
+        defaults.set(currentTotal + delta, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
         // ext_ keys (source of truth)
@@ -363,11 +422,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
         let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
 
-        let newExtToday = (currentExtDate == dateString) ? currentExtToday + 60 : 60
+        let newExtToday = (currentExtDate == dateString) ? currentExtToday + delta : delta
 
-        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + 60) hour=\(hour)", defaults: defaults)
+        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + delta) hour=\(hour)", defaults: defaults)
         defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
-        defaults.set(currentExtTotal + 60, forKey: "ext_usage_\(appID)_total")
+        defaults.set(currentExtTotal + delta, forKey: "ext_usage_\(appID)_total")
         defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
         defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
         defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
@@ -382,7 +441,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
         }
         let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
-        defaults.set(currentHourlySeconds + 60, forKey: "ext_usage_\(appID)_hourly_\(hour)")
+        defaults.set(currentHourlySeconds + delta, forKey: "ext_usage_\(appID)_hourly_\(hour)")
 
         trackAppID(appID, defaults: defaults)
         defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")

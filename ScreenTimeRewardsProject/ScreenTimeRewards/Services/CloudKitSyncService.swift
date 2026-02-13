@@ -2858,8 +2858,9 @@ class CloudKitSyncService: ObservableObject {
 
         // Deduplicate and detect orphans
         for (key, records) in recordsByKey {
-            // Extract logicalID from key
-            let logicalID = String(key.split(separator: "-").first ?? "")
+            // Extract logicalID from the record's CD_logicalID field (NOT from the composite key,
+            // which contains UUID-date and splitting by "-" breaks UUIDs like EFF1E31D-2C7D-...)
+            let logicalID = records.first?["CD_logicalID"] as? String ?? ""
 
             // Check if this logicalID is still valid (app still tracked)
             if !validLogicalIDs.contains(logicalID) {
