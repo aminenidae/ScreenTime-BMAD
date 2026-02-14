@@ -121,45 +121,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // MARK: - Interval Events
     override nonisolated func intervalDidStart(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            // Set restart timestamp for 60s catch-up window
+            // Set restart timestamp for 60s safety window
             defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
 
-            // Suppress false flood detection during expected catch-up flood.
-            // Without this, skipCount > 10 within the 60s window would set flood_detected
-            // → main app recovery restart → infinite loop.
-            defaults.set(Date().timeIntervalSince1970, forKey: "last_flood_correction_timestamp")
-
-            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID) — set restart timestamp", defaults: defaults)
+            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
 
-            // Apply flood correction from PREVIOUS flood's flood_max (if any).
-            // intervalDidStart runs BEFORE the current flood, but AFTER the previous one.
-            // The previous flood's flood_max is iOS daily cumulative ground truth.
-            // This is the PRIMARY correction path — the extension process is usually killed
-            // after processing the flood, so the restart-reset block (which needs a genuine
-            // event after 60s) rarely fires.
-            // NOTE: Do NOT set ext_lastHandledRestartTimestamp here — let the restart-reset
-            // block also fire if a genuine event arrives (dual correction path).
+            // Reset lastThreshold for all apps — iOS resets its counter on daily restart
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
             for trackedAppID in trackedAppIDs {
-                let floodMaxKey = "flood_max_\(trackedAppID)"
-                let floodMax = defaults.integer(forKey: floodMaxKey)
-                if floodMax > 0 {
-                    // Bidirectional flood correction: flood_max is iOS daily cumulative ground truth
-                    let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
-                    if floodMax != currentToday {
-                        let correction = floodMax - currentToday
-                        defaults.set(floodMax, forKey: "usage_\(trackedAppID)_today")
-                        defaults.set(floodMax, forKey: "ext_usage_\(trackedAppID)_today")
-                        let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
-                        defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
-                        defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
-                        let sign = correction > 0 ? "+" : ""
-                        lifecycleLog("FLOOD_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(floodMax)s (\(sign)\(correction)s)", defaults: defaults)
-                    }
-                    defaults.removeObject(forKey: floodMaxKey)
-                }
-                // Always reset lastThreshold to 0 — iOS resets its counter on restart
                 defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
             }
         }
@@ -297,74 +267,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let calendar = Self.calendar
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
-        // Filter 1: 60s restart window
-        // iOS fires catch-up events for ALL cumulative usage on restart — none are genuine
-        // Genuine events can't arrive until 60s+ (1-minute threshold minimum)
+        // Filter 1: 60s restart window (safety net)
+        // Smart threshold filtering in the main app prevents most catch-up events.
+        // This window catches any small drift between recorded usage and iOS's counter.
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let timeSinceRestart = nowTimestamp - restartTimestamp
         if timeSinceRestart < 60.0 && restartTimestamp > 0 {
             debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 60s", defaults: defaults)
-
-            // Flood detection: count SKIP_RESTART events to signal main app for recovery.
-            // Suppress if restart was recently acknowledged (catch-up flood is expected, not a problem).
-            // This prevents infinite loop: restart → flood → flood_detected → restart
-            let skipCount = defaults.integer(forKey: "flood_skip_count") + 1
-            defaults.set(skipCount, forKey: "flood_skip_count")
-            let lastCorrection = defaults.double(forKey: "last_flood_correction_timestamp")
-            let timeSinceCorrection = nowTimestamp - lastCorrection
-            if skipCount > 10 && !defaults.bool(forKey: "flood_detected") && timeSinceCorrection > 120.0 {
-                defaults.set(true, forKey: "flood_detected")
-                defaults.set(nowTimestamp, forKey: "flood_detected_time")
-                debugLog("FLOOD_DETECTED skipCount=\(skipCount) — flagged for main app recovery", defaults: defaults)
-            }
-
-            // Capture iOS ground truth: highest threshold = actual usage in seconds
-            let floodMaxKey = "flood_max_\(appID)"
-            let currentFloodMax = defaults.integer(forKey: floodMaxKey)
-            if thresholdSeconds > currentFloodMax {
-                defaults.set(thresholdSeconds, forKey: floodMaxKey)
-            }
-
             return false
         }
 
-        // Past the 60s window — reset flood counter AND stale lastThreshold values
-        // When monitoring restarts (app-initiated or iOS INTERVAL_START), iOS resets its
-        // cumulative counter. lastThreshold values from the pre-restart epoch would cause
-        // SKIP_REGRESSION to block ALL genuine post-restart events.
+        // Post-restart: reset lastThreshold for all apps so threshold progression
+        // filter doesn't block genuine events (post-restart thresholds may be lower
+        // than pre-restart lastThreshold)
         let lastHandledRestart = defaults.double(forKey: "ext_lastHandledRestartTimestamp")
         if restartTimestamp > lastHandledRestart && restartTimestamp > 0 {
-            // New restart detected — apply flood correction and reset lastThreshold
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
             for trackedAppID in trackedAppIDs {
-                let floodMaxKey = "flood_max_\(trackedAppID)"
-                let floodMax = defaults.integer(forKey: floodMaxKey)
-
-                if floodMax > 0 {
-                    // Bidirectional flood correction: flood_max is iOS daily cumulative ground truth
-                    let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
-                    if floodMax != currentToday {
-                        let correction = floodMax - currentToday
-                        defaults.set(floodMax, forKey: "usage_\(trackedAppID)_today")
-                        defaults.set(floodMax, forKey: "ext_usage_\(trackedAppID)_today")
-                        let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
-                        defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
-                        defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
-                        let sign = correction > 0 ? "+" : ""
-                        lifecycleLog("FLOOD_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(floodMax)s (\(sign)\(correction)s)", defaults: defaults)
-                    }
-                    defaults.removeObject(forKey: floodMaxKey)
-                }
-                // Always reset lastThreshold to 0 after restart — iOS resets its counter,
-                // so post-restart events start from min.1. Setting to flood_max would cause
-                // SKIP_REGRESSION to block all events until usage exceeds the daily total.
                 defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
             }
             defaults.set(restartTimestamp, forKey: "ext_lastHandledRestartTimestamp")
-            defaults.set(0, forKey: "flood_skip_count")
-            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps after monitoring restart (with flood correction)", defaults: defaults)
-        } else if defaults.integer(forKey: "flood_skip_count") > 0 {
-            defaults.set(0, forKey: "flood_skip_count")
+            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps", defaults: defaults)
         }
 
         // Filter 2: 55s per-app cooldown
@@ -473,8 +396,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Same day — use threshold delta when we have a reliable lastThreshold (>0),
         // otherwise fall back to safe +60 to prevent phantom threshold amplification.
-        // lastThreshold > 0 means it was set from flood_max (reliable) or a previous recording.
-        // lastThreshold = 0 means daily reset, no flood data, or unknown state — can't trust delta.
+        // lastThreshold > 0 means it was set by a previous recording in this session.
+        // lastThreshold = 0 means daily reset or post-restart — can't trust delta.
         let currentToday = defaults.integer(forKey: todayKey)
         let delta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
         let newToday = currentToday + delta

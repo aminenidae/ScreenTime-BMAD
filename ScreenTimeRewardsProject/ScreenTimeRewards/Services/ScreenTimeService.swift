@@ -490,28 +490,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     #endif
                 } else {
                     // Monitoring genuinely dead — restart needed
+                    // Smart threshold filtering in scheduleActivity() prevents catch-up floods
                     do {
                         try scheduleActivity()
                         isMonitoring = true
                         lifecycleLog("MONITORING_RECOVERED — was dead, restarted on app launch")
 
                         #if DEBUG
-                        print("[ScreenTimeService] ✅ Monitoring restarted (was genuinely dead)")
+                        print("[ScreenTimeService] Monitoring restarted (was genuinely dead)")
                         #endif
-
-                        // FLOOD RECOVERY: Schedule a second restart after 65s for fresh thresholds.
-                        // The first restart triggers a catch-up flood (all cumulative usage events).
-                        // Our 60s filter blocks them, but iOS considers thresholds "delivered."
-                        // The second restart gives iOS a fresh session with new thresholds.
-                        // 65s ensures the 60s filter window from this restart has fully passed.
-                        Task { [weak self] in
-                            try? await Task.sleep(nanoseconds: 65_000_000_000) // 65 seconds
-                            guard let self = self else { return }
-                            #if DEBUG
-                            print("[ScreenTimeService] ♻️ Post-flood delayed restart firing (65s after crash recovery)")
-                            #endif
-                            await self.restartMonitoring(reason: "post-flood threshold refresh")
-                        }
                     } catch {
                         // CRITICAL: Reset state on failure to prevent blocking manual start later
                         isMonitoring = false
@@ -1972,6 +1959,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         notifyUsageChange()
     }
 
+    /// Check if monitoring is registered with iOS and restart if dead.
+    /// Safe to call frequently — smart threshold filtering prevents catch-up floods.
+    func checkMonitoringHealth() {
+        guard isMonitoring else { return }
+        let activities = deviceActivityCenter.activities
+        if !activities.contains(activityName) {
+            lifecycleLog("MONITORING_DEAD — detected on foreground, restarting")
+            #if DEBUG
+            print("[ScreenTimeService] Monitoring dead at OS level — triggering restart")
+            #endif
+            Task { [weak self] in
+                await self?.restartMonitoring(reason: "foreground health check")
+            }
+        }
+    }
+
     /// Refresh usage data from extension's UserDefaults.
     /// Call this when app becomes active to ensure UI shows latest data.
     func refreshFromExtension() {
@@ -2303,38 +2306,73 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             intervalEnd: DateComponents(hour: 23, minute: 59),
             repeats: true
         )
-        
+
+        // SMART THRESHOLD FILTERING: Read current daily usage per app and skip thresholds
+        // at or below current usage. This prevents iOS catch-up floods on monitoring restart.
+        // Without this, iOS fires catch-up events for ALL cumulative thresholds, consuming them.
+        var appCurrentMinutes: [String: Int] = [:]
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            let todayDateString: String = {
+                let fmt = DateFormatter()
+                fmt.dateFormat = "yyyy-MM-dd"
+                return fmt.string(from: Date())
+            }()
+            var seenLogicalIDs = Set<String>()
+            for event in monitoredEvents.values {
+                guard let app = event.applications.first,
+                      seenLogicalIDs.insert(app.logicalID).inserted else { continue }
+                let extDate = sharedDefaults.string(forKey: "ext_usage_\(app.logicalID)_date")
+                if extDate == todayDateString {
+                    let seconds = sharedDefaults.integer(forKey: "ext_usage_\(app.logicalID)_today")
+                    appCurrentMinutes[app.logicalID] = seconds / 60
+                }
+            }
+        }
+
+        var skippedCount = 0
         let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
+            let minuteNumber = entry.value.threshold.minute ?? 0
+            let logicalID = entry.value.applications.first?.logicalID ?? ""
+            let currentMinutes = appCurrentMinutes[logicalID] ?? 0
+            if minuteNumber <= currentMinutes {
+                skippedCount += 1
+                return  // Skip — iOS would fire this as a catch-up event
+            }
             result[entry.key] = entry.value.deviceActivityEvent()
         }
 
+        #if DEBUG
+        if skippedCount > 0 {
+            print("[ScreenTimeService] Smart threshold filtering: skipped \(skippedCount) thresholds below current usage")
+            for (appID, minutes) in appCurrentMinutes {
+                print("[ScreenTimeService]   \(appID.prefix(20))...: \(minutes) min recorded, registering from min \(minutes + 1)")
+            }
+        }
+        #endif
+
         // CRITICAL: Set restart timestamp BEFORE starting monitoring
         // This closes the race window where events could arrive before the timestamp is set
-        // Extension uses this to skip catch-up events within 55 seconds of restart
+        // Extension uses this to skip catch-up events within 60 seconds of restart
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
             #if DEBUG
-            print("[ScreenTimeService] 🕐 Set monitoring_restart_timestamp BEFORE startMonitoring")
+            print("[ScreenTimeService] Set monitoring_restart_timestamp BEFORE startMonitoring")
             #endif
         }
 
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
 
         if !isInternalRestart {
-            lifecycleLog("MONITORING_START — events=\(events.count)")
+            lifecycleLog("MONITORING_START — events=\(events.count) (skipped=\(skippedCount) below current usage)")
         }
 
         #if DEBUG
         let totalApps = appUsages.values.filter { $0.category == .learning }.count + appUsages.values.filter { $0.category == .reward }.count
-        print("[ScreenTimeService] 🔔 DeviceActivity monitoring started successfully")
+        print("[ScreenTimeService] DeviceActivity monitoring started successfully")
         print("   - Total apps monitored: \(totalApps) (learning + reward)")
-        print("   - Total threshold events: \(events.count)")
+        print("   - Total threshold events: \(events.count) (skipped \(skippedCount))")
         print("   - Schedule: 00:00 - 23:59 (repeating daily)")
         print("   - Activity name: \(activityName)")
-        #endif
-
-        #if DEBUG
-        print("[ScreenTimeService] Successfully started monitoring")
         #endif
     }
     
