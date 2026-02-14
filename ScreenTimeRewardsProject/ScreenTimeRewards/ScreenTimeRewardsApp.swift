@@ -55,16 +55,27 @@ struct ScreenTimeRewardsApp: App {
 
                 // FLOOD RECOVERY (Layer 3): If extension detected a flood and the auto-restart
                 // didn't complete (app killed before 65s delay), recover on next foreground.
+                // 5-minute cooldown prevents infinite loop: restart → flood → flood_detected → restart
                 if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
                    defaults.bool(forKey: "flood_detected") {
                     let floodTime = defaults.double(forKey: "flood_detected_time")
+                    let lastRecovery = defaults.double(forKey: "last_flood_recovery_timestamp")
                     let timeSinceFlood = Date().timeIntervalSince1970 - floodTime
+                    let timeSinceLastRecovery = Date().timeIntervalSince1970 - lastRecovery
                     if timeSinceFlood > 65.0 {
-                        print("[ScreenTimeRewardsApp] 🚨 Flood recovery: detected stale flood flag (\(Int(timeSinceFlood))s ago) — triggering restart")
-                        defaults.set(false, forKey: "flood_detected")
-                        defaults.set(0, forKey: "flood_skip_count")
-                        Task {
-                            await ScreenTimeService.shared.restartMonitoring(reason: "foreground flood recovery")
+                        if timeSinceLastRecovery > 300.0 || lastRecovery == 0 {
+                            print("[ScreenTimeRewardsApp] 🚨 Flood recovery: detected stale flood flag (\(Int(timeSinceFlood))s ago) — triggering restart")
+                            defaults.set(false, forKey: "flood_detected")
+                            defaults.set(0, forKey: "flood_skip_count")
+                            defaults.set(Date().timeIntervalSince1970, forKey: "last_flood_recovery_timestamp")
+                            Task {
+                                await ScreenTimeService.shared.restartMonitoring(reason: "foreground flood recovery")
+                            }
+                        } else {
+                            // Within 5min cooldown — just clear the flag (flood correction already handled accuracy)
+                            print("[ScreenTimeRewardsApp] 🔄 Flood flag cleared (within 5min cooldown, \(Int(timeSinceLastRecovery))s since last recovery — no restart)")
+                            defaults.set(false, forKey: "flood_detected")
+                            defaults.set(0, forKey: "flood_skip_count")
                         }
                     } else {
                         print("[ScreenTimeRewardsApp] ⏳ Flood detected \(Int(timeSinceFlood))s ago — waiting for auto-restart (65s threshold)")
