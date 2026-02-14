@@ -1127,6 +1127,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let extTotalKey = "ext_usage_\(logicalID)_total"
             let extDateKey = "ext_usage_\(logicalID)_date"
 
+            // 4th correction path: Apply pending catchup_max corrections from extension burst handling.
+            // This runs on every foreground (via refreshFromExtension), much more reliable than
+            // waiting for extension events to trigger correction.
+            let catchupMaxKey = "catchup_max_\(logicalID)"
+            let catchupMax = defaults.integer(forKey: catchupMaxKey)
+            if catchupMax > 0 {
+                let currentToday = defaults.integer(forKey: extTodayKey)
+                if catchupMax != currentToday {
+                    let correction = catchupMax - currentToday
+                    defaults.set(catchupMax, forKey: extTodayKey)
+                    defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
+                    let currentTotal = defaults.integer(forKey: extTotalKey)
+                    defaults.set(max(0, currentTotal + correction), forKey: extTotalKey)
+                    defaults.set(max(0, currentTotal + correction), forKey: "usage_\(logicalID)_total")
+                    #if DEBUG
+                    print("[ScreenTimeService] CATCHUP_CORRECTION \(logicalID.prefix(8))... \(currentToday)s → \(catchupMax)s")
+                    #endif
+                }
+                defaults.removeObject(forKey: catchupMaxKey)
+            }
+
             let extTodaySeconds = defaults.integer(forKey: extTodayKey)
             let extTotalSeconds = defaults.integer(forKey: extTotalKey)
             let extDateString = defaults.string(forKey: extDateKey)
@@ -2307,6 +2328,28 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             repeats: true
         )
 
+        // ONE-TIME CALIBRATION: Clear inflated ext_usage from previous version's flood correction bug.
+        // Inflated ext_usage causes smart filtering to skip all thresholds → no catch-up events →
+        // no corrections → deadlock. Resetting to 0 lets iOS catch-ups recalibrate via catchup_max.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           !sharedDefaults.bool(forKey: "ext_usage_calibrated_v1") {
+            let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+            for logicalID in logicalIDs {
+                sharedDefaults.set(0, forKey: "ext_usage_\(logicalID)_today")
+                sharedDefaults.removeObject(forKey: "ext_usage_\(logicalID)_date")
+                sharedDefaults.set(0, forKey: "usage_\(logicalID)_today")
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+            }
+            for logicalID in logicalIDs {
+                if var persistedApp = usagePersistence.app(for: logicalID) {
+                    persistedApp.todaySeconds = 0
+                    usagePersistence.saveApp(persistedApp)
+                }
+            }
+            sharedDefaults.set(true, forKey: "ext_usage_calibrated_v1")
+            lifecycleLog("CALIBRATION_RESET — cleared ext_usage for \(logicalIDs.count) apps")
+        }
+
         // SMART THRESHOLD FILTERING: Read current daily usage per app and skip thresholds
         // at or below current usage. This prevents iOS catch-up floods on monitoring restart.
         // Without this, iOS fires catch-up events for ALL cumulative thresholds, consuming them.
@@ -2362,9 +2405,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
 
-        if !isInternalRestart {
-            lifecycleLog("MONITORING_START — events=\(events.count) (skipped=\(skippedCount) below current usage)")
-        }
+        lifecycleLog("MONITORING_START — events=\(events.count) (skipped=\(skippedCount) below current usage)")
 
         #if DEBUG
         let totalApps = appUsages.values.filter { $0.category == .learning }.count + appUsages.values.filter { $0.category == .reward }.count

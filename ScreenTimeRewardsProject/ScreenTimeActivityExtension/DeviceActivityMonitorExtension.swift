@@ -127,8 +127,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
 
-            // Reset lastThreshold for all apps — iOS resets its counter on daily restart
+            // Apply pending catchup_max corrections BEFORE resetting lastThreshold
+            // This is the PRIMARY correction path — extension is often killed after burst,
+            // so intervalDidStart (daily restart) is the first opportunity to apply corrections
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+            for trackedAppID in trackedAppIDs {
+                let catchupMaxKey = "catchup_max_\(trackedAppID)"
+                let catchupMax = defaults.integer(forKey: catchupMaxKey)
+                if catchupMax > 0 {
+                    let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
+                    if catchupMax != currentToday {
+                        let correction = catchupMax - currentToday
+                        defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_today")
+                        defaults.set(catchupMax, forKey: "ext_usage_\(trackedAppID)_today")
+                        let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
+                        defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
+                        defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
+                        let sign = correction > 0 ? "+" : ""
+                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+                    }
+                    defaults.removeObject(forKey: catchupMaxKey)
+                }
+            }
+
+            // Reset lastThreshold for all apps — iOS resets its counter on daily restart
             for trackedAppID in trackedAppIDs {
                 defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
             }
@@ -274,6 +296,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let timeSinceRestart = nowTimestamp - restartTimestamp
         if timeSinceRestart < 60.0 && restartTimestamp > 0 {
             debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 60s", defaults: defaults)
+            // Capture iOS ground truth: highest threshold = actual cumulative usage
+            let catchupMaxKey = "catchup_max_\(appID)"
+            let currentMax = defaults.integer(forKey: catchupMaxKey)
+            if thresholdSeconds > currentMax {
+                defaults.set(thresholdSeconds, forKey: catchupMaxKey)
+            }
             return false
         }
 
@@ -284,10 +312,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if restartTimestamp > lastHandledRestart && restartTimestamp > 0 {
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
             for trackedAppID in trackedAppIDs {
-                defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
+                // Apply pending catchup_max correction before resetting
+                let catchupMaxKey = "catchup_max_\(trackedAppID)"
+                let catchupMax = defaults.integer(forKey: catchupMaxKey)
+                if catchupMax > 0 {
+                    // Bidirectional correction: catchup_max is iOS cumulative ground truth
+                    let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
+                    if catchupMax != currentToday {
+                        let correction = catchupMax - currentToday
+                        defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_today")
+                        defaults.set(catchupMax, forKey: "ext_usage_\(trackedAppID)_today")
+                        let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
+                        defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
+                        defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
+                        let sign = correction > 0 ? "+" : ""
+                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+                    }
+                    defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_lastThreshold")
+                    defaults.removeObject(forKey: catchupMaxKey)
+                } else {
+                    defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
+                }
             }
             defaults.set(restartTimestamp, forKey: "ext_lastHandledRestartTimestamp")
-            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps", defaults: defaults)
+            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps (with catchup correction)", defaults: defaults)
         }
 
         // Filter 2: 55s per-app cooldown
@@ -298,6 +346,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let timeSinceLastForApp = nowTimestamp - lastRecordedForApp
         if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 {
             debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s", defaults: defaults)
+            // Capture iOS ground truth: highest threshold from burst delivery
+            let catchupMaxKey = "catchup_max_\(appID)"
+            let currentMax = defaults.integer(forKey: catchupMaxKey)
+            if thresholdSeconds > currentMax {
+                defaults.set(thresholdSeconds, forKey: catchupMaxKey)
+            }
             return false
         }
 
@@ -328,7 +382,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
         let todayResetKey = "usage_\(appID)_reset"
         let lastResetTimestamp = defaults.double(forKey: todayResetKey)
 
@@ -344,6 +398,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 debugLog("SKIP_DUP appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) == lastThreshold (cross-day)", defaults: defaults)
                 return false
             }
+        }
+
+        // ═══════════ CATCHUP CORRECTION — apply before recording ═══════════
+        // If cooldown-blocked events captured a max threshold, adjust usage to match iOS ground truth
+        let catchupMaxKey = "catchup_max_\(appID)"
+        let catchupMax = defaults.integer(forKey: catchupMaxKey)
+        if catchupMax > 0 {
+            let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+            if catchupMax != currentToday {
+                let correction = catchupMax - currentToday
+                defaults.set(catchupMax, forKey: "usage_\(appID)_today")
+                defaults.set(catchupMax, forKey: "ext_usage_\(appID)_today")
+                let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
+                defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(appID)_total")
+                defaults.set(max(0, currentTotal + correction), forKey: "usage_\(appID)_total")
+                let sign = correction > 0 ? "+" : ""
+                debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+            }
+            defaults.set(catchupMax, forKey: lastThresholdKey)
+            lastThreshold = catchupMax  // Update local var so delta calculation uses corrected base
+            defaults.removeObject(forKey: catchupMaxKey)
         }
 
         // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
