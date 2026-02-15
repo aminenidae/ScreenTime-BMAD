@@ -752,11 +752,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         #endif
 
-        // PRE-SET 60 MINUTE THRESHOLDS PER APP:
-        // Create 60 consecutive 1-minute threshold events per app (1 hour of tracking)
-        // Each threshold fires once when that minute is reached - NO re-arm/restart needed
-        // Extension uses memory-efficient primitive key storage (not JSON parsing)
-        // This avoids the bug where restarting monitoring resets iOS usage counters
+        // INITIAL THRESHOLD TEMPLATE (1-60 per app):
+        // Creates a base set of threshold events that scheduleActivity() will rebuild
+        // with a SLIDING WINDOW based on current usage. The window shifts:
+        //   0 min usage → min.1-60, 45 min → min.46-105, 100 min → min.101-160
+        // Always exactly 60 thresholds per app, staying under iOS ~500 total limit.
         // FIX: Use stable logicalID.hashValue instead of sequential eventIndex to prevent
         // usage doubling when apps are reordered (e.g., when adding a new app)
         monitoredEvents = groupedApplications.reduce(into: [:]) { result, entry in
@@ -807,7 +807,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         #if DEBUG
         let totalEvents = monitoredEvents.count
-        print("[ScreenTimeService] Created \(totalEvents) total threshold events (60 per app)")
+        print("[ScreenTimeService] Created \(totalEvents) threshold event templates (60 per app, sliding window applied in scheduleActivity)")
         #endif
 
         // Save event name → logical ID mapping for extension
@@ -1740,7 +1740,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         // 7. Show total events configured (check for potential limit issues)
-        print("  📊 Configured events: \(monitoredEvents.count) (60/app, limit ~500 total)")
+        print("  📊 Configured events: \(monitoredEvents.count) (60/app sliding window, limit ~500 total)")
         if monitoredEvents.count > 500 {
             print("  ⚠️ WARNING: High event count (>\(monitoredEvents.count)) may cause iOS to silently drop events!")
         }
@@ -2363,9 +2363,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CALIBRATION_RESET — cleared ext_usage for \(logicalIDs.count) apps")
         }
 
-        // SMART THRESHOLD FILTERING: Read current daily usage per app and skip thresholds
-        // at or below current usage. This prevents iOS catch-up floods on monitoring restart.
-        // Without this, iOS fires catch-up events for ALL cumulative thresholds, consuming them.
+        // SLIDING WINDOW THRESHOLDS: Read current daily usage per app and generate
+        // thresholds from (currentMinutes+1) to (currentMinutes+60). This:
+        // 1. Prevents catch-up floods (only thresholds above current usage are registered)
+        // 2. Extends tracking beyond 60 minutes (window slides up with usage)
+        // 3. Keeps exactly 60 thresholds per app (stays under iOS ~500 limit)
         var appCurrentMinutes: [String: Int] = [:]
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             let todayDateString: String = {
@@ -2385,24 +2387,53 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
-        var skippedCount = 0
-        let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
-            let minuteNumber = entry.value.threshold.minute ?? 0
-            let logicalID = entry.value.applications.first?.logicalID ?? ""
-            let currentMinutes = appCurrentMinutes[logicalID] ?? 0
-            if minuteNumber <= currentMinutes {
-                skippedCount += 1
-                return  // Skip — iOS would fire this as a catch-up event
+        // Collect one template per app from existing monitoredEvents (for metadata)
+        var appTemplates: [String: (app: MonitoredApplication, category: AppUsage.AppCategory)] = [:]
+        for event in monitoredEvents.values {
+            guard let app = event.applications.first else { continue }
+            if appTemplates[app.logicalID] == nil {
+                appTemplates[app.logicalID] = (app: app, category: event.category)
             }
+        }
+
+        // Rebuild monitoredEvents with sliding window per app
+        var newMonitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
+        var totalSkipped = 0
+        for (logicalID, template) in appTemplates {
+            let currentMinutes = appCurrentMinutes[logicalID] ?? 0
+            totalSkipped += currentMinutes
+            let startMinute = currentMinutes + 1
+            let endMinute = currentMinutes + 60
+            let stableAppID = stableHash(logicalID)
+
+            for minuteNumber in startMinute...endMinute {
+                let eventName = DeviceActivityEvent.Name("usage.app.\(stableAppID).min.\(minuteNumber)")
+                newMonitoredEvents[eventName] = MonitoredEvent(
+                    name: eventName,
+                    category: template.category,
+                    threshold: DateComponents(minute: minuteNumber),
+                    applications: [template.app]
+                )
+            }
+        }
+        monitoredEvents = newMonitoredEvents
+        saveEventMappings()
+
+        // Pre-populate tracked_app_ids so extension's RESTART_THRESHOLD_RESET
+        // resets lastThreshold for ALL monitored apps (not just previously recorded ones)
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            let allLogicalIDs = Array(appTemplates.keys)
+            sharedDefaults.set(allLogicalIDs, forKey: "tracked_app_ids")
+        }
+
+        // Register all events (all are above current usage — no filtering needed)
+        let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
             result[entry.key] = entry.value.deviceActivityEvent()
         }
 
         #if DEBUG
-        if skippedCount > 0 {
-            print("[ScreenTimeService] Smart threshold filtering: skipped \(skippedCount) thresholds below current usage")
-            for (appID, minutes) in appCurrentMinutes {
-                print("[ScreenTimeService]   \(appID.prefix(20))...: \(minutes) min recorded, registering from min \(minutes + 1)")
-            }
+        for (appID, minutes) in appCurrentMinutes {
+            print("[ScreenTimeService] Sliding window: \(appID.prefix(20))... at \(minutes) min, registering min \(minutes + 1)-\(minutes + 60)")
         }
         #endif
 
@@ -2418,13 +2449,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
 
-        lifecycleLog("MONITORING_START — events=\(events.count) (skipped=\(skippedCount) below current usage)")
+        lifecycleLog("MONITORING_START — events=\(events.count) (sliding window, \(totalSkipped) min already tracked)")
 
         #if DEBUG
-        let totalApps = appUsages.values.filter { $0.category == .learning }.count + appUsages.values.filter { $0.category == .reward }.count
         print("[ScreenTimeService] DeviceActivity monitoring started successfully")
-        print("   - Total apps monitored: \(totalApps) (learning + reward)")
-        print("   - Total threshold events: \(events.count) (skipped \(skippedCount))")
+        print("   - Total threshold events: \(events.count) (60/app sliding window)")
         print("   - Schedule: 00:00 - 23:59 (repeating daily)")
         print("   - Activity name: \(activityName)")
         #endif
