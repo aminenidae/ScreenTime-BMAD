@@ -128,23 +128,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
 
             // Apply pending catchup_max corrections BEFORE resetting lastThreshold
-            // This is the PRIMARY correction path — extension is often killed after burst,
-            // so intervalDidStart (daily restart) is the first opportunity to apply corrections
+            // UP-only: only increase usage to match iOS ground truth, never decrease
+            // (catch-ups may represent partial/stale data from previous sessions)
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
             for trackedAppID in trackedAppIDs {
                 let catchupMaxKey = "catchup_max_\(trackedAppID)"
                 let catchupMax = defaults.integer(forKey: catchupMaxKey)
                 if catchupMax > 0 {
                     let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
-                    if catchupMax != currentToday {
+                    if catchupMax > currentToday {
                         let correction = catchupMax - currentToday
                         defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_today")
                         defaults.set(catchupMax, forKey: "ext_usage_\(trackedAppID)_today")
                         let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
                         defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
                         defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
-                        let sign = correction > 0 ? "+" : ""
-                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
                     }
                     // ALWAYS set date when catchup_max exists — value may already match but date could be missing
                     let dateString = Self.dayDateFormatter.string(from: Date())
@@ -305,12 +304,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let timeSinceRestart = nowTimestamp - restartTimestamp
         if timeSinceRestart < 60.0 && restartTimestamp > 0 {
             debugLog("SKIP_RESTART appID=\(appID.prefix(8))... timeSinceRestart=\(Int(timeSinceRestart))s < 60s", defaults: defaults)
-            // Capture iOS ground truth: highest threshold = actual cumulative usage
-            let catchupMaxKey = "catchup_max_\(appID)"
-            let currentMax = defaults.integer(forKey: catchupMaxKey)
-            if thresholdSeconds > currentMax {
-                defaults.set(thresholdSeconds, forKey: catchupMaxKey)
-            }
+            // Absorb window: silently drop catch-up events without capturing catchup_max.
+            // With includesPastActivity:true, catch-ups include stale residual data from
+            // yesterday/previous sessions — capturing them causes phantom usage inflation.
             return false
         }
 
@@ -325,20 +321,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let oldThresh = defaults.integer(forKey: "usage_\(trackedAppID)_lastThreshold")
                 debugLog("RESTART_RESET \(trackedAppID.prefix(8))... lastThresh=\(oldThresh) → 0", defaults: defaults)
                 // Apply pending catchup_max correction before resetting
+                // UP-only: only increase usage to match iOS ground truth, never decrease
                 let catchupMaxKey = "catchup_max_\(trackedAppID)"
                 let catchupMax = defaults.integer(forKey: catchupMaxKey)
                 if catchupMax > 0 {
-                    // Bidirectional correction: catchup_max is iOS cumulative ground truth
                     let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
-                    if catchupMax != currentToday {
+                    if catchupMax > currentToday {
                         let correction = catchupMax - currentToday
                         defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_today")
                         defaults.set(catchupMax, forKey: "ext_usage_\(trackedAppID)_today")
                         let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
                         defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
                         defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
-                        let sign = correction > 0 ? "+" : ""
-                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+                        lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
                     }
                     // ALWAYS set date when catchup_max exists — value may already match but date could be missing
                     let dateStr = Self.dayDateFormatter.string(from: Date())
@@ -418,20 +413,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // ═══════════ CATCHUP CORRECTION — apply before recording ═══════════
-        // If cooldown-blocked events captured a max threshold, adjust usage to match iOS ground truth
+        // If cooldown-blocked events captured a max threshold, adjust usage upward
+        // UP-only: only increase usage to match iOS ground truth, never decrease
         let catchupMaxKey = "catchup_max_\(appID)"
         let catchupMax = defaults.integer(forKey: catchupMaxKey)
         if catchupMax > 0 {
             let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
-            if catchupMax != currentToday {
+            if catchupMax > currentToday {
                 let correction = catchupMax - currentToday
                 defaults.set(catchupMax, forKey: "usage_\(appID)_today")
                 defaults.set(catchupMax, forKey: "ext_usage_\(appID)_today")
                 let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
                 defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(appID)_total")
                 defaults.set(max(0, currentTotal + correction), forKey: "usage_\(appID)_total")
-                let sign = correction > 0 ? "+" : ""
-                debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
+                debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
             }
             // ALWAYS set date when catchup_max exists — value may already match but date could be missing
             let corrDateStr = Self.dayDateFormatter.string(from: now)
