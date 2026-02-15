@@ -146,6 +146,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         let sign = correction > 0 ? "+" : ""
                         lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
                     }
+                    // ALWAYS set date when catchup_max exists — value may already match but date could be missing
+                    let dateString = Self.dayDateFormatter.string(from: Date())
+                    defaults.set(dateString, forKey: "ext_usage_\(trackedAppID)_date")
+                    defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(trackedAppID)_timestamp")
                     defaults.removeObject(forKey: catchupMaxKey)
                 }
             }
@@ -328,11 +332,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         let sign = correction > 0 ? "+" : ""
                         lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
                     }
-                    defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_lastThreshold")
+                    // ALWAYS set date when catchup_max exists — value may already match but date could be missing
+                    let dateStr = Self.dayDateFormatter.string(from: Date())
+                    defaults.set(dateStr, forKey: "ext_usage_\(trackedAppID)_date")
+                    defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(trackedAppID)_timestamp")
                     defaults.removeObject(forKey: catchupMaxKey)
-                } else {
-                    defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
                 }
+                // Always reset lastThreshold to 0 after restart — iOS resets its counter,
+                // so post-restart events start from min.1. Setting to catchupMax would cause
+                // SKIP_REGRESSION to block all events until usage exceeds the daily total.
+                defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
             }
             defaults.set(restartTimestamp, forKey: "ext_lastHandledRestartTimestamp")
             debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps (with catchup correction)", defaults: defaults)
@@ -416,6 +425,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let sign = correction > 0 ? "+" : ""
                 debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (\(sign)\(correction)s)", defaults: defaults)
             }
+            // ALWAYS set date when catchup_max exists — value may already match but date could be missing
+            let corrDateStr = Self.dayDateFormatter.string(from: now)
+            defaults.set(corrDateStr, forKey: "ext_usage_\(appID)_date")
+            defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
             defaults.set(catchupMax, forKey: lastThresholdKey)
             lastThreshold = catchupMax  // Update local var so delta calculation uses corrected base
             defaults.removeObject(forKey: catchupMaxKey)

@@ -59,6 +59,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // Diagnostic polling timer
     private var diagnosticPollingTimer: Timer?
+
     private var diagnosticPollCount = 0
     private var lastPolledUsageValues: [String: Int] = [:]  // logicalID -> todaySeconds
 
@@ -1120,6 +1121,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         var syncedApps: [(name: String, delta: Int)] = []
         var unchangedCount = 0
 
+        // Compute todayDateString once for all apps (used by correction + isFromToday check)
+        let todayDateString: String = {
+            let formatter = DateFormatter()
+            formatter.dateFormat = "yyyy-MM-dd"
+            return formatter.string(from: Date())
+        }()
+
         for (logicalID, var usage) in appUsages {
             // Read from PROTECTED ext_ keys (SET semantics - source of truth)
             // These keys use max(current, threshold) logic, preventing phantom inflation
@@ -1145,7 +1153,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     print("[ScreenTimeService] CATCHUP_CORRECTION \(logicalID.prefix(8))... \(currentToday)s → \(catchupMax)s")
                     #endif
                 }
+                // ALWAYS set date when catchup_max exists — value may already match but date could be missing
+                defaults.set(todayDateString, forKey: extDateKey)
+                defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(logicalID)_timestamp")
                 defaults.removeObject(forKey: catchupMaxKey)
+            }
+
+            // Safety: ensure date is set for any non-zero ext_usage (covers calibration reset edge case)
+            if defaults.integer(forKey: extTodayKey) > 0 && defaults.string(forKey: extDateKey) == nil {
+                defaults.set(todayDateString, forKey: extDateKey)
             }
 
             let extTodaySeconds = defaults.integer(forKey: extTodayKey)
@@ -1160,11 +1176,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 // Also sync to usagePersistence so UI snapshots show correct data
                 if var persistedApp = usagePersistence.app(for: logicalID) {
                     // Check if ext_ data is from today using the date string
-                    let todayDateString = {
-                        let formatter = DateFormatter()
-                        formatter.dateFormat = "yyyy-MM-dd"
-                        return formatter.string(from: Date())
-                    }()
                     let isFromToday = extDateString == todayDateString
 
                     // Trust extension as source of truth for today's usage
@@ -2050,6 +2061,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
 
         lifecycleLog("MONITORING_RESTART — reason: \(reason)")
+
         isInternalRestart = true
         stopMonitoring()
 
@@ -2071,6 +2083,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 #if DEBUG
                 print("[ScreenTimeService] ✅ Restarted monitoring (\(reason)) on attempt \(attempt)")
                 #endif
+
                 return  // Success, exit
 
             } catch {
