@@ -169,7 +169,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 return DeviceActivityEvent(
                     applications: Set(tokens),
                     threshold: threshold,
-                    includesPastActivity: false
+                    includesPastActivity: true
                 )
             } else {
                 return DeviceActivityEvent(
@@ -1413,6 +1413,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             guard let self else { return }
             switch result {
             case .success:
+                // Skip if monitoring is already registered with iOS (e.g., init recovery already started it)
+                if self.isMonitoring && self.deviceActivityCenter.activities.contains(self.activityName) {
+                    self.lifecycleLog("MONITORING_ALREADY_ACTIVE — skipping redundant startMonitoring (iOS confirms registered)")
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Monitoring already active at iOS level — skipping redundant start")
+                    #endif
+                    DispatchQueue.main.async {
+                        completion(.success(()))
+                    }
+                    return
+                }
                 print("[ScreenTimeService] ✅ Permission granted, scheduling activity...")
                 do {
                     try self.scheduleActivity()
@@ -2363,11 +2374,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CALIBRATION_RESET — cleared ext_usage for \(logicalIDs.count) apps")
         }
 
-        // SLIDING WINDOW THRESHOLDS: Read current daily usage per app and generate
-        // thresholds from (currentMinutes+1) to (currentMinutes+60). This:
-        // 1. Prevents catch-up floods (only thresholds above current usage are registered)
-        // 2. Extends tracking beyond 60 minutes (window slides up with usage)
-        // 3. Keeps exactly 60 thresholds per app (stays under iOS ~500 limit)
+        // SLIDING WINDOW THRESHOLDS + CATCH-UP PRIMERS:
+        // Generate thresholds (currentMinutes+1) to (currentMinutes+60) for real tracking.
+        // For apps with existing usage, add primers at min.1 and min.currentMinutes —
+        // iOS needs at least one threshold at/below cumulative usage to initialize
+        // its internal tracking for each app in a new monitoring session.
+        // Budget: 60-62 thresholds per app (stays under iOS ~500 limit)
         var appCurrentMinutes: [String: Int] = [:]
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             let todayDateString: String = {
@@ -2380,9 +2392,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 guard let app = event.applications.first,
                       seenLogicalIDs.insert(app.logicalID).inserted else { continue }
                 let extDate = sharedDefaults.string(forKey: "ext_usage_\(app.logicalID)_date")
+                let extTodaySeconds = sharedDefaults.integer(forKey: "ext_usage_\(app.logicalID)_today")
                 if extDate == todayDateString {
-                    let seconds = sharedDefaults.integer(forKey: "ext_usage_\(app.logicalID)_today")
-                    appCurrentMinutes[app.logicalID] = seconds / 60
+                    appCurrentMinutes[app.logicalID] = extTodaySeconds / 60
+                    lifecycleLog("SLIDING_WINDOW_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) → \(extTodaySeconds / 60) min")
+                } else {
+                    lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → defaulting to 0 min")
                 }
             }
         }
@@ -2396,17 +2411,29 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
-        // Rebuild monitoredEvents with sliding window per app
+        // Rebuild monitoredEvents with sliding window per app + catch-up primers
         var newMonitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
         var totalSkipped = 0
         for (logicalID, template) in appTemplates {
             let currentMinutes = appCurrentMinutes[logicalID] ?? 0
             totalSkipped += currentMinutes
-            let startMinute = currentMinutes + 1
-            let endMinute = currentMinutes + 60
             let stableAppID = stableHash(logicalID)
 
-            for minuteNumber in startMinute...endMinute {
+            // Sliding window: 60 thresholds for real tracking
+            var minutesToRegister = Array((currentMinutes + 1)...(currentMinutes + 60))
+
+            // Add catch-up primers for apps with existing usage.
+            // iOS needs at least one threshold at/below cumulative usage to initialize
+            // its internal tracking for the app in a new monitoring session.
+            // Without primers, no events fire (proven: 7FC96A01 got zero events with range=3-62).
+            if currentMinutes > 0 {
+                minutesToRegister.append(1)               // Always include min.1
+                if currentMinutes > 1 {
+                    minutesToRegister.append(currentMinutes)  // Current usage level
+                }
+            }
+
+            for minuteNumber in minutesToRegister {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableAppID).min.\(minuteNumber)")
                 newMonitoredEvents[eventName] = MonitoredEvent(
                     name: eventName,
@@ -2424,6 +2451,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
             let allLogicalIDs = Array(appTemplates.keys)
             sharedDefaults.set(allLogicalIDs, forKey: "tracked_app_ids")
+            lifecycleLog("TRACKED_APP_IDS_SET count=\(allLogicalIDs.count) ids=\(allLogicalIDs.map { String($0.prefix(8)) }.joined(separator: ","))")
         }
 
         // Register all events (all are above current usage — no filtering needed)
@@ -2431,11 +2459,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             result[entry.key] = entry.value.deviceActivityEvent()
         }
 
-        #if DEBUG
-        for (appID, minutes) in appCurrentMinutes {
-            print("[ScreenTimeService] Sliding window: \(appID.prefix(20))... at \(minutes) min, registering min \(minutes + 1)-\(minutes + 60)")
+        for (logicalID, _) in appTemplates {
+            let mins = appCurrentMinutes[logicalID] ?? 0
+            let primerInfo: String
+            if mins > 1 {
+                primerInfo = " +primers[1,\(mins)]"
+            } else if mins == 1 {
+                primerInfo = " +primers[1]"
+            } else {
+                primerInfo = ""
+            }
+            let thresholdCount = mins > 0 ? 60 + (mins > 1 ? 2 : 1) : 60
+            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60)\(primerInfo) (\(thresholdCount) thresholds)")
         }
-        #endif
 
         // CRITICAL: Set restart timestamp BEFORE starting monitoring
         // This closes the race window where events could arrive before the timestamp is set

@@ -190,6 +190,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Record usage and signal re-arm
         let didRecord = recordUsageEfficiently(for: event.rawValue)
 
+        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
+            debugLog("THRESHOLD_RESULT event=\(event.rawValue.suffix(20)) recorded=\(didRecord)", defaults: defaults)
+        }
+
         if didRecord {
             // Send notification to main app for re-arm and UI update
             notifyMainApp()
@@ -239,6 +243,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let didUpdate = setUsageToThreshold(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults, shieldConfigs: shieldConfigs)
 
         if !didUpdate {
+            debugLog("FILTER_REJECTED appID=\(appID.prefix(8))... min=\(thresholdMinutes) (check SKIP_* entries above)", defaults: defaults)
             return false
         }
 
@@ -315,7 +320,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let lastHandledRestart = defaults.double(forKey: "ext_lastHandledRestartTimestamp")
         if restartTimestamp > lastHandledRestart && restartTimestamp > 0 {
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+            debugLog("RESTART_RESET_BEGIN tracked_app_ids=[\(trackedAppIDs.map { String($0.prefix(8)) + "..." }.joined(separator: ","))] count=\(trackedAppIDs.count)", defaults: defaults)
             for trackedAppID in trackedAppIDs {
+                let oldThresh = defaults.integer(forKey: "usage_\(trackedAppID)_lastThreshold")
+                debugLog("RESTART_RESET \(trackedAppID.prefix(8))... lastThresh=\(oldThresh) → 0", defaults: defaults)
                 // Apply pending catchup_max correction before resetting
                 let catchupMaxKey = "catchup_max_\(trackedAppID)"
                 let catchupMax = defaults.integer(forKey: catchupMaxKey)
@@ -714,6 +722,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(0, forKey: totalKey)
                 defaults.set(0, forKey: lastThresholdKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
+
+                // Clear stale catchup_max to prevent yesterday's correction from polluting today
+                defaults.removeObject(forKey: "catchup_max_\(appID)")
+
+                // Reset ext_usage daily counters (must stay in sync with usage_ counters)
+                defaults.set(0, forKey: "ext_usage_\(appID)_today")
+                defaults.removeObject(forKey: "ext_usage_\(appID)_date")
+                defaults.removeObject(forKey: "ext_usage_\(appID)_timestamp")
 
                 // Reset hourly buckets
                 for h in 0..<24 {
