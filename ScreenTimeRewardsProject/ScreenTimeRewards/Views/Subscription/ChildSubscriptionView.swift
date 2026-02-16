@@ -96,7 +96,7 @@ private extension ChildSubscriptionView {
                 .font(.system(size: 50))
                 .foregroundColor(AppTheme.vibrantTeal)
 
-            Text("Continue Using ScreenTimeRewards")
+            Text("Continue Using Brain Coinz")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .multilineTextAlignment(.center)
@@ -395,10 +395,10 @@ private extension ChildSubscriptionView {
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 16) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/screentimerewards/terms.html")!)
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
                 Text("|")
                     .foregroundColor(.secondary)
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/screentimerewards/privacy.html")!)
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
             }
             .font(.system(size: 11))
             .foregroundColor(.secondary)

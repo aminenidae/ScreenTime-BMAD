@@ -26,7 +26,7 @@ struct ParentDeviceSetupScreen: View {
                 Label("Tip", systemImage: "lightbulb")
                     .font(.headline)
 
-                Text("The child device can use any Apple ID. Pairing only requires that ScreenTime Rewards is installed and its onboarding is finished.")
+                Text("The child device can use any Apple ID. Pairing only requires that Brain Coinz is installed and its onboarding is finished.")
                     .font(.system(size: 15))
                     .foregroundColor(.secondary)
             }
@@ -57,7 +57,7 @@ struct ParentDeviceSetupScreen: View {
 
     private var instructionSteps: [InstructionStep] {
         [
-            .init(number: "1", title: "Download on the child device", detail: "Install ScreenTime Rewards on your child's iPhone or iPad."),
+            .init(number: "1", title: "Download on the child device", detail: "Install Brain Coinz on your child's iPhone or iPad."),
             .init(number: "2", title: "Complete their setup", detail: "Follow the guided child onboarding so permissions and learning apps are configured."),
             .init(
                 number: "3",

@@ -769,7 +769,7 @@ private extension SettingsTabView {
     }
 
     var helpSupportRow: some View {
-        Link(destination: URL(string: "https://i6dev.ca/screentimerewards/support.html")!) {
+        Link(destination: URL(string: "https://i6dev.ca/braincoinz/support.html")!) {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)

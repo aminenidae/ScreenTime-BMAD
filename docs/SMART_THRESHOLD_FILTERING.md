@@ -40,8 +40,7 @@ Example: App has 30 minutes of recorded usage today
 | Layer | Location | Purpose |
 |-------|----------|---------|
 | Smart filtering | `scheduleActivity()` in ScreenTimeService | Prevents catch-up events at registration time |
-| 60s restart window | `setUsageToThreshold()` in extension | Safety net for small usage-estimate drift; captures `catchup_max` |
-| `catchup_max` correction | Extension + main app (4 paths) | Recovers lost usage from burst-delivered events |
+| 60s restart window | `setUsageToThreshold()` in extension | Safety net for small usage-estimate drift |
 | Calibration reset | `scheduleActivity()` in ScreenTimeService | One-time clear of inflated ext_usage from previous bug |
 | `activities.contains()` | `init()` crash recovery in ScreenTimeService | Skips restart if monitoring already active at OS level |
 | `checkMonitoringHealth()` | Foreground check in ScreenTimeRewardsApp | Detects dead monitoring, triggers restart (safe with smart filtering) |
@@ -87,8 +86,10 @@ wasMonitoringActive             — crash recovery flag
 ### UserDefaults Keys Added
 
 ```
-catchup_max_{appID}            — per-app, highest threshold from burst (cleared after correction)
+catchup_max_{appID}            — per-app (DEAD CODE: no longer captured, correction paths remain but never fire)
 ext_usage_calibrated_v1        — one-time flag, prevents re-running calibration reset
+catchup_fix_v2                 — one-time flag, clears stale catchup_max from SKIP_RESTART capture era
+catchup_fix_v3                 — one-time flag, clears inflated usage from SKIP_COOLDOWN capture era
 ```
 
 ---
@@ -99,18 +100,18 @@ ext_usage_calibrated_v1        — one-time flag, prevents re-running calibratio
 
 | Filter | Purpose | Status |
 |--------|---------|--------|
-| 60s restart window | Safety net for small drift | Now also captures `catchup_max` before returning false |
-| Post-restart threshold reset | Reset `lastThreshold` to 0 for all apps | Now applies `catchup_max` correction before resetting |
-| 55s per-app cooldown | Same app can't fire twice in <55s | Now also captures `catchup_max` before returning false |
+| 60s restart window | Safety net for small drift | Silently drops catch-ups (no catchup_max capture) |
+| Post-restart threshold reset | Reset `lastThreshold` to 0 for all apps | Applies pending `catchup_max` correction before resetting (dead code — no capture source) |
+| 55s per-app cooldown | Same app can't fire twice in <55s | Silently drops burst events (no catchup_max capture — removed due to stale cross-midnight inflation) |
 | Minimum threshold (60s) | Block sub-minute phantom events | Unchanged |
 | Shielded reward app | Block events for blocked apps | Unchanged |
 | Threshold progression | Same-day thresholds must increase | Unchanged |
-| Catchup correction (pre-record) | Apply pending `catchup_max` before recording | **New** — corrects usage from cooldown-blocked bursts |
+| Catchup correction (pre-record) | Apply pending `catchup_max` before recording | Dead code — no capture source remains |
 
 ### Extension `intervalDidStart()`
 
 - Set `monitoring_restart_timestamp`
-- Apply pending `catchup_max` corrections for all tracked apps (primary correction path)
+- Apply pending `catchup_max` corrections for all tracked apps (dead code — no capture source)
 - Reset `lastThreshold` to 0 for all tracked apps
 - Lifecycle log + heartbeat
 
@@ -123,38 +124,34 @@ Replaced flood-gated recovery with `ScreenTimeService.checkMonitoringHealth()`:
 
 ---
 
-## catchup_max Burst Correction
+## catchup_max Burst Correction (REMOVED — Feb 2026)
 
-### Problem
+### Original Problem
 
-When iOS kills the extension process and relaunches it, all accumulated thresholds arrive in the same second. The 55s per-app cooldown blocks all but the first event per app, losing most accumulated usage.
+When iOS kills the extension process and relaunches it, all accumulated thresholds arrive in the same second. The 55s per-app cooldown blocks all but the first event per app, losing most accumulated usage (up to 15 min per burst).
 
-Example: App 2D4AEC4E had 16 events (min.28–43) arrive at 07:36:55. Only min.38 was recorded (+60s). Result: 28 min recorded vs 43 min actual. 15 minutes lost.
+### Original Solution
 
-### Solution
+During SKIP_COOLDOWN, capture the highest threshold per app as `catchup_max_{appID}`. Apply upward correction at the next opportunity via 4 correction paths.
 
-During SKIP_RESTART and SKIP_COOLDOWN, capture the highest threshold per app as `catchup_max_{appID}`. This represents iOS's ground truth for cumulative usage. Apply bidirectional correction (up or down) at the next opportunity.
+### Why It Was Removed
 
-### 4 Correction Paths
+With `includesPastActivity: true`, iOS retains cumulative usage across midnight. After day rollover, catch-up bursts carry **yesterday's stale residual data** (e.g., 55-88 min). These bursts can arrive **40+ minutes after restart** (via extension kill/relaunch cycles), bypassing the 60s absorb window entirely. SKIP_COOLDOWN captured these stale thresholds into `catchup_max`, which was then applied as an upward correction — inflating usage by 60+ min.
 
-| Path | Location | When | Priority |
-|------|----------|------|----------|
-| `intervalDidStart()` | Extension | iOS daily restart / monitoring restart | PRIMARY — extension often killed after burst |
-| RESTART_THRESHOLD_RESET | Extension `setUsageToThreshold()` | First event after 60s restart window | Catch-ups from SKIP_RESTART |
-| Before recording | Extension `setUsageToThreshold()` | Next event after 55s cooldown | Catch-ups from SKIP_COOLDOWN |
-| `readExtensionUsageData()` | Main app ScreenTimeService | Every foreground via `refreshFromExtension()` | Most reliable — runs in main app process |
+This caused cascading failures: inflated learning app usage falsely met goals → reward apps unshielded → those catch-ups also captured → all apps showed 60+ min when real usage was 5-27 min.
 
-### Correction Logic (same in all 4 paths)
+**Fix:** Removed catchup_max capture from SKIP_COOLDOWN entirely. The 4 correction paths remain as dead code (no capture source) and can be cleaned up in a future PR.
 
-```
-catchup_max = highest threshold seen during burst
-currentToday = current recorded usage
-correction = catchup_max - currentToday
-→ Set usage_today = catchup_max
-→ Set ext_usage_today = catchup_max
-→ Adjust total by correction delta
-→ Clear catchup_max key
-```
+**Trade-off:** Legitimate mid-day burst corrections are lost (10-20 min undercount possible). The sliding window self-corrects over subsequent restart cycles. For a parental controls app, undercount is safe; overcount falsely meets goals and blocks reward apps.
+
+### 4 Correction Paths (dead code — no capture source)
+
+| Path | Location | Status |
+|------|----------|--------|
+| `intervalDidStart()` | Extension | Dead code |
+| RESTART_THRESHOLD_RESET | Extension `setUsageToThreshold()` | Dead code |
+| Before recording | Extension `setUsageToThreshold()` | Dead code |
+| `readExtensionUsageData()` | Main app ScreenTimeService | Dead code |
 
 ---
 
@@ -192,7 +189,7 @@ Apps with 0 real usage: no catch-ups (iOS has nothing to report) → ext_usage s
 | Day change | `ext_usage_date` is yesterday → currentMinutes=0 → all 60 thresholds |
 | Multiple rapid restarts | Each call reads latest usage, filters correctly |
 | Extension process dies during recording | UserDefaults persists; next event reads correct state |
-| Extension killed after burst delivery | `catchup_max` persists; corrected at next intervalDidStart or foreground |
+| Extension killed after burst delivery | First event of burst recorded (+60s); rest silently dropped. Sliding window self-corrects over subsequent restarts |
 | Main app killed in background | `checkMonitoringHealth()` recovers on next foreground |
 | Inflated ext_usage from previous version | Calibration reset clears on first `scheduleActivity()` call |
 
@@ -202,8 +199,8 @@ Apps with 0 real usage: no catch-ups (iOS has nothing to report) → ext_usage s
 
 | File | Changes |
 |------|---------|
-| `Services/ScreenTimeService.swift` | Smart threshold filtering in `scheduleActivity()`, `checkMonitoringHealth()`, catchup_max correction in `readExtensionUsageData()`, calibration reset in `scheduleActivity()` |
-| `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | `catchup_max` capture in SKIP_RESTART/SKIP_COOLDOWN, correction in RESTART_THRESHOLD_RESET + before-recording + `intervalDidStart()` |
+| `Services/ScreenTimeService.swift` | Smart threshold filtering in `scheduleActivity()`, `checkMonitoringHealth()`, catchup_max correction in `readExtensionUsageData()` (dead code), calibration resets (v1/v2/v3) in `scheduleActivity()` |
+| `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | `catchup_max` capture removed from SKIP_COOLDOWN; correction paths in RESTART_THRESHOLD_RESET + before-recording + `intervalDidStart()` (dead code) |
 | `ScreenTimeRewardsApp.swift` | Replaced flood recovery with `checkMonitoringHealth()` call |
 
 ---
@@ -213,3 +210,9 @@ Apps with 0 real usage: no catch-ups (iOS has nothing to report) → ext_usage s
 The flood problem emerged Dec 2, 2025 (`b5b097e`) when `monitoring_restart_timestamp` was first introduced with a 10-second catch-up window. Before that (`4aac8be`, Nov 27), the extension had no restart awareness — floods existed but events leaked through and were recorded, so monitoring never died. The problem intensified when thresholds were increased from 60 to 180 (Dec 10) and then 240 (Jan 21) per app, amplifying flood size. After reverting to 60 (Jan 24), the 60-second window was added but it blocked ALL events, consuming thresholds without recording — causing the "monitoring dies after flood" symptom that persisted through 21 fix attempts.
 
 The fundamental insight: **prevent floods at the source** (skip already-exceeded thresholds) rather than **handle floods after they occur** (block + detect + correct + recover).
+
+### catchup_max Removal (Feb 16, 2026)
+
+The `catchup_max` burst correction system, added alongside smart filtering, was designed to recover usage lost when iOS delivers multiple events in a single burst (only the first passes the 55s cooldown). However, with `includesPastActivity: true`, iOS retains cumulative usage across midnight. After day rollover, catch-up bursts carry yesterday's stale data. These bursts arrive via extension kill/relaunch cycles — sometimes 40+ minutes after the last restart — completely bypassing the 60s absorb window. SKIP_COOLDOWN captured these stale thresholds into `catchup_max`, inflating usage by 60+ min and falsely meeting learning goals.
+
+The fix was to remove `catchup_max` capture entirely, accepting minor undercounting from legitimate mid-day bursts (the sliding window self-corrects over subsequent restarts). One-time `catchup_fix_v3` reset clears inflated values.

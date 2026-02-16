@@ -23,7 +23,7 @@ struct SubscriptionLockoutView: View {
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text("Your free trial has ended. Subscribe to continue using ScreenTime Rewards.")
+                    Text("Your free trial has ended. Subscribe to continue using Brain Coinz.")
                         .font(.system(size: 16))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .multilineTextAlignment(.center)

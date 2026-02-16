@@ -25,7 +25,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Link(destination: URL(string: "https://i6dev.ca/screentimerewards/privacy.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!) {
                         HStack {
                             Text("Privacy Policy")
                             Spacer()
@@ -34,7 +34,7 @@ struct AboutView: View {
                         }
                     }
 
-                    Link(destination: URL(string: "https://i6dev.ca/screentimerewards/terms.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!) {
                         HStack {
                             Text("Terms of Service")
                             Spacer()
@@ -47,7 +47,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Link(destination: URL(string: "https://i6dev.ca/screentimerewards/support.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/support.html")!) {
                         HStack {
                             Text("Help & Support")
                             Spacer()
@@ -69,7 +69,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Text("ScreenTime Rewards helps families balance screen time by rewarding learning app usage with game time.")
+                    Text("Brain Coinz helps families balance screen time by rewarding learning app usage with game time.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 } header: {

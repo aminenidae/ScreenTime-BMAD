@@ -2397,6 +2397,30 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CATCHUP_FIX_V2 — cleared stale catchup_max + reset usage for \(logicalIDs.count) apps")
         }
 
+        // ONE-TIME FIX: Clear inflated usage from catchup_max capturing stale cross-midnight
+        // catch-up events in SKIP_COOLDOWN. With includesPastActivity:true, iOS retains cumulative
+        // across midnight; catch-up bursts (delivered via extension kill/relaunch cycles, potentially
+        // 40+ min after restart) carried yesterday's residual data into catchup_max, inflating
+        // usage by 60+ min. catchup_max capture is now removed from SKIP_COOLDOWN entirely.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           !sharedDefaults.bool(forKey: "catchup_fix_v3") {
+            let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+            for logicalID in logicalIDs {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+                sharedDefaults.set(0, forKey: "ext_usage_\(logicalID)_today")
+                sharedDefaults.removeObject(forKey: "ext_usage_\(logicalID)_date")
+                sharedDefaults.set(0, forKey: "usage_\(logicalID)_today")
+            }
+            for logicalID in logicalIDs {
+                if var persistedApp = usagePersistence.app(for: logicalID) {
+                    persistedApp.todaySeconds = 0
+                    usagePersistence.saveApp(persistedApp)
+                }
+            }
+            sharedDefaults.set(true, forKey: "catchup_fix_v3")
+            lifecycleLog("CATCHUP_FIX_V3 — cleared stale catchup_max + reset inflated usage for \(logicalIDs.count) apps")
+        }
+
         // SLIDING WINDOW THRESHOLDS:
         // Generate thresholds (currentMinutes+1) to (currentMinutes+60) for real tracking.
         // Budget: 60 thresholds per app (stays under iOS ~500 limit)

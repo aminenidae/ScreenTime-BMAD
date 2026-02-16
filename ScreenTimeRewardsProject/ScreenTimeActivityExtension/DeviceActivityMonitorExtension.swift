@@ -387,13 +387,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let lastRecordedForApp = defaults.double(forKey: perAppCooldownKey)
         let timeSinceLastForApp = nowTimestamp - lastRecordedForApp
         if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 {
-            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s", defaults: defaults)
-            // Capture iOS ground truth: highest threshold from burst delivery
-            let catchupMaxKey = "catchup_max_\(appID)"
-            let currentMax = defaults.integer(forKey: catchupMaxKey)
-            if thresholdSeconds > currentMax {
-                defaults.set(thresholdSeconds, forKey: catchupMaxKey)
-            }
+            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s, threshold=\(thresholdSeconds)s (dropped)", defaults: defaults)
+            // Do NOT capture catchup_max from cooldown-blocked events.
+            // With includesPastActivity:true, iOS retains cumulative across midnight.
+            // After day rollover, catch-up bursts carry yesterday's stale residual data.
+            // Capturing these into catchup_max causes massive phantom inflation (60+ min).
+            // Legitimate burst corrections (extension killed mid-day) lose some accuracy,
+            // but the sliding window self-corrects over subsequent restart cycles.
             return false
         }
 
