@@ -157,6 +157,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             for trackedAppID in trackedAppIDs {
                 defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
             }
+
+            // Evaluate shields on monitoring start — usage data is already correct
+            // from previous session. Don't wait for events (absorb window blocks first 60s).
+            let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+                guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+                return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
+            }()
+            checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
+            checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
+            debugLog("INTERVAL_START_SHIELD_CHECK completed", defaults: defaults)
+
+            // Notify main app to sync shields (covers case where main app is running)
+            notifyMainApp()
         }
         updateHeartbeat()
     }
@@ -191,6 +204,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             debugLog("THRESHOLD_RESULT event=\(event.rawValue.suffix(20)) recorded=\(didRecord)", defaults: defaults)
+
+            if !didRecord {
+                // Shield check on first rejected event per restart — covers absorb window gap
+                // where events are dropped but usage data already satisfies goals
+                let restartTs = defaults.double(forKey: "monitoring_restart_timestamp")
+                let lastCheck = defaults.double(forKey: "ext_shield_check_after_restart")
+                if restartTs > lastCheck {
+                    defaults.set(restartTs, forKey: "ext_shield_check_after_restart")
+                    let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+                        guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+                        return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
+                    }()
+                    checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
+                    checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
+                    debugLog("ABSORB_SHIELD_CHECK completed (first rejected event after restart)", defaults: defaults)
+                }
+            }
         }
 
         if didRecord {
@@ -733,6 +763,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "ext_usage_\(appID)_hourly_date")
             }
         }
+
+        // Clear shield check flag so it re-evaluates after next restart
+        defaults.removeObject(forKey: "ext_shield_check_after_restart")
     }
 
     /// Send Darwin notification to main app with sequence tracking for diagnostics

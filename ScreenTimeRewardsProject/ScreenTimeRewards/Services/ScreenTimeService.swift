@@ -1138,11 +1138,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // 4th correction path: Apply pending catchup_max corrections from extension burst handling.
             // This runs on every foreground (via refreshFromExtension), much more reliable than
             // waiting for extension events to trigger correction.
+            // UP-only: only increase usage to match iOS ground truth, never decrease
             let catchupMaxKey = "catchup_max_\(logicalID)"
             let catchupMax = defaults.integer(forKey: catchupMaxKey)
             if catchupMax > 0 {
                 let currentToday = defaults.integer(forKey: extTodayKey)
-                if catchupMax != currentToday {
+                if catchupMax > currentToday {
                     let correction = catchupMax - currentToday
                     defaults.set(catchupMax, forKey: extTodayKey)
                     defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
@@ -2453,6 +2454,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
         monitoredEvents = newMonitoredEvents
         saveEventMappings()
+
+        // Ensure extension has fresh shield configs for shield control
+        // (app launch sync may have run before categoryAssignments was populated)
+        syncGoalConfigsToExtension()
 
         // Pre-populate tracked_app_ids so extension's RESTART_THRESHOLD_RESET
         // resets lastThreshold for ALL monitored apps (not just previously recorded ones)
