@@ -134,6 +134,40 @@ struct DailyUsageChartCard: View {
         let maxReward = rewardData.map { $0.minutes }.max() ?? 0
         let maxY = max(Double(maxLearning + maxReward), 1) * 1.15  // 15% padding for annotation
 
+        // Lock X-axis domain to prevent chart shifting on selection
+        // Each period's end extends +1 unit so the last bar isn't clipped
+        let xDomain: ClosedRange<Date> = {
+            let calendar = Calendar.current
+            let now = Date()
+            switch selectedPeriod {
+            case .hourly:
+                let start = calendar.startOfDay(for: now)
+                let end = calendar.date(byAdding: .hour, value: 24, to: start)!
+                return start...end
+            case .daily:
+                let today = calendar.startOfDay(for: now)
+                let start = calendar.date(byAdding: .day, value: -6, to: today)!
+                let end = calendar.date(byAdding: .day, value: 1, to: today)!
+                return start...end
+            case .weekly:
+                if let first = learningData.first?.date ?? rewardData.first?.date,
+                   let last = learningData.last?.date ?? rewardData.last?.date {
+                    let end = calendar.date(byAdding: .weekOfYear, value: 1, to: last)!
+                    return first...end
+                }
+                let start = calendar.date(byAdding: .weekOfYear, value: -3, to: now)!
+                return start...now
+            case .monthly:
+                if let first = learningData.first?.date ?? rewardData.first?.date,
+                   let last = learningData.last?.date ?? rewardData.last?.date {
+                    let end = calendar.date(byAdding: .month, value: 1, to: last)!
+                    return first...end
+                }
+                let start = calendar.date(byAdding: .month, value: -5, to: now)!
+                return start...now
+            }
+        }()
+
         return Chart {
             // Learning bars - stacked for hourly, side-by-side otherwise
             ForEach(learningData, id: \.date) { item in
@@ -228,6 +262,7 @@ struct DailyUsageChartCard: View {
             }
         }
         .chartLegend(.hidden) // We have our own legend
+        .chartXScale(domain: xDomain)
         .chartYScale(domain: 0...maxY)
         .chartPlotStyle { plotArea in
             plotArea
@@ -246,7 +281,11 @@ struct DailyUsageChartCard: View {
                             .onChanged { value in
                                 let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
                                 if let date: Date = proxy.value(atX: xPos) {
-                                    selectedDate = date
+                                    // Snap to nearest data point to avoid out-of-range dates
+                                    let allDates = Array(Set(learningData.map(\.date) + rewardData.map(\.date))).sorted()
+                                    if let closest = allDates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }) {
+                                        selectedDate = closest
+                                    }
                                 }
                             }
                             .onEnded { _ in

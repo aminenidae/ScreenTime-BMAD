@@ -685,6 +685,12 @@ private struct HourlyUsageChartCard: View {
                             .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                     }
                 }
+                .chartXScale(domain: {
+                    let calendar = Calendar.current
+                    let start = calendar.startOfDay(for: Date())
+                    let end = calendar.date(byAdding: .hour, value: 24, to: start)!
+                    return start...end
+                }())
                 .chartYScale(domain: 0...maxY)
                 .chartPlotStyle { plotArea in
                     plotArea
@@ -703,7 +709,10 @@ private struct HourlyUsageChartCard: View {
                                     .onChanged { value in
                                         let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
                                         if let date: Date = proxy.value(atX: xPos) {
-                                            selectedHour = date
+                                            let dates = hourlyData.map(\.date)
+                                            if let closest = dates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }) {
+                                                selectedHour = closest
+                                            }
                                         }
                                     }
                                     .onEnded { _ in
@@ -951,6 +960,16 @@ private struct AppUsageChart: View {
                     }
 
                 }
+                .chartXScale(domain: {
+                    let calendar = Calendar.current
+                    if let first = chartData.first?.date, let last = chartData.last?.date {
+                        let end = calendar.date(byAdding: xAxisUnit, value: 1, to: last)!
+                        return first...end
+                    }
+                    let now = Date()
+                    let start = calendar.date(byAdding: .day, value: -6, to: now)!
+                    return start...now
+                }())
                 .chartYScale(domain: 0...maxY)
 
                 .chartPlotStyle { plotArea in
@@ -976,7 +995,10 @@ private struct AppUsageChart: View {
                                     .onChanged { value in
                                         let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
                                         if let date: Date = proxy.value(atX: xPos) {
-                                            selectedDate = date
+                                            let dates = chartData.map(\.date)
+                                            if let closest = dates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }) {
+                                                selectedDate = closest
+                                            }
                                         }
                                     }
                                     .onEnded { _ in

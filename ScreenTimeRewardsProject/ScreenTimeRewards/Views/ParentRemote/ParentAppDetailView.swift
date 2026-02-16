@@ -881,6 +881,16 @@ private struct UsageBarChart: View {
             }
         }
         .chartLegend(.hidden)
+        .chartXScale(domain: {
+            let calendar = Calendar.current
+            if let first = sortedData.first?.date, let last = sortedData.last?.date {
+                let end = calendar.date(byAdding: xAxisUnit, value: 1, to: last)!
+                return first...end
+            }
+            let now = Date()
+            let start = calendar.date(byAdding: .day, value: -6, to: now)!
+            return start...now
+        }())
         .chartYScale(domain: 0...maxY)
         .chartPlotStyle { plotArea in
             plotArea
@@ -899,7 +909,10 @@ private struct UsageBarChart: View {
                             .onChanged { value in
                                 let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
                                 if let date: Date = proxy.value(atX: xPos) {
-                                    selectedDate = date
+                                    let dates = sortedData.map(\.date)
+                                    if let closest = dates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }) {
+                                        selectedDate = closest
+                                    }
                                 }
                             }
                             .onEnded { _ in
