@@ -261,20 +261,22 @@ final class UsagePersistence {
     }
 
     /// Calculate cumulative remaining minutes from all historical data (excluding today)
-    /// Formula: sum of (learning app minutes) - sum of (reward app minutes) across all days in history
+    /// Formula: sum of (ratio-adjusted learning app minutes) - sum of (reward app minutes) across all days in history
     /// - Parameters:
     ///   - learningIDs: LogicalIDs of learning apps (contribute to earned)
     ///   - rewardIDs: LogicalIDs of reward apps (contribute to used)
+    ///   - learningRatios: Map of learningLogicalID → reward ratio (rewardMinutes / learningMinutes). Defaults to 1.0 if not provided.
     /// - Returns: Historical remaining minutes (can be negative if overspent historically)
-    func getHistoricalRemainingMinutes(learningIDs: [LogicalAppID], rewardIDs: [LogicalAppID]) -> Int {
+    func getHistoricalRemainingMinutes(learningIDs: [LogicalAppID], rewardIDs: [LogicalAppID], learningRatios: [String: Double] = [:]) -> Int {
         var totalEarnedSeconds = 0
         var totalUsedSeconds = 0
 
-        // Sum all historical learning app usage (earned time)
+        // Sum all historical learning app usage (ratio-adjusted earned time)
         for logicalID in learningIDs {
             if let app = cachedApps[logicalID] {
+                let ratio = learningRatios[logicalID] ?? 1.0
                 for summary in app.dailyHistory {
-                    totalEarnedSeconds += summary.seconds
+                    totalEarnedSeconds += Int(Double(summary.seconds) * ratio)
                 }
             }
         }
@@ -292,7 +294,7 @@ final class UsagePersistence {
         let usedMinutes = totalUsedSeconds / 60
 
         #if DEBUG
-        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m, used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
+        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m (ratio-adjusted), used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
         #endif
 
         return earnedMinutes - usedMinutes

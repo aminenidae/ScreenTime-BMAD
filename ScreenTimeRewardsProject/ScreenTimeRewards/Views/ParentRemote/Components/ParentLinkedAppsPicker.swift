@@ -11,13 +11,8 @@ struct ParentLinkedAppsPicker: View {
 
     @Environment(\.colorScheme) var colorScheme
 
-    // Track which apps have their config expanded
-    @State private var expandedAppIDs: Set<String> = []
-
-    // Minutes presets for goal (collapsed row)
+    // Minutes presets for goal
     private let minutePresets = [5, 10, 15, 20, 30, 45, 60]
-    // Ratio presets for expanded row (1-10 minutes)
-    private let ratioPresets = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -70,8 +65,6 @@ struct ParentLinkedAppsPicker: View {
     private func learningAppRow(app: FullAppConfigDTO) -> some View {
         let isSelected = linkedApps.contains { $0.logicalID == app.logicalID }
         let linkedApp = linkedApps.first { $0.logicalID == app.logicalID }
-        let isExpanded = expandedAppIDs.contains(app.logicalID)
-
         return VStack(alignment: .leading, spacing: 10) {
             // Row 1: App icon + app name + checkbox
             HStack(spacing: 12) {
@@ -116,12 +109,7 @@ struct ParentLinkedAppsPicker: View {
 
             // Row 2: Plain English requirement sentence with inline pickers (only when selected)
             if isSelected, let linked = linkedApp {
-                collapsedConfigRow(app: linked, learningApp: app, isExpanded: isExpanded)
-            }
-
-            // Row 3: Expanded ratio explanation (only when selected AND expanded)
-            if isSelected, let linked = linkedApp, isExpanded {
-                expandedConfigRow(app: linked, learningApp: app)
+                collapsedConfigRow(app: linked, learningApp: app)
             }
         }
         .padding(12)
@@ -137,96 +125,45 @@ struct ParentLinkedAppsPicker: View {
 
     // MARK: - Collapsed Config Row (Plain English requirement sentence)
 
-    private func collapsedConfigRow(app: LinkedLearningApp, learningApp: FullAppConfigDTO, isExpanded: Bool) -> some View {
+    private func collapsedConfigRow(app: LinkedLearningApp, learningApp: FullAppConfigDTO) -> some View {
         HStack(spacing: 0) {
-            // Plain English sentence with inline pickers and app icons
-            Group {
-                Text("Use ")
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                // Learning app icon (inline)
-                inlineLearningAppIcon(app: learningApp)
-
-                Text(" for ")
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                // Minutes picker (inline)
-                inlineMinutesPicker(app: app, logicalID: learningApp.logicalID)
-
-                Text(" per ")
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                // Period picker (inline)
-                inlinePeriodPicker(app: app, logicalID: learningApp.logicalID)
-
-                Text(" to unlock ")
-                    .font(.system(size: 12))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                    .lineLimit(1)
-                    .fixedSize()
-
-                // Reward app icon (inline)
-                inlineRewardAppIcon()
-            }
-
-            Spacer(minLength: 8)
-
-            // Chevron at end of sentence
-            Button(action: {
-                toggleExpanded(for: learningApp.logicalID)
-            }) {
-                Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
-                    .font(.system(size: 12, weight: .medium))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.leading, 8)
-    }
-
-    // MARK: - Expanded Config Row (Ratio explanation)
-
-    private func expandedConfigRow(app: LinkedLearningApp, learningApp: FullAppConfigDTO) -> some View {
-        HStack(spacing: 0) {
-            Text("Every ")
+            Text("Use ")
                 .font(.system(size: 12))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
 
-            // Learning time picker (inline)
-            inlineLearnTimePicker(app: app, logicalID: learningApp.logicalID)
-
-            Text(" on ")
-                .font(.system(size: 12))
-                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-
-            // Learning app icon
+            // Learning app icon (inline)
             inlineLearningAppIcon(app: learningApp)
 
-            Text(" grants ")
+            Text(" for ")
                 .font(.system(size: 12))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
 
-            // Reward time picker (inline)
-            inlineRewardTimePicker(app: app, logicalID: learningApp.logicalID)
+            // Minutes picker (inline)
+            inlineMinutesPicker(app: app, logicalID: learningApp.logicalID)
 
-            Text(" on ")
+            Text(" per ")
                 .font(.system(size: 12))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
 
-            // Reward app icon
+            // Period picker (inline)
+            inlinePeriodPicker(app: app, logicalID: learningApp.logicalID)
+
+            Text(" to unlock ")
+                .font(.system(size: 12))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                .lineLimit(1)
+                .fixedSize()
+
+            // Reward app icon (inline)
             inlineRewardAppIcon()
         }
         .padding(.leading, 8)
-        .padding(.top, 4)
     }
 
     // MARK: - Inline App Icons
@@ -341,68 +278,6 @@ struct ParentLinkedAppsPicker: View {
         }
     }
 
-    private func inlineLearnTimePicker(app: LinkedLearningApp, logicalID: String) -> some View {
-        Menu {
-            ForEach(ratioPresets, id: \.self) { minutes in
-                Button(action: {
-                    updateRatioLearning(for: logicalID, minutes: minutes)
-                }) {
-                    HStack {
-                        Text(formatMinutes(minutes))
-                        if app.ratioLearningMinutes == minutes {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 2) {
-                Text(formatMinutes(app.ratioLearningMinutes))
-                    .font(.system(size: 12, weight: .semibold))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8))
-            }
-            .foregroundColor(AppTheme.vibrantTeal)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(AppTheme.vibrantTeal.opacity(0.15))
-            )
-        }
-    }
-
-    private func inlineRewardTimePicker(app: LinkedLearningApp, logicalID: String) -> some View {
-        Menu {
-            ForEach(ratioPresets, id: \.self) { minutes in
-                Button(action: {
-                    updateRewardMinutes(for: logicalID, minutes: minutes)
-                }) {
-                    HStack {
-                        Text(formatMinutes(minutes))
-                        if app.rewardMinutesEarned == minutes {
-                            Image(systemName: "checkmark")
-                        }
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 2) {
-                Text(formatMinutes(app.rewardMinutesEarned))
-                    .font(.system(size: 12, weight: .semibold))
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.system(size: 8))
-            }
-            .foregroundColor(AppTheme.playfulCoral)
-            .padding(.horizontal, 6)
-            .padding(.vertical, 3)
-            .background(
-                RoundedRectangle(cornerRadius: 4)
-                    .fill(AppTheme.playfulCoral.opacity(0.15))
-            )
-        }
-    }
-
     // MARK: - Unlock Mode Section
 
     private var unlockModeSection: some View {
@@ -512,19 +387,10 @@ struct ParentLinkedAppsPicker: View {
     private func toggleApp(app: FullAppConfigDTO) {
         if let index = linkedApps.firstIndex(where: { $0.logicalID == app.logicalID }) {
             linkedApps.remove(at: index)
-            expandedAppIDs.remove(app.logicalID)
         } else {
             var newLinkedApp = LinkedLearningApp.defaultRequirement(logicalID: app.logicalID)
             newLinkedApp.displayName = app.displayName
             linkedApps.append(newLinkedApp)
-        }
-    }
-
-    private func toggleExpanded(for logicalID: String) {
-        if expandedAppIDs.contains(logicalID) {
-            expandedAppIDs.remove(logicalID)
-        } else {
-            expandedAppIDs.insert(logicalID)
         }
     }
 
@@ -537,18 +403,6 @@ struct ParentLinkedAppsPicker: View {
     private func updatePeriod(for logicalID: String, period: GoalPeriod) {
         if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
             linkedApps[index].goalPeriod = period
-        }
-    }
-
-    private func updateRatioLearning(for logicalID: String, minutes: Int) {
-        if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
-            linkedApps[index].ratioLearningMinutes = minutes
-        }
-    }
-
-    private func updateRewardMinutes(for logicalID: String, minutes: Int) {
-        if let index = linkedApps.firstIndex(where: { $0.logicalID == logicalID }) {
-            linkedApps[index].rewardMinutesEarned = minutes
         }
     }
 

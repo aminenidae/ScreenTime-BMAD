@@ -57,6 +57,23 @@ struct AppConfigurationSheet: View {
         appType == .learning ? AppTheme.vibrantTeal : AppTheme.playfulCoral
     }
 
+    @MainActor
+    private func computeEstimatedReward(for config: AppScheduleConfiguration) -> Int {
+        var total = 0
+        for app in config.linkedLearningApps {
+            let schedule = AppScheduleService.shared.getSchedule(for: app.logicalID)
+            let ratioL = schedule?.ratioLearningMinutes ?? 1
+            let ratioR = schedule?.rewardMinutesEarned ?? 1
+            guard ratioL > 0 else { continue }
+            let earned = (app.minutesRequired / ratioL) * ratioR
+            switch config.unlockMode {
+            case .all: total += earned
+            case .any: total = max(total, earned)
+            }
+        }
+        return total
+    }
+
     var body: some View {
         NavigationView {
             ScrollViewReader { scrollProxy in
@@ -112,6 +129,18 @@ struct AppConfigurationSheet: View {
                         .id(AppConfigSection.dailyLimits.rawValue)
                         .tutorialTarget("config_daily_limits")
 
+                        // Reward Ratio Section (learning apps only)
+                        if appType == .learning {
+                            Rectangle()
+                                .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
+                                .frame(height: 1)
+
+                            LearningRewardRatioPicker(
+                                ratioLearningMinutes: $localConfig.ratioLearningMinutes,
+                                rewardMinutesEarned: $localConfig.rewardMinutesEarned
+                            )
+                        }
+
                         // Unlock Requirements Section (reward apps only)
                         if appType == .reward {
                             Rectangle()
@@ -132,21 +161,7 @@ struct AppConfigurationSheet: View {
                                 .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                                 .frame(height: 1)
 
-                            let estimatedReward: Int = {
-                                // Calculate estimated daily reward based on minimum learning requirements
-                                func estimatedRewardFor(_ app: LinkedLearningApp) -> Int {
-                                    // (minutesRequired / ratioLearningMinutes) * rewardMinutesEarned
-                                    guard app.ratioLearningMinutes > 0 else { return 0 }
-                                    return (app.minutesRequired / app.ratioLearningMinutes) * app.rewardMinutesEarned
-                                }
-
-                                switch localConfig.unlockMode {
-                                case .all:
-                                    return localConfig.linkedLearningApps.reduce(0) { $0 + estimatedRewardFor($1) }
-                                case .any:
-                                    return localConfig.linkedLearningApps.map { estimatedRewardFor($0) }.max() ?? 0
-                                }
-                            }()
+                            let estimatedReward = computeEstimatedReward(for: localConfig)
 
                             StreakSettingsPicker(
                                 streakSettings: $localConfig.streakSettings,

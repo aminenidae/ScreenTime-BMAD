@@ -278,7 +278,8 @@ class BlockingCoordinator: ObservableObject {
 
             // Only earn if threshold is met
             if currentMinutes >= linkedApp.minutesRequired {
-                let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
+                let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
                 let earned = Double(currentMinutes) * ratio
                 #if DEBUG
                 print("[EarnedMinutesDebug]   ✅ Threshold MET: \(currentMinutes) >= \(linkedApp.minutesRequired)")
@@ -406,13 +407,13 @@ class BlockingCoordinator: ObservableObject {
                 #endif
 
                 if currentMinutes >= linkedApp.minutesRequired {
-                    // Ratio: rewardMinutesEarned per ratioLearningMinutes (NOT per minutesRequired!)
-                    // E.g., 1:1 ratio = 1 reward per 1 learning minute
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    // Calculate proportional reward using ratio from learning app's own schedule
+                    let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
+                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
                     let earned = Double(currentMinutes) * ratio
                     totalRewardEarned += Int(earned)
                     #if DEBUG
-                    print("[BlockingCoordinator]    ✅ Goal MET: ratio=\(linkedApp.rewardMinutesEarned):\(linkedApp.ratioLearningMinutes)=\(ratio), earned=\(Int(earned))min")
+                    print("[BlockingCoordinator]    ✅ Goal MET: ratio=\(learningRatio?.rewardMinutesEarned ?? 1):\(learningRatio?.ratioLearningMinutes ?? 1)=\(ratio), earned=\(Int(earned))min")
                     #endif
                 } else {
                     allGoalsMet = false
@@ -441,8 +442,9 @@ class BlockingCoordinator: ObservableObject {
                 let target = linkedApp.minutesRequired
 
                 if currentMinutes >= target {
-                    // Ratio: rewardMinutesEarned per ratioLearningMinutes (NOT per minutesRequired!)
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    // Calculate proportional reward using ratio from learning app's own schedule
+                    let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
+                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
@@ -816,9 +818,9 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this individual goal is met (at least 1 round completed)
                 if currentMinutes >= linkedApp.minutesRequired {
-                    // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
-                    // E.g., 1:1 ratio = 1 reward per 1 learning minute
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    // Calculate proportional reward using ratio from learning app's own schedule
+                    let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
+                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
                     let earned = Double(currentMinutes) * ratio
                     totalRewardEarned += Int(earned)
                 } else {
@@ -841,8 +843,9 @@ class BlockingCoordinator: ObservableObject {
 
                 // Check if this app's goal is met (at least 1 round completed)
                 if currentMinutes >= target {
-                    // Calculate proportional reward using ratio (rewardMinutesEarned per ratioLearningMinutes)
-                    let ratio = Double(linkedApp.rewardMinutesEarned) / Double(max(1, linkedApp.ratioLearningMinutes))
+                    // Calculate proportional reward using ratio from learning app's own schedule
+                    let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
+                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
@@ -1351,7 +1354,8 @@ class BlockingCoordinator: ObservableObject {
                 let usageMinutes = usageSeconds / 60
 
                 if usageMinutes >= linked.minutesRequired {
-                    totalEarned += linked.rewardMinutesEarned
+                    let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
+                    totalEarned += Int(Double(usageMinutes) * ratio)
                     break // Only count once per reward app for "any" mode
                 }
             }

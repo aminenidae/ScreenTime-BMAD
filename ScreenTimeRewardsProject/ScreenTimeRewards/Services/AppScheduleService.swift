@@ -39,9 +39,47 @@ class AppScheduleService: ObservableObject {
                 schedulesDict[config.id] = config
             }
             schedules = schedulesDict
+
+            // One-time migration: copy per-link ratios to learning app schedules
+            migrateRatiosToLearningApps()
         } catch {
             print("[AppScheduleService] Failed to decode schedules: \(error)")
         }
+    }
+
+    /// One-time migration: move per-link ratios from LinkedLearningApp to the learning app's own schedule.
+    /// Only runs once (guarded by UserDefaults flag).
+    private func migrateRatiosToLearningApps() {
+        let migrationKey = "ratio_migration_v1"
+        guard sharedDefaults?.bool(forKey: migrationKey) != true else { return }
+
+        var didMigrate = false
+
+        // Iterate all schedules looking for reward apps with linked learning apps
+        for (_, schedule) in schedules {
+            for linked in schedule.linkedLearningApps {
+                // Skip default 1:1 ratios — nothing to migrate
+                guard linked.ratioLearningMinutes != 1 || linked.rewardMinutesEarned != 1 else { continue }
+
+                // Only migrate if the learning app's schedule still has default ratio
+                if var learningSchedule = schedules[linked.logicalID],
+                   learningSchedule.ratioLearningMinutes == 1,
+                   learningSchedule.rewardMinutesEarned == 1 {
+                    learningSchedule.ratioLearningMinutes = linked.ratioLearningMinutes
+                    learningSchedule.rewardMinutesEarned = linked.rewardMinutesEarned
+                    schedules[linked.logicalID] = learningSchedule
+                    didMigrate = true
+                    #if DEBUG
+                    print("[AppScheduleService] Migrated ratio \(linked.ratioLearningMinutes):\(linked.rewardMinutesEarned) to learning app \(linked.logicalID)")
+                    #endif
+                }
+            }
+        }
+
+        if didMigrate {
+            try? persistSchedules()
+        }
+        sharedDefaults?.set(true, forKey: migrationKey)
     }
 
     /// Save a schedule configuration for an app

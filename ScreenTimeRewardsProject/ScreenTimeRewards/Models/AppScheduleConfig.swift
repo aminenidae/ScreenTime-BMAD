@@ -449,6 +449,11 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
     // Streak configuration (for reward apps only)
     var streakSettings: AppStreakSettings?
 
+    // Learning-to-reward ratio (meaningful for learning apps only)
+    // Defines how much reward time each minute of learning earns
+    var ratioLearningMinutes: Int   // every X minutes of learning...
+    var rewardMinutesEarned: Int    // ...grants Y minutes of reward
+
     /// Create a new configuration for an app
     init(
         logicalID: String,
@@ -460,7 +465,9 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
         useAdvancedDayConfig: Bool = false,
         linkedLearningApps: [LinkedLearningApp] = [],
         unlockMode: UnlockMode = .all,
-        streakSettings: AppStreakSettings? = nil
+        streakSettings: AppStreakSettings? = nil,
+        ratioLearningMinutes: Int = 1,
+        rewardMinutesEarned: Int = 1
     ) {
         self.id = logicalID
         self.allowedTimeWindow = allowedTimeWindow
@@ -472,6 +479,48 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
         self.linkedLearningApps = linkedLearningApps
         self.unlockMode = unlockMode
         self.streakSettings = streakSettings
+        self.ratioLearningMinutes = ratioLearningMinutes
+        self.rewardMinutesEarned = rewardMinutesEarned
+    }
+
+    // Custom Codable for backward compatibility (ratio fields may be missing in old data)
+    enum CodingKeys: String, CodingKey {
+        case id, allowedTimeWindow, dailyTimeWindows, useAdvancedTimeWindowConfig
+        case dailyLimits, isEnabled, useAdvancedDayConfig
+        case linkedLearningApps, unlockMode, streakSettings
+        case ratioLearningMinutes, rewardMinutesEarned
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        allowedTimeWindow = try container.decode(AllowedTimeWindow.self, forKey: .allowedTimeWindow)
+        dailyTimeWindows = try container.decode(DailyTimeWindows.self, forKey: .dailyTimeWindows)
+        useAdvancedTimeWindowConfig = try container.decode(Bool.self, forKey: .useAdvancedTimeWindowConfig)
+        dailyLimits = try container.decode(DailyLimits.self, forKey: .dailyLimits)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        useAdvancedDayConfig = try container.decode(Bool.self, forKey: .useAdvancedDayConfig)
+        linkedLearningApps = try container.decodeIfPresent([LinkedLearningApp].self, forKey: .linkedLearningApps) ?? []
+        unlockMode = try container.decodeIfPresent(UnlockMode.self, forKey: .unlockMode) ?? .all
+        streakSettings = try container.decodeIfPresent(AppStreakSettings.self, forKey: .streakSettings)
+        ratioLearningMinutes = try container.decodeIfPresent(Int.self, forKey: .ratioLearningMinutes) ?? 1
+        rewardMinutesEarned = try container.decodeIfPresent(Int.self, forKey: .rewardMinutesEarned) ?? 1
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(allowedTimeWindow, forKey: .allowedTimeWindow)
+        try container.encode(dailyTimeWindows, forKey: .dailyTimeWindows)
+        try container.encode(useAdvancedTimeWindowConfig, forKey: .useAdvancedTimeWindowConfig)
+        try container.encode(dailyLimits, forKey: .dailyLimits)
+        try container.encode(isEnabled, forKey: .isEnabled)
+        try container.encode(useAdvancedDayConfig, forKey: .useAdvancedDayConfig)
+        try container.encode(linkedLearningApps, forKey: .linkedLearningApps)
+        try container.encode(unlockMode, forKey: .unlockMode)
+        try container.encodeIfPresent(streakSettings, forKey: .streakSettings)
+        try container.encode(ratioLearningMinutes, forKey: .ratioLearningMinutes)
+        try container.encode(rewardMinutesEarned, forKey: .rewardMinutesEarned)
     }
 
     /// Get the effective time window for a specific weekday

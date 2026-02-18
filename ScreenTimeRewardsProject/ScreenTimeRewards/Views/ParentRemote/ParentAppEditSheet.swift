@@ -111,6 +111,22 @@ struct ParentAppEditSheet: View {
                         )
                     }
 
+                    // Reward Ratio Section (learning apps only)
+                    if localConfig.isLearningApp {
+                        divider
+
+                        LearningRewardRatioPicker(
+                            ratioLearningMinutes: Binding(
+                                get: { localConfig.scheduleConfig?.ratioLearningMinutes ?? 1 },
+                                set: { localConfig.scheduleConfig?.ratioLearningMinutes = $0 }
+                            ),
+                            rewardMinutesEarned: Binding(
+                                get: { localConfig.scheduleConfig?.rewardMinutesEarned ?? 1 },
+                                set: { localConfig.scheduleConfig?.rewardMinutesEarned = $0 }
+                            )
+                        )
+                    }
+
                     // Reward-specific sections
                     if localConfig.isRewardApp {
                         divider
@@ -181,11 +197,14 @@ struct ParentAppEditSheet: View {
     // MARK: - Computed Properties
 
     private var estimatedReward: Int {
-        // Calculate estimated daily reward based on minimum learning requirements
+        // Calculate estimated daily reward using ratio from the learning app's own schedule
         func estimatedRewardFor(_ app: LinkedLearningApp) -> Int {
-            // (minutesRequired / ratioLearningMinutes) * rewardMinutesEarned
-            guard app.ratioLearningMinutes > 0 else { return 0 }
-            return (app.minutesRequired / app.ratioLearningMinutes) * app.rewardMinutesEarned
+            // Look up ratio from the learning app's schedule (via childLearningApps DTO)
+            let learningDTO = childLearningApps.first(where: { $0.logicalID == app.logicalID })
+            let ratioL = learningDTO?.scheduleConfig?.ratioLearningMinutes ?? 1
+            let ratioR = learningDTO?.scheduleConfig?.rewardMinutesEarned ?? 1
+            guard ratioL > 0 else { return 0 }
+            return (app.minutesRequired / ratioL) * ratioR
         }
 
         switch localConfig.unlockMode {

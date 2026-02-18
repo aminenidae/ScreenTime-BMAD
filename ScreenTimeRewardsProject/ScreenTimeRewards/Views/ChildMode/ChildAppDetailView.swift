@@ -61,11 +61,18 @@ struct ChildAppDetailView: View {
         case .percentage:
             // Calculate estimated reward basis
             var estimatedReward = 0
+            func estimatedRewardFor(_ app: LinkedLearningApp) -> Int {
+                let schedule = AppScheduleService.shared.getSchedule(for: app.logicalID)
+                let ratioL = schedule?.ratioLearningMinutes ?? 1
+                let ratioR = schedule?.rewardMinutesEarned ?? 1
+                guard ratioL > 0 else { return 0 }
+                return (app.minutesRequired / ratioL) * ratioR
+            }
             switch unlockMode {
             case .all:
-                estimatedReward = linkedLearningApps.reduce(0) { $0 + $1.rewardMinutesEarned }
+                estimatedReward = linkedLearningApps.reduce(0) { $0 + estimatedRewardFor($1) }
             case .any:
-                estimatedReward = linkedLearningApps.map { $0.rewardMinutesEarned }.max() ?? 0
+                estimatedReward = linkedLearningApps.map { estimatedRewardFor($0) }.max() ?? 0
             }
             
             // (Daily Reward * Percentage) * Cycle Days

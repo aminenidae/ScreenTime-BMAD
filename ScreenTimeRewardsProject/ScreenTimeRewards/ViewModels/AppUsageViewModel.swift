@@ -130,6 +130,19 @@ class AppUsageViewModel: ObservableObject {
         return BlockingCoordinator.shared.getEarnedRewardMinutes(for: token)
     }
 
+    /// Build a map of learningAppLogicalID → reward ratio (rewardMinutes / learningMinutes)
+    /// Reads ratio from each learning app's own schedule configuration.
+    private func buildLearningRatioMap() -> [String: Double] {
+        var ratios: [String: Double] = [:]
+        for snapshot in learningSnapshots {
+            if let schedule = AppScheduleService.shared.getSchedule(for: snapshot.logicalID) {
+                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
+                ratios[snapshot.logicalID] = ratio
+            }
+        }
+        return ratios
+    }
+
     /// Total earned reward minutes from all linked learning goals
     /// This is the total earned from learning - NOT affected by reward app usage
     ///
@@ -138,7 +151,7 @@ class AppUsageViewModel: ObservableObject {
     ///
     /// THRESHOLD GATE LOGIC: A learning app only contributes to earned time if its usage
     /// meets the LOWEST minutesRequired threshold among all reward apps that link to it.
-    /// - If usage >= lowestThreshold: all usage minutes count as earned
+    /// - If usage >= lowestThreshold: usage minutes × ratio count as earned
     /// - If usage < lowestThreshold: 0 earned (gate closed)
     var totalEarnedMinutes: Int {
         // Build map: learningAppLogicalID → lowest minutesRequired across all reward apps
@@ -162,7 +175,9 @@ class AppUsageViewModel: ObservableObject {
             }
         }
 
-        // Sum usage only for learning apps that meet their lowest threshold
+        let ratios = buildLearningRatioMap()
+
+        // Sum ratio-adjusted usage only for learning apps that meet their lowest threshold
         var totalEarned = 0
         for snapshot in learningSnapshots {
             guard let lowestThreshold = lowestThresholdPerLearningApp[snapshot.logicalID] else {
@@ -172,9 +187,10 @@ class AppUsageViewModel: ObservableObject {
 
             let usageMinutes = Int(snapshot.totalSeconds / 60)
 
-            // Gate logic: only count if threshold is met
+            // Gate logic: only count if threshold is met, then apply ratio
             if usageMinutes >= lowestThreshold {
-                totalEarned += usageMinutes
+                let ratio = ratios[snapshot.logicalID] ?? 1.0
+                totalEarned += Int(Double(usageMinutes) * ratio)
             }
             // else: earned 0 for this app (threshold not met)
         }
@@ -197,7 +213,8 @@ class AppUsageViewModel: ObservableObject {
 
         let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningLogicalIDs,
-            rewardIDs: rewardLogicalIDs
+            rewardIDs: rewardLogicalIDs,
+            learningRatios: buildLearningRatioMap()
         )
 
         let todayRemaining = totalEarnedMinutes - totalUsedMinutes

@@ -4114,11 +4114,13 @@ func configureWithTestApplications() {
             }
 
             let linkedGoals = schedule.linkedLearningApps.map { linked in
-                ExtensionGoalConfig.LinkedGoal(
+                // Read ratio from the learning app's own schedule (not from the per-link fields)
+                let learningSchedule = AppScheduleService.shared.getSchedule(for: linked.logicalID)
+                return ExtensionGoalConfig.LinkedGoal(
                     learningAppLogicalID: linked.logicalID,
                     minutesRequired: linked.minutesRequired,
-                    ratioLearningMinutes: linked.ratioLearningMinutes,
-                    rewardMinutesEarned: linked.rewardMinutesEarned
+                    ratioLearningMinutes: learningSchedule?.ratioLearningMinutes ?? 1,
+                    rewardMinutesEarned: learningSchedule?.rewardMinutesEarned ?? 1
                 )
             }
 
