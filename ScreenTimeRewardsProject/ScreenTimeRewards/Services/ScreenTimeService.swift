@@ -4124,11 +4124,25 @@ func configureWithTestApplications() {
                 )
             }
 
-            // Get today's daily limit for the extension to enforce
+            // Get today's daily limit for the extension to enforce (snapshot fallback)
             let todayLimit = schedule.dailyLimits.todayLimit
 
-            // Get today's time window for downtime enforcement
+            // Get today's time window for downtime enforcement (snapshot fallback)
             let todayWindow = schedule.todayTimeWindow
+
+            // Build per-day arrays so extension can dynamically compute correct limit/window
+            // regardless of which day the config was synced
+            let dailyLimitsPerDay = (1...7).map { schedule.dailyLimits.limit(for: $0) }
+            let timeWindowsPerDay = (1...7).map { weekday -> ExtensionGoalConfig.DayTimeWindow in
+                let window = schedule.effectiveTimeWindow(for: weekday)
+                return ExtensionGoalConfig.DayTimeWindow(
+                    startHour: window.startHour,
+                    startMinute: window.startMinute,
+                    endHour: window.endHour,
+                    endMinute: window.endMinute,
+                    isFullDay: window.isFullDay
+                )
+            }
 
             configs.append(ExtensionGoalConfig(
                 rewardAppLogicalID: logicalID,
@@ -4140,7 +4154,9 @@ func configureWithTestApplications() {
                 allowedStartMinute: todayWindow.startMinute,
                 allowedEndHour: todayWindow.endHour,
                 allowedEndMinute: todayWindow.endMinute,
-                isFullDayAllowed: todayWindow.isFullDay
+                isFullDayAllowed: todayWindow.isFullDay,
+                dailyLimitsPerDay: dailyLimitsPerDay,
+                timeWindowsPerDay: timeWindowsPerDay
             ))
         }
 

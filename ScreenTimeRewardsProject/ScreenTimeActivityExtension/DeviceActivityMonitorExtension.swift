@@ -812,6 +812,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("SHIELD_CHECK: \(shortID)... goalMet=\(isGoalMet)", defaults: defaults)
 
             if isGoalMet {
+                // Don't unlock if today's daily limit is 0 (app blocked for entire day)
+                let todayLimit = goalConfig.todayDailyLimit()
+                if todayLimit == 0 {
+                    debugLog("SHIELD_CHECK: \(shortID) goal met but dailyLimit=0 today — keeping shield", defaults: defaults)
+                    continue
+                }
+
                 guard let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
                     debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
                     continue
@@ -941,8 +948,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Check if current time is within the allowed time window
     /// Returns true if within allowed window (app CAN be used), false if in downtime (app should be blocked)
     private nonisolated func isCurrentTimeInAllowedWindow(_ goalConfig: ExtensionGoalConfigMinimal) -> Bool {
+        // Use dynamic per-day time window (falls back to snapshot if per-day not available)
+        let window = goalConfig.todayTimeWindow()
+
         // Full day access = always allowed
-        if goalConfig.isFullDayAllowed { return true }
+        if window.isFullDay { return true }
 
         let now = Date()
         let calendar = Self.calendar
@@ -950,8 +960,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentMinute = calendar.component(.minute, from: now)
         let currentTotalMinutes = currentHour * 60 + currentMinute
 
-        let startTotal = goalConfig.allowedStartHour * 60 + goalConfig.allowedStartMinute
-        let endTotal = goalConfig.allowedEndHour * 60 + goalConfig.allowedEndMinute
+        let startTotal = window.startHour * 60 + window.startMinute
+        let endTotal = window.endHour * 60 + window.endMinute
 
         // Check if current time is within allowed window
         return currentTotalMinutes >= startTotal && currentTotalMinutes < endTotal
@@ -1002,7 +1012,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             // Check 1: Daily limit exceeded (higher priority)
             // 1440 minutes = 24 hours = unlimited
-            let dailyLimit = goalConfig.dailyLimitMinutes
+            let dailyLimit = goalConfig.todayDailyLimit()
             if dailyLimit < 1440 && usageMinutes >= dailyLimit {
                 guard let token = try? PropertyListDecoder().decode(
                     ApplicationToken.self,
@@ -1147,20 +1157,54 @@ private struct ExtensionGoalConfigMinimal: Codable {
     let rewardAppTokenData: Data
     let linkedLearningApps: [LinkedGoalMinimal]
     let unlockMode: String
-    let dailyLimitMinutes: Int  // Daily limit in minutes (1440 = unlimited)
+    let dailyLimitMinutes: Int  // Snapshot fallback (1440 = unlimited)
 
-    // Time window fields (for today's allowed window)
+    // Time window fields — snapshot fallback
     let allowedStartHour: Int      // 0-23
     let allowedStartMinute: Int    // 0-59
     let allowedEndHour: Int        // 0-23
     let allowedEndMinute: Int      // 0-59
     let isFullDayAllowed: Bool     // true = no time restriction
 
+    // Per-day daily limits: index 0=Sunday, 1=Monday, ..., 6=Saturday
+    // Optional for backward compatibility with configs synced before this update
+    let dailyLimitsPerDay: [Int]?
+
+    // Per-day time windows (same indexing)
+    let timeWindowsPerDay: [DayTimeWindowMinimal]?
+
     struct LinkedGoalMinimal: Codable {
         let learningAppLogicalID: String
         let minutesRequired: Int
         let ratioLearningMinutes: Int  // Ratio input: every X minutes of learning...
         let rewardMinutesEarned: Int   // Ratio output: ...grants Y minutes of reward
+    }
+
+    struct DayTimeWindowMinimal: Codable {
+        let startHour: Int
+        let startMinute: Int
+        let endHour: Int
+        let endMinute: Int
+        let isFullDay: Bool
+    }
+
+    /// Dynamic daily limit for today (falls back to snapshotted value)
+    func todayDailyLimit() -> Int {
+        if let perDay = dailyLimitsPerDay, perDay.count == 7 {
+            let weekday = Calendar.current.component(.weekday, from: Date())
+            return perDay[weekday - 1]
+        }
+        return dailyLimitMinutes
+    }
+
+    /// Dynamic time window for today (falls back to snapshotted values)
+    func todayTimeWindow() -> (startHour: Int, startMinute: Int, endHour: Int, endMinute: Int, isFullDay: Bool) {
+        if let perDay = timeWindowsPerDay, perDay.count == 7 {
+            let weekday = Calendar.current.component(.weekday, from: Date())
+            let w = perDay[weekday - 1]
+            return (w.startHour, w.startMinute, w.endHour, w.endMinute, w.isFullDay)
+        }
+        return (allowedStartHour, allowedStartMinute, allowedEndHour, allowedEndMinute, isFullDayAllowed)
     }
 }
 

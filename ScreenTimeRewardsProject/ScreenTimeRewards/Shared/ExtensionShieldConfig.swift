@@ -11,20 +11,35 @@ struct ExtensionGoalConfig: Codable, Equatable {
     let rewardAppTokenData: Data  // Serialized ApplicationToken
     let linkedLearningApps: [LinkedGoal]
     let unlockMode: String  // "all" or "any"
-    let dailyLimitMinutes: Int  // Daily limit in minutes (1440 = unlimited)
+    let dailyLimitMinutes: Int  // Daily limit in minutes (1440 = unlimited) — snapshot fallback
 
-    // Time window fields (for today's allowed window)
+    // Time window fields (for today's allowed window) — snapshot fallback
     let allowedStartHour: Int      // 0-23
     let allowedStartMinute: Int    // 0-59
     let allowedEndHour: Int        // 0-23
     let allowedEndMinute: Int      // 0-59
     let isFullDayAllowed: Bool     // true = no time restriction
 
+    // Per-day daily limits: index 0=Sunday, 1=Monday, ..., 6=Saturday (Calendar.weekday - 1)
+    // Extension uses these to dynamically compute today's limit regardless of when config was synced
+    let dailyLimitsPerDay: [Int]
+
+    // Per-day time windows (same indexing as dailyLimitsPerDay)
+    let timeWindowsPerDay: [DayTimeWindow]
+
     struct LinkedGoal: Codable, Equatable {
         let learningAppLogicalID: String
         let minutesRequired: Int
         let ratioLearningMinutes: Int  // Ratio input: every X minutes of learning...
         let rewardMinutesEarned: Int   // Ratio output: ...grants Y minutes of reward
+    }
+
+    struct DayTimeWindow: Codable, Equatable {
+        let startHour: Int
+        let startMinute: Int
+        let endHour: Int
+        let endMinute: Int
+        let isFullDay: Bool
     }
 }
 
