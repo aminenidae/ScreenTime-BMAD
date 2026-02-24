@@ -89,6 +89,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         defaults.set(log, forKey: "monitoring_lifecycle_log")
     }
 
+    /// Write to midnight diagnostic log (only when active between midnight and first scheduleActivity)
+    private func midnightDiagnosticLog(_ message: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        guard defaults.bool(forKey: "midnight_diagnostic_active") else { return }
+        let timestamp = Self.lifecycleDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)] [SERVICE] \(message)\n"
+
+        var log = defaults.string(forKey: "midnight_diagnostic_log") ?? ""
+        log.append(entry)
+
+        if log.utf8.count > 15_000 {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(75)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
+        defaults.set(log, forKey: "midnight_diagnostic_log")
+    }
+
     // MARK: - App Name Extraction Helpers
 
     /// Common app bundle ID mappings for better display names
@@ -231,13 +250,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Apply adult content filter if this is a child device (always-on)
         applyAdultContentFilterIfNeeded()
 
-        // ALWAYS print this - not wrapped in DEBUG - to diagnose tracking issues
+        #if DEBUG
         print("=" + String(repeating: "=", count: 50))
         print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
         print("[ScreenTimeService] appUsages count: \(appUsages.count)")
         print("[ScreenTimeService] isMonitoring: \(isMonitoring)")
         print("[ScreenTimeService] adultContentFilter: \(isAdultContentFilterEnabled ? "ENABLED" : "disabled")")
         print("=" + String(repeating: "=", count: 50))
+        #endif
     }
 
     // MARK: - FamilyActivitySelection Persistence
@@ -1407,8 +1427,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
     
     func startMonitoring(completion: @escaping (Result<Void, ScreenTimeServiceError>) -> Void) {
-        // ALWAYS print - for troubleshooting
+        #if DEBUG
         print("[ScreenTimeService] 🎯 startMonitoring() called")
+        #endif
 
         requestPermission { [weak self] result in
             guard let self else { return }
@@ -2008,6 +2029,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func checkMonitoringHealth() {
         guard isMonitoring else { return }
         let activities = deviceActivityCenter.activities
+
+        // Check 1: Monitoring dead at OS level
         if !activities.contains(activityName) {
             lifecycleLog("MONITORING_DEAD — detected on foreground, restarting")
             #if DEBUG
@@ -2016,6 +2039,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             Task { [weak self] in
                 await self?.restartMonitoring(reason: "foreground health check")
             }
+            return
+        }
+
+        // Check 2: Midnight pending — monitoring alive but thresholds stale.
+        // At midnight, intervalDidStart() set this flag. scheduleActivity() hasn't run yet.
+        // Force restart to register fresh thresholds and clear the SKIP_MIDNIGHT block.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           sharedDefaults.bool(forKey: "midnight_pending_refresh") {
+            lifecycleLog("MIDNIGHT_PENDING — detected on foreground, restarting for fresh thresholds")
+            #if DEBUG
+            print("[ScreenTimeService] Midnight pending refresh — triggering restart for fresh thresholds")
+            #endif
+            Task { [weak self] in
+                await self?.restartMonitoring(reason: "midnight pending refresh")
+            }
+            return
         }
     }
 
@@ -2421,6 +2460,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CATCHUP_FIX_V3 — cleared stale catchup_max + reset inflated usage for \(logicalIDs.count) apps")
         }
 
+        // ONE-TIME FIX: Clear stale catchup_max and midnight flags for clean start.
+        // catchup_max capture is now re-enabled in SKIP_RESTART (safe with SKIP_MIDNIGHT
+        // blocking stale cross-midnight catch-ups upstream).
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           !sharedDefaults.bool(forKey: "catchup_fix_v4") {
+            let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+            for logicalID in logicalIDs {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+            }
+            sharedDefaults.removeObject(forKey: "midnight_pending_refresh")
+            sharedDefaults.removeObject(forKey: "midnight_pending_timestamp")
+            sharedDefaults.set(true, forKey: "catchup_fix_v4")
+            lifecycleLog("CATCHUP_FIX_V4 — cleared stale catchup_max and midnight flags for clean start")
+        }
+
         // SLIDING WINDOW THRESHOLDS:
         // Generate thresholds (currentMinutes+1) to (currentMinutes+60) for real tracking.
         // Budget: 60 thresholds per app (stays under iOS ~500 limit)
@@ -2440,8 +2494,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 if extDate == todayDateString {
                     appCurrentMinutes[app.logicalID] = extTodaySeconds / 60
                     lifecycleLog("SLIDING_WINDOW_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) → \(extTodaySeconds / 60) min")
+                    midnightDiagnosticLog("SCHEDULE_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") extTodaySeconds=\(extTodaySeconds) currentMinutes=\(extTodaySeconds / 60)")
                 } else {
                     lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → defaulting to 0 min")
+                    midnightDiagnosticLog("SCHEDULE_READ_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → 0min")
                 }
             }
         }
@@ -2499,6 +2555,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
             lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds)")
+            midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
         }
 
         // CRITICAL: Set restart timestamp BEFORE starting monitoring
@@ -2512,6 +2569,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         try deviceActivityCenter.startMonitoring(activityName, during: schedule, events: events)
+
+        // Clear midnight pending flag and close diagnostic window
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            // Clear SKIP_MIDNIGHT block — fresh thresholds are now registered
+            if sharedDefaults.bool(forKey: "midnight_pending_refresh") {
+                sharedDefaults.set(false, forKey: "midnight_pending_refresh")
+                lifecycleLog("MIDNIGHT_PENDING_CLEARED — fresh thresholds registered")
+                midnightDiagnosticLog("MIDNIGHT_PENDING_CLEARED — scheduleActivity complete")
+            }
+
+            // Close midnight diagnostic window
+            if sharedDefaults.bool(forKey: "midnight_diagnostic_active") {
+                midnightDiagnosticLog("DIAGNOSTIC_CLOSED — scheduleActivity done, \(events.count) events registered")
+                sharedDefaults.set(false, forKey: "midnight_diagnostic_active")
+            }
+        }
 
         lifecycleLog("MONITORING_START — events=\(events.count) (sliding window, \(totalSkipped) min already tracked)")
 

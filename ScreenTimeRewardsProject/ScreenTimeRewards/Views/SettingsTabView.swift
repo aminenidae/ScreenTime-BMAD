@@ -13,6 +13,9 @@ struct SettingsTabView: View {
     @State private var showingWebsiteBlockingView = false
 
     @State private var showResetConfirmation = false
+    @State private var showDeleteAccountConfirmation = false
+    @State private var showDeleteAccountFinalConfirmation = false
+    @State private var isDeletingAccount = false
     @StateObject private var pairingService = DevicePairingService.shared
     @StateObject private var modeManager = DeviceModeManager.shared
     private let screenTimeService = ScreenTimeService.shared
@@ -126,21 +129,25 @@ struct SettingsTabView: View {
                         VStack(alignment: .leading, spacing: 8) {
                             settingsSection(title: "DANGER ZONE") {
                                 resetDeviceRow
+                                deleteAccountRow
                             }
 
-                            Text("This will erase all app settings and data on this device.")
+                            Text("Reset clears device settings. Delete removes all data permanently.")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                                 .padding(.horizontal, 4)
                         }
 
-                        // Diagnostics Section (Debug)
+                        #if DEBUG
+                        // Diagnostics Section (Debug only)
                         settingsSection(title: "DIAGNOSTICS") {
                             diagnosticMappingRow
                             cleanupMappingsRow
                             extensionLogsRow
                             monitoringLogRow
+                            midnightDiagnosticLogRow
                         }
+                        #endif
 
                     }
                     .padding(.horizontal, 16)
@@ -382,6 +389,83 @@ private extension SettingsTabView {
             Button("Cancel", role: .cancel) { }
         } message: {
             Text("This will reset your device mode selection. App configurations will be preserved.")
+        }
+    }
+
+    var deleteAccountRow: some View {
+        Button(action: {
+            showDeleteAccountConfirmation = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.errorRed.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    if isDeletingAccount {
+                        ProgressView()
+                            .tint(AppTheme.errorRed)
+                    } else {
+                        Image(systemName: "trash.fill")
+                            .font(.system(size: 20))
+                            .foregroundColor(AppTheme.errorRed)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Delete Account & Data")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.errorRed)
+
+                    Text("Permanently remove all data")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.errorRed.opacity(0.2), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isDeletingAccount)
+        .alert("Delete Account & Data?", isPresented: $showDeleteAccountConfirmation) {
+            Button("Continue", role: .destructive) {
+                showDeleteAccountFinalConfirmation = true
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("This will permanently delete all your data including screen time history, challenges, streaks, pairing data, and app configurations.\n\nThis does not cancel your subscription. Manage your subscription in Settings > Apple ID > Subscriptions.")
+        }
+        .alert("Are you sure? This cannot be undone.", isPresented: $showDeleteAccountFinalConfirmation) {
+            Button("Delete Everything", role: .destructive) {
+                performAccountDeletion()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("All data will be permanently removed from this device and iCloud. You can revoke Screen Time access manually in iOS Settings if desired.")
+        }
+    }
+
+    private func performAccountDeletion() {
+        isDeletingAccount = true
+        let isChild = modeManager.currentMode == .childDevice
+
+        Task {
+            try? await AccountDeletionService.shared.deleteAllData(isChildDevice: isChild)
+            isDeletingAccount = false
+            sessionManager.exitToSelection()
         }
     }
 
@@ -826,10 +910,11 @@ private extension SettingsTabView {
                     Text("Version \(appVersion)")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
-                        // Hidden 5-tap gesture to reset trial for testing (REMOVE BEFORE RELEASE)
+                        #if DEBUG
                         .onTapGesture(count: 5) {
                             showingTrialResetConfirmation = true
                         }
+                        #endif
                 }
 
                 Spacer()
@@ -849,7 +934,7 @@ private extension SettingsTabView {
             )
         }
         .buttonStyle(PlainButtonStyle())
-        // Hidden trial reset confirmation (REMOVE BEFORE RELEASE)
+        #if DEBUG
         .alert("Reset Trial?", isPresented: $showingTrialResetConfirmation) {
             Button("Reset Trial", role: .destructive) {
                 subscriptionManager.resetTrialForTesting()
@@ -858,6 +943,7 @@ private extension SettingsTabView {
         } message: {
             Text("This will reset your trial to 14 days. Force quit and relaunch the app after resetting.")
         }
+        #endif
     }
 
     var diagnosticMappingRow: some View {
@@ -1023,6 +1109,48 @@ private extension SettingsTabView {
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text("Start/stop/kill lifecycle events")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var midnightDiagnosticLogRow: some View {
+        NavigationLink(destination: MidnightDiagnosticLogView()) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "moon.stars")
+                        .font(.system(size: 20))
+                        .foregroundColor(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Midnight Diagnostic")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Cross-midnight catch-up events")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 }

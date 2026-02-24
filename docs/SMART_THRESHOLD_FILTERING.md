@@ -44,7 +44,7 @@ Example: App has 30 minutes of recorded usage today
 | Calibration reset | `scheduleActivity()` in ScreenTimeService | One-time clear of inflated ext_usage from previous bug |
 | `activities.contains()` | `init()` crash recovery in ScreenTimeService | Skips restart if monitoring already active at OS level |
 | `checkMonitoringHealth()` | Foreground check in ScreenTimeRewardsApp | Detects dead monitoring, triggers restart (safe with smart filtering) |
-| `includesPastActivity: false` | `deviceActivityEvent()` on iOS 17.4+ | Apple's own catch-up prevention (additional safety) |
+| `includesPastActivity: true` | `deviceActivityEvent()` | Cumulative day tracking — required for sliding window thresholds to work correctly |
 
 ---
 
@@ -86,10 +86,16 @@ wasMonitoringActive             — crash recovery flag
 ### UserDefaults Keys Added
 
 ```
-catchup_max_{appID}            — per-app (DEAD CODE: no longer captured, correction paths remain but never fire)
+catchup_max_{appID}            — per-app, captured in SKIP_RESTART, applied in NEW_DAY branch + readExtensionUsageData
+midnight_pending_refresh       — blocks all events between midnight and first scheduleActivity()
+midnight_pending_timestamp     — timestamp for 2-hour safety timeout on SKIP_MIDNIGHT
+midnight_diagnostic_active     — flag: true from midnight until first scheduleActivity()
+midnight_diagnostic_log        — dedicated log for midnight→scheduleActivity window
+midnight_diagnostic_date       — tracks which day diagnostic was last activated (prevents restart overwrite)
 ext_usage_calibrated_v1        — one-time flag, prevents re-running calibration reset
 catchup_fix_v2                 — one-time flag, clears stale catchup_max from SKIP_RESTART capture era
 catchup_fix_v3                 — one-time flag, clears inflated usage from SKIP_COOLDOWN capture era
+catchup_fix_v4                 — one-time flag, clears stale values for cross-midnight fix clean start
 ```
 
 ---
@@ -100,18 +106,21 @@ catchup_fix_v3                 — one-time flag, clears inflated usage from SKI
 
 | Filter | Purpose | Status |
 |--------|---------|--------|
-| 60s restart window | Safety net for small drift | Silently drops catch-ups (no catchup_max capture) |
-| Post-restart threshold reset | Reset `lastThreshold` to 0 for all apps | Applies pending `catchup_max` correction before resetting (dead code — no capture source) |
-| 55s per-app cooldown | Same app can't fire twice in <55s | Silently drops burst events (no catchup_max capture — removed due to stale cross-midnight inflation) |
+| **SKIP_MIDNIGHT** (Filter 0) | Block ALL events between midnight and first `scheduleActivity()` | Prevents stale cross-midnight catch-ups from recording phantom usage. 2-hour safety timeout. |
+| **SKIP_RESTART** (Filter 1, 60s window) | Absorb post-restart catch-up burst | Captures `catchup_max` per app (highest threshold). Safe because SKIP_MIDNIGHT blocks stale data upstream. |
+| Post-restart threshold reset | Reset `lastThreshold` to 0 for all apps | lastThreshold reset only (catchup_max NOT consumed here) |
+| **SKIP_COOLDOWN** (55s per-app) | Same app can't fire twice in <55s | Silently drops burst events (no catchup_max capture — late bursts can still carry stale data) |
 | Minimum threshold (60s) | Block sub-minute phantom events | Unchanged |
 | Shielded reward app | Block events for blocked apps | Unchanged |
 | Threshold progression | Same-day thresholds must increase | Unchanged |
-| Catchup correction (pre-record) | Apply pending `catchup_max` before recording | Dead code — no capture source remains |
+| Catchup correction (pre-record) | Apply pending `catchup_max` before recording | **Same-day only** — guarded by `lastResetTimestamp >= startOfToday`. New-day events skip this (handled by NEW_DAY branch). |
 
 ### Extension `intervalDidStart()`
 
 - Set `monitoring_restart_timestamp`
-- Apply pending `catchup_max` corrections for all tracked apps (dead code — no capture source)
+- Midnight diagnostic activation (day-change check — `midnight_diagnostic_date`)
+- **At midnight (day changed):** Set `midnight_pending_refresh` flag, clear stale `catchup_max` for all apps
+- **Same-day restart:** Apply pending `catchup_max` corrections (burst recovery from previous session)
 - Reset `lastThreshold` to 0 for all tracked apps
 - Lifecycle log + heartbeat
 
@@ -124,7 +133,7 @@ Replaced flood-gated recovery with `ScreenTimeService.checkMonitoringHealth()`:
 
 ---
 
-## catchup_max Burst Correction (REMOVED — Feb 2026)
+## catchup_max Burst Correction (REVIVED — Feb 2026)
 
 ### Original Problem
 
@@ -140,18 +149,22 @@ With `includesPastActivity: true`, iOS retains cumulative usage across midnight.
 
 This caused cascading failures: inflated learning app usage falsely met goals → reward apps unshielded → those catch-ups also captured → all apps showed 60+ min when real usage was 5-27 min.
 
-**Fix:** Removed catchup_max capture from SKIP_COOLDOWN entirely. The 4 correction paths remain as dead code (no capture source) and can be cleaned up in a future PR.
+**Fix (Feb 16):** Removed catchup_max capture from SKIP_COOLDOWN entirely. Late bursts (40+ min after restart, via extension kill/relaunch) can still carry stale data through SKIP_COOLDOWN.
 
-**Trade-off:** Legitimate mid-day burst corrections are lost (10-20 min undercount possible). The sliding window self-corrects over subsequent restart cycles. For a parental controls app, undercount is safe; overcount falsely meets goals and blocks reward apps.
+**Fix (Feb 20):** Re-enabled catchup_max capture in SKIP_RESTART, protected by new SKIP_MIDNIGHT filter. Stale cross-midnight catch-ups are blocked by SKIP_MIDNIGHT before reaching SKIP_RESTART. Only legitimate post-`scheduleActivity()` catch-ups (which represent real today usage via iOS's cumulative counter) are captured.
 
-### 4 Correction Paths (dead code — no capture source)
+**Trade-off:** Legitimate mid-day SKIP_COOLDOWN burst corrections are still lost (10-20 min undercount possible). The sliding window self-corrects over subsequent restart cycles. SKIP_RESTART captures now recover the most important case: usage between midnight and first app foreground.
+
+### 3 Correction Paths (active — capture source: SKIP_RESTART)
 
 | Path | Location | Status |
 |------|----------|--------|
-| `intervalDidStart()` | Extension | Dead code |
-| RESTART_THRESHOLD_RESET | Extension `setUsageToThreshold()` | Dead code |
-| Before recording | Extension `setUsageToThreshold()` | Dead code |
-| `readExtensionUsageData()` | Main app ScreenTimeService | Dead code |
+| `intervalDidStart()` | Extension | Active for same-day restarts. At midnight: clears stale catchup_max instead. |
+| Before recording | Extension `setUsageToThreshold()` | Active for same-day events only (guarded by `lastResetTimestamp >= startOfToday`). |
+| NEW_DAY branch | Extension `setUsageToThreshold()` | **NEW** — reads catchup_max before `resetAllDailyCounters`, initializes usage to `catchup_max + 60`. |
+| `readExtensionUsageData()` | Main app ScreenTimeService | Active — fallback for apps that don't fire events. |
+
+Note: RESTART_THRESHOLD_RESET block no longer contains catchup_max correction (removed — conflicts with NEW_DAY branch timing).
 
 ---
 
@@ -199,8 +212,8 @@ Apps with 0 real usage: no catch-ups (iOS has nothing to report) → ext_usage s
 
 | File | Changes |
 |------|---------|
-| `Services/ScreenTimeService.swift` | Smart threshold filtering in `scheduleActivity()`, `checkMonitoringHealth()`, catchup_max correction in `readExtensionUsageData()` (dead code), calibration resets (v1/v2/v3) in `scheduleActivity()` |
-| `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | `catchup_max` capture removed from SKIP_COOLDOWN; correction paths in RESTART_THRESHOLD_RESET + before-recording + `intervalDidStart()` (dead code) |
+| `Services/ScreenTimeService.swift` | Smart threshold filtering in `scheduleActivity()`, `checkMonitoringHealth()` (incl. midnight detection), catchup_max correction in `readExtensionUsageData()`, calibration resets (v1/v2/v3/v4) in `scheduleActivity()`, midnight flag clearing |
+| `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` | SKIP_MIDNIGHT filter, `catchup_max` capture in SKIP_RESTART, correction paths in before-recording (same-day) + NEW_DAY (catchup_max init) + `intervalDidStart()` (same-day), midnight diagnostic instrumentation |
 | `ScreenTimeRewardsApp.swift` | Replaced flood recovery with `checkMonitoringHealth()` call |
 
 ---
@@ -216,3 +229,132 @@ The fundamental insight: **prevent floods at the source** (skip already-exceeded
 The `catchup_max` burst correction system, added alongside smart filtering, was designed to recover usage lost when iOS delivers multiple events in a single burst (only the first passes the 55s cooldown). However, with `includesPastActivity: true`, iOS retains cumulative usage across midnight. After day rollover, catch-up bursts carry yesterday's stale data. These bursts arrive via extension kill/relaunch cycles — sometimes 40+ minutes after the last restart — completely bypassing the 60s absorb window. SKIP_COOLDOWN captured these stale thresholds into `catchup_max`, inflating usage by 60+ min and falsely meeting learning goals.
 
 The fix was to remove `catchup_max` capture entirely, accepting minor undercounting from legitimate mid-day bursts (the sliding window self-corrects over subsequent restarts). One-time `catchup_fix_v3` reset clears inflated values.
+
+### Cross-Midnight Catch-Up Overcounting AND Undercounting (Feb 18-20, 2026) — FIXED
+
+**Status:** Fixed with SKIP_MIDNIGHT filter + catchup_max capture revival. Two symmetric problems resolved:
+
+**Observed:** App 9360F490 showed 36 min of usage when real usage was 22 min (14 min phantom). Other learning apps were stuck at 1 min (undercounting) because the catch-up flood consumed all registered thresholds, killing monitoring for ~29 minutes.
+
+**Root cause:** At midnight, `intervalDidStart()` fires (iOS daily interval restart) but `scheduleActivity()` does NOT run. Yesterday's stale thresholds remain registered. With `includesPastActivity: true`, iOS cumulative carries yesterday's residual (14 min). iOS fires catch-up events for all stale thresholds below this cumulative.
+
+Unlike `startMonitoring()` catch-ups (which arrive as a burst and are blocked by SKIP_COOLDOWN), midnight catch-ups arrive individually, spaced ~60s apart. Each passes the 55s SKIP_COOLDOWN and records 60s as today's usage. Result: yesterday's 14 min residual recorded as 14 min phantom usage today.
+
+**Mechanism (traced from Feb 18 extension + monitoring logs):**
+
+1. `23:59:02` — INTERVAL_END
+2. `00:00:00` — INTERVAL_START: `intervalDidStart()` resets `lastThreshold=0` for all apps but does NOT rebuild thresholds
+3. `00:01:xx` — First catch-up event (min=1) arrives after 60s absorb window, records 60s (NEW_DAY branch)
+4. `00:02:xx` — Next catch-up (min=2): `timeSinceLastForApp=60s > 55s` → passes SKIP_COOLDOWN, records +60s
+5. ... continues for each minute of yesterday's residual (14 events = 14 min phantom)
+6. `06:47:49` — Extension killed/relaunched: remaining catch-up events arrive as burst, all blocked by SKIP_COOLDOWN (8s < 55s). Burst consumes all registered thresholds → monitoring dies.
+7. `07:21:38` — EXTENSION_GAP detected (29m since last heartbeat). Monitoring restart rebuilds sliding window — but ext_usage already includes phantom 14 min.
+
+**Evidence from logs:**
+
+| App | currentToday | lastThresh | Real usage | Issue |
+|-----|-------------|-----------|------------|-------|
+| 9360F490 | 2160s (36m) | 2160s | 22 min | +14m overcounting (yesterday's residual) |
+| 0D9A6364 | 60s (1m) | 600s | unknown | Stuck at 1m — monitoring died after flood |
+| E54A4160 | 60s (1m) | 1680s | unknown | Stuck at 1m — monitoring died after flood |
+| 7F4AF4BB | 60s (1m) | 1980s | unknown | Stuck at 1m — monitoring died after flood |
+| 7FC96A01 | 60s (1m) | 2760s | unknown | Stuck at 1m — monitoring died after flood |
+
+Key signature: `currentToday == lastThresh` for 9360F490 means events fired sequentially from min=1 (first event was min=1, so each event adds 60s and both counters stay equal). Other apps show `currentToday=60s` with high `lastThresh` — only 1 event recorded before monitoring died.
+
+**Self-correction observed:** Continued usage throughout the day caused the sliding window to eventually align with iOS cumulative. By end of day, both the main app and iOS Screen Time showed the same usage (60 min). The overcounting from midnight catch-ups was absorbed into real usage as the sliding window caught up.
+
+**Fix implemented (Feb 20):** SKIP_MIDNIGHT filter + catchup_max capture revival. Addresses both overcounting AND undercounting:
+
+1. **SKIP_MIDNIGHT filter (Filter 0):** `intervalDidStart()` detects midnight (day changed via `midnight_diagnostic_date`), sets `midnight_pending_refresh` flag + timestamp, clears stale `catchup_max` for all apps. New filter in `setUsageToThreshold()` blocks ALL events while flag is set (2-hour safety timeout). Prevents stale catch-ups from recording phantom usage.
+
+2. **catchup_max capture revived in SKIP_RESTART:** Safe because SKIP_MIDNIGHT blocks stale data upstream. Only legitimate post-`scheduleActivity()` catch-ups reach SKIP_RESTART. Captures highest threshold per app during 60s absorb window.
+
+3. **NEW_DAY branch applies catchup_max:** Reads `catchup_max` before `resetAllDailyCounters` clears it. Initializes usage to `catchup_max + 60` instead of hardcoded 60. Recovers usage between midnight and first app foreground.
+
+4. **`checkMonitoringHealth()` detects midnight flag:** Forces `restartMonitoring()` when `midnight_pending_refresh` is set, even when monitoring appears alive (stale thresholds).
+
+5. **`scheduleActivity()` clears flag:** After registering fresh thresholds, clears `midnight_pending_refresh` so events resume normally.
+
+**Event flow after fix:**
+```
+MIDNIGHT     intervalDidStart() → day changed → set midnight_pending_refresh
+             ← All events BLOCKED by SKIP_MIDNIGHT →
+07:00        User opens app → checkMonitoringHealth() detects flag → restartMonitoring()
+             → scheduleActivity() clears flag, registers thresholds 1-60
+07:00:01     iOS catch-up burst: min.1-25 → SKIP_RESTART captures catchup_max = 1500s
+07:01:01     First real event: min.26 → NEW_DAY: catchup_max(1500) + 60 = 1560s → 26 min ✓
+```
+
+**Trade-off:** No usage tracking between midnight and first app foreground. Acceptable for a parental controls app (child likely sleeping; undercount is safer than overcount). catchup_max capture in SKIP_RESTART recovers pre-foreground usage.
+
+### Midnight Diagnostic Log (Feb 19, 2026)
+
+**Status:** Active. Captures midnight→scheduleActivity window for ongoing diagnostics.
+
+**Observed (Feb 19):** YouTube (learning app) used for 35 min, recorded 57 min (+22 min phantom). Non-used learning apps each got 1 min. Same pattern as Feb 18 — first usage of the day is inflated, other apps get phantom 1 min.
+
+**Problem:** The regular debug log (50KB/200 lines) gets overwritten by later events throughout the day, losing the critical midnight window data needed to trace the root cause.
+
+**Solution:** Added a dedicated `midnight_diagnostic_log` (separate UserDefaults key, 15KB/75 lines) that:
+1. **Activates at midnight** — `intervalDidStart()` sets `midnight_diagnostic_active = true`, clears previous log, dumps full state of ALL tracked apps (ext_usage_today, ext_usage_date, lastThreshold, usage_today)
+2. **Records every event** between midnight and first `scheduleActivity()` — every filter decision (SKIP_RESTART, SKIP_COOLDOWN, SKIP_REGRESSION, etc.) and every recording (NEW_DAY, INCREMENT) with complete context values
+3. **Captures `scheduleActivity()` state** — what ext_usage values it reads per app, what sliding window thresholds it registers
+4. **Deactivates when `scheduleActivity()` runs** — sets `midnight_diagnostic_active = false`
+5. **Never overwritten** by regular debug log trimming (separate key, immune to daily activity)
+
+**Files modified:**
+
+| File | Change |
+|------|--------|
+| `DeviceActivityMonitorExtension.swift` | `midnightDiagnosticLog()` function, activation in `intervalDidStart()`, 6 instrumentation points in `setUsageToThreshold()` filter chain |
+| `ScreenTimeService.swift` | `midnightDiagnosticLog()` helper, instrumentation in `scheduleActivity()` reads/registration, flag deactivation |
+| `MidnightDiagnosticLogView.swift` | New log viewer UI (Settings > Diagnostics > Midnight Diagnostic) |
+| `SettingsTabView.swift` | Navigation row for midnight diagnostic viewer |
+
+**UserDefaults keys added:**
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `midnight_diagnostic_active` | Bool | Flag: true from midnight until first `scheduleActivity()` |
+| `midnight_diagnostic_log` | String | The diagnostic log content (15KB max / 75 lines) |
+
+**Performance:** Zero overhead when inactive — single `Bool` read per event in `setUsageToThreshold()`. When active (midnight window only), ~50 log entries at 100-200 bytes each.
+
+**UserDefaults keys added (update):**
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `midnight_diagnostic_date` | String ("yyyy-MM-dd") | Tracks which day the diagnostic was last activated — prevents restart-triggered `intervalDidStart()` from overwriting midnight data |
+
+**Bug fix (Feb 20):** `intervalDidStart()` fires on every `startMonitoring()` call, not just midnight. The original code unconditionally cleared the diagnostic log, so any dev bypass or foreground restart wiped the real midnight data. Fixed by checking `midnight_diagnostic_date` — only clear/activate when the day has changed. Non-midnight `intervalDidStart()` calls now append `RESTART_INTERVAL_START` entries instead of clearing.
+
+**Diagnostic results (Feb 20):**
+
+The midnight diagnostic was overwritten by a dev bypass restart at 06:43 (before the bug fix above). However, the extension log + monitoring log provided sufficient data for analysis:
+
+**Timeline:**
+- **00:00:02** — Midnight `intervalDidStart()`. Zero thresholds remain (all consumed during Feb 19).
+- **05:56-06:20** — User uses YouTube (9360F490) for 25 min. iOS tracks it internally, but extension has zero thresholds → zero events → zero recorded.
+- **06:43:37** — User opens app. `MONITORING_ALIVE` (schedule registered, but zero thresholds).
+- **06:43:45** — Dev bypass triggers `restartMonitoring()`. `scheduleActivity()` reads ext_usage_date=2026-02-19 → defaults to 0 min → registers thresholds 1-60.
+- **06:43:50** — iOS fires catch-up burst: min.1-25 for YouTube (25 events). **Exactly 25 min = the actual iOS-tracked usage.** All blocked by SKIP_RESTART (4s < 60s).
+- **06:45-06:55** — 3 more dev bypass restarts, same pattern. Each fires 25 catch-ups for YouTube, all blocked.
+- **Result**: ext_usage stays at 0. The 25 min of real usage is lost.
+
+**Root cause: Threshold exhaustion during Feb 19.**
+YouTube real usage on Feb 19 was 111 min (not 78 min as ext_usage showed). The last 33 min session (4-5 PM) went unrecorded — thresholds exhausted at the 78 min mark, and the user didn't open the app again before midnight. At midnight, zero thresholds remained. No new thresholds are registered until the user opens the app (extension can't call `scheduleActivity()`). Any usage between midnight and first app foreground is untracked.
+
+**Key finding: Restart catch-ups = accurate iOS ground truth.**
+The 25 catch-up events at 06:43 for min.1-25 exactly match the user's actual 25 min of YouTube usage. iOS's cumulative for today is correct — the restart catch-ups represent real today usage, NOT yesterday's stale residual. SKIP_RESTART blocks them, losing accurate data.
+
+**Variance across days:**
+
+| Day | Thresholds at midnight | Midnight behavior | Morning behavior | Symptom |
+|-----|----------------------|-------------------|------------------|---------|
+| Feb 18 | Some survived | Catch-ups fire ~60s apart, pass cooldown | Already inflated | +14 min overcounting |
+| Feb 19 | Some survived | Catch-ups fire ~60s apart, pass cooldown | Already inflated | +22 min overcounting |
+| Feb 19 (daytime) | Exhausted at ~78 min | N/A | N/A | -33 min undercounting (4-5 PM session lost) |
+| Feb 20 | Zero survived (exhausted during Feb 19) | No catch-ups (nothing to fire) | Restart catch-ups = real usage, blocked by SKIP_RESTART | 0 min undercounting (25 min lost) |
+
+**Daytime threshold exhaustion (new finding):** With 60 thresholds per app, heavy usage (>60 min since last `scheduleActivity()`) exhausts all thresholds mid-day, silently killing monitoring for that app. The extension cannot call `scheduleActivity()` — only the main app can. If the user doesn't open the app, monitoring remains dead until the next foreground activation.

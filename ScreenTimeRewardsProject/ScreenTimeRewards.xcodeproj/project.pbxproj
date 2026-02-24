@@ -28,11 +28,6 @@
 		43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
 		43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC484D2F12E73600E5D3AD /* RevenueCat */; };
-		43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48532F12E86700E5D3AD /* FirebaseAI */; };
-		43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48552F12E86700E5D3AD /* FirebaseAILogic */; };
-		43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48572F12E86700E5D3AD /* FirebaseAnalytics */; };
-		43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */; };
-		43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -181,14 +176,9 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				43EC48562F12E86700E5D3AD /* FirebaseAILogic in Frameworks */,
 				43E0F00C2EA0258700567890 /* ManagedSettings.framework in Frameworks */,
 				43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */,
 				43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */,
-				43EC48542F12E86700E5D3AD /* FirebaseAI in Frameworks */,
-				43EC485A2F12E86700E5D3AD /* FirebaseAnalyticsCore in Frameworks */,
-				43EC485C2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport in Frameworks */,
-				43EC48582F12E86700E5D3AD /* FirebaseAnalytics in Frameworks */,
 				43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -336,11 +326,6 @@
 			name = ScreenTimeRewards;
 			packageProductDependencies = (
 				43EC484D2F12E73600E5D3AD /* RevenueCat */,
-				43EC48532F12E86700E5D3AD /* FirebaseAI */,
-				43EC48552F12E86700E5D3AD /* FirebaseAILogic */,
-				43EC48572F12E86700E5D3AD /* FirebaseAnalytics */,
-				43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */,
-				43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */,
 			);
 			productName = ScreenTimeRewards;
 			productReference = 436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */;
@@ -606,7 +591,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -636,7 +621,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -668,7 +653,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -676,7 +661,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Brain Coinz";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arm64;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -705,7 +690,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -713,7 +698,7 @@
 				INFOPLIST_KEY_CFBundleDisplayName = "Brain Coinz";
 				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.education";
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
-				INFOPLIST_KEY_UIRequiredDeviceCapabilities = armv7;
+				INFOPLIST_KEY_UIRequiredDeviceCapabilities = arm64;
 				INFOPLIST_KEY_UISupportedInterfaceOrientations = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = "UIInterfaceOrientationPortrait UIInterfaceOrientationPortraitUpsideDown UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
 				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPhone = "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight";
@@ -950,7 +935,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
@@ -974,7 +959,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
@@ -998,7 +983,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeReportExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
@@ -1022,7 +1007,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				INFOPLIST_FILE = ScreenTimeReportExtension/Info.plist;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
@@ -1133,31 +1118,6 @@
 			isa = XCSwiftPackageProductDependency;
 			package = 43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */;
 			productName = RevenueCat;
-		};
-		43EC48532F12E86700E5D3AD /* FirebaseAI */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAI;
-		};
-		43EC48552F12E86700E5D3AD /* FirebaseAILogic */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAILogic;
-		};
-		43EC48572F12E86700E5D3AD /* FirebaseAnalytics */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalytics;
-		};
-		43EC48592F12E86700E5D3AD /* FirebaseAnalyticsCore */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalyticsCore;
-		};
-		43EC485B2F12E86700E5D3AD /* FirebaseAnalyticsIdentitySupport */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
-			productName = FirebaseAnalyticsIdentitySupport;
 		};
 /* End XCSwiftPackageProductDependency section */
 	};
