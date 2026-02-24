@@ -1155,30 +1155,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let extTotalKey = "ext_usage_\(logicalID)_total"
             let extDateKey = "ext_usage_\(logicalID)_date"
 
-            // 4th correction path: Apply pending catchup_max corrections from extension burst handling.
-            // This runs on every foreground (via refreshFromExtension), much more reliable than
-            // waiting for extension events to trigger correction.
-            // UP-only: only increase usage to match iOS ground truth, never decrease
-            let catchupMaxKey = "catchup_max_\(logicalID)"
-            let catchupMax = defaults.integer(forKey: catchupMaxKey)
-            if catchupMax > 0 {
-                let currentToday = defaults.integer(forKey: extTodayKey)
-                if catchupMax > currentToday {
-                    let correction = catchupMax - currentToday
-                    defaults.set(catchupMax, forKey: extTodayKey)
-                    defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
-                    let currentTotal = defaults.integer(forKey: extTotalKey)
-                    defaults.set(max(0, currentTotal + correction), forKey: extTotalKey)
-                    defaults.set(max(0, currentTotal + correction), forKey: "usage_\(logicalID)_total")
-                    #if DEBUG
-                    print("[ScreenTimeService] CATCHUP_CORRECTION \(logicalID.prefix(8))... \(currentToday)s → \(catchupMax)s")
-                    #endif
-                }
-                // ALWAYS set date when catchup_max exists — value may already match but date could be missing
-                defaults.set(todayDateString, forKey: extDateKey)
-                defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(logicalID)_timestamp")
-                defaults.removeObject(forKey: catchupMaxKey)
-            }
+            // catchup_max correction REMOVED — catch-up events fire for ALL apps
+            // regardless of actual usage, causing phantom +60 min inflation.
 
             // Safety: ensure date is set for any non-zero ext_usage (covers calibration reset edge case)
             if defaults.integer(forKey: extTodayKey) > 0 && defaults.string(forKey: extDateKey) == nil {
@@ -2473,6 +2451,30 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.removeObject(forKey: "midnight_pending_timestamp")
             sharedDefaults.set(true, forKey: "catchup_fix_v4")
             lifecycleLog("CATCHUP_FIX_V4 — cleared stale catchup_max and midnight flags for clean start")
+        }
+
+        // ONE-TIME FIX: Remove catchup_max mechanism entirely.
+        // iOS fires catch-up events for ALL registered thresholds regardless of actual
+        // per-app usage (including apps with zero cumulative). catchup_max captured these
+        // phantom values, then intervalDidStart() applied them as corrections, inflating
+        // every app by exactly +60 min. Clear all catchup_max and reset inflated usage.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           !sharedDefaults.bool(forKey: "catchup_fix_v5") {
+            let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+            for logicalID in logicalIDs {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+                sharedDefaults.set(0, forKey: "ext_usage_\(logicalID)_today")
+                sharedDefaults.removeObject(forKey: "ext_usage_\(logicalID)_date")
+                sharedDefaults.set(0, forKey: "usage_\(logicalID)_today")
+            }
+            for logicalID in logicalIDs {
+                if var persistedApp = usagePersistence.app(for: logicalID) {
+                    persistedApp.todaySeconds = 0
+                    usagePersistence.saveApp(persistedApp)
+                }
+            }
+            sharedDefaults.set(true, forKey: "catchup_fix_v5")
+            lifecycleLog("CATCHUP_FIX_V5 — removed catchup_max mechanism, reset inflated usage for \(logicalIDs.count) apps")
         }
 
         // SLIDING WINDOW THRESHOLDS:
