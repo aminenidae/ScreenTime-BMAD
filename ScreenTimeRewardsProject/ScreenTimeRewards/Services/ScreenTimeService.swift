@@ -1155,8 +1155,25 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let extTotalKey = "ext_usage_\(logicalID)_total"
             let extDateKey = "ext_usage_\(logicalID)_date"
 
-            // catchup_max correction REMOVED — catch-up events fire for ALL apps
-            // regardless of actual usage, causing phantom +60 min inflation.
+            // catchup_max correction: Recover pre-foreground usage from SKIP_RESTART capture.
+            // Safe: SKIP_MIDNIGHT blocks stale cross-midnight catch-ups before they reach SKIP_RESTART.
+            let catchupMaxKey = "catchup_max_\(logicalID)"
+            let catchupMax = defaults.integer(forKey: catchupMaxKey)
+            if catchupMax > 0 {
+                let extToday = defaults.integer(forKey: extTodayKey)
+                if extToday < catchupMax {
+                    defaults.set(catchupMax, forKey: extTodayKey)
+                    defaults.set(todayDateString, forKey: extDateKey)
+                    defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(logicalID)_timestamp")
+                    let usageToday = defaults.integer(forKey: "usage_\(logicalID)_today")
+                    if usageToday < catchupMax {
+                        defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
+                    }
+                    print("[ScreenTimeService] CATCHUP_MAX_APPLIED \(logicalID.prefix(8))... catchupMax=\(catchupMax)s extToday=\(extToday)s → \(catchupMax)s")
+                    lifecycleLog("CATCHUP_MAX_APPLIED \(logicalID.prefix(8))... catchupMax=\(catchupMax)s extToday=\(extToday)s → \(catchupMax)s")
+                }
+                defaults.removeObject(forKey: catchupMaxKey)  // One-time correction per restart cycle
+            }
 
             // Safety: ensure date is set for any non-zero ext_usage (covers calibration reset edge case)
             if defaults.integer(forKey: extTodayKey) > 0 && defaults.string(forKey: extDateKey) == nil {
@@ -2453,11 +2470,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CATCHUP_FIX_V4 — cleared stale catchup_max and midnight flags for clean start")
         }
 
-        // ONE-TIME FIX: Remove catchup_max mechanism entirely.
-        // iOS fires catch-up events for ALL registered thresholds regardless of actual
-        // per-app usage (including apps with zero cumulative). catchup_max captured these
-        // phantom values, then intervalDidStart() applied them as corrections, inflating
-        // every app by exactly +60 min. Clear all catchup_max and reset inflated usage.
+        // ONE-TIME FIX (v5): Previously removed catchup_max entirely. Now re-enabled in
+        // SKIP_RESTART (safe with SKIP_MIDNIGHT blocking stale cross-midnight catch-ups).
+        // This migration cleared inflated usage from the pre-SKIP_MIDNIGHT era.
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
            !sharedDefaults.bool(forKey: "catchup_fix_v5") {
             let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
@@ -2558,6 +2573,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let mins = appCurrentMinutes[logicalID] ?? 0
             lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds)")
             midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
+        }
+
+        // Clear stale catchup_max before restart — fresh catch-ups will repopulate
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            for (logicalID, _) in appTemplates {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+            }
         }
 
         // CRITICAL: Set restart timestamp BEFORE starting monitoring
