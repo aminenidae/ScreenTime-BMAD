@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Combine
 
 /// Dedicated viewer for background task scheduling and execution events.
 /// Shows when BGTasks are registered, scheduled, started, completed, expired, or failed.
