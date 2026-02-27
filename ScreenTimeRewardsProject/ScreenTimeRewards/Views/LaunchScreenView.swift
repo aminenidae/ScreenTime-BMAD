@@ -51,17 +51,17 @@ struct LaunchScreenView: View {
         // Z-pattern order: TL(index 0), TR(index 1), BL(index 2), BR(index 3)
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_TL", backText: "Br", animationIndex: 0, size: tileSize)
-                tileCellView(assetName: "LaunchTile_TR", backText: "ain", animationIndex: 1, size: tileSize)
+                tileCellView(assetName: "LaunchTile_TL", backText: "Br", animationIndex: 0, size: tileSize, textAlignment: .trailing)
+                tileCellView(assetName: "LaunchTile_TR", backText: "ain", animationIndex: 1, size: tileSize, textAlignment: .leading)
             }
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_BL", backText: "Co", animationIndex: 2, size: tileSize)
-                tileCellView(assetName: "LaunchTile_BR", backText: "inz", animationIndex: 3, size: tileSize)
+                tileCellView(assetName: "LaunchTile_BL", backText: "Co", animationIndex: 2, size: tileSize, textAlignment: .trailing)
+                tileCellView(assetName: "LaunchTile_BR", backText: "inz", animationIndex: 3, size: tileSize, textAlignment: .leading)
             }
         }
     }
 
-    private func tileCellView(assetName: String, backText: String, animationIndex: Int, size: CGFloat) -> some View {
+    private func tileCellView(assetName: String, backText: String, animationIndex: Int, size: CGFloat, textAlignment: Alignment = .center) -> some View {
         let rotation = tileRotations[animationIndex]
         let showBack = rotation >= 90
 
@@ -77,7 +77,7 @@ struct LaunchScreenView: View {
             Text(backText)
                 .font(.system(size: 44, weight: .black))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                .frame(width: size, height: size)
+                .frame(width: size, height: size, alignment: textAlignment)
                 .rotation3DEffect(
                     .degrees(180),
                     axis: (x: 0, y: 1, z: 0)
@@ -109,13 +109,13 @@ struct LaunchScreenView: View {
         // All flips done at: 0.15 + 3*0.5 + 0.4 = 2.05s
         let allFlipsDone = initialDelay + 3 * staggerDelay + flipDuration
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.2) {
-            withAnimation(.easeOut(duration: 0.25)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 1.0) {
+            withAnimation(.easeOut(duration: 0.8)) {
                 opacity = 0
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.45) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 1.8) {
             isLaunchComplete = true
         }
     }
