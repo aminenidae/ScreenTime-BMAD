@@ -14,6 +14,8 @@ struct LaunchScreenView: View {
     @State private var isLaunchComplete = false
     @Environment(\.colorScheme) var colorScheme
 
+    private let backFaceTexts = ["Br", "ain", "Co", "inz"]
+
     var body: some View {
         if isLaunchComplete {
             RootView()
@@ -49,53 +51,71 @@ struct LaunchScreenView: View {
         // Z-pattern order: TL(index 0), TR(index 1), BL(index 2), BR(index 3)
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_TL", animationIndex: 0, size: tileSize)
-                tileCellView(assetName: "LaunchTile_TR", animationIndex: 1, size: tileSize)
+                tileCellView(assetName: "LaunchTile_TL", backText: "Br", animationIndex: 0, size: tileSize)
+                tileCellView(assetName: "LaunchTile_TR", backText: "ain", animationIndex: 1, size: tileSize)
             }
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_BL", animationIndex: 2, size: tileSize)
-                tileCellView(assetName: "LaunchTile_BR", animationIndex: 3, size: tileSize)
+                tileCellView(assetName: "LaunchTile_BL", backText: "Co", animationIndex: 2, size: tileSize)
+                tileCellView(assetName: "LaunchTile_BR", backText: "inz", animationIndex: 3, size: tileSize)
             }
         }
     }
 
-    private func tileCellView(assetName: String, animationIndex: Int, size: CGFloat) -> some View {
-        Image(assetName)
-            .resizable()
-            .aspectRatio(contentMode: .fit)
-            .frame(width: size, height: size)
-            .rotation3DEffect(
-                .degrees(tileRotations[animationIndex]),
-                axis: (x: 0, y: 1, z: 0),
-                perspective: 0.3
-            )
+    private func tileCellView(assetName: String, backText: String, animationIndex: Int, size: CGFloat) -> some View {
+        let rotation = tileRotations[animationIndex]
+        let showBack = rotation >= 90
+
+        return ZStack {
+            // Front face: the image tile
+            Image(assetName)
+                .resizable()
+                .aspectRatio(contentMode: .fit)
+                .frame(width: size, height: size)
+                .opacity(showBack ? 0 : 1)
+
+            // Back face: the text label (pre-rotated 180° so it reads correctly when flipped)
+            Text(backText)
+                .font(.system(size: 44, weight: .black))
+                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                .frame(width: size, height: size)
+                .rotation3DEffect(
+                    .degrees(180),
+                    axis: (x: 0, y: 1, z: 0)
+                )
+                .opacity(showBack ? 1 : 0)
+        }
+        .rotation3DEffect(
+            .degrees(rotation),
+            axis: (x: 0, y: 1, z: 0),
+            perspective: 0.3
+        )
     }
 
     private func startLaunchAnimation() {
-        let flipDuration: Double = 0.8
-        let staggerDelay: Double = 1.0
-        let initialDelay: Double = 0.3
+        let flipDuration: Double = 0.4
+        let staggerDelay: Double = 0.5
+        let initialDelay: Double = 0.15
 
         for i in 0..<4 {
             let delay = initialDelay + Double(i) * staggerDelay
 
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.easeInOut(duration: flipDuration)) {
-                    tileRotations[i] = 360
+                    tileRotations[i] = 180
                 }
             }
         }
 
-        // All flips done at: initialDelay + 3*stagger + flipDuration = 4.1s
+        // All flips done at: 0.15 + 3*0.5 + 0.4 = 2.05s
         let allFlipsDone = initialDelay + 3 * staggerDelay + flipDuration
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.4) {
-            withAnimation(.easeOut(duration: 0.5)) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.2) {
+            withAnimation(.easeOut(duration: 0.25)) {
                 opacity = 0
             }
         }
 
-        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.9) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + allFlipsDone + 0.45) {
             isLaunchComplete = true
         }
     }
