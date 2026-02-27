@@ -112,7 +112,6 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
-        bgtaskLog("REGISTER — all background tasks registered")
 
         // Schedule the midnight reset task for the next midnight
         scheduleMidnightReset()
@@ -498,7 +497,6 @@ class ChildBackgroundSyncService: ObservableObject {
             #if DEBUG
             print("[ChildBackgroundSyncService] 🕐 Scheduled midnight reset for \(formattedDate)")
             #endif
-            bgtaskLog("MIDNIGHT_SCHEDULE — next reset scheduled for \(formattedDate)")
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule midnight reset: \(error)")

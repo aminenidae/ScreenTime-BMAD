@@ -459,7 +459,7 @@ App Store compliance changes (account deletion, icons, Info.plist, archive valid
 
 ### Midnight Monitoring Gap (Feb 26, 2026)
 
-**Status:** Confirmed. Architectural constraint with two contributing bugs. Fix in progress (Approach 1: BGTask + scheduleActivity).
+**Status:** **FIXED** (Feb 27, 2026). Device-confirmed. BGTask + `restartMonitoring()` at ~00:01 eliminates the gap.
 
 **Observed:** Zero usage recorded between midnight and first main app launch on Feb 26. Child's usage between 00:00 and 07:48 was lost entirely.
 
@@ -553,3 +553,43 @@ Feb 26, 07:48:32 — Second app open (30 min later)
 **No collision with other BGTasks:** Usage-upload runs every 30 min, config-check every 24h, subscription-verify every 24h. None are scheduled for midnight specifically.
 
 **Diagnostic logging:** `bgtask_log` (UserDefaults, app group shared) captures the full lifecycle. Viewable in Settings > Diagnostics > BGTask Log. The `EXPIRED` vs `completed successfully` distinction tells us definitively whether iOS gave the task enough time.
+
+#### Device Confirmation (Feb 27, 2026)
+
+**Result:** Full success. Pre-foreground usage tracking across midnight confirmed working for the first time.
+
+**BGTask log:**
+
+```
+[2026-02-27 00:01:25] REGISTER — all background tasks registered
+[2026-02-27 00:01:25] MIDNIGHT_SCHEDULE — next reset scheduled for Feb 28, 2026 at 00:01
+[2026-02-27 00:01:26] MIDNIGHT_RESET — task started
+[2026-02-27 00:01:26] MIDNIGHT_RESET — counters reset
+[2026-02-27 00:01:26] MIDNIGHT_RESET — calling restartMonitoring...
+[2026-02-27 00:01:28] MIDNIGHT_RESET — restartMonitoring completed, scheduling next
+[2026-02-27 00:01:28] MIDNIGHT_RESET — task completed successfully
+```
+
+iOS launched the BGTask 86 seconds after midnight. `restartMonitoring()` completed in 2 seconds. Fresh thresholds 1-60 registered for all apps, SKIP_MIDNIGHT cleared.
+
+**Extension log (pre-foreground tracking):**
+
+| App | First event | Usage at 06:45 (app open) | Notes |
+|-----|-------------|---------------------------|-------|
+| 7FC96A01 | ~05:48 (min=26 at 06:14) | 27 min (1620s) | Tracked ~1 hour before app open |
+| 9360F490 | 06:40 (min=1) | 18 min (1080s) | Clean start, no catch-up issues |
+
+**Key observations:**
+- **Zero phantom usage** — no overcounting, no stale catch-ups
+- **No SKIP_MIDNIGHT blocks** — confirms `scheduleActivity()` cleared the flag at 00:01:28
+- **SKIP_COOLDOWN recoveries working** — min 2→3 gets +120s, min 11→12 gets +120s, min 15→16 gets +120s (correctly recovers dropped events)
+- **Main app opened at 06:45:50** — nearly 7 hours after BGTask, all usage already tracked
+- **Extension process changes visible** (session IDs: 01572ECB → B026FE6E → 39AA52D2 → 4484EDEE) — iOS killed/relaunched extension multiple times, tracking survived each time
+
+**Comparison with pre-fix (Feb 26):**
+
+| Metric | Feb 26 (no BGTask fix) | Feb 27 (with BGTask fix) |
+|--------|----------------------|------------------------|
+| Dead zone | 00:00 → 07:48 (7h 48m) | 00:00 → 00:01 (86s) |
+| Pre-foreground usage | 0 min (lost) | 27 min (7FC96A01) + 18 min (9360F490) |
+| Required user action | Open app to trigger rebuild | None — automatic |
