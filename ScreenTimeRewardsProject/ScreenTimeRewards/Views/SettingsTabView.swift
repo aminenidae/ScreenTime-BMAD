@@ -146,6 +146,7 @@ struct SettingsTabView: View {
                             extensionLogsRow
                             monitoringLogRow
                             midnightDiagnosticLogRow
+                            bgtaskLogRow
                         }
                         #endif
 
@@ -1151,6 +1152,48 @@ private extension SettingsTabView {
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text("Cross-midnight catch-up events")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var bgtaskLogRow: some View {
+        NavigationLink(destination: BackgroundTaskLogView()) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "clock.arrow.2.circlepath")
+                        .font(.system(size: 20))
+                        .foregroundColor(.purple)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("BGTask Log")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Background task scheduling & execution")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 }

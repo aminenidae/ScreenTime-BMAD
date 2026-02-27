@@ -38,6 +38,33 @@ class ChildBackgroundSyncService: ObservableObject {
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
 
+    private static let logDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        return f
+    }()
+
+    private let appGroupID = "group.com.screentimerewards.shared"
+
+    /// Persistent log for background task events — survives across app launches.
+    /// Viewable in Settings > Diagnostics > BGTask Log.
+    private func bgtaskLog(_ message: String) {
+        guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
+        let timestamp = Self.logDateFormatter.string(from: Date())
+        let entry = "[\(timestamp)] \(message)\n"
+
+        var log = defaults.string(forKey: "bgtask_log") ?? ""
+        log.append(entry)
+
+        if log.utf8.count > 50_000 {
+            let lines = log.split(separator: "\n", omittingEmptySubsequences: true)
+            let kept = lines.suffix(200)
+            log = kept.joined(separator: "\n") + "\n"
+        }
+
+        defaults.set(log, forKey: "bgtask_log")
+    }
+
     private init() {
         loadCachedSubscriptionStatus()
     }
@@ -85,6 +112,7 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
+        bgtaskLog("REGISTER — all background tasks registered")
 
         // Schedule the midnight reset task for the next midnight
         scheduleMidnightReset()
@@ -140,12 +168,14 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling usage upload task")
         #endif
+        bgtaskLog("USAGE_UPLOAD — task started")
 
         // Skip if subscription expired
         guard SubscriptionManager.shared.hasAccess else {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping upload - subscription expired")
             #endif
+            bgtaskLog("USAGE_UPLOAD — skipped (subscription expired)")
             task.setTaskCompleted(success: true)
             return
         }
@@ -155,11 +185,13 @@ class ChildBackgroundSyncService: ObservableObject {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping upload - no valid pairing")
             #endif
+            bgtaskLog("USAGE_UPLOAD — skipped (no valid pairing)")
             task.setTaskCompleted(success: true) // Complete without error since unpaired is expected state
             return
         }
 
         task.expirationHandler = {
+            self.bgtaskLog("USAGE_UPLOAD — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
@@ -177,11 +209,13 @@ class ChildBackgroundSyncService: ObservableObject {
                 // Schedule next task
                 self.scheduleNextUsageUpload()
 
+                self.bgtaskLog("USAGE_UPLOAD — completed successfully")
                 task.setTaskCompleted(success: true)
             } catch {
                 #if DEBUG
                 print("[ChildBackgroundSyncService] Usage upload task failed: \(error)")
                 #endif
+                self.bgtaskLog("USAGE_UPLOAD — FAILED: \(error.localizedDescription)")
 
                 // Still attempt shield state sync even if usage upload failed
                 await self.syncExtensionStateToCloudKit()
@@ -199,12 +233,14 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] Handling config check task")
         #endif
+        bgtaskLog("CONFIG_CHECK — task started")
 
         // Skip if subscription expired
         guard SubscriptionManager.shared.hasAccess else {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping config check - subscription expired")
             #endif
+            bgtaskLog("CONFIG_CHECK — skipped (subscription expired)")
             task.setTaskCompleted(success: true)
             return
         }
@@ -214,11 +250,13 @@ class ChildBackgroundSyncService: ObservableObject {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping config check - no valid pairing")
             #endif
+            bgtaskLog("CONFIG_CHECK — skipped (no valid pairing)")
             task.setTaskCompleted(success: true) // Complete without error since unpaired is expected state
             return
         }
 
         task.expirationHandler = {
+            self.bgtaskLog("CONFIG_CHECK — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
@@ -226,19 +264,21 @@ class ChildBackgroundSyncService: ObservableObject {
             do {
                 // Check for configuration updates
                 try await self.checkForConfigurationUpdates()
-                
+
                 // Schedule next task
                 self.scheduleNextConfigCheck()
-                
+
+                self.bgtaskLog("CONFIG_CHECK — completed successfully")
                 task.setTaskCompleted(success: true)
             } catch {
                 #if DEBUG
                 print("[ChildBackgroundSyncService] Config check task failed: \(error)")
                 #endif
-                
+                self.bgtaskLog("CONFIG_CHECK — FAILED: \(error.localizedDescription)")
+
                 // Schedule next task even on failure
                 self.scheduleNextConfigCheck()
-                
+
                 task.setTaskCompleted(success: false)
             }
         }
@@ -382,14 +422,17 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] 🕐 Handling midnight reset task at \(Date())")
         #endif
+        bgtaskLog("MIDNIGHT_RESET — task started")
 
         task.expirationHandler = {
+            self.bgtaskLog("MIDNIGHT_RESET — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
         // Reset daily usage counters
         let persistence = UsagePersistence()
         persistence.resetDailyCounters()
+        bgtaskLog("MIDNIGHT_RESET — counters reset")
 
         // Notify the app if it's running
         NotificationCenter.default.post(name: .dailyUsageReset, object: nil)
@@ -398,10 +441,20 @@ class ChildBackgroundSyncService: ObservableObject {
         print("[ChildBackgroundSyncService] ✅ Daily usage counters reset successfully")
         #endif
 
-        // Schedule the next midnight reset
-        scheduleMidnightReset()
+        // Rebuild thresholds for the new day so monitoring works
+        // before the user opens the main app.
+        // At midnight, intervalDidStart() sets midnight_pending_refresh and
+        // yesterday's thresholds become stale. Without this, no usage is
+        // recorded until the main app is manually opened.
+        bgtaskLog("MIDNIGHT_RESET — calling restartMonitoring...")
+        Task {
+            await ScreenTimeService.shared.restartMonitoring(reason: "midnight background task")
+            self.bgtaskLog("MIDNIGHT_RESET — restartMonitoring completed, scheduling next")
 
-        task.setTaskCompleted(success: true)
+            self.scheduleMidnightReset()
+            self.bgtaskLog("MIDNIGHT_RESET — task completed successfully")
+            task.setTaskCompleted(success: true)
+        }
     }
 
     /// Schedule midnight reset task for the next midnight
@@ -438,16 +491,19 @@ class ChildBackgroundSyncService: ObservableObject {
 
         do {
             try BGTaskScheduler.shared.submit(request)
-            #if DEBUG
             let formatter = DateFormatter()
             formatter.dateStyle = .medium
             formatter.timeStyle = .short
-            print("[ChildBackgroundSyncService] 🕐 Scheduled midnight reset for \(formatter.string(from: nextMidnight))")
+            let formattedDate = formatter.string(from: nextMidnight)
+            #if DEBUG
+            print("[ChildBackgroundSyncService] 🕐 Scheduled midnight reset for \(formattedDate)")
             #endif
+            bgtaskLog("MIDNIGHT_SCHEDULE — next reset scheduled for \(formattedDate)")
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule midnight reset: \(error)")
             #endif
+            bgtaskLog("MIDNIGHT_SCHEDULE — FAILED: \(error)")
         }
     }
 
@@ -526,14 +582,17 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] 🔐 Handling subscription verification task")
         #endif
+        bgtaskLog("SUB_VERIFY — task started")
 
         task.expirationHandler = {
+            self.bgtaskLog("SUB_VERIFY — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
         Task {
             await verifyParentSubscription()
             scheduleSubscriptionVerification()
+            self.bgtaskLog("SUB_VERIFY — completed successfully")
             task.setTaskCompleted(success: true)
         }
     }
@@ -729,17 +788,20 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] 🛡️ Handling shield state sync task")
         #endif
+        bgtaskLog("SHIELD_SYNC — task started")
 
         // Check if still paired with parent before syncing
         guard DevicePairingService.shared.hasValidPairing() else {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping shield sync - no valid pairing")
             #endif
+            bgtaskLog("SHIELD_SYNC — skipped (no valid pairing)")
             task.setTaskCompleted(success: true)
             return
         }
 
         task.expirationHandler = {
+            self.bgtaskLog("SHIELD_SYNC — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
@@ -751,6 +813,7 @@ class ChildBackgroundSyncService: ObservableObject {
                 // Schedule next sync
                 scheduleShieldStateSync()
 
+                self.bgtaskLog("SHIELD_SYNC — completed successfully")
                 task.setTaskCompleted(success: true)
 
                 #if DEBUG

@@ -96,7 +96,7 @@ ext_usage_calibrated_v1        — one-time flag, prevents re-running calibratio
 catchup_fix_v2                 — one-time flag, clears stale catchup_max from SKIP_RESTART capture era
 catchup_fix_v3                 — one-time flag, clears inflated usage from SKIP_COOLDOWN capture era
 catchup_fix_v4                 — one-time flag, clears stale values for cross-midnight fix clean start
-catchup_fix_v5                 — one-time flag, removed catchup_max entirely (reverted by v6 code change)
+catchup_fix_v5                 — NOT present in current code (v5 removal was reverted; flag never existed in Feb 23 state)
 ```
 
 ---
@@ -154,7 +154,7 @@ This caused cascading failures: inflated learning app usage falsely met goals �
 
 **Trade-off:** Legitimate mid-day SKIP_COOLDOWN burst corrections are still lost (10-20 min undercount possible). The sliding window self-corrects over subsequent restart cycles. SKIP_RESTART captures now recover the most important case: usage between midnight and first app foreground.
 
-### 2 Correction Paths (v6 — capture source: SKIP_RESTART)
+### 2 Correction Paths (v6 — SUPERSEDED, see "Surgical Revert" section below)
 
 | Path | Location | Status |
 |------|----------|--------|
@@ -202,6 +202,7 @@ Apps with 0 real usage: no catch-ups (iOS has nothing to report) → ext_usage s
 | Extension killed after burst delivery | First event of burst recorded (+60s); rest silently dropped. Sliding window self-corrects over subsequent restarts |
 | Main app killed in background | `checkMonitoringHealth()` recovers on next foreground |
 | Inflated ext_usage from previous version | Calibration reset clears on first `scheduleActivity()` call |
+| Midnight to first app launch | No usage tracked. Stale thresholds + SKIP_MIDNIGHT + no rebuild mechanism. Requires main app or BGTask to call `scheduleActivity()`. See "Midnight Monitoring Gap" section. |
 
 ---
 
@@ -368,7 +369,7 @@ The 25 catch-up events at 06:43 for min.1-25 exactly match the user's actual 25 
 
 ### catchup_max Restoration — v6 (Feb 25, 2026)
 
-**Status:** Active.
+**Status:** Superseded by surgical revert to Feb 23 state (see below).
 
 **Observed (Feb 25):** Learning app used for 24 min between 06:00-07:00. App opened at 07:48. Usage showed 0 minutes. The 24 min of real usage was permanently lost because:
 
@@ -421,3 +422,134 @@ MIDNIGHT     intervalDidStart() → day changed → clear catchup_max → set mi
 | NEW_DAY branch | Extension `setUsageToThreshold()` | When child uses app again — `thresholdSeconds` already includes catchup usage via iOS cumulative |
 
 Note: `intervalDidStart()` same-day correction and before-recording correction paths from the Feb 20 era are no longer present. The main app's `readExtensionUsageData()` is now the primary recovery path, which is simpler and doesn't require extension-side correction logic.
+
+### Surgical Revert to Feb 23 State (Feb 25, 2026)
+
+**Status:** Active. This is the current code state.
+
+**Commit:** `2057d5e`
+
+**What happened:** v6 was implemented and committed (`d50284c`), but then the decision was made to surgically revert the two tracking files back to their Feb 23 state (commit `bc50646`). Only the tracking code was reverted:
+- `DeviceActivityMonitorExtension.swift` — reverted to Feb 23
+- `ScreenTimeService.swift` — reverted to Feb 23
+
+App Store compliance changes (account deletion, icons, Info.plist, archive validation) were **preserved** — not reverted.
+
+**Rationale:** The v5 removal (Feb 24, commit `901cae4`) caused first-usage-of-the-day to show 0 minutes. Rather than layering more fixes on top of v5/v6, the decision was to restore the known-working Feb 23 code (which had minor undercounting but never 0-count) and investigate the undercounting issue from a stable baseline.
+
+**Current active correction system (Feb 20 era, 3 paths):**
+
+| Path | Location | When | Behavior |
+|------|----------|------|----------|
+| `intervalDidStart()` same-day | Extension | After every restart (same day) | If catchup_max > currentToday, applies correction. Always removes catchup_max after. |
+| `setUsageToThreshold()` same-day | Extension | Before recording each event | If catchup_max > currentToday, applies correction before threshold delta calculation. |
+| `readExtensionUsageData()` | Main app ScreenTimeService | On every foreground sync | "4th correction path" — if catchup_max > ext_usage, applies UP-only correction. Does NOT remove catchup_max (extension manages lifecycle). |
+
+**NEW_DAY formula:** `catchup_max + 60` (catchup_max provides the base from SKIP_RESTART capture, +60 for the current event that triggered NEW_DAY).
+
+**Key finding (previously undocumented):** Usage IS tracked before the main app opens. The extension's `intervalDidStart()` same-day correction and NEW_DAY `catchup_max + 60` formula allow pre-foreground usage to be recovered without requiring the main app. This was confirmed by Feb 23 device testing — the child used the learning app before the parent opened the main app, and usage was recorded (with minor undercounting).
+
+**Note (Feb 26):** The Feb 23 test was a same-day test (post-CATCHUP_FIX_V5 reset at 21:54) that did not span a midnight boundary. Feb 26 testing showed that pre-foreground tracking does NOT work across midnight — see "Midnight Monitoring Gap" section below. Further investigation needed to reconcile these observations.
+
+**Known issue:** Minor undercounting (~5-10 min) on first usage of the day. This is the original issue that prompted the v5 attempt. Root cause investigation pending from this stable baseline.
+
+**scheduleActivity() behavior:** Does NOT clear catchup_max before `startMonitoring()`. Relies on the extension's capture/correction lifecycle.
+
+**Migration flags in code:** v1 through v4 only. No v5 migration exists in this code state.
+
+### Midnight Monitoring Gap (Feb 26, 2026)
+
+**Status:** Confirmed. Architectural constraint with two contributing bugs. Fix in progress (Approach 1: BGTask + scheduleActivity).
+
+**Observed:** Zero usage recorded between midnight and first main app launch on Feb 26. Child's usage between 00:00 and 07:48 was lost entirely.
+
+**Timeline (Feb 25→26):**
+
+```
+Feb 25, 22:49:12 — Last scheduleActivity() before midnight
+  9360F490: 84 min, thresholds 85-144
+  EFF1E31D: 71 min, thresholds 72-131
+  E54A4160:  5 min, thresholds  6-65
+  Others: 0 min, thresholds 1-60
+
+Feb 26, 00:00:08 — Midnight
+  intervalDidStart() fires, detects day change
+  → midnight_pending_refresh = true (SKIP_MIDNIGHT activated)
+  → catchup_max cleared for all 7 apps
+  → lastThreshold reset for all apps
+  ⚠ scheduleActivity() does NOT run — extension cannot call it
+
+Feb 26, 00:00:08 → 07:48:32 — 7h 48m DEAD ZONE
+  SKIP_MIDNIGHT blocks ALL events
+  Yesterday's thresholds useless for today (e.g., range 85-144 won't fire for 0 cumulative)
+
+Feb 26, 07:18:53 — First app open (Bug #1)
+  Init: MONITORING_ALIVE — OS confirms active, skips restart
+  checkMonitoringHealth() did NOT run (scenePhase .active likely not reached)
+  midnight_pending_refresh NOT detected
+
+Feb 26, 07:48:32 — Second app open (30 min later)
+  checkMonitoringHealth() detects midnight_pending_refresh → restartMonitoring()
+  scheduleActivity() registers fresh thresholds 1-60 for all apps
+  SKIP_MIDNIGHT cleared → monitoring resumes
+```
+
+**Three independent reasons monitoring is dead after midnight:**
+
+| Reason | Cause | Alone sufficient? |
+|--------|-------|-------------------|
+| **Stale thresholds** | Yesterday's ranges (e.g., 85-144) don't cover today's cumulative (starts at 0) | Yes — for high-usage apps |
+| **SKIP_MIDNIGHT** | Blocks ALL events until `scheduleActivity()` runs | Yes — for ALL apps, even those with aligned thresholds |
+| **No rebuild mechanism** | Extension cannot call `DeviceActivityCenter.startMonitoring()` — iOS restricts this to main app process | Yes — root architectural cause |
+
+**iOS architectural constraint:** `DeviceActivityCenter.startMonitoring()` is available to extensions at the API level, but extension-initiated calls were observed to cause iOS to immediately fire all thresholds as catch-ups, consuming them before real events can fire. This makes extension-side threshold rebuilding unreliable. Only the main app can safely rebuild thresholds.
+
+**Contributing Bug #1 — checkMonitoringHealth() miss at init:**
+
+`loadPersistedAssignments()` (ScreenTimeService.swift) checks `activities.contains(activityName)`, sets `isMonitoring = true`, and logs MONITORING_ALIVE — but does NOT check `midnight_pending_refresh`. The scenePhase `.active` handler calls `checkMonitoringHealth()` which does check, but at 07:18:53 the app was likely opened briefly and closed before `.active` fired. Result: 30-minute delay until second app open at 07:48:32.
+
+**Contributing Bug #2 — Midnight BGTask doesn't rebuild thresholds:**
+
+`handleMidnightResetTask()` (ChildBackgroundSyncService.swift) is a `BGAppRefreshTask` scheduled for 00:01. It resets daily persistence counters but does NOT call `scheduleActivity()` or `restartMonitoring()`. Even when iOS runs this task at midnight, thresholds are not rebuilt.
+
+**Impact:** For a parental controls app, any child usage between midnight and parent opening the main app is lost. This is the primary UX issue — the app is designed to run in the background without requiring manual launches.
+
+**Potential fix approaches:**
+
+| Approach | How | Reliability | Risk |
+|----------|-----|-------------|------|
+| **1. BGTask + scheduleActivity()** | Add `restartMonitoring()` to existing midnight BGTask | Medium (iOS timing not guaranteed) | Low |
+| 2. Extension calls startMonitoring() | Extension rebuilds thresholds at midnight | Unknown (needs device testing) | High (untested iOS behavior) |
+| 3. Eliminate SKIP_MIDNIGHT | Smart stale-event detection instead of blanket block | Low (can't distinguish stale from real) | Very high (phantom usage returns) |
+| 4. Fixed thresholds 1-60 | Always register from minute 1, accept daytime catch-up cost | High at midnight, bad daytime | Medium (floods return on restart) |
+| 5. Reduced granularity (5-min) | 12 thresholds/app × 7 = 84, survives midnight | High | Lose per-minute tracking |
+
+**Implementing Approach 1** as lowest-risk first step. BGAppRefreshTask typically runs within 15-30 minutes of scheduled time on devices connected to power (common overnight for children's devices). Not guaranteed, but significantly reduces the gap.
+
+#### Approach 1 Implementation: BGTask Safety Analysis
+
+**Placement:** `restartMonitoring()` is called inside `handleMidnightResetTask()` (ChildBackgroundSyncService.swift). Execution order:
+
+```
+1. Counter reset (synchronous, instant)         ← always completes first
+2. Task {
+3.   await restartMonitoring(...)                ← async, up to ~5s worst case
+4.   scheduleMidnightReset()                     ← schedule next run
+5.   task.setTaskCompleted(success: true)
+6. }
+```
+
+**iOS time budget:** `BGAppRefreshTask` gets ~30 seconds. `restartMonitoring()` worst case (3 failed retries with 1s+2s exponential backoff) takes ~5 seconds total. Well within the limit.
+
+**Expiration scenario:** If iOS kills the task before `restartMonitoring` completes, the expiration handler fires and logs `MIDNIGHT_RESET — EXPIRED`. In this case:
+- Counters are already reset (ran synchronously before the async Task)
+- Thresholds are NOT rebuilt (same state as before the fix — user opens app to trigger rebuild)
+- Not a regression — just means the fix didn't help for that night
+
+**No interference with extension's midnight `intervalDidStart()`:**
+1. Extension's `intervalDidStart()` fires at midnight (00:00) and sets `midnight_pending_refresh = true`. The BGTask fires later (~00:01+). `restartMonitoring()` calls `scheduleActivity()` which clears `midnight_pending_refresh`. These are sequential, not concurrent.
+2. `restartMonitoring()` calls stop+start, which triggers a new `intervalDidStart()` on the extension. But the extension checks `lastDiagDate == todayStr` — since midnight already set `midnight_diagnostic_date` to today, this second `intervalDidStart` takes the **same-day path** and does NOT re-set `midnight_pending_refresh`. Safe.
+
+**No collision with other BGTasks:** Usage-upload runs every 30 min, config-check every 24h, subscription-verify every 24h. None are scheduled for midnight specifically.
+
+**Diagnostic logging:** `bgtask_log` (UserDefaults, app group shared) captures the full lifecycle. Viewable in Settings > Diagnostics > BGTask Log. The `EXPIRED` vs `completed successfully` distinction tells us definitively whether iOS gave the task enough time.

@@ -509,6 +509,23 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     #if DEBUG
                     print("[ScreenTimeService] ✅ Monitoring already active at OS level — skipping restart to prevent phantom floods")
                     #endif
+
+                    // Check midnight_pending even when monitoring is alive.
+                    // After midnight, thresholds become stale (yesterday's ranges
+                    // don't cover today's 0 cumulative) and SKIP_MIDNIGHT blocks
+                    // all events. Must restart for fresh thresholds.
+                    // This check runs at init (before scenePhase .active) to catch
+                    // brief app opens where checkMonitoringHealth() never fires.
+                    if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+                       sharedDefaults.bool(forKey: "midnight_pending_refresh") {
+                        lifecycleLog("MIDNIGHT_PENDING — detected during init, restarting for fresh thresholds")
+                        #if DEBUG
+                        print("[ScreenTimeService] 🌙 Midnight pending refresh detected at init — triggering restart")
+                        #endif
+                        Task { [weak self] in
+                            await self?.restartMonitoring(reason: "midnight pending refresh (init)")
+                        }
+                    }
                 } else {
                     // Monitoring genuinely dead — restart needed
                     // Smart threshold filtering in scheduleActivity() prevents catch-up floods
