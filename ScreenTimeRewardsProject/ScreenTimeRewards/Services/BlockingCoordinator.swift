@@ -90,6 +90,20 @@ class BlockingCoordinator: ObservableObject {
             )
         }
 
+        // Short-circuit: dailyLimit == 0 means app is completely blocked for today.
+        // Check before all other conditions — goal completion, available minutes, downtime, etc.
+        // are irrelevant when the parent has explicitly set 0 minutes for the day.
+        if let config = scheduleService.getSchedule(for: logicalID),
+           config.dailyLimits.todayLimit == 0 {
+            return BlockingDecision(
+                shouldBlock: true,
+                primaryReason: .dailyLimitReached,
+                allActiveReasons: [.dailyLimitReached],
+                dailyLimitMinutes: 0,
+                usedMinutes: 0
+            )
+        }
+
         var activeReasons: Set<BlockingReasonType> = []
         var decision = BlockingDecision.unblocked
 

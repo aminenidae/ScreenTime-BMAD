@@ -183,6 +183,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
 
+            // Load shield configs early — needed for both catchup_max correction and shield evaluation
+            let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+                guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+                return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
+            }()
+
             // Apply pending catchup_max corrections ONLY for same-day restarts.
             // At midnight, stale catchup_max was cleared above — nothing to apply.
             // This handles the case where extension was killed mid-day and catchup_max
@@ -193,6 +199,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     let catchupMaxKey = "catchup_max_\(trackedAppID)"
                     let catchupMax = defaults.integer(forKey: catchupMaxKey)
                     if catchupMax > 0 {
+                        // Skip correction for shielded reward apps — phantom catch-ups
+                        if isShieldedRewardApp(trackedAppID, defaults: defaults, shieldConfigs: shieldConfigs) {
+                            lifecycleLog("CATCHUP_SKIP_SHIELDED \(trackedAppID.prefix(8))... clearing phantom catchup_max=\(catchupMax)s", defaults: defaults)
+                            defaults.removeObject(forKey: catchupMaxKey)
+                            continue
+                        }
                         let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
                         if catchupMax > currentToday {
                             let correction = catchupMax - currentToday
@@ -222,10 +234,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             // Evaluate shields on monitoring start — usage data is already correct
             // from previous session. Don't wait for events (absorb window blocks first 60s).
-            let shieldConfigs: ExtensionShieldConfigsMinimal? = {
-                guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
-                return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
-            }()
             checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
             checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
             debugLog("INTERVAL_START_SHIELD_CHECK completed", defaults: defaults)
@@ -377,6 +385,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return 1 // Default to 1 minute if can't parse
     }
 
+    /// Check if an app is a shielded reward app (user can't use it, so any events are phantom)
+    /// Used to prevent catchup_max capture and correction for blocked reward apps.
+    private nonisolated func isShieldedRewardApp(_ appID: String, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
+        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+        guard category == "Reward", let configs = shieldConfigs else { return false }
+        for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
+            if let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
+                let currentShields = managedSettingsStore.shield.applications ?? Set()
+                return currentShields.contains(token)
+            }
+            break
+        }
+        return false
+    }
+
     /// Record +60s per valid event with robust filter chain
     /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
     /// All filters applied BEFORE any recording (including day rollover)
@@ -418,13 +441,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
         let timeSinceRestart = nowTimestamp - restartTimestamp
         if timeSinceRestart < 60.0 && restartTimestamp > 0 {
-            let catchupMaxKey = "catchup_max_\(appID)"
-            let currentMax = defaults.integer(forKey: catchupMaxKey)
-            if thresholdSeconds > currentMax {
-                defaults.set(thresholdSeconds, forKey: catchupMaxKey)
+            // Skip catchup_max capture for shielded reward apps — user can't use a blocked app,
+            // so any catch-up events are phantom. Prevents phantom inflation of reward app usage.
+            if isShieldedRewardApp(appID, defaults: defaults, shieldConfigs: shieldConfigs) {
+                debugLog("SKIP_RESTART_SHIELDED appID=\(appID.prefix(8))... shielded reward app, skipping catchup_max capture thresh=\(thresholdSeconds)s", defaults: defaults)
+            } else {
+                let catchupMaxKey = "catchup_max_\(appID)"
+                let currentMax = defaults.integer(forKey: catchupMaxKey)
+                if thresholdSeconds > currentMax {
+                    defaults.set(thresholdSeconds, forKey: catchupMaxKey)
+                }
+                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults)
+                if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_RESTART_CAPTURE appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults) }
             }
-            debugLog("SKIP_RESTART appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults)
-            if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_RESTART_CAPTURE appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults) }
             return false
         }
 
@@ -452,18 +481,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Filter 2: 55s per-app cooldown
         // Same app can't legitimately fire twice in <55s (thresholds are 60s apart)
         // Different apps CAN fire close together when user switches between apps
+        // EXCEPTION: iOS deferred batch events where threshold > lastThreshold represent
+        // real usage that was queued while extension was killed — let these through.
+        // Filter 5 (threshold progression) handles ordering; delta calculation handles amounts.
         let perAppCooldownKey = "last_recorded_\(appID)"
         let lastRecordedForApp = defaults.double(forKey: perAppCooldownKey)
         let timeSinceLastForApp = nowTimestamp - lastRecordedForApp
-        if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 {
-            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s, threshold=\(thresholdSeconds)s (dropped)", defaults: defaults)
+        let lastThresholdForCooldown = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
+        if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 && thresholdSeconds <= lastThresholdForCooldown {
+            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s, threshold=\(thresholdSeconds)s <= lastThresh=\(lastThresholdForCooldown)s (dropped)", defaults: defaults)
             if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s thresh=\(thresholdSeconds)s", defaults: defaults) }
-            // Do NOT capture catchup_max from cooldown-blocked events.
-            // With includesPastActivity:true, iOS retains cumulative across midnight.
-            // After day rollover, catch-up bursts carry yesterday's stale residual data.
-            // Capturing these into catchup_max causes massive phantom inflation (60+ min).
-            // Legitimate burst corrections (extension killed mid-day) lose some accuracy,
-            // but the sliding window self-corrects over subsequent restart cycles.
             return false
         }
 
@@ -530,13 +557,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(appID)_total")
                 defaults.set(max(0, currentTotal + correction), forKey: "usage_\(appID)_total")
                 debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
+                defaults.set(catchupMax, forKey: lastThresholdKey)
+                lastThreshold = catchupMax  // Update local var so delta calculation uses corrected base
             }
             // ALWAYS set date when catchup_max exists — value may already match but date could be missing
             let corrDateStr = Self.dayDateFormatter.string(from: now)
             defaults.set(corrDateStr, forKey: "ext_usage_\(appID)_date")
             defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-            defaults.set(catchupMax, forKey: lastThresholdKey)
-            lastThreshold = catchupMax  // Update local var so delta calculation uses corrected base
             defaults.removeObject(forKey: catchupMaxKey)
         }
 
@@ -1067,6 +1094,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let usageSeconds = defaults.integer(forKey: usageKey)
             let usageMinutes = usageSeconds / 60
 
+            // Check -1 (Absolute Highest Priority): App completely blocked for today (dailyLimit == 0)
+            // dailyLimit=0 means "no access today regardless of goal state or time window."
+            // Handled separately from Check 1 (daily limit exceeded) — a 0 limit is an
+            // unconditional daily block, not a "you've used up your quota" condition.
+            // This prevents the edge case where stale config data causes Check 1 (usageMinutes >= limit)
+            // to fail to fire (e.g., fallback dailyLimitMinutes=60 returns instead of correct 0).
+            let zeroLimitCheck = goalConfig.todayDailyLimit()
+            if zeroLimitCheck == 0 {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,
+                        reasonType: "dailyLimitReached",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+
+                    debugLog("DAILY_ZERO_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... dailyLimit=0 — app blocked entire day", defaults: defaults)
+                }
+                continue  // Skip all other checks — entire day is blocked
+            }
+
             // Check 0: Downtime (HIGHEST priority)
             // Block if current time is outside allowed window
             if !isCurrentTimeInAllowedWindow(goalConfig) {
@@ -1126,7 +1185,36 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 continue  // Skip reward time check - daily limit takes priority
             }
 
-            // Check 2: Reward time exhausted (lower priority)
+            // Check 2: Learning goal not yet met — re-block at start of new day
+            // Covers the case where yesterday's shield was lifted (goal was met) but today's
+            // goal hasn't been started yet. earnedMinutes would be 0, so Check 3 never fires.
+            let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            if !isGoalMet {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,
+                        reasonType: "learningGoal",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+
+                    debugLog("LEARNING_GOAL_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... goal not met — re-applying shield", defaults: defaults)
+                }
+                continue  // Skip reward time check — only relevant once goal is met
+            }
+
+            // Check 3: Reward time exhausted (lower priority)
             // Calculate total earned minutes from met learning goals
             let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
 
