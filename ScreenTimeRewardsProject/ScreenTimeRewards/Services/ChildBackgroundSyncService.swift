@@ -462,6 +462,8 @@ class ChildBackgroundSyncService: ObservableObject {
             self.bgtaskLog("MIDNIGHT_RESET — restartMonitoring completed, scheduling next")
 
             self.scheduleMidnightReset()
+            self.scheduleMonitoringRefresh()   // re-seed chain for new day
+            self.bgtaskLog("MIDNIGHT_RESET — monitoring refresh seeded")
             self.bgtaskLog("MIDNIGHT_RESET — task completed successfully")
             task.setTaskCompleted(success: true)
         }
