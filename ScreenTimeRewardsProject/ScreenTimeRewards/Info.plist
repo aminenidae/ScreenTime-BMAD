@@ -38,6 +38,7 @@
 		<string>com.screentimerewards.midnight-reset</string>
 		<string>com.screentimerewards.subscription-verify</string>
 		<string>com.screentimerewards.shield-state-sync</string>
+		<string>com.screentimerewards.monitoring-refresh</string>
 	</array>
 	<key>UILaunchScreen</key>
 	<dict/>

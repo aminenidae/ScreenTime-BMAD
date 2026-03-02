@@ -13,6 +13,10 @@ struct BackgroundTaskLogView: View {
     private let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
     private let appGroupID = "group.com.screentimerewards.shared"
 
+    init(initialFilter: String = "") {
+        _filterText = State(initialValue: initialFilter)
+    }
+
     private var filteredLog: String {
         guard !filterText.isEmpty else { return logText }
         let lines = logText.components(separatedBy: "\n")
@@ -105,6 +109,7 @@ struct BackgroundTaskLogView: View {
             - CONFIG_CHECK — configuration check from parent
             - SUB_VERIFY — subscription verification task
             - SHIELD_SYNC — shield state sync to parent
+            - MONITORING_REFRESH — intra-day sliding window advancement (every 45 min)
 
             Status suffixes:
             - EXPIRED — iOS killed task before completion

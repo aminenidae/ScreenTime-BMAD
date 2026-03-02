@@ -109,6 +109,14 @@ class ChildBackgroundSyncService: ObservableObject {
             self.handleShieldStateSyncTask(task as! BGAppRefreshTask)
         }
 
+        // Register intra-day monitoring refresh task (advances sliding window before threshold exhaustion)
+        BGTaskScheduler.shared.register(
+            forTaskWithIdentifier: "com.screentimerewards.monitoring-refresh",
+            using: nil
+        ) { task in
+            self.handleMonitoringRefreshTask(task as! BGAppRefreshTask)
+        }
+
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
@@ -118,6 +126,9 @@ class ChildBackgroundSyncService: ObservableObject {
 
         // Schedule initial subscription verification
         scheduleSubscriptionVerification()
+
+        // Schedule intra-day monitoring refresh (prevents threshold exhaustion mid-day)
+        scheduleMonitoringRefresh()
 
         // NOTE: shield-state-sync is no longer auto-scheduled on startup.
         // Shield states are now uploaded as part of the usage-upload task (every 30 min)
@@ -836,6 +847,48 @@ class ChildBackgroundSyncService: ObservableObject {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule shield state sync: \(error)")
             #endif
+        }
+    }
+
+    // MARK: - Intra-Day Monitoring Refresh
+
+    /// Handle intra-day monitoring refresh background task.
+    /// Calls restartMonitoring() to advance the sliding window before threshold exhaustion.
+    /// Exhaustion causes iOS to fire NO_MAPPING events (no registered handler) — usage is silently
+    /// lost until the next restart. With a 60-threshold window, exhaustion occurs when an app
+    /// accumulates >60 min since the last scheduleActivity(). Refreshing every 45 min prevents this.
+    func handleMonitoringRefreshTask(_ task: BGAppRefreshTask) {
+        bgtaskLog("MONITORING_REFRESH — task started")
+
+        // Store timestamp for the diagnostics row subtitle ("Last run: X min ago")
+        if let defaults = UserDefaults(suiteName: appGroupID) {
+            defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_refresh_last_run")
+        }
+
+        task.expirationHandler = {
+            self.bgtaskLog("MONITORING_REFRESH — EXPIRED (iOS killed before completion)")
+            task.setTaskCompleted(success: false)
+        }
+
+        Task {
+            await ScreenTimeService.shared.restartMonitoring(reason: "intraday-refresh")
+            self.bgtaskLog("MONITORING_REFRESH — restartMonitoring completed")
+            self.scheduleMonitoringRefresh()
+            self.bgtaskLog("MONITORING_REFRESH — task completed successfully")
+            task.setTaskCompleted(success: true)
+        }
+    }
+
+    /// Schedule the next intra-day monitoring refresh (45 minutes from now).
+    /// 45 min gives 15 min headroom before the 60-threshold window exhausts.
+    func scheduleMonitoringRefresh() {
+        let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.monitoring-refresh")
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 45 * 60)
+
+        do {
+            try BGTaskScheduler.shared.submit(request)
+        } catch {
+            bgtaskLog("MONITORING_REFRESH_SCHEDULE — FAILED: \(error)")
         }
     }
 

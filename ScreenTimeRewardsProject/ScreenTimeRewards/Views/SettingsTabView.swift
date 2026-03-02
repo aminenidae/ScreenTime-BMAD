@@ -147,6 +147,7 @@ struct SettingsTabView: View {
                             monitoringLogRow
                             midnightDiagnosticLogRow
                             bgtaskLogRow
+                            monitoringRefreshLogRow
                         }
                         #endif
 
@@ -1215,6 +1216,58 @@ private extension SettingsTabView {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    var monitoringRefreshLogRow: some View {
+        NavigationLink(destination: BackgroundTaskLogView(initialFilter: "MONITORING_REFRESH")) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.teal.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .font(.system(size: 20))
+                        .foregroundColor(.teal)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Monitoring Refresh Log")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text(monitoringRefreshSubtitle())
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    private func monitoringRefreshSubtitle() -> String {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
+              defaults.object(forKey: "monitoring_refresh_last_run") != nil else {
+            return "Not yet fired"
+        }
+        let ts = defaults.double(forKey: "monitoring_refresh_last_run")
+        let elapsed = Int(-Date(timeIntervalSince1970: ts).timeIntervalSinceNow / 60)
+        return "Last run: \(elapsed) min ago"
     }
 
 }

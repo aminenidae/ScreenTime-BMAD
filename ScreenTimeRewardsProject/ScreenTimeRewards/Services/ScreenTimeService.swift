@@ -1176,25 +1176,34 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // This runs on every foreground (via refreshFromExtension), much more reliable than
             // waiting for extension events to trigger correction.
             // UP-only: only increase usage to match iOS ground truth, never decrease
+            // Skip for Reward apps — they're protected by SKIP_SHIELDED in extension,
+            // so any catchup_max for a reward app is phantom (from catch-up bursts).
             let catchupMaxKey = "catchup_max_\(logicalID)"
             let catchupMax = defaults.integer(forKey: catchupMaxKey)
             if catchupMax > 0 {
-                let currentToday = defaults.integer(forKey: extTodayKey)
-                if catchupMax > currentToday {
-                    let correction = catchupMax - currentToday
-                    defaults.set(catchupMax, forKey: extTodayKey)
-                    defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
-                    let currentTotal = defaults.integer(forKey: extTotalKey)
-                    defaults.set(max(0, currentTotal + correction), forKey: extTotalKey)
-                    defaults.set(max(0, currentTotal + correction), forKey: "usage_\(logicalID)_total")
+                if usage.category == .reward {
                     #if DEBUG
-                    print("[ScreenTimeService] CATCHUP_CORRECTION \(logicalID.prefix(8))... \(currentToday)s → \(catchupMax)s")
+                    print("[ScreenTimeService] CATCHUP_SKIP_REWARD \(logicalID.prefix(8))... clearing phantom catchup_max=\(catchupMax)s")
                     #endif
+                    defaults.removeObject(forKey: catchupMaxKey)
+                } else {
+                    let currentToday = defaults.integer(forKey: extTodayKey)
+                    if catchupMax > currentToday {
+                        let correction = catchupMax - currentToday
+                        defaults.set(catchupMax, forKey: extTodayKey)
+                        defaults.set(catchupMax, forKey: "usage_\(logicalID)_today")
+                        let currentTotal = defaults.integer(forKey: extTotalKey)
+                        defaults.set(max(0, currentTotal + correction), forKey: extTotalKey)
+                        defaults.set(max(0, currentTotal + correction), forKey: "usage_\(logicalID)_total")
+                        #if DEBUG
+                        print("[ScreenTimeService] CATCHUP_CORRECTION \(logicalID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)")
+                        #endif
+                    }
+                    // ALWAYS set date when catchup_max exists — value may already match but date could be missing
+                    defaults.set(todayDateString, forKey: extDateKey)
+                    defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(logicalID)_timestamp")
+                    defaults.removeObject(forKey: catchupMaxKey)
                 }
-                // ALWAYS set date when catchup_max exists — value may already match but date could be missing
-                defaults.set(todayDateString, forKey: extDateKey)
-                defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(logicalID)_timestamp")
-                defaults.removeObject(forKey: catchupMaxKey)
             }
 
             // Safety: ensure date is set for any non-zero ext_usage (covers calibration reset edge case)
@@ -1415,13 +1424,23 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
             return
         }
-        
+
         #if targetEnvironment(simulator)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { [weak self] in
             self?.authorizationGranted = true
             completion(.success(()))
         }
         #else
+        // Check if already authorized — avoid triggering the system dialog unnecessarily.
+        // authorizationStatus persists across app launches; our in-memory flag doesn't.
+        if AuthorizationCenter.shared.authorizationStatus == .approved {
+            authorizationGranted = true
+            DispatchQueue.main.async {
+                completion(.success(()))
+            }
+            return
+        }
+
         Task { [weak self] in
             do {
                 // Since our minimum deployment target is iOS 16.6, we can use the async version directly
@@ -1509,14 +1528,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         isMonitoring = false
         if !isInternalRestart {
             lifecycleLog("MONITORING_STOP — user/app action")
-        }
-
-        // Persist monitoring state so we don't auto-restart on next launch
-        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-            sharedDefaults.set(false, forKey: "wasMonitoringActive")
-            #if DEBUG
-            print("[ScreenTimeService] 💾 Persisted monitoring state: INACTIVE")
-            #endif
+            // Only clear monitoring state for user-initiated stops.
+            // During internal restarts, keep wasMonitoringActive=true so if restart
+            // fails all retries, the next app launch still attempts recovery.
+            if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                sharedDefaults.set(false, forKey: "wasMonitoringActive")
+                #if DEBUG
+                print("[ScreenTimeService] Persisted monitoring state: INACTIVE")
+                #endif
+            }
         }
     }
 
@@ -2492,6 +2512,28 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             lifecycleLog("CATCHUP_FIX_V4 — cleared stale catchup_max and midnight flags for clean start")
         }
 
+        // ONE-TIME FIX: Clear phantom-inflated usage from catchup_max being captured for shielded
+        // reward apps (SKIP_RESTART ran before SKIP_SHIELDED, and correction paths had no shield check).
+        // Rapid restarts caused iOS to fire catch-ups for ALL registered thresholds including 0-usage
+        // reward apps, inflating them by ~60 min each. Now fixed: shield checks in SKIP_RESTART +
+        // correction paths + scheduleActivity clears catchup_max before startMonitoring.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           !sharedDefaults.bool(forKey: "catchup_fix_v5") {
+            let logicalIDs = Set(monitoredEvents.values.compactMap { $0.applications.first?.logicalID })
+            for logicalID in logicalIDs {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+                sharedDefaults.set(0, forKey: "ext_usage_\(logicalID)_today")
+                sharedDefaults.removeObject(forKey: "ext_usage_\(logicalID)_date")
+                sharedDefaults.set(0, forKey: "usage_\(logicalID)_today")
+                if var persistedApp = usagePersistence.app(for: logicalID) {
+                    persistedApp.totalSeconds = 0
+                    usagePersistence.saveApp(persistedApp)
+                }
+            }
+            sharedDefaults.set(true, forKey: "catchup_fix_v5")
+            lifecycleLog("CATCHUP_FIX_V5 — cleared phantom-inflated usage from shielded reward app catchup_max bug")
+        }
+
         // SLIDING WINDOW THRESHOLDS:
         // Generate thresholds (currentMinutes+1) to (currentMinutes+60) for real tracking.
         // Budget: 60 thresholds per app (stays under iOS ~500 limit)
@@ -2562,6 +2604,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             let allLogicalIDs = Array(appTemplates.keys)
             sharedDefaults.set(allLogicalIDs, forKey: "tracked_app_ids")
             lifecycleLog("TRACKED_APP_IDS_SET count=\(allLogicalIDs.count) ids=\(allLogicalIDs.map { String($0.prefix(8)) }.joined(separator: ","))")
+
+            // Clear stale catchup_max before startMonitoring — each restart cycle starts fresh.
+            // The new monitoring session's catch-up burst will repopulate catchup_max correctly.
+            // Prevents stale values from accumulating across rapid restarts.
+            for logicalID in allLogicalIDs {
+                sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
+            }
         }
 
         // Register all events (all are above current usage — no filtering needed)
