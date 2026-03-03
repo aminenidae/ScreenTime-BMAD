@@ -624,6 +624,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             trackAppID(appID, defaults: defaults)
             defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
             defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
+
+            // Check if this threshold reached the top of the registered window → rebuild
+            let thresholdMinNd = thresholdSeconds / 60
+            let windowTopMinNd = defaults.integer(forKey: "window_top_min_\(appID)")
+            if windowTopMinNd > 0 && thresholdMinNd >= windowTopMinNd {
+                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMinNd) top=\(windowTopMinNd) → ext rebuild (NEW_DAY)", defaults: defaults)
+                extensionRebuildSlidingWindow(defaults: defaults)
+            }
             return true
         }
 
@@ -673,6 +681,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         trackAppID(appID, defaults: defaults)
         defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
         defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
+
+        // Check if this threshold reached the top of the registered window → rebuild
+        let thresholdMin = thresholdSeconds / 60
+        let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
+        if windowTopMin > 0 && thresholdMin >= windowTopMin {
+            debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMin) top=\(windowTopMin) → ext rebuild", defaults: defaults)
+            extensionRebuildSlidingWindow(defaults: defaults)
+        }
         return true
     }
 
@@ -794,6 +810,102 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Update last modified timestamp
         defaults.set(now.timeIntervalSince1970, forKey: "usage_\(appID)_modified")
+    }
+
+    // MARK: - Extension-Side Sliding Window Refresh
+
+    /// Rebuild the sliding window thresholds from within the extension.
+    ///
+    /// Called when the last registered threshold fires (window exhaustion imminent).
+    /// With the sliding window approach, new thresholds start above current usage,
+    /// so iOS fires zero catch-up events — the restart is clean.
+    ///
+    /// Safety: SKIP_RESTART (60s absorb window) activates normally post-restart.
+    /// catchup_max captures any gap; correction paths apply on next event or foreground sync.
+    private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults) {
+        guard let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids"),
+              !trackedAppIDs.isEmpty else {
+            debugLog("EXT_REBUILD_SKIP — no tracked_app_ids", defaults: defaults)
+            return
+        }
+
+        let todayDateString = Self.dayDateFormatter.string(from: Date())
+        let now = Date().timeIntervalSince1970
+
+        var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
+        var newWindowTops: [String: Int] = [:]
+
+        for logicalID in trackedAppIDs {
+            // Decode stored token — written by saveEventMappings() in the main app
+            guard let tokenData = defaults.data(forKey: "app_token_\(logicalID)"),
+                  let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: tokenData) else {
+                debugLog("EXT_REBUILD_SKIP_NO_TOKEN appID=\(logicalID.prefix(8))...", defaults: defaults)
+                continue
+            }
+
+            // Read stable hash stored by scheduleActivity()
+            guard let stableHashStr = defaults.string(forKey: "app_stable_hash_\(logicalID)") else {
+                debugLog("EXT_REBUILD_SKIP_NO_HASH appID=\(logicalID.prefix(8))...", defaults: defaults)
+                continue
+            }
+
+            // Compute current usage for this app (today only)
+            let extDate = defaults.string(forKey: "ext_usage_\(logicalID)_date")
+            let extTodaySeconds = (extDate == todayDateString)
+                ? defaults.integer(forKey: "ext_usage_\(logicalID)_today")
+                : 0
+            let currentMin = extTodaySeconds / 60
+
+            let category = defaults.string(forKey: "map_\(logicalID)_category") ?? "Learning"
+
+            // Build 60 new thresholds above current usage
+            for minuteNumber in (currentMin + 1)...(currentMin + 60) {
+                let eventName = DeviceActivityEvent.Name("usage.app.\(stableHashStr).min.\(minuteNumber)")
+                let event = DeviceActivityEvent(
+                    applications: [token],
+                    threshold: DateComponents(minute: minuteNumber),
+                    includesPastActivity: true
+                )
+                events[eventName] = event
+
+                // Write primitive map keys so the extension can process new events when they fire
+                defaults.set(logicalID, forKey: "map_\(eventName.rawValue)_id")
+                defaults.set(category, forKey: "map_\(eventName.rawValue)_category")
+            }
+
+            newWindowTops[logicalID] = currentMin + 60
+            debugLog("EXT_REBUILD_APP appID=\(logicalID.prefix(8))... current=\(currentMin)min → new window \(currentMin + 1)-\(currentMin + 60)", defaults: defaults)
+        }
+
+        guard !events.isEmpty else {
+            debugLog("EXT_REBUILD_NO_EVENTS — nothing to register", defaults: defaults)
+            return
+        }
+
+        let schedule = DeviceActivitySchedule(
+            intervalStart: DateComponents(hour: 0, minute: 0),
+            intervalEnd: DateComponents(hour: 23, minute: 59),
+            repeats: true
+        )
+
+        // Set restart timestamp BEFORE startMonitoring to close the race window
+        // (mirrors the same pattern in scheduleActivity() in the main app)
+        defaults.set(now, forKey: "monitoring_restart_timestamp")
+
+        do {
+            let center = DeviceActivityCenter()
+            try center.startMonitoring(DeviceActivityName("ScreenTimeTracking"), during: schedule, events: events)
+
+            // Success — update window tops so the check doesn't re-fire immediately
+            for (logicalID, topMin) in newWindowTops {
+                defaults.set(topMin, forKey: "window_top_min_\(logicalID)")
+            }
+            debugLog("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)", defaults: defaults)
+        } catch {
+            // Undo restart timestamp so SKIP_RESTART doesn't block real events
+            defaults.removeObject(forKey: "monitoring_restart_timestamp")
+            debugLog("EXT_REBUILD_FAILED: \(error)", defaults: defaults)
+        }
     }
 
     // MARK: - Utilities

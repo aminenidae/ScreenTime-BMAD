@@ -1006,6 +1006,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Also write display name using logicalID key for ExtensionCloudKitSync lookup
             // (Required for parent app to show real app names instead of "Privacy Protected App #X")
             sharedDefaults.set(app.displayName, forKey: "map_\(app.logicalID)_name")
+            // Store serialized token so extension can rebuild DeviceActivityEvent objects
+            // without the main app — needed for extension-side sliding window refresh.
+            // Written once per app (overwrites are harmless, token is stable).
+            if let tokenData = try? PropertyListEncoder().encode(app.token) {
+                sharedDefaults.set(tokenData, forKey: "app_token_\(app.logicalID)")
+            }
         }
 
         if let data = try? JSONSerialization.data(withJSONObject: mappings) {
@@ -2611,6 +2617,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             for logicalID in allLogicalIDs {
                 sharedDefaults.removeObject(forKey: "catchup_max_\(logicalID)")
             }
+
+            // Store window top + stable hash per app so extension can detect exhaustion
+            // and self-rebuild the sliding window without the main app.
+            for logicalID in allLogicalIDs {
+                let currentMinutes = appCurrentMinutes[logicalID] ?? 0
+                sharedDefaults.set(currentMinutes + 60, forKey: "window_top_min_\(logicalID)")
+                sharedDefaults.set(String(stableHash(logicalID)), forKey: "app_stable_hash_\(logicalID)")
+            }
         }
 
         // Register all events (all are above current usage — no filtering needed)
@@ -2620,7 +2634,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
-            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds)")
+            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds) windowTop=\(mins + 60)")
             midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
         }
 

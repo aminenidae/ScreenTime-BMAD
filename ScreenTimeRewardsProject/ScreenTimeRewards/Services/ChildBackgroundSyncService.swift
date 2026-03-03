@@ -218,6 +218,9 @@ class ChildBackgroundSyncService: ObservableObject {
 
                 // Schedule next task
                 self.scheduleNextUsageUpload()
+                // Piggyback: any BGTask that runs reschedules monitoring refresh
+                // so the chain survives even if dedicated monitoring-refresh slots are skipped
+                self.scheduleMonitoringRefresh()
 
                 self.bgtaskLog("USAGE_UPLOAD — completed successfully")
                 task.setTaskCompleted(success: true)
@@ -885,10 +888,11 @@ class ChildBackgroundSyncService: ObservableObject {
     /// 45 min gives 15 min headroom before the 60-threshold window exhausts.
     func scheduleMonitoringRefresh() {
         let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.monitoring-refresh")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 45 * 60)
+        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)  // 30 min (was 45 min)
 
         do {
             try BGTaskScheduler.shared.submit(request)
+            bgtaskLog("MONITORING_REFRESH_SCHEDULE — submitted for +30min")
         } catch {
             bgtaskLog("MONITORING_REFRESH_SCHEDULE — FAILED: \(error)")
         }
