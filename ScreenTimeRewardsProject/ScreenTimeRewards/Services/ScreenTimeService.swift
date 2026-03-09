@@ -522,6 +522,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         #if DEBUG
                         print("[ScreenTimeService] 🌙 Midnight pending refresh detected at init — triggering restart")
                         #endif
+                        // Refresh timestamp so SKIP_MIDNIGHT's 2h window anchors to NOW, not
+                        // midnight. Prevents yesterday's residual from bypassing the expired
+                        // safety timeout when BGTask missed and app opens late (e.g. 4am > 2h).
+                        sharedDefaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
                         Task { [weak self] in
                             await self?.restartMonitoring(reason: "midnight pending refresh (init)")
                         }
@@ -2094,6 +2098,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             #if DEBUG
             print("[ScreenTimeService] Midnight pending refresh — triggering restart for fresh thresholds")
             #endif
+            // Refresh timestamp so SKIP_MIDNIGHT's 2h window anchors to NOW, not midnight.
+            sharedDefaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
             Task { [weak self] in
                 await self?.restartMonitoring(reason: "midnight pending refresh")
             }
