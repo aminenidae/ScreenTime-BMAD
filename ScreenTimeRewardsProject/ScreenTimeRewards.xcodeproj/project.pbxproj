@@ -10,8 +10,6 @@
 		432838612ED2977500B0EC3D /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		432838622ED2977500B0EC3D /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43575C3A2EA1D9BF00AA226E /* ManagedSettingsUI.framework */; };
 		4328386A2ED2977500B0EC3D /* ShieldConfigurationExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		43A261B92F7A3DA000F406DE /* MainInterface.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 43A261B82F7A3DA000F406DE /* MainInterface.storyboard */; };
-		43A261BA2F7A3DA000F406DE /* MainInterface.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 43A261B82F7A3DA000F406DE /* MainInterface.storyboard */; };
 		43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */; };
 		43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
 		43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
@@ -22,14 +20,6 @@
 		43E0F00D2EA0258700567890 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		43E0F0152EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */; };
 		43E0F0172EA0258700567890 /* ScreenTimeActivityExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		43E1F0202F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */; };
-		43E1F0212F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */; };
-		43E1F0222F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */; };
-		43E1F0232F1A000100123450 /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
-		43E1F0242F1A000100123450 /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
-		43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
-		43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		43E1F0A02F1A000100123450 /* MainInterface.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 43E1F09F2F1A000100123450 /* MainInterface.storyboard */; };
 		43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */ = {isa = PBXBuildFile; productRef = 43EC484D2F12E73600E5D3AD /* RevenueCat */; };
 /* End PBXBuildFile section */
 
@@ -66,7 +56,6 @@
 			files = (
 				43E0F0172EA0258700567890 /* ScreenTimeActivityExtension.appex in Embed App Extensions */,
 				4328386A2ED2977500B0EC3D /* ShieldConfigurationExtension.appex in Embed App Extensions */,
-				43E1F0262F1A000100123450 /* ScreenTimeReportExtension.appex in Embed App Extensions */,
 			);
 			name = "Embed App Extensions";
 			runOnlyForDeploymentPostprocessing = 0;
@@ -79,7 +68,6 @@
 		436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = ScreenTimeRewards.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		436830272E9F172B0058C9C1 /* ScreenTimeRewardsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreenTimeRewardsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		436830312E9F172B0058C9C1 /* ScreenTimeRewardsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreenTimeRewardsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
-		43A261B82F7A3DA000F406DE /* MainInterface.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = MainInterface.storyboard; path = ScreenTimeReportExtension/MainInterface.storyboard; sourceTree = "<group>"; };
 		43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/ExtensionCloudKitSync.swift; sourceTree = SOURCE_ROOT; };
 		43DD71472E9F19B60066E06C /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		43DD71492E9F19C20066E06C /* FamilyControls.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FamilyControls.framework; path = System/Library/Frameworks/FamilyControls.framework; sourceTree = SDKROOT; };
@@ -87,13 +75,6 @@
 		43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift; sourceTree = SOURCE_ROOT; };
 		43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenTimeActivityExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		43E0F00B2EA0258700567890 /* ManagedSettings.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = ManagedSettings.framework; path = System/Library/Frameworks/ManagedSettings.framework; sourceTree = SDKROOT; };
-		43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = ScreenTimeReportExtension.appex; sourceTree = BUILT_PRODUCTS_DIR; };
-		43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/ScreenTimeReportExtension.swift; sourceTree = SOURCE_ROOT; };
-		43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/TotalActivityReport.swift; sourceTree = SOURCE_ROOT; };
-		43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeReportExtension/TotalActivityView.swift; sourceTree = SOURCE_ROOT; };
-		43E1F0052F1A000100123450 /* ScreenTimeReportExtension/Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = ScreenTimeReportExtension/Info.plist; sourceTree = SOURCE_ROOT; };
-		43E1F0062F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements; sourceTree = SOURCE_ROOT; };
-		43E1F09F2F1A000100123450 /* MainInterface.storyboard */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; path = MainInterface.storyboard; sourceTree = "<group>"; };
 		43EC48692F136A8100E5D3AD /* Products.storekit */ = {isa = PBXFileReference; lastKnownFileType = text; path = Products.storekit; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -119,13 +100,6 @@
 			);
 			target = 43E0F0112EA0258700567890 /* ScreenTimeActivityExtension */;
 		};
-		43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */ = {
-			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
-			membershipExceptions = (
-				"GoogleService-Info.plist",
-			);
-			target = 43E1F0132F1A000100123450 /* ScreenTimeReportExtension */;
-		};
 		43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */ = {
 			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
 			membershipExceptions = (
@@ -149,7 +123,6 @@
 			exceptions = (
 				436830392E9F172B0058C9C1 /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeRewards" target */,
 				43EC48442F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeActivityExtension" target */,
-				43EC48452F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ScreenTimeReportExtension" target */,
 				43EC48462F0D8FF600E5D3AD /* Exceptions for "ScreenTimeRewards" folder in "ShieldConfigurationExtension" target */,
 			);
 			path = ScreenTimeRewards;
@@ -212,16 +185,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		43E1F0112F1A000100123450 /* Frameworks */ = {
-			isa = PBXFrameworksBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				43E1F0232F1A000100123450 /* DeviceActivity.framework in Frameworks */,
-				43E1F0242F1A000100123450 /* FamilyControls.framework in Frameworks */,
-				43E1F0252F1A000100123450 /* ManagedSettings.framework in Frameworks */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -238,7 +201,6 @@
 		4368300A2E9F172A0058C9C1 = {
 			isa = PBXGroup;
 			children = (
-				43A261B82F7A3DA000F406DE /* MainInterface.storyboard */,
 				43EC48692F136A8100E5D3AD /* Products.storekit */,
 				436830152E9F172A0058C9C1 /* ScreenTimeRewards */,
 				4368302A2E9F172B0058C9C1 /* ScreenTimeRewardsTests */,
@@ -247,7 +209,6 @@
 				43DD71462E9F19B60066E06C /* Frameworks */,
 				436830142E9F172A0058C9C1 /* Products */,
 				435757372E9F4C1500AA226E /* Recovered References */,
-				43E1F0072F1A000100123450 /* ScreenTimeReportExtension */,
 			);
 			sourceTree = "<group>";
 		};
@@ -258,7 +219,6 @@
 				436830272E9F172B0058C9C1 /* ScreenTimeRewardsTests.xctest */,
 				436830312E9F172B0058C9C1 /* ScreenTimeRewardsUITests.xctest */,
 				43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */,
-				43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */,
 				432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */,
 			);
 			name = Products;
@@ -273,19 +233,6 @@
 				43575C3A2EA1D9BF00AA226E /* ManagedSettingsUI.framework */,
 			);
 			name = Frameworks;
-			sourceTree = "<group>";
-		};
-		43E1F0072F1A000100123450 /* ScreenTimeReportExtension */ = {
-			isa = PBXGroup;
-			children = (
-				43E1F0022F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift */,
-				43E1F0032F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift */,
-				43E1F0042F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift */,
-				43E1F0052F1A000100123450 /* ScreenTimeReportExtension/Info.plist */,
-				43E1F0062F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements */,
-				43E1F09F2F1A000100123450 /* MainInterface.storyboard */,
-			);
-			path = ScreenTimeReportExtension;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -401,23 +348,6 @@
 			productReference = 43E0F0072EA0258700567890 /* ScreenTimeActivityExtension.appex */;
 			productType = "com.apple.product-type.app-extension";
 		};
-		43E1F0132F1A000100123450 /* ScreenTimeReportExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = 43E1F0322F1A000100123450 /* Build configuration list for PBXNativeTarget "ScreenTimeReportExtension" */;
-			buildPhases = (
-				43E1F0102F1A000100123450 /* Sources */,
-				43E1F0112F1A000100123450 /* Frameworks */,
-				43E1F0122F1A000100123450 /* Resources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = ScreenTimeReportExtension;
-			productName = ScreenTimeReportExtension;
-			productReference = 43E1F0002F1A000100123450 /* ScreenTimeReportExtension.appex */;
-			productType = "com.apple.product-type.app-extension";
-		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -445,9 +375,6 @@
 					43E0F0112EA0258700567890 = {
 						CreatedOnToolsVersion = 26.0.1;
 					};
-					43E1F0132F1A000100123450 = {
-						CreatedOnToolsVersion = 26.0.1;
-					};
 				};
 			};
 			buildConfigurationList = 4368300E2E9F172A0058C9C1 /* Build configuration list for PBXProject "ScreenTimeRewards" */;
@@ -472,7 +399,6 @@
 				436830262E9F172B0058C9C1 /* ScreenTimeRewardsTests */,
 				436830302E9F172B0058C9C1 /* ScreenTimeRewardsUITests */,
 				43E0F0112EA0258700567890 /* ScreenTimeActivityExtension */,
-				43E1F0132F1A000100123450 /* ScreenTimeReportExtension */,
 				4328385F2ED2977500B0EC3D /* ShieldConfigurationExtension */,
 			);
 		};
@@ -490,7 +416,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				43A261B92F7A3DA000F406DE /* MainInterface.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -512,15 +437,6 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		43E1F0122F1A000100123450 /* Resources */ = {
-			isa = PBXResourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				43E1F0A02F1A000100123450 /* MainInterface.storyboard in Resources */,
-				43A261BA2F7A3DA000F406DE /* MainInterface.storyboard in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -565,16 +481,6 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
-		43E1F0102F1A000100123450 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				43E1F0202F1A000100123450 /* ScreenTimeReportExtension/ScreenTimeReportExtension.swift in Sources */,
-				43E1F0212F1A000100123450 /* ScreenTimeReportExtension/TotalActivityReport.swift in Sources */,
-				43E1F0222F1A000100123450 /* ScreenTimeReportExtension/TotalActivityView.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
 /* End PBXSourcesBuildPhase section */
 
 /* Begin PBXTargetDependency section */
@@ -601,7 +507,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -631,7 +537,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -663,7 +569,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -699,7 +605,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -943,7 +849,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
@@ -968,7 +874,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
+				CURRENT_PROJECT_VERSION = 12;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
@@ -980,54 +886,6 @@
 				);
 				MARKETING_VERSION = 1.0.2;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeActivityExtension;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = NO;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Release;
-		};
-		43E1F0302F1A000100123450 /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
-				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
-				INFOPLIST_FILE = "ScreenTimeReportExtension/Info-Debug.plist";
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeReportExtension;
-				PRODUCT_NAME = "$(TARGET_NAME)";
-				SKIP_INSTALL = NO;
-				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
-				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
-			};
-			name = Debug;
-		};
-		43E1F0312F1A000100123450 /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = ScreenTimeReportExtension/ScreenTimeReportExtension.entitlements;
-				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 11;
-				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
-				INFOPLIST_FILE = ScreenTimeReportExtension/Info.plist;
-				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/Frameworks",
-					"@executable_path/../../Frameworks",
-				);
-				MARKETING_VERSION = 1.0.2;
-				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeReportExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
@@ -1089,15 +947,6 @@
 			buildConfigurations = (
 				43E0F0122EA0258700567890 /* Debug */,
 				43E0F0132EA0258700567890 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Release;
-		};
-		43E1F0322F1A000100123450 /* Build configuration list for PBXNativeTarget "ScreenTimeReportExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				43E1F0302F1A000100123450 /* Debug */,
-				43E1F0312F1A000100123450 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

@@ -159,9 +159,6 @@ struct SettingsTabView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
 
-            // Hidden report view to ensure extension is triggered from this screen
-            HiddenUsageReportView()
-                .allowsHitTesting(false)
         }
         .sheet(isPresented: $showingPairingView) {
             ChildPairingView()

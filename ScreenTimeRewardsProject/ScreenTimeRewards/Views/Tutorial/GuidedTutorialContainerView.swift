@@ -201,7 +201,6 @@ struct TutorialMainTabView: View {
                 }
             }
 
-            HiddenUsageReportView()
         }
     }
 }

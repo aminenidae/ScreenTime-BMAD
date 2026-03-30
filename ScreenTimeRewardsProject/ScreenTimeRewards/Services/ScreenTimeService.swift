@@ -13,8 +13,7 @@ import UIKit
 class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     static let shared = ScreenTimeService()
     static let usageDidChangeNotification = Notification.Name("ScreenTimeService.usageDidChange")
-    static let reportRefreshRequestedNotification = Notification.Name("reportRefreshRequested")
-    
+
     enum ScreenTimeServiceError: LocalizedError {
         case authorizationDenied(Error?)
         case monitoringFailed(Error)
@@ -204,18 +203,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Cascade prevention: no monitoring restarts + 5-second dedup window
     private let defaultThreshold = DateComponents(minute: 1)
     private var monitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
-
-    // MARK: - Report-based tracking (DISABLED - doesn't work in background)
-    // DeviceActivityReport is a UI-only view extension, won't update in background
-    // Keeping report snapshot reconciliation as backup/validation only
-
-    // MARK: - Snapshot reconciliation safeguards
-    /// Track last processed snapshot to prevent duplicate applications
-    private var lastProcessedSnapshot: [String: (timestamp: TimeInterval, seconds: Int)] = [:]
-    /// Track when each app last received a threshold event (for sanity checks)
-    private var lastThresholdTime: [String: Date] = [:]
-    /// Configuration gate to enable/disable snapshot reconciliation
-    private var enableSnapshotReconciliation: Bool = true
 
     // MARK: - Stable Hash Function
     /// DJB2 hash - deterministic across app launches (unlike Swift's .hashValue)
@@ -1895,162 +1882,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // all thresholds < current usage to fire immediately in rapid succession.
     // Solution: Use static 24hr threshold + DeviceActivityReport for tracking.
 
-    // MARK: - REMOVED: Event-driven restart & Report refresh timer
-    // Event-driven restarts caused cascade fires - removed
-    // Report refresh timer doesn't work (DeviceActivityReport is UI-only) - removed
-    // Primary tracking now uses 1-min threshold events with deduplication
-
-    // MARK: - Usage report sync helpers
-
-    /// Ask the DeviceActivityReport extension to refresh its snapshot and notify listeners.
-    func requestUsageReportRefresh() {
-        NSLog("[ScreenTimeService] 📊 Requesting DeviceActivityReport refresh...")
-
-        if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            defaults.set(Date().timeIntervalSince1970, forKey: "report_request_timestamp")
-        }
-
-        NotificationCenter.default.post(name: Self.reportRefreshRequestedNotification, object: nil)
-    }
-
-    /// Read the latest snapshot written by the DeviceActivityReport extension and reconcile usage.
-    func syncFromReportSnapshot() {
-        // Configuration gate: allow disabling snapshot reconciliation
-        guard enableSnapshotReconciliation else {
-            NSLog("[ScreenTimeService] ℹ️ Snapshot reconciliation is disabled")
-            return
-        }
-
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            NSLog("[ScreenTimeService] ❌ Cannot access app group for report sync")
-            return
-        }
-
-        guard let snapshot = defaults.dictionary(forKey: "report_snapshot") else {
-            NSLog("[ScreenTimeService] ℹ️ No report snapshot available yet")
-            return
-        }
-
-        guard let timestamp = snapshot["timestamp"] as? TimeInterval,
-              let appsData = snapshot["apps"] as? [String: Int] else {
-            NSLog("[ScreenTimeService] ⚠️ Invalid report snapshot format")
-            return
-        }
-
-        let snapshotDate = Date(timeIntervalSince1970: timestamp)
-        let age = Date().timeIntervalSince(snapshotDate)
-
-        guard age < 60 else {
-            NSLog("[ScreenTimeService] ⚠️ Report snapshot is stale (\(Int(age))s old)")
-            return
-        }
-
-        NSLog("[ScreenTimeService] 📊 Processing report snapshot from \(snapshotDate) (age: \(Int(age))s) with \(appsData.count) apps")
-
-        var didUpdateAnyApp = false
-        var appliedCount = 0
-        var skippedCount = 0
-
-        for (bundleID, reportedSeconds) in appsData {
-            guard let logicalID = findLogicalID(for: bundleID) else {
-                NSLog("[ScreenTimeService] ⚠️ No logical ID found for bundle: \(bundleID)")
-                continue
-            }
-
-            // Check if app is currently shielded - skip recording shield time as usage
-            if isLogicalIDShielded(logicalID) {
-                NSLog("[Snapshot] \(bundleID): SHIELDED - skipping (shield time, not real usage)")
-                skippedCount += 1
-                continue
-            }
-
-            guard let persistedApp = usagePersistence.app(for: logicalID) else {
-                NSLog("[ScreenTimeService] ⚠️ No persisted app found for: \(logicalID)")
-                continue
-            }
-
-            let currentSeconds = persistedApp.todaySeconds
-
-            if reportedSeconds > currentSeconds {
-                let additionalSeconds = reportedSeconds - currentSeconds
-
-                // SAFEGUARD 1: Check for duplicate snapshot processing
-                if let lastProcessed = lastProcessedSnapshot[logicalID],
-                   lastProcessed.timestamp == timestamp,
-                   lastProcessed.seconds == reportedSeconds {
-                    NSLog("[Snapshot] \(persistedApp.displayName): DUPLICATE snapshot (timestamp: \(timestamp), seconds: \(reportedSeconds)) → SKIPPED")
-                    skippedCount += 1
-                    continue
-                }
-
-                // SAFEGUARD 2: Check if threshold fired recently (within 90s)
-                let now = Date()
-                if let lastThreshold = lastThresholdTime[logicalID] {
-                    let timeSinceThreshold = now.timeIntervalSince(lastThreshold)
-                    if timeSinceThreshold < 90 {
-                        NSLog("[Snapshot] \(persistedApp.displayName): Recent threshold \(Int(timeSinceThreshold))s ago → SKIPPED (too soon)")
-                        skippedCount += 1
-                        continue
-                    }
-                }
-
-                // SAFEGUARD 3: Sanity check on delta size (max 90s per app)
-                if additionalSeconds > 90 {
-                    // Calculate elapsed time since last threshold or last update
-                    var elapsedSeconds: TimeInterval = 90  // default
-                    if let lastThreshold = lastThresholdTime[logicalID] {
-                        elapsedSeconds = now.timeIntervalSince(lastThreshold)
-                    }
-
-                    NSLog("[Snapshot] \(persistedApp.displayName): Large delta detected")
-                    NSLog("[Snapshot]   Reported: \(reportedSeconds)s, Persisted: \(currentSeconds)s, Delta: \(additionalSeconds)s")
-                    NSLog("[Snapshot]   Elapsed since last threshold: \(Int(elapsedSeconds))s")
-
-                    // SAFEGUARD 4: Clamp delta to reasonable value
-                    let maxReasonableDelta = min(Int(elapsedSeconds + 90), additionalSeconds)
-                    if maxReasonableDelta < additionalSeconds {
-                        NSLog("[Snapshot]   → SKIPPED (delta \(additionalSeconds)s exceeds reasonable \(maxReasonableDelta)s)")
-                        skippedCount += 1
-                        continue
-                    }
-                }
-
-                // All safeguards passed - apply the delta
-                NSLog("[Snapshot] \(persistedApp.displayName): \(currentSeconds)s → \(reportedSeconds)s (+\(additionalSeconds)s) → APPLIED")
-
-                usagePersistence.recordUsage(
-                    logicalID: logicalID,
-                    additionalSeconds: additionalSeconds,
-                    rewardPointsPerMinute: persistedApp.rewardPoints
-                )
-
-                // Track this snapshot as processed
-                lastProcessedSnapshot[logicalID] = (timestamp: timestamp, seconds: reportedSeconds)
-
-                didUpdateAnyApp = true
-                appliedCount += 1
-            } else if reportedSeconds < currentSeconds {
-                NSLog("[ScreenTimeService] ℹ️ Report shows less usage than persisted for \(persistedApp.displayName) (report: \(reportedSeconds)s, persisted: \(currentSeconds)s)")
-            }
-        }
-
-        if didUpdateAnyApp {
-            reloadAppUsagesFromPersistence()
-            notifyUsageChange()
-            NSLog("[ScreenTimeService] ✅ Snapshot sync complete: applied \(appliedCount), skipped \(skippedCount) - UI refreshed")
-        } else {
-            NSLog("[ScreenTimeService] ℹ️ Snapshot sync complete: no updates (skipped: \(skippedCount))")
-        }
-    }
-
-    /// Map a bundle identifier from the report back to a logical ID in persistence.
-    private func findLogicalID(for bundleID: String) -> String? {
-        if usagePersistence.app(for: bundleID) != nil {
-            return bundleID
-        }
-        return nil
-    }
-
     /// Reload persisted usage into memory. Currently just refreshes the persistence cache.
     private func reloadAppUsagesFromPersistence() {
         _ = usagePersistence.reloadAppsFromDisk()
@@ -3655,9 +3486,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
 
             recordedCount += 1
-
-            // Track threshold timestamp for snapshot reconciliation safeguards
-            lastThresholdTime[logicalID] = endDate
         }
 
         #if DEBUG

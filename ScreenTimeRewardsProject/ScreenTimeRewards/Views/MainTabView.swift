@@ -66,7 +66,6 @@ struct MainTabView: View {
                 }
             }
 
-            HiddenUsageReportView()
         }
     }
 
@@ -106,7 +105,6 @@ struct MainTabView: View {
                 }
             }
 
-            HiddenUsageReportView()
         }
     }
 }
