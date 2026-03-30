@@ -1,20 +1,27 @@
 #!/bin/bash
 # Xcode Scheme Archive post-action.
 # Xcode sets $XcodeArchivePath to the freshly-created .xcarchive.
-# Removes UIRequiredDeviceCapabilities injected by Xcode 26.2 and re-signs the bundle.
+# Removes UIRequiredDeviceCapabilities from main app AND all extensions,
+# then re-signs the bundle (inside-out order required by Apple codesigning rules).
 
 set -e
 
-APP_PATH="${XcodeArchivePath}/Products/Applications/ScreenTimeRewards.app"
+APP_PATH="${ARCHIVE_PATH:-${XcodeArchivePath}}/Products/Applications/ScreenTimeRewards.app"
 PLIST="${APP_PATH}/Info.plist"
 
-# 1. Remove the injected key FIRST (no-op if absent — idempotent)
+# 1. Remove from main app Info.plist (no-op if absent — idempotent)
 /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "${PLIST}" 2>/dev/null || true
-echo "strip-uirequired: key removed"
+echo "strip-uirequired: removed from ScreenTimeRewards.app/Info.plist"
 
-# 2. Detect cert hash from the existing bundle signature.
+# 2. Remove from every extension Info.plist (Xcode injects into auto-generated plists too)
+for ext in "${APP_PATH}/PlugIns/"*.appex; do
+    EXT_PLIST="${ext}/Info.plist"
+    /usr/libexec/PlistBuddy -c "Delete :UIRequiredDeviceCapabilities" "${EXT_PLIST}" 2>/dev/null || true
+    echo "strip-uirequired: removed from ${ext##*/}/Info.plist"
+done
+
+# 3. Detect cert hash from the existing bundle signature.
 #    Match authority name → look up hash in keychain → avoids duplicate-name ambiguity.
-#    Works with development certs (no distribution cert required on this Mac).
 AUTH_NAME=$(codesign -d --verbose=4 "${APP_PATH}" 2>&1 | grep "^Authority=" | head -1 | sed 's/Authority=//')
 CERT_HASH=$(security find-identity -v -p codesigning 2>/dev/null | grep "${AUTH_NAME}" | tail -1 | awk '{print $2}')
 
@@ -35,13 +42,13 @@ fi
 
 echo "strip-uirequired: cert hash = ${CERT_HASH}"
 
-# 3. Re-sign extensions first (inside-out order required by Apple codesigning rules)
+# 4. Re-sign extensions first (inside-out order required by Apple codesigning rules)
 for ext in "${APP_PATH}/PlugIns/"*.appex; do
     echo "strip-uirequired: re-signing ${ext##*/}"
     codesign --force --sign "${CERT_HASH}" --preserve-metadata=entitlements,flags,runtime "${ext}"
 done
 
-# 4. Re-sign main app
+# 5. Re-sign main app
 echo "strip-uirequired: re-signing ScreenTimeRewards.app"
 codesign --force --sign "${CERT_HASH}" --preserve-metadata=entitlements,flags,runtime "${APP_PATH}"
 

@@ -39,9 +39,8 @@ ScreenTime-BMAD/
 xcshareddata/
 **/xcshareddata/
 
-# Internal documentation (all docs folders)
-docs/
-ScreenTimeRewardsProject/docs/
+# Build artifacts
+ScreenTimeRewardsProject/build/
 
 # Legacy individual doc patterns (kept for reference)
 USAGE_TRACKING_ACCURACY.md

@@ -2,6 +2,9 @@ import BackgroundTasks
 import Foundation
 import CoreData
 import Combine
+#if canImport(UIKit)
+import UIKit
+#endif
 
 /// Subscription status from parent's Firebase family
 enum ParentSubscriptionStatus: String, Codable {
@@ -121,6 +124,22 @@ class ChildBackgroundSyncService: ObservableObject {
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
 
+        // D1: Log registration + Background App Refresh permission status
+        bgtaskLog("REGISTER — all background tasks registered")
+        #if canImport(UIKit)
+        let bgRefreshStatus: String
+        switch UIApplication.shared.backgroundRefreshStatus {
+        case .available:   bgRefreshStatus = "available"
+        case .denied:      bgRefreshStatus = "denied (user disabled)"
+        case .restricted:  bgRefreshStatus = "restricted (system policy)"
+        @unknown default:  bgRefreshStatus = "unknown"
+        }
+        bgtaskLog("REGISTER — backgroundRefreshStatus=\(bgRefreshStatus)")
+        #endif
+
+        // D4: Log BGTask chain health on every cold launch / BGTask wakeup
+        checkAndLogBGTaskChainHealth()
+
         // Schedule the midnight reset task for the next midnight
         scheduleMidnightReset()
 
@@ -180,32 +199,40 @@ class ChildBackgroundSyncService: ObservableObject {
         #endif
         bgtaskLog("USAGE_UPLOAD — task started")
 
-        // Skip if subscription expired
-        guard SubscriptionManager.shared.hasAccess else {
-            #if DEBUG
-            print("[ChildBackgroundSyncService] ⏭️ Skipping upload - subscription expired")
-            #endif
-            bgtaskLog("USAGE_UPLOAD — skipped (subscription expired)")
-            task.setTaskCompleted(success: true)
-            return
-        }
-
-        // Check if still paired with parent before syncing
-        guard DevicePairingService.shared.hasValidPairing() else {
-            #if DEBUG
-            print("[ChildBackgroundSyncService] ⏭️ Skipping upload - no valid pairing")
-            #endif
-            bgtaskLog("USAGE_UPLOAD — skipped (no valid pairing)")
-            task.setTaskCompleted(success: true) // Complete without error since unpaired is expected state
-            return
-        }
-
+        // expirationHandler set before async Task so iOS can always cancel cleanly
         task.expirationHandler = {
             self.bgtaskLog("USAGE_UPLOAD — EXPIRED (iOS killed before completion)")
             task.setTaskCompleted(success: false)
         }
 
         Task {
+            // Piggyback: maintain monitoring window regardless of subscription status.
+            // BGProcessingTask runs reliably (~30 min overnight) while BGAppRefreshTask
+            // is throttled to zero on this device — this is the primary monitoring refresh path.
+            await self.performMonitoringMaintenanceIfNeeded()
+
+            // Skip upload if subscription expired
+            guard SubscriptionManager.shared.hasAccess else {
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ⏭️ Skipping upload - subscription expired")
+                #endif
+                self.bgtaskLog("USAGE_UPLOAD — skipped (subscription expired)")
+                self.scheduleNextUsageUpload()
+                self.scheduleMonitoringRefresh()
+                task.setTaskCompleted(success: true)
+                return
+            }
+
+            // Check if still paired with parent before syncing
+            guard DevicePairingService.shared.hasValidPairing() else {
+                #if DEBUG
+                print("[ChildBackgroundSyncService] ⏭️ Skipping upload - no valid pairing")
+                #endif
+                self.bgtaskLog("USAGE_UPLOAD — skipped (no valid pairing)")
+                task.setTaskCompleted(success: true)
+                return
+            }
+
             do {
                 // Upload usage records to parent's shared zone (Task 7)
                 try await self.uploadUsageRecordsToParent()
@@ -218,8 +245,6 @@ class ChildBackgroundSyncService: ObservableObject {
 
                 // Schedule next task
                 self.scheduleNextUsageUpload()
-                // Piggyback: any BGTask that runs reschedules monitoring refresh
-                // so the chain survives even if dedicated monitoring-refresh slots are skipped
                 self.scheduleMonitoringRefresh()
 
                 self.bgtaskLog("USAGE_UPLOAD — completed successfully")
@@ -239,6 +264,33 @@ class ChildBackgroundSyncService: ObservableObject {
                 task.setTaskCompleted(success: false)
             }
         }
+    }
+
+    /// Piggyback monitoring maintenance onto the usage-upload BGProcessingTask.
+    /// Called every time usage-upload fires (~30 min), regardless of subscription status.
+    /// BGAppRefreshTask (monitoring-refresh) never runs on this device due to iOS throttling,
+    /// so this is the primary path for intraday window advancement and midnight recovery.
+    private func performMonitoringMaintenanceIfNeeded() async {
+        guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
+
+        let midnightPending = defaults.bool(forKey: "midnight_pending_refresh")
+        let lastRestart = defaults.double(forKey: "monitoring_restart_timestamp")
+        let minutesSinceRestart = lastRestart > 0
+            ? (Date().timeIntervalSince1970 - lastRestart) / 60
+            : Double.infinity
+        let intradayNeeded = minutesSinceRestart > 25
+
+        guard midnightPending || intradayNeeded else {
+            bgtaskLog("UPLOAD_MONITORING — skipped (lastRestart=\(Int(minutesSinceRestart))min ago, midnight=\(midnightPending))")
+            return
+        }
+
+        let reason = midnightPending
+            ? "usage-upload midnight recovery"
+            : "usage-upload intraday refresh"
+        bgtaskLog("UPLOAD_MONITORING — starting \(reason) (lastRestart=\(Int(minutesSinceRestart))min ago)")
+        await ScreenTimeService.shared.restartMonitoring(reason: reason)
+        bgtaskLog("UPLOAD_MONITORING — completed")
     }
     
     /// Handle configuration check background task
@@ -435,7 +487,15 @@ class ChildBackgroundSyncService: ObservableObject {
         #if DEBUG
         print("[ChildBackgroundSyncService] 🕐 Handling midnight reset task at \(Date())")
         #endif
-        bgtaskLog("MIDNIGHT_RESET — task started")
+        // D3: Track run count and timestamp
+        if let defaults = UserDefaults(suiteName: appGroupID) {
+            let count = defaults.integer(forKey: "midnight_reset_run_count") + 1
+            defaults.set(count, forKey: "midnight_reset_run_count")
+            defaults.set(Date().timeIntervalSince1970, forKey: "midnight_reset_last_run")
+            bgtaskLog("MIDNIGHT_RESET — task started (run #\(count))")
+        } else {
+            bgtaskLog("MIDNIGHT_RESET — task started")
+        }
 
         task.expirationHandler = {
             self.bgtaskLog("MIDNIGHT_RESET — EXPIRED (iOS killed before completion)")
@@ -513,6 +573,18 @@ class ChildBackgroundSyncService: ObservableObject {
             #if DEBUG
             print("[ChildBackgroundSyncService] 🕐 Scheduled midnight reset for \(formattedDate)")
             #endif
+            // D2+D3: Log success with bgRefresh status and update counters
+            #if canImport(UIKit)
+            let bgRefreshOK = UIApplication.shared.backgroundRefreshStatus == .available
+            bgtaskLog("MIDNIGHT_SCHEDULE — next reset scheduled for \(formattedDate) [bgRefresh=\(bgRefreshOK ? "OK" : "DENIED")]")
+            #else
+            bgtaskLog("MIDNIGHT_SCHEDULE — next reset scheduled for \(formattedDate)")
+            #endif
+            if let defaults = UserDefaults(suiteName: appGroupID) {
+                let count = defaults.integer(forKey: "midnight_reset_submit_count") + 1
+                defaults.set(count, forKey: "midnight_reset_submit_count")
+                defaults.set(Date().timeIntervalSince1970, forKey: "midnight_reset_last_scheduled")
+            }
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule midnight reset: \(error)")
@@ -863,11 +935,14 @@ class ChildBackgroundSyncService: ObservableObject {
     /// lost until the next restart. With a 60-threshold window, exhaustion occurs when an app
     /// accumulates >60 min since the last scheduleActivity(). Refreshing every 45 min prevents this.
     func handleMonitoringRefreshTask(_ task: BGAppRefreshTask) {
-        bgtaskLog("MONITORING_REFRESH — task started")
-
-        // Store timestamp for the diagnostics row subtitle ("Last run: X min ago")
+        // D3: Track run count and timestamp
         if let defaults = UserDefaults(suiteName: appGroupID) {
+            let count = defaults.integer(forKey: "monitoring_refresh_run_count") + 1
+            defaults.set(count, forKey: "monitoring_refresh_run_count")
             defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_refresh_last_run")
+            bgtaskLog("MONITORING_REFRESH — task started (run #\(count))")
+        } else {
+            bgtaskLog("MONITORING_REFRESH — task started")
         }
 
         task.expirationHandler = {
@@ -892,9 +967,53 @@ class ChildBackgroundSyncService: ObservableObject {
 
         do {
             try BGTaskScheduler.shared.submit(request)
+            // D2+D3: Log with bgRefresh status and update submit counters
+            #if canImport(UIKit)
+            let bgRefreshOK = UIApplication.shared.backgroundRefreshStatus == .available
+            bgtaskLog("MONITORING_REFRESH_SCHEDULE — submitted for +30min [bgRefresh=\(bgRefreshOK ? "OK" : "DENIED")]")
+            #else
             bgtaskLog("MONITORING_REFRESH_SCHEDULE — submitted for +30min")
+            #endif
+            if let defaults = UserDefaults(suiteName: appGroupID) {
+                let count = defaults.integer(forKey: "monitoring_refresh_submit_count") + 1
+                defaults.set(count, forKey: "monitoring_refresh_submit_count")
+                defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_refresh_last_scheduled")
+            }
         } catch {
             bgtaskLog("MONITORING_REFRESH_SCHEDULE — FAILED: \(error)")
+        }
+    }
+
+    // MARK: - BGTask Chain Health Diagnostics
+
+    /// D4: Log chain health — submitted vs ran counts and whether chains are still alive.
+    /// Called on every cold launch and BGTask wakeup via registerBackgroundTasks().
+    private func checkAndLogBGTaskChainHealth() {
+        guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
+        let now = Date().timeIntervalSince1970
+
+        // Monitoring-refresh chain
+        let refreshSubmit = defaults.integer(forKey: "monitoring_refresh_submit_count")
+        let refreshRun = defaults.integer(forKey: "monitoring_refresh_run_count")
+        let refreshLastRun = defaults.double(forKey: "monitoring_refresh_last_run")
+        if refreshSubmit > 0 {
+            let runSuffix = refreshRun == 0 ? " — NEVER RAN" : ""
+            let lastRunStr = refreshLastRun > 0
+                ? "\(Int((now - refreshLastRun) / 3600))h ago"
+                : "never"
+            bgtaskLog("REFRESH_HEALTH — submitted=\(refreshSubmit) ran=\(refreshRun)\(runSuffix) lastRun=\(lastRunStr)")
+        }
+
+        // Midnight-reset chain
+        let midnightSubmit = defaults.integer(forKey: "midnight_reset_submit_count")
+        let midnightRun = defaults.integer(forKey: "midnight_reset_run_count")
+        let midnightLastScheduled = defaults.double(forKey: "midnight_reset_last_scheduled")
+        let hoursSinceScheduled = midnightLastScheduled > 0 ? (now - midnightLastScheduled) / 3600 : -1
+        if midnightLastScheduled > 0 && hoursSinceScheduled > 25 {
+            bgtaskLog("MIDNIGHT_HEALTH — chain BROKEN (last scheduled \(Int(hoursSinceScheduled))h ago, submitted=\(midnightSubmit) ran=\(midnightRun))")
+        } else if midnightSubmit > 0 {
+            let schedStr = midnightLastScheduled > 0 ? "\(Int(hoursSinceScheduled))h ago" : "never"
+            bgtaskLog("MIDNIGHT_HEALTH — OK (submitted=\(midnightSubmit) ran=\(midnightRun) lastScheduled=\(schedStr))")
         }
     }
 

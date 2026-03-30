@@ -1261,13 +1261,31 @@ private extension SettingsTabView {
     }
 
     private func monitoringRefreshSubtitle() -> String {
-        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
-              defaults.object(forKey: "monitoring_refresh_last_run") != nil else {
-            return "Not yet fired"
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return "Not yet tracked"
         }
-        let ts = defaults.double(forKey: "monitoring_refresh_last_run")
-        let elapsed = Int(-Date(timeIntervalSince1970: ts).timeIntervalSinceNow / 60)
-        return "Last run: \(elapsed) min ago"
+        let submitted = defaults.integer(forKey: "monitoring_refresh_submit_count")
+        let ran = defaults.integer(forKey: "monitoring_refresh_run_count")
+        let lastRun = defaults.double(forKey: "monitoring_refresh_last_run")
+
+        let bgStatus: String
+        switch UIApplication.shared.backgroundRefreshStatus {
+        case .available:   bgStatus = "bgRefresh=OK"
+        case .denied:      bgStatus = "bgRefresh=DENIED ⚠️"
+        case .restricted:  bgStatus = "bgRefresh=RESTRICTED ⚠️"
+        @unknown default:  bgStatus = "bgRefresh=?"
+        }
+
+        guard submitted > 0 else { return bgStatus }
+
+        var runInfo = "submitted \(submitted)×, ran \(ran)×"
+        if lastRun > 0 {
+            let elapsed = Int(-Date(timeIntervalSince1970: lastRun).timeIntervalSinceNow / 60)
+            runInfo += " · last \(elapsed)m ago"
+        } else if ran == 0 {
+            runInfo += " ⚠️"
+        }
+        return "\(runInfo) · \(bgStatus)"
     }
 
 }

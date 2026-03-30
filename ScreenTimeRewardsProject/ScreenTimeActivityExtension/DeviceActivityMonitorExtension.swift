@@ -861,11 +861,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Build 60 new thresholds above current usage
             for minuteNumber in (currentMin + 1)...(currentMin + 60) {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableHashStr).min.\(minuteNumber)")
-                let event = DeviceActivityEvent(
-                    applications: [token],
-                    threshold: DateComponents(minute: minuteNumber),
-                    includesPastActivity: true
-                )
+                let event: DeviceActivityEvent
+                if #available(iOS 17.4, *) {
+                    event = DeviceActivityEvent(
+                        applications: [token],
+                        threshold: DateComponents(minute: minuteNumber),
+                        includesPastActivity: true
+                    )
+                } else {
+                    event = DeviceActivityEvent(
+                        applications: [token],
+                        threshold: DateComponents(minute: minuteNumber)
+                    )
+                }
                 events[eventName] = event
 
                 // Write primitive map keys so the extension can process new events when they fire
