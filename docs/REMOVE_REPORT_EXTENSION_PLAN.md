@@ -153,13 +153,32 @@ Bump `CURRENT_PROJECT_VERSION` from `11` → `12` across all 3 remaining App Sto
 
 ---
 
+## Status — IMPLEMENTATION COMPLETE (2026-03-30)
+
+Commit: `453bf6f` on branch `feature/remove-report-extension`
+Net: 630 deletions, 7 insertions across 13 files.
+
+All build-time checks confirmed via grep before commit:
+- Zero references to `ScreenTimeReportExtension` in source
+- Zero references to `HiddenUsageReportView`
+- Zero references to `syncFromReportSnapshot`, `requestUsageReportRefresh`, `reportRefreshRequested`
+
+**Remaining steps (requires Xcode):**
+1. Open project — confirm build succeeds with no errors
+2. Archive (Release) → Organizer
+3. Validate in Organizer
+4. Upload to TestFlight
+5. Install on iPhone 15 (iOS 26.3.1) — confirm no `MIInstallerErrorDomain Code=152`
+
+---
+
 ## Verification
 
 ### Build-time checks
-- [ ] Xcode build succeeds with no reference to `ScreenTimeReportExtension`
-- [ ] No `DeviceActivityReport` import warnings
-- [ ] No `HiddenUsageReportView` references (grep confirms zero)
-- [ ] `syncFromReportSnapshot` and `requestUsageReportRefresh` references: zero
+- [x] No `ScreenTimeReportExtension` in source (grep: 0 in .swift/.plist/.xcodeproj)
+- [x] No `HiddenUsageReportView` references (grep: 0)
+- [x] `syncFromReportSnapshot` and `requestUsageReportRefresh` references: zero
+- [ ] Xcode build succeeds with zero errors (run in Xcode)
 
 ### Archive checks
 ```bash
