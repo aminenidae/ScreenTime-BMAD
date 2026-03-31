@@ -1173,14 +1173,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // This runs on every foreground (via refreshFromExtension), much more reliable than
             // waiting for extension events to trigger correction.
             // UP-only: only increase usage to match iOS ground truth, never decrease
-            // Skip for Reward apps — they're protected by SKIP_SHIELDED in extension,
-            // so any catchup_max for a reward app is phantom (from catch-up bursts).
+            // For Reward apps: only skip correction if the app is CURRENTLY SHIELDED (phantom catch-up).
+            // Unshielded reward apps have real earned-time usage — apply correction so BlockingCoordinator
+            // can accurately re-shield after earned time expires.
             let catchupMaxKey = "catchup_max_\(logicalID)"
             let catchupMax = defaults.integer(forKey: catchupMaxKey)
             if catchupMax > 0 {
-                if usage.category == .reward {
+                if usage.category == .reward && isLogicalIDShielded(logicalID) {
                     #if DEBUG
-                    print("[ScreenTimeService] CATCHUP_SKIP_REWARD \(logicalID.prefix(8))... clearing phantom catchup_max=\(catchupMax)s")
+                    print("[ScreenTimeService] CATCHUP_SKIP_REWARD_SHIELDED \(logicalID.prefix(8))... clearing phantom catchup_max=\(catchupMax)s (app is shielded)")
                     #endif
                     defaults.removeObject(forKey: catchupMaxKey)
                 } else {

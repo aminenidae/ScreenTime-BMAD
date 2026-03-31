@@ -223,13 +223,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 }
             }
 
-            // Reset lastThreshold for all apps — iOS resets its counter on daily restart
-            for trackedAppID in trackedAppIDs {
-                defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
-            }
-
-            if defaults.bool(forKey: "midnight_diagnostic_active") {
-                midnightDiagnosticLog("MIDNIGHT_RESET_COMPLETE — lastThreshold reset for \(trackedAppIDs.count) apps", defaults: defaults)
+            // Reset lastThreshold ONLY at genuine midnight — iOS resets its threshold counter at day rollover.
+            // Same-day intraday restarts must NOT reset lastThreshold: Filter 5 (SKIP_REGRESSION) relies on
+            // lastThreshold persisting across same-day restarts to block the spurious second INTERVAL_START
+            // burst where iOS fires ALL registered thresholds regardless of real cumulative usage.
+            if lastDiagDate != todayStr {
+                for trackedAppID in trackedAppIDs {
+                    defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
+                }
+                if defaults.bool(forKey: "midnight_diagnostic_active") {
+                    midnightDiagnosticLog("MIDNIGHT_RESET_COMPLETE — lastThreshold reset for \(trackedAppIDs.count) apps", defaults: defaults)
+                }
             }
 
             // Evaluate shields on monitoring start — usage data is already correct
@@ -504,7 +508,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Filter 4: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
-        if category == "Reward", let configs = shieldConfigs {
+        if category == "Reward" {
+            guard let configs = shieldConfigs else {
+                // shieldConfigs unavailable — can't verify shield state. Block reward app events as a
+                // safe default: false negatives (missing earned-time events) are safer than false
+                // positives (recording usage for a blocked app).
+                debugLog("SKIP_SHIELDED_FALLBACK appID=\(appID.prefix(8))... shieldConfigs nil, blocking reward app event", defaults: defaults)
+                return false
+            }
             for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
                 if let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
                     let currentShields = managedSettingsStore.shield.applications ?? Set()
