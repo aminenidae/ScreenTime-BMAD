@@ -191,7 +191,7 @@ private struct PathOptionCard: View {
     private var title: String {
         switch path {
         case .solo: return "On This Device Only"
-        case .family: return "From My Own Device"
+        case .family: return "From a Parent Device"
         }
     }
 
