@@ -112,14 +112,6 @@ class ChildBackgroundSyncService: ObservableObject {
             self.handleShieldStateSyncTask(task as! BGAppRefreshTask)
         }
 
-        // Register intra-day monitoring refresh task (advances sliding window before threshold exhaustion)
-        BGTaskScheduler.shared.register(
-            forTaskWithIdentifier: "com.screentimerewards.monitoring-refresh",
-            using: nil
-        ) { task in
-            self.handleMonitoringRefreshTask(task as! BGAppRefreshTask)
-        }
-
         #if DEBUG
         print("[ChildBackgroundSyncService] Background tasks registered")
         #endif
@@ -145,9 +137,6 @@ class ChildBackgroundSyncService: ObservableObject {
 
         // Schedule initial subscription verification
         scheduleSubscriptionVerification()
-
-        // Schedule intra-day monitoring refresh (prevents threshold exhaustion mid-day)
-        scheduleMonitoringRefresh()
 
         // NOTE: shield-state-sync is no longer auto-scheduled on startup.
         // Shield states are now uploaded as part of the usage-upload task (every 30 min)
@@ -218,7 +207,6 @@ class ChildBackgroundSyncService: ObservableObject {
                 #endif
                 self.bgtaskLog("USAGE_UPLOAD — skipped (subscription expired)")
                 self.scheduleNextUsageUpload()
-                self.scheduleMonitoringRefresh()
                 task.setTaskCompleted(success: true)
                 return
             }
@@ -245,7 +233,6 @@ class ChildBackgroundSyncService: ObservableObject {
 
                 // Schedule next task
                 self.scheduleNextUsageUpload()
-                self.scheduleMonitoringRefresh()
 
                 self.bgtaskLog("USAGE_UPLOAD — completed successfully")
                 task.setTaskCompleted(success: true)
@@ -268,8 +255,7 @@ class ChildBackgroundSyncService: ObservableObject {
 
     /// Piggyback monitoring maintenance onto the usage-upload BGProcessingTask.
     /// Called every time usage-upload fires (~30 min), regardless of subscription status.
-    /// BGAppRefreshTask (monitoring-refresh) never runs on this device due to iOS throttling,
-    /// so this is the primary path for intraday window advancement and midnight recovery.
+    /// Primary path for intraday window advancement and midnight recovery.
     private func performMonitoringMaintenanceIfNeeded() async {
         guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
 
@@ -525,8 +511,6 @@ class ChildBackgroundSyncService: ObservableObject {
             self.bgtaskLog("MIDNIGHT_RESET — restartMonitoring completed, scheduling next")
 
             self.scheduleMidnightReset()
-            self.scheduleMonitoringRefresh()   // re-seed chain for new day
-            self.bgtaskLog("MIDNIGHT_RESET — monitoring refresh seeded")
             self.bgtaskLog("MIDNIGHT_RESET — task completed successfully")
             task.setTaskCompleted(success: true)
         }
@@ -927,63 +911,6 @@ class ChildBackgroundSyncService: ObservableObject {
         }
     }
 
-    // MARK: - Intra-Day Monitoring Refresh
-
-    /// Handle intra-day monitoring refresh background task.
-    /// Calls restartMonitoring() to advance the sliding window before threshold exhaustion.
-    /// Exhaustion causes iOS to fire NO_MAPPING events (no registered handler) — usage is silently
-    /// lost until the next restart. With a 60-threshold window, exhaustion occurs when an app
-    /// accumulates >60 min since the last scheduleActivity(). Refreshing every 45 min prevents this.
-    func handleMonitoringRefreshTask(_ task: BGAppRefreshTask) {
-        // D3: Track run count and timestamp
-        if let defaults = UserDefaults(suiteName: appGroupID) {
-            let count = defaults.integer(forKey: "monitoring_refresh_run_count") + 1
-            defaults.set(count, forKey: "monitoring_refresh_run_count")
-            defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_refresh_last_run")
-            bgtaskLog("MONITORING_REFRESH — task started (run #\(count))")
-        } else {
-            bgtaskLog("MONITORING_REFRESH — task started")
-        }
-
-        task.expirationHandler = {
-            self.bgtaskLog("MONITORING_REFRESH — EXPIRED (iOS killed before completion)")
-            task.setTaskCompleted(success: false)
-        }
-
-        Task {
-            await ScreenTimeService.shared.restartMonitoring(reason: "intraday-refresh")
-            self.bgtaskLog("MONITORING_REFRESH — restartMonitoring completed")
-            self.scheduleMonitoringRefresh()
-            self.bgtaskLog("MONITORING_REFRESH — task completed successfully")
-            task.setTaskCompleted(success: true)
-        }
-    }
-
-    /// Schedule the next intra-day monitoring refresh (45 minutes from now).
-    /// 45 min gives 15 min headroom before the 60-threshold window exhausts.
-    func scheduleMonitoringRefresh() {
-        let request = BGAppRefreshTaskRequest(identifier: "com.screentimerewards.monitoring-refresh")
-        request.earliestBeginDate = Date(timeIntervalSinceNow: 30 * 60)  // 30 min (was 45 min)
-
-        do {
-            try BGTaskScheduler.shared.submit(request)
-            // D2+D3: Log with bgRefresh status and update submit counters
-            #if canImport(UIKit)
-            let bgRefreshOK = UIApplication.shared.backgroundRefreshStatus == .available
-            bgtaskLog("MONITORING_REFRESH_SCHEDULE — submitted for +30min [bgRefresh=\(bgRefreshOK ? "OK" : "DENIED")]")
-            #else
-            bgtaskLog("MONITORING_REFRESH_SCHEDULE — submitted for +30min")
-            #endif
-            if let defaults = UserDefaults(suiteName: appGroupID) {
-                let count = defaults.integer(forKey: "monitoring_refresh_submit_count") + 1
-                defaults.set(count, forKey: "monitoring_refresh_submit_count")
-                defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_refresh_last_scheduled")
-            }
-        } catch {
-            bgtaskLog("MONITORING_REFRESH_SCHEDULE — FAILED: \(error)")
-        }
-    }
-
     // MARK: - BGTask Chain Health Diagnostics
 
     /// D4: Log chain health — submitted vs ran counts and whether chains are still alive.
@@ -991,18 +918,6 @@ class ChildBackgroundSyncService: ObservableObject {
     private func checkAndLogBGTaskChainHealth() {
         guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
         let now = Date().timeIntervalSince1970
-
-        // Monitoring-refresh chain
-        let refreshSubmit = defaults.integer(forKey: "monitoring_refresh_submit_count")
-        let refreshRun = defaults.integer(forKey: "monitoring_refresh_run_count")
-        let refreshLastRun = defaults.double(forKey: "monitoring_refresh_last_run")
-        if refreshSubmit > 0 {
-            let runSuffix = refreshRun == 0 ? " — NEVER RAN" : ""
-            let lastRunStr = refreshLastRun > 0
-                ? "\(Int((now - refreshLastRun) / 3600))h ago"
-                : "never"
-            bgtaskLog("REFRESH_HEALTH — submitted=\(refreshSubmit) ran=\(refreshRun)\(runSuffix) lastRun=\(lastRunStr)")
-        }
 
         // Midnight-reset chain
         let midnightSubmit = defaults.integer(forKey: "midnight_reset_submit_count")

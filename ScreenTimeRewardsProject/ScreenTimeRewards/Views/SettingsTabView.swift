@@ -147,7 +147,6 @@ struct SettingsTabView: View {
                             monitoringLogRow
                             midnightDiagnosticLogRow
                             bgtaskLogRow
-                            monitoringRefreshLogRow
                         }
                         #endif
 
@@ -1213,76 +1212,6 @@ private extension SettingsTabView {
             )
         }
         .buttonStyle(PlainButtonStyle())
-    }
-
-    var monitoringRefreshLogRow: some View {
-        NavigationLink(destination: BackgroundTaskLogView(initialFilter: "MONITORING_REFRESH")) {
-            HStack(spacing: 16) {
-                ZStack {
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(Color.teal.opacity(0.15))
-                        .frame(width: 44, height: 44)
-
-                    Image(systemName: "arrow.triangle.2.circlepath")
-                        .font(.system(size: 20))
-                        .foregroundColor(.teal)
-                }
-
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Monitoring Refresh Log")
-                        .font(.system(size: 15, weight: .semibold))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
-
-                    Text(monitoringRefreshSubtitle())
-                        .font(.system(size: 12, weight: .medium))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
-                }
-
-                Spacer()
-
-                Image(systemName: "chevron.right")
-                    .font(.system(size: 12, weight: .semibold))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
-            }
-            .padding(14)
-            .background(
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(AppTheme.card(for: colorScheme))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
-                    )
-            )
-        }
-        .buttonStyle(PlainButtonStyle())
-    }
-
-    private func monitoringRefreshSubtitle() -> String {
-        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
-            return "Not yet tracked"
-        }
-        let submitted = defaults.integer(forKey: "monitoring_refresh_submit_count")
-        let ran = defaults.integer(forKey: "monitoring_refresh_run_count")
-        let lastRun = defaults.double(forKey: "monitoring_refresh_last_run")
-
-        let bgStatus: String
-        switch UIApplication.shared.backgroundRefreshStatus {
-        case .available:   bgStatus = "bgRefresh=OK"
-        case .denied:      bgStatus = "bgRefresh=DENIED ⚠️"
-        case .restricted:  bgStatus = "bgRefresh=RESTRICTED ⚠️"
-        @unknown default:  bgStatus = "bgRefresh=?"
-        }
-
-        guard submitted > 0 else { return bgStatus }
-
-        var runInfo = "submitted \(submitted)×, ran \(ran)×"
-        if lastRun > 0 {
-            let elapsed = Int(-Date(timeIntervalSince1970: lastRun).timeIntervalSinceNow / 60)
-            runInfo += " · last \(elapsed)m ago"
-        } else if ran == 0 {
-            runInfo += " ⚠️"
-        }
-        return "\(runInfo) · \(bgStatus)"
     }
 
 }
