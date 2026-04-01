@@ -482,23 +482,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if midnightDiagActive { midnightDiagnosticLog("DIAG_RESTART_RESET resetApps=\(trackedAppIDs.count)", defaults: defaults) }
         }
 
-        // Filter 2: 55s per-app cooldown
-        // Same app can't legitimately fire twice in <55s (thresholds are 60s apart)
-        // Different apps CAN fire close together when user switches between apps
-        // EXCEPTION: iOS deferred batch events where threshold > lastThreshold represent
-        // real usage that was queued while extension was killed — let these through.
-        // Filter 5 (threshold progression) handles ordering; delta calculation handles amounts.
-        let perAppCooldownKey = "last_recorded_\(appID)"
-        let lastRecordedForApp = defaults.double(forKey: perAppCooldownKey)
-        let timeSinceLastForApp = nowTimestamp - lastRecordedForApp
-        let lastThresholdForCooldown = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
-        if timeSinceLastForApp < 55.0 && lastRecordedForApp > 0 && thresholdSeconds <= lastThresholdForCooldown {
-            debugLog("SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s < 55s, threshold=\(thresholdSeconds)s <= lastThresh=\(lastThresholdForCooldown)s (dropped)", defaults: defaults)
-            if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_COOLDOWN appID=\(appID.prefix(8))... timeSinceLastForApp=\(Int(timeSinceLastForApp))s thresh=\(thresholdSeconds)s", defaults: defaults) }
-            return false
-        }
-
-        // Filter 3: Minimum threshold validation
+        // Filter 2: Minimum threshold validation
         // All configured thresholds are >= 60s (1 minute minimum)
         // Values below 60 indicate OS regression (0-minute phantom fires)
         if thresholdSeconds < 60 {
@@ -506,7 +490,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Filter 4: Shielded reward app — user can't use a blocked app, so events are phantom
+        // Filter 3: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         if category == "Reward" {
             guard let configs = shieldConfigs else {
@@ -528,7 +512,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 5: Threshold progression
+        // Filter 4: Threshold progression
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
@@ -633,7 +617,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.removeObject(forKey: "catchup_max_\(appID)")
 
             trackAppID(appID, defaults: defaults)
-            defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
             defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
 
             // Check if this threshold reached the top of the registered window → rebuild
@@ -690,7 +673,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(currentHourlySeconds + delta, forKey: "ext_usage_\(appID)_hourly_\(hour)")
 
         trackAppID(appID, defaults: defaults)
-        defaults.set(nowTimestamp, forKey: "last_recorded_\(appID)")
         defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
 
         // Check if this threshold reached the top of the registered window → rebuild
