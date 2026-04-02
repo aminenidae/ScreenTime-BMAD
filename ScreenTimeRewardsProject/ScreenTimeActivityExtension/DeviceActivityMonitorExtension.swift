@@ -170,11 +170,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(true, forKey: "midnight_pending_refresh")
                 defaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
 
-                // Clear stale catchup_max — yesterday's values would corrupt new day
-                for diagAppID in diagTrackedIDs {
-                    defaults.removeObject(forKey: "catchup_max_\(diagAppID)")
-                }
-                midnightDiagnosticLog("MIDNIGHT_PENDING_SET — blocking events until scheduleActivity, cleared catchup_max for \(diagTrackedIDs.count) apps", defaults: defaults)
+                midnightDiagnosticLog("MIDNIGHT_PENDING_SET — blocking events until scheduleActivity for \(diagTrackedIDs.count) apps", defaults: defaults)
             } else if defaults.bool(forKey: "midnight_diagnostic_active") {
                 // Non-midnight intervalDidStart (restart-triggered) — log it, don't clear
                 midnightDiagnosticLog("RESTART_INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
@@ -183,45 +179,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
 
-            // Load shield configs early — needed for both catchup_max correction and shield evaluation
-            let shieldConfigs: ExtensionShieldConfigsMinimal? = {
-                guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
-                return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
-            }()
-
-            // Apply pending catchup_max corrections ONLY for same-day restarts.
-            // At midnight, stale catchup_max was cleared above — nothing to apply.
-            // This handles the case where extension was killed mid-day and catchup_max
-            // was captured from legitimate SKIP_RESTART events.
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-            if lastDiagDate == todayStr {
-                for trackedAppID in trackedAppIDs {
-                    let catchupMaxKey = "catchup_max_\(trackedAppID)"
-                    let catchupMax = defaults.integer(forKey: catchupMaxKey)
-                    if catchupMax > 0 {
-                        // Skip correction for shielded reward apps — phantom catch-ups
-                        if isShieldedRewardApp(trackedAppID, defaults: defaults, shieldConfigs: shieldConfigs) {
-                            lifecycleLog("CATCHUP_SKIP_SHIELDED \(trackedAppID.prefix(8))... clearing phantom catchup_max=\(catchupMax)s", defaults: defaults)
-                            defaults.removeObject(forKey: catchupMaxKey)
-                            continue
-                        }
-                        let currentToday = defaults.integer(forKey: "usage_\(trackedAppID)_today")
-                        if catchupMax > currentToday {
-                            let correction = catchupMax - currentToday
-                            defaults.set(catchupMax, forKey: "usage_\(trackedAppID)_today")
-                            defaults.set(catchupMax, forKey: "ext_usage_\(trackedAppID)_today")
-                            let currentTotal = defaults.integer(forKey: "ext_usage_\(trackedAppID)_total")
-                            defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(trackedAppID)_total")
-                            defaults.set(max(0, currentTotal + correction), forKey: "usage_\(trackedAppID)_total")
-                            lifecycleLog("CATCHUP_CORRECTION \(trackedAppID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
-                        }
-                        let dateString = Self.dayDateFormatter.string(from: Date())
-                        defaults.set(dateString, forKey: "ext_usage_\(trackedAppID)_date")
-                        defaults.set(Date().timeIntervalSince1970, forKey: "ext_usage_\(trackedAppID)_timestamp")
-                        defaults.removeObject(forKey: catchupMaxKey)
-                    }
-                }
-            }
 
             // Reset lastThreshold ONLY at genuine midnight — iOS resets its threshold counter at day rollover.
             // Same-day intraday restarts must NOT reset lastThreshold: Filter 5 (SKIP_REGRESSION) relies on
@@ -237,7 +195,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
 
             // Evaluate shields on monitoring start — usage data is already correct
-            // from previous session. Don't wait for events (absorb window blocks first 60s).
+            // from previous session. Don't wait for events.
+            let shieldConfigs: ExtensionShieldConfigsMinimal? = {
+                guard let data = defaults.data(forKey: "extensionShieldConfigs") else { return nil }
+                return try? Self.jsonDecoder.decode(ExtensionShieldConfigsMinimal.self, from: data)
+            }()
             checkAndUpdateShields(configs: shieldConfigs, defaults: defaults)
             checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
             debugLog("INTERVAL_START_SHIELD_CHECK completed", defaults: defaults)
@@ -437,52 +399,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 1: 60s restart window with catchup_max capture
-        // After scheduleActivity() registers fresh thresholds, iOS fires catch-ups for real
-        // today usage. Capture the max threshold per app — safe because SKIP_MIDNIGHT blocks
-        // stale cross-midnight catch-ups upstream. Only legitimate post-scheduleActivity
-        // catch-ups reach here.
-        let restartTimestamp = defaults.double(forKey: "monitoring_restart_timestamp")
-        let timeSinceRestart = nowTimestamp - restartTimestamp
-        if timeSinceRestart < 60.0 && restartTimestamp > 0 {
-            // Skip catchup_max capture for shielded reward apps — user can't use a blocked app,
-            // so any catch-up events are phantom. Prevents phantom inflation of reward app usage.
-            if isShieldedRewardApp(appID, defaults: defaults, shieldConfigs: shieldConfigs) {
-                debugLog("SKIP_RESTART_SHIELDED appID=\(appID.prefix(8))... shielded reward app, skipping catchup_max capture thresh=\(thresholdSeconds)s", defaults: defaults)
-            } else {
-                let catchupMaxKey = "catchup_max_\(appID)"
-                let currentMax = defaults.integer(forKey: catchupMaxKey)
-                if thresholdSeconds > currentMax {
-                    defaults.set(thresholdSeconds, forKey: catchupMaxKey)
-                }
-                debugLog("SKIP_RESTART appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults)
-                if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_RESTART_CAPTURE appID=\(appID.prefix(8))... catchup_max=\(max(thresholdSeconds, currentMax))s timeSinceRestart=\(Int(timeSinceRestart))s", defaults: defaults) }
-            }
-            return false
-        }
-
-        // Post-restart: reset lastThreshold for all apps so threshold progression
-        // filter doesn't block genuine events (post-restart thresholds may be lower
-        // than pre-restart lastThreshold)
-        // Post-restart: reset lastThreshold for all apps so threshold progression
-        // filter doesn't block genuine events (post-restart thresholds may be lower
-        // than pre-restart lastThreshold). catchup_max is NOT consumed here — it's
-        // applied in the recording section (before-recording for same-day, NEW_DAY for new day).
-        let lastHandledRestart = defaults.double(forKey: "ext_lastHandledRestartTimestamp")
-        if restartTimestamp > lastHandledRestart && restartTimestamp > 0 {
-            let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-            debugLog("RESTART_RESET_BEGIN tracked_app_ids=[\(trackedAppIDs.map { String($0.prefix(8)) + "..." }.joined(separator: ","))] count=\(trackedAppIDs.count)", defaults: defaults)
-            for trackedAppID in trackedAppIDs {
-                let oldThresh = defaults.integer(forKey: "usage_\(trackedAppID)_lastThreshold")
-                debugLog("RESTART_RESET \(trackedAppID.prefix(8))... lastThresh=\(oldThresh) → 0", defaults: defaults)
-                defaults.set(0, forKey: "usage_\(trackedAppID)_lastThreshold")
-            }
-            defaults.set(restartTimestamp, forKey: "ext_lastHandledRestartTimestamp")
-            debugLog("RESTART_THRESHOLD_RESET: Reset lastThreshold for \(trackedAppIDs.count) apps", defaults: defaults)
-            if midnightDiagActive { midnightDiagnosticLog("DIAG_RESTART_RESET resetApps=\(trackedAppIDs.count)", defaults: defaults) }
-        }
-
-        // Filter 2: Minimum threshold validation
+        // Filter 1: Minimum threshold validation
         // All configured thresholds are >= 60s (1 minute minimum)
         // Values below 60 indicate OS regression (0-minute phantom fires)
         if thresholdSeconds < 60 {
@@ -490,7 +407,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Filter 3: Shielded reward app — user can't use a blocked app, so events are phantom
+        // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         if category == "Reward" {
             guard let configs = shieldConfigs else {
@@ -512,11 +429,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 4: Threshold progression
+        // Filter 3: Threshold progression
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
         let todayResetKey = "usage_\(appID)_reset"
         let lastResetTimestamp = defaults.double(forKey: todayResetKey)
 
@@ -536,32 +453,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // ═══════════ CATCHUP CORRECTION — apply before recording (SAME-DAY ONLY) ═══════════
-        // For new-day events, catchup_max is handled by the NEW_DAY branch below
-        // (must be read BEFORE resetAllDailyCounters clears it).
-        // For same-day events, adjust usage upward to match iOS ground truth.
-        let catchupMaxKey = "catchup_max_\(appID)"
-        let catchupMax = defaults.integer(forKey: catchupMaxKey)
-        if catchupMax > 0 && lastResetTimestamp >= startOfToday {
-            let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
-            if catchupMax > currentToday {
-                let correction = catchupMax - currentToday
-                defaults.set(catchupMax, forKey: "usage_\(appID)_today")
-                defaults.set(catchupMax, forKey: "ext_usage_\(appID)_today")
-                let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
-                defaults.set(max(0, currentTotal + correction), forKey: "ext_usage_\(appID)_total")
-                defaults.set(max(0, currentTotal + correction), forKey: "usage_\(appID)_total")
-                debugLog("CATCHUP_CORRECTION appID=\(appID.prefix(8))... \(currentToday)s → \(catchupMax)s (+\(correction)s)", defaults: defaults)
-                defaults.set(catchupMax, forKey: lastThresholdKey)
-                lastThreshold = catchupMax  // Update local var so delta calculation uses corrected base
-            }
-            // ALWAYS set date when catchup_max exists — value may already match but date could be missing
-            let corrDateStr = Self.dayDateFormatter.string(from: now)
-            defaults.set(corrDateStr, forKey: "ext_usage_\(appID)_date")
-            defaults.set(nowTimestamp, forKey: "ext_usage_\(appID)_timestamp")
-            defaults.removeObject(forKey: catchupMaxKey)
-        }
-
         // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
 
         let todayKey = "usage_\(appID)_today"
@@ -571,11 +462,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Day rollover check
         if lastResetTimestamp < startOfToday {
-            // Read catchup_max BEFORE resetAllDailyCounters clears it.
-            // catchup_max represents real today usage captured during SKIP_RESTART
-            // (post-scheduleActivity catch-ups that exactly match iOS cumulative).
-            let appCatchupMax = defaults.integer(forKey: "catchup_max_\(appID)")
-
             let globalResetKey = "global_daily_reset_timestamp"
             let lastGlobalReset = defaults.double(forKey: globalResetKey)
 
@@ -586,12 +472,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 notifyMainApp()
             }
 
-            // Initialize: catchup_max (real usage before restart) + 60s (this event)
-            // Example: YouTube had 25 min of real usage → catch-ups captured max=1500s
-            // initialUsage = 1500 + 60 = 1560s (26 min: 25 min catch-up + 1 min current)
-            let initialUsage = (appCatchupMax > 0 ? appCatchupMax : 0) + 60
-            debugLog("NEW_DAY appID=\(appID.prefix(8))... catchupMax=\(appCatchupMax)s initialUsage=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults)
-            if midnightDiagActive { midnightDiagnosticLog("DIAG_NEW_DAY appID=\(appID.prefix(8))... catchupMax=\(appCatchupMax)s initial=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults) }
+            // First event of the day records 60s (1 minute). Subsequent burst events
+            // use delta math (thresholdSeconds - lastThreshold) to accumulate correctly.
+            let initialUsage = 60
+            debugLog("NEW_DAY appID=\(appID.prefix(8))... initialUsage=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults)
+            if midnightDiagActive { midnightDiagnosticLog("DIAG_NEW_DAY appID=\(appID.prefix(8))... initial=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults) }
             defaults.set(initialUsage, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(initialUsage, forKey: totalKey)

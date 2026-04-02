@@ -46,15 +46,15 @@ enum RevenueCatConfig {
     /// Product identifiers matching App Store Connect
     enum ProductID {
         // Solo Plan (single device, no remote monitoring)
-        static let soloMonthly = "com.screentimerewards.solo.monthly"
+        static let soloMonthly = "SoloMonthly"
         static let soloAnnual = "com.screentimerewards.solo.annual"
 
         // Individual Plan (1 child + 2 parents, remote monitoring)
-        static let individualMonthly = "com.screentimerewards.individual.monthly"
+        static let individualMonthly = "IndividualMonthly"
         static let individualAnnual = "com.screentimerewards.individual.annual"
 
         // Family Plan (5 children + 2 parents each, remote monitoring)
-        static let familyMonthly = "com.screentimerewards.family.monthly"
+        static let familyMonthly = "FamilyMonthly"
         static let familyAnnual = "com.screentimerewards.family.annual"
 
         /// All product IDs for reference

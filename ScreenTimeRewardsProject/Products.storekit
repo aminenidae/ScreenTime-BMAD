@@ -88,7 +88,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.screentimerewards.solo.monthly",
+          "productID" : "SoloMonthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Solo Monthly",
           "subscriptionGroupID" : "21574498",
@@ -138,7 +138,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.screentimerewards.individual.monthly",
+          "productID" : "IndividualMonthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Individual Monthly",
           "subscriptionGroupID" : "21574498",
@@ -188,7 +188,7 @@
               "locale" : "en_US"
             }
           ],
-          "productID" : "com.screentimerewards.family.monthly",
+          "productID" : "FamilyMonthly",
           "recurringSubscriptionPeriod" : "P1M",
           "referenceName" : "Family Monthly",
           "subscriptionGroupID" : "21574498",

@@ -833,4 +833,10 @@ Remove `ScreenTimeReportExtension` entirely from the project:
 6. Bump `CURRENT_PROJECT_VERSION` to 12
 7. Archive → validate → upload
 
+---
+
+## RESOLVED — 2026-04-01
+
+Build 13 (Submission 6, submitted 2026-03-30) passed the Guideline 2.3 review. Apple confirmed the `ScreenTimeReportExtension` installation issue is resolved. New rejection received for unrelated issues — see `APP_REVIEW_SUBMISSION_7.md`.
+
 **Expected result:** No `AppexBundleContainsClassOrStoryboard` error. App installs on iOS 26.

@@ -524,11 +524,18 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     // MARK: - Package Helpers
 
-    /// Get a specific package from the current offering
+    /// Get a specific package, searching the current offering first then all offerings.
+    /// Needed because RevenueCat has separate offerings per tier (Solo/Individual/Family)
+    /// with only one set as default at a time.
     func package(for productID: String) -> Package? {
-        currentOffering?.availablePackages.first {
+        if let found = currentOffering?.availablePackages.first(where: {
             $0.storeProduct.productIdentifier == productID
+        }) {
+            return found
         }
+        return offerings?.all.values
+            .flatMap { $0.availablePackages }
+            .first { $0.storeProduct.productIdentifier == productID }
     }
 
     /// Get the monthly package for a tier

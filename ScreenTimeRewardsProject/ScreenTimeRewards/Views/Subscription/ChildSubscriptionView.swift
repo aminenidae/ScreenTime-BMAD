@@ -36,6 +36,17 @@ struct ChildSubscriptionView: View {
         }
     }
 
+    /// Actual savings % for annual vs monthly — avoids hardcoded inaccurate values
+    private var annualSavingsPercent: Int? {
+        guard let annual = subscriptionManager.annualPackage(for: .solo),
+              let monthly = subscriptionManager.monthlyPackage(for: .solo) else { return nil }
+        let annualPerMonth = (annual.storeProduct.price as Decimal) / 12
+        let monthlyPrice = monthly.storeProduct.price as Decimal
+        guard monthlyPrice > 0 else { return nil }
+        let savings = (1 - annualPerMonth / monthlyPrice) * 100
+        return Int((savings as NSDecimalNumber).doubleValue.rounded())
+    }
+
     /// Check if child is already paired with a parent
     /// Uses subscription tier - child only has .individual/.family if paired with parent
     private var isAlreadyPaired: Bool {
@@ -173,7 +184,7 @@ private extension ChildSubscriptionView {
                             .font(.system(size: 14, weight: .semibold))
 
                         if period == .annual {
-                            Text("Save ~50%")
+                            Text(annualSavingsPercent.map { "Save ~\($0)%" } ?? "Best Value")
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(selectedBillingPeriod == period ? .white : AppTheme.sunnyYellow)
                         }

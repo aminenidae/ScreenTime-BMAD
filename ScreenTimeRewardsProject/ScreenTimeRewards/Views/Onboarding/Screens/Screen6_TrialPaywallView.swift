@@ -27,27 +27,54 @@ struct Screen6_TrialPaywallView: View {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
-    /// Get the annual Family package from RevenueCat
-    private var annualPackage: Package? {
-        subscriptionManager.annualPackage(for: .family)
+    /// Tier to display based on onboarding path: solo for "On This Device Only", family for "From a Parent Device"
+    private var displayTier: SubscriptionTier {
+        onboarding.selectedPath == .solo ? .solo : .family
     }
 
-    /// Get the monthly Family package from RevenueCat
+    /// Get the annual package from RevenueCat for the selected tier
+    private var annualPackage: Package? {
+        subscriptionManager.annualPackage(for: displayTier)
+    }
+
+    /// Get the monthly package from RevenueCat for the selected tier
     private var monthlyPackage: Package? {
-        subscriptionManager.monthlyPackage(for: .family)
+        subscriptionManager.monthlyPackage(for: displayTier)
     }
 
     /// StoreKit fallback prices when RevenueCat unavailable
     private var annualFallbackPrice: String? {
-        subscriptionManager.storeKitAnnualPrice(for: .family)
+        subscriptionManager.storeKitAnnualPrice(for: displayTier)
     }
 
     private var monthlyFallbackPrice: String? {
-        subscriptionManager.storeKitMonthlyPrice(for: .family)
+        subscriptionManager.storeKitMonthlyPrice(for: displayTier)
     }
 
     private var annualFallbackProduct: Product? {
-        subscriptionManager.storeKitAnnualProduct(for: .family)
+        subscriptionManager.storeKitAnnualProduct(for: displayTier)
+    }
+
+    /// Fine print with dynamic post-trial price (Apple guideline 3.1.2(a))
+    private var finePrintText: String {
+        let period = selectedPlan == .annual ? "year" : "month"
+        let price: String? = selectedPlan == .annual
+            ? (annualPackage?.localizedPriceString ?? annualFallbackPrice)
+            : (monthlyPackage?.localizedPriceString ?? monthlyFallbackPrice)
+        if let price {
+            return "Free for 14 days, then \(price)/\(period). Cancel anytime in iPhone Settings."
+        }
+        return "Free for 14 days. Cancel anytime in iPhone Settings."
+    }
+
+    /// Actual savings % for annual vs monthly — avoids hardcoded inaccurate values
+    private var annualSavingsPercent: Int? {
+        guard let annual = annualPackage, let monthly = monthlyPackage else { return nil }
+        let annualPerMonth = (annual.storeProduct.price as Decimal) / 12
+        let monthlyPrice = monthly.storeProduct.price as Decimal
+        guard monthlyPrice > 0 else { return nil }
+        let savings = (1 - annualPerMonth / monthlyPrice) * 100
+        return Int((savings as NSDecimalNumber).doubleValue.rounded())
     }
 
     var body: some View {
@@ -93,6 +120,61 @@ struct Screen6_TrialPaywallView: View {
                     .frame(maxWidth: 500)
                     .padding(.horizontal, layout.horizontalPadding)
 
+                    // Trial timeline — Apple-endorsed trust pattern
+                    HStack(spacing: 0) {
+                        VStack(spacing: 4) {
+                            Image(systemName: "clock.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(AppTheme.vibrantTeal)
+                            Text("TODAY")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Free Trial")
+                                .font(.system(size: 9))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                        VStack(spacing: 4) {
+                            Image(systemName: "bell.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(AppTheme.sunnyYellow)
+                            Text("DAY 13")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("Reminder")
+                                .font(.system(size: 9))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        Image(systemName: "chevron.right")
+                            .font(.system(size: 10, weight: .semibold))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                        VStack(spacing: 4) {
+                            Image(systemName: "creditcard.fill")
+                                .font(.system(size: 16))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            Text("DAY 15")
+                                .font(.system(size: 10, weight: .bold))
+                            Text("First Charge")
+                                .font(.system(size: 9))
+                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                    .padding(12)
+                    .background(
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
+                            .fill(AppTheme.card(for: colorScheme))
+                    )
+                    .padding(.horizontal, layout.horizontalPadding)
+                    .frame(maxWidth: 500)
+
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
                         isSelected: selectedPlan == .annual,
@@ -100,6 +182,7 @@ struct Screen6_TrialPaywallView: View {
                         package: annualPackage,
                         fallbackPrice: annualFallbackPrice,
                         fallbackProduct: annualFallbackProduct,
+                        savingsPercent: annualSavingsPercent,
                         onSelect: { selectedPlan = .annual },
                         onPurchase: { purchaseAnnual() }
                     )
@@ -131,14 +214,25 @@ struct Screen6_TrialPaywallView: View {
                     .padding(.bottom, 8)
             }
 
-            // Legal fine print
-            Text("14-day free trial. No charge until your trial ends.\nYou can cancel anytime in your iPhone settings.")
+            // Legal fine print — includes post-trial price (Apple 3.1.2(a))
+            Text(finePrintText)
                 .font(.system(size: 12, weight: .regular))
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .padding(.horizontal, layout.horizontalPadding)
-                .padding(.bottom, layout.isLandscape ? 8 : 12)
+                .padding(.bottom, 6)
                 .textCase(.uppercase)
+
+            // Terms & Privacy links (required for all subscription flows)
+            HStack(spacing: 12) {
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
+                Text("•")
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
+            }
+            .font(.system(size: 12, weight: .regular))
+            .foregroundColor(AppTheme.vibrantTeal)
+            .padding(.bottom, layout.isLandscape ? 8 : 12)
 
             // Restore purchases (required by App Store)
             Button(action: restorePurchases) {
@@ -162,11 +256,11 @@ struct Screen6_TrialPaywallView: View {
             #if DEBUG
             // Dev skip button - activates subscription without purchase
             Button {
-                subscriptionManager.activateDevSubscription(tier: .family)
+                subscriptionManager.activateDevSubscription(tier: displayTier)
                 onboarding.trialStartDate = Date()
                 onboarding.advanceScreen()
             } label: {
-                Text("Skip with Family (Dev)")
+                Text("Skip with \(displayTier == .solo ? "Solo" : "Family") (Dev)")
                     .font(.system(size: 12, weight: .medium))
                     .foregroundColor(.orange)
             }
@@ -265,10 +359,11 @@ private struct AnnualPlanCard: View {
     let package: Package?
     let fallbackPrice: String?
     let fallbackProduct: Product?
+    let savingsPercent: Int?
     let onSelect: () -> Void
     let onPurchase: () -> Void
 
-    /// Calculate monthly equivalent from annual price
+    /// Monthly equivalent for secondary display
     private var monthlyEquivalent: String {
         guard let package else { return "" }
         let price = package.storeProduct.price as Decimal
@@ -279,7 +374,7 @@ private struct AnnualPlanCard: View {
         return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
     }
 
-    /// Calculate monthly equivalent from StoreKit fallback
+    /// Monthly equivalent from StoreKit fallback
     private var storeKitMonthlyEquivalent: String {
         guard let product = fallbackProduct else { return "" }
         let price = product.price
@@ -290,15 +385,9 @@ private struct AnnualPlanCard: View {
         return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
     }
 
-    /// Calculate savings percentage vs monthly
-    private var savingsText: String {
-        // Family annual is ~$75/year vs ~$12.49/month ($150/year) = 50% savings
-        return "50% off today"
-    }
-
-    /// Check if we have any price to display
-    private var hasPrice: Bool {
-        package != nil || fallbackPrice != nil
+    private var savingsLabel: String {
+        if let pct = savingsPercent { return "~\(pct)% off today" }
+        return "Best value"
     }
 
     var body: some View {
@@ -317,26 +406,26 @@ private struct AnnualPlanCard: View {
                         }
                         .foregroundColor(AppTheme.vibrantTeal)
 
-                        // Price - dynamic from RevenueCat or StoreKit fallback
+                        // Price — annual total is headline per Apple guidelines
                         VStack(alignment: .leading, spacing: 2) {
                             if let package {
-                                Text("\(monthlyEquivalent) / month")
+                                Text("\(package.localizedPriceString) / year")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                     .textCase(.uppercase)
 
-                                Text("\(package.localizedPriceString) billed annually")
+                                Text("\(monthlyEquivalent) / month")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                     .textCase(.uppercase)
                             } else if let price = fallbackPrice {
                                 // StoreKit fallback
-                                Text("\(storeKitMonthlyEquivalent) / month")
+                                Text("\(price) / year")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                     .textCase(.uppercase)
 
-                                Text("\(price) billed annually")
+                                Text("\(storeKitMonthlyEquivalent) / month")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                     .textCase(.uppercase)
@@ -347,9 +436,9 @@ private struct AnnualPlanCard: View {
                             }
                         }
 
-                        // Discount
+                        // Savings
                         HStack(spacing: 6) {
-                            Text(savingsText)
+                            Text(savingsLabel)
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
                                 .textCase(.uppercase)
