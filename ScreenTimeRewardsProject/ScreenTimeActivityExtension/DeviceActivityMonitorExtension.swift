@@ -351,20 +351,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return 1 // Default to 1 minute if can't parse
     }
 
-    /// Check if an app is a shielded reward app (user can't use it, so any events are phantom)
-    /// Used to prevent catchup_max capture and correction for blocked reward apps.
-    private nonisolated func isShieldedRewardApp(_ appID: String, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
-        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
-        guard category == "Reward", let configs = shieldConfigs else { return false }
-        for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
-            if let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
-                let currentShields = managedSettingsStore.shield.applications ?? Set()
-                return currentShields.contains(token)
-            }
-            break
-        }
-        return false
-    }
 
     /// Record +60s per valid event with robust filter chain
     /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
@@ -497,9 +483,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
             defaults.set(initialUsage, forKey: "ext_usage_\(appID)_hourly_\(hour)")
             defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
-
-            // Clear catchup_max after consumption (may already be cleared by resetAllDailyCounters)
-            defaults.removeObject(forKey: "catchup_max_\(appID)")
 
             trackAppID(appID, defaults: defaults)
             defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
@@ -698,8 +681,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// With the sliding window approach, new thresholds start above current usage,
     /// so iOS fires zero catch-up events — the restart is clean.
     ///
-    /// Safety: SKIP_RESTART (60s absorb window) activates normally post-restart.
-    /// catchup_max captures any gap; correction paths apply on next event or foreground sync.
+    /// Safety: SKIP_REGRESSION blocks duplicate burst events post-restart.
     private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults) {
         guard let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids"),
               !trackedAppIDs.isEmpty else {
@@ -858,9 +840,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(0, forKey: totalKey)
                 defaults.set(0, forKey: lastThresholdKey)
                 defaults.set(Date().timeIntervalSince1970, forKey: modifiedKey)
-
-                // Clear stale catchup_max to prevent yesterday's correction from polluting today
-                defaults.removeObject(forKey: "catchup_max_\(appID)")
 
                 // Reset ext_usage daily counters (must stay in sync with usage_ counters)
                 defaults.set(0, forKey: "ext_usage_\(appID)_today")
