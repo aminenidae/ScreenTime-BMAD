@@ -363,26 +363,26 @@ private struct AnnualPlanCard: View {
     let onSelect: () -> Void
     let onPurchase: () -> Void
 
-    /// Monthly equivalent for secondary display
-    private var monthlyEquivalent: String {
+    /// Weekly equivalent for secondary display — psychologically cheaper than monthly
+    private var weeklyEquivalent: String {
         guard let package else { return "" }
         let price = package.storeProduct.price as Decimal
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
-        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+        return formatter.string(from: weeklyPrice as NSDecimalNumber) ?? ""
     }
 
-    /// Monthly equivalent from StoreKit fallback
-    private var storeKitMonthlyEquivalent: String {
+    /// Weekly equivalent from StoreKit fallback
+    private var storeKitWeeklyEquivalent: String {
         guard let product = fallbackProduct else { return "" }
         let price = product.price
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = product.priceFormatStyle.locale
-        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+        return formatter.string(from: weeklyPrice as NSDecimalNumber) ?? ""
     }
 
     private var savingsLabel: String {
@@ -414,7 +414,7 @@ private struct AnnualPlanCard: View {
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                     .textCase(.uppercase)
 
-                                Text("\(monthlyEquivalent) / month")
+                                Text("just \(weeklyEquivalent) / week")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                     .textCase(.uppercase)
@@ -425,7 +425,7 @@ private struct AnnualPlanCard: View {
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                                     .textCase(.uppercase)
 
-                                Text("\(storeKitMonthlyEquivalent) / month")
+                                Text("just \(storeKitWeeklyEquivalent) / week")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                     .textCase(.uppercase)
@@ -472,7 +472,13 @@ private struct AnnualPlanCard: View {
             .disabled(package == nil)
             .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+
+            Text("No commitment. Cancel anytime.")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .textCase(.uppercase)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
@@ -547,7 +553,13 @@ private struct MonthlyPlanCard: View {
             .disabled(package == nil)
             .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
-            .padding(.bottom, 16)
+
+            Text("No commitment. Cancel anytime.")
+                .font(.system(size: 11, weight: .regular))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .textCase(.uppercase)
+                .multilineTextAlignment(.center)
+                .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
