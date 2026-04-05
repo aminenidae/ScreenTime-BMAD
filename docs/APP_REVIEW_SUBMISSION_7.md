@@ -71,8 +71,58 @@ The simplest path is Option A — one sentence added to the description or a "In
 
 ---
 
-## Next Submission
+## Resolution — Build 17 (Apr 1, 2026)
 
-This is Submission 7 (Build 13 resubmitted, or Build 14 if code changes are needed).
-No changes to the app binary are required for Issues 1 and 3.
-Issue 2 may require a code fix if StoreKit product IDs change after restructuring the subscription group.
+All 3 issues resolved. No resubmission rejection pending.
+
+### Issue 1 + 2 Fix (code)
+- `RevenueCatConfig.swift`: updated 3 monthly product IDs (`SoloMonthly`, `IndividualMonthly`, `FamilyMonthly`) after subscription group restructure in App Store Connect
+- `Products.storekit`: aligned product IDs to match
+- `SubscriptionManager`: search all RevenueCat offerings (not just current) so Solo/Individual prices load
+
+### Issue 3 Fix (paywall UI)
+- `Screen6_TrialPaywallView`: annual price prominence per Apple 3.1.2, dynamic savings %, dynamic post-trial price in fine print, ToS/Privacy links, visual trial timeline (Today → Day 13 → Day 15)
+
+### Build 18 (Apr 1, 2026) — Conversion optimizations
+Based on Superwall's 4,000-paywall analysis (see `/Users/ameen/.gemini/antigravity/brain/f6f024a8-af5f-4a59-b260-67e93edd27ef/paywall_best_practices.md.resolved`):
+- `AnnualPlanCard`: weekly price breakdown ("just $X.XX/week") instead of monthly equivalent — stronger anchoring
+- `AnnualPlanCard` + `MonthlyPlanCard`: "No commitment. Cancel anytime." below CTA — ~10% conversion lift
+
+### Build 19 (Apr 2, 2026) — Paywall parity across all 3 paywalls
+Build 17/18 changes were only applied to `Screen6_TrialPaywallView`. Applied same changes to remaining 2 paywalls:
+- `ParentPaywallView` (parent device onboarding paywall):
+  - Weekly breakdown ("just $X/week") instead of monthly equivalent
+  - "No commitment. Cancel anytime." below subscribe button
+  - Dynamic savings % (was hardcoded "Save 50%")
+  - ToS/Privacy links added to legal text
+- `SubscriptionPaywallView` (child device + monitor from parent device):
+  - Weekly breakdown ("just $X/week") instead of monthly equivalent
+  - "No commitment. Cancel anytime." below purchase button
+  - Dynamic savings % (was hardcoded "Save ~50%")
+- `ChildSubscriptionView` (child device solo plan):
+  - Weekly breakdown ("just $X/week") instead of monthly equivalent
+  - "No commitment. Cancel anytime." below subscribe button
+
+### Build 20 (Apr 2, 2026) — Hero image + visual prominence improvements
+- Added `paywall_hero` image to `ParentPaywallView`, `SubscriptionPaywallView`, `ChildSubscriptionView` (already in Screen6)
+- Weekly price upgraded to size 17 bold vibrantTeal across all 3 paywalls
+- "No commitment. Cancel anytime." upgraded to size 13 semibold vibrantTeal + checkmark icon across all 4 paywalls
+- `AnnualPlanCard` (Screen6) weekly price reduced to size 14 to avoid competing with size 18 annual headline
+
+### Build 21 (Apr 2, 2026) — Weekly price hierarchy fix in Screen6
+- `AnnualPlanCard`: weekly price reduced from size 17 → 14 so it reads as secondary to the `$X/year` headline
+
+---
+
+## Submission 8 — Build 21 (Apr 3, 2026)
+
+**Status:** Submitted for review
+
+### Pre-submission blockers resolved
+- **Part XX ITA compliance** — form completed (selected "No" — app does not facilitate personal services). Apple backend sync delay caused submission block for 24+ hours despite form showing Complete. Resolved via Apple Developer Support ticket (submitted Apr 2, cleared Apr 3).
+- **Subscription products** — all 6 products submitted for review with the binary:
+  - Monthly plans (SoloMonthly, IndividualMonthly, FamilyMonthly): first-time review submission
+  - Annual plans (SoloAnnual, IndividualAnnual, FamilyAnnual): resubmitted for review (were in "Waiting for Review" from prior submission)
+
+### Notes for Reviewer (submitted with binary)
+See full text in conversation. Covers resolution of all 3 Submission 7 issues + two-device testing instructions.

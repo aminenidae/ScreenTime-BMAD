@@ -71,9 +71,9 @@ final class SubscriptionManager: NSObject, ObservableObject {
     }
 
     private func configureRevenueCat() {
-        #if DEBUG
-        Purchases.logLevel = .debug
-        #endif
+        if RevenueCatConfig.shouldEnableDebugLogging {
+            Purchases.logLevel = .info
+        }
 
         Purchases.configure(withAPIKey: RevenueCatConfig.apiKey)
 
@@ -367,13 +367,23 @@ final class SubscriptionManager: NSObject, ObservableObject {
     /// Purchase a package from RevenueCat
     func purchase(_ package: Package) async throws {
         let result = try await Purchases.shared.purchase(package: package)
+
+        guard !result.userCancelled else {
+            throw SubscriptionError.userCancelled
+        }
+
         customerInfo = result.customerInfo
         updateTierFromCustomerInfo()
-        await updateLocalSubscription(from: result.customerInfo)
 
-        #if DEBUG
-        print("[SubscriptionManager] Purchase successful: \(package.storeProduct.productIdentifier)")
-        #endif
+        // If entitlement not yet reflected (e.g. StoreKit timing lag), try restore once
+        if !hasAccess {
+            customerInfo = try await Purchases.shared.restorePurchases()
+            updateTierFromCustomerInfo()
+        }
+
+        await updateLocalSubscription(from: customerInfo)
+
+        print("[SubscriptionManager] Purchase complete: \(package.storeProduct.productIdentifier), hasAccess: \(hasAccess)")
     }
 
     /// Restore purchases from the App Store

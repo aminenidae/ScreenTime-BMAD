@@ -46,6 +46,7 @@ struct ScreenTimeRewardsApp: App {
                 .environmentObject(viewModel)
                 .environmentObject(sessionManager)
                 .environmentObject(subscriptionManager)
+                .environmentObject(modeManager)
         }
         .onChange(of: scenePhase) { newPhase in
             switch newPhase {

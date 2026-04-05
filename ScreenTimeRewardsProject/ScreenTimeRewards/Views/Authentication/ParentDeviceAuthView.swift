@@ -29,8 +29,8 @@ struct ParentDeviceAuthView: View {
     var body: some View {
         Group {
             if sessionManager.isParentDeviceAuthenticated {
-                // User is authenticated, show the dashboard
-                ParentRemoteDashboardView()
+                // User is authenticated, show the dashboard with Settings tab
+                ParentTabView()
             } else if checkingAuth {
                 // Checking authentication status
                 AuthCheckingView()

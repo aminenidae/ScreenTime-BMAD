@@ -61,6 +61,14 @@ struct ChildSubscriptionView: View {
 
                 ScrollView {
                     VStack(spacing: 24) {
+                        Image("paywall_hero")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 200)
+                            .clipped()
+                            .cornerRadius(AppTheme.CornerRadius.large)
+
                         headerSection
                         soloPlanCard
 
@@ -150,6 +158,11 @@ private extension ChildSubscriptionView {
             // Billing toggle
             billingPeriodSelector
 
+            if selectedBillingPeriod == .annual {
+                TrialTimelineView()
+                    .padding(.top, 4)
+            }
+
             // Price
             priceSection
 
@@ -158,6 +171,16 @@ private extension ChildSubscriptionView {
 
             // Subscribe button
             subscribeButton
+
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                Text("No commitment. Cancel anytime.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+            .multilineTextAlignment(.center)
         }
         .padding(20)
         .background(
@@ -220,9 +243,9 @@ private extension ChildSubscriptionView {
                 }
 
                 if selectedBillingPeriod == .annual {
-                    Text(monthlyEquivalent(for: package))
-                        .font(.system(size: 13))
-                        .foregroundColor(.secondary)
+                    Text(weeklyEquivalent(for: package))
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
             } else if let price = fallbackPrice {
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
@@ -248,14 +271,14 @@ private extension ChildSubscriptionView {
             : subscriptionManager.storeKitAnnualPrice(for: .solo)
     }
 
-    func monthlyEquivalent(for package: Package) -> String {
+    func weeklyEquivalent(for package: Package) -> String {
         let price = package.storeProduct.price as Decimal
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
-        if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
-            return "Just \(formatted)/month"
+        if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
+            return "just \(formatted)/week"
         }
         return ""
     }
@@ -304,7 +327,9 @@ private extension ChildSubscriptionView {
     }
 
     var buttonText: String {
-        if let package = selectedPackage {
+        if selectedBillingPeriod == .annual {
+            return "Start 14-Day Free Trial"
+        } else if let package = selectedPackage {
             return "Subscribe for \(package.localizedPriceString)"
         }
         return "Subscribe"
@@ -400,7 +425,7 @@ private extension ChildSubscriptionView {
 
     var legalText: some View {
         VStack(spacing: 8) {
-            Text("Cancel anytime. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.")
+            Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -434,8 +459,13 @@ private extension ChildSubscriptionView {
         do {
             try await subscriptionManager.purchase(package)
             await MainActor.run {
-                onComplete?()
-                dismiss()
+                if subscriptionManager.hasAccess {
+                    onComplete?()
+                    dismiss()
+                } else {
+                    errorMessage = "Purchase recorded but activation is pending. Please tap 'Restore Purchases' or restart the app."
+                    showError = true
+                }
             }
         } catch {
             errorMessage = error.localizedDescription

@@ -414,6 +414,7 @@ MIDNIGHT     intervalDidStart() → day changed → clear catchup_max → set mi
 3. **`intervalDidStart()` midnight clears** catchup_max — yesterday's values don't carry over
 4. **SKIP_COOLDOWN does NOT capture** catchup_max — late bursts can carry stale data. However, events with `threshold > lastThreshold` now bypass SKIP_COOLDOWN (Feb 28 batch fix) and record as normal incremental usage
 
+
 **Correction paths (3 active + 1 day-boundary):**
 
 | Path | Location | When |

@@ -50,12 +50,6 @@ struct ParentRemoteDashboardView: View {
                                 .transition(.opacity)
                             }
                         }
-                } else if showInitialLoadingOverlay {
-                    // Initial loading state - full screen overlay
-                    SyncingOverlayView(
-                        deviceName: nil,
-                        message: "Loading Family Dashboard..."
-                    )
                 } else {
                     // Multi-device or empty state - use ScrollView
                     ScrollView {
@@ -93,7 +87,7 @@ struct ParentRemoteDashboardView: View {
                                     // 3D Card Carousel
                                     DeviceCardCarousel(devices: viewModel.linkedChildDevices)
                                 }
-                            } else if !viewModel.isLoading {
+                            } else {
                                 // No devices linked - empty state
                                 VStack(spacing: 16) {
                                     Image(systemName: "iphone.and.arrow.forward")

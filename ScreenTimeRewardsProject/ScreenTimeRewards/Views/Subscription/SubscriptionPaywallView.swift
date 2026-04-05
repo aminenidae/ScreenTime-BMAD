@@ -32,12 +32,28 @@ struct SubscriptionPaywallView: View {
 
             ScrollView {
                 VStack(spacing: 32) {
+                    Image("paywall_hero")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 200)
+                        .clipped()
+                        .cornerRadius(AppTheme.CornerRadius.large)
+
                     headerSection
                     trialBanner
                     billingPeriodSelector
                     tierSelector
                     featureList
                     purchaseButton
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                        Text("No commitment. Cancel anytime.")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
                     restoreButton
                     legalText
 
@@ -98,26 +114,16 @@ private extension SubscriptionPaywallView {
         }
     }
 
+    @ViewBuilder
     var trialBanner: some View {
-        VStack(spacing: 8) {
-            Text("14-DAY FREE TRIAL")
-                .font(.system(size: 14, weight: .bold))
-                .foregroundColor(AppTheme.sunnyYellow)
-
-            Text("Full access, cancel anytime")
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
+        if selectedBillingPeriod == .annual {
+            TrialTimelineView()
+                .padding(.top, 8)
+        } else {
+            // Optional: Hide entirely for Monthly or keep the simple banner.
+            // Since we want free trial for annual ONLY, we return EmptyView or hide it.
+            EmptyView()
         }
-        .padding()
-        .frame(maxWidth: .infinity)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.sunnyYellow.opacity(0.1))
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12)
-                        .strokeBorder(AppTheme.sunnyYellow.opacity(0.3), lineWidth: 1)
-                )
-        )
     }
 
     var billingPeriodSelector: some View {
@@ -133,7 +139,7 @@ private extension SubscriptionPaywallView {
                             .font(.system(size: 16, weight: .semibold))
 
                         if period == .annual {
-                            Text("Save ~50%")
+                            Text(annualSavingsPercent(for: selectedTier).map { "Save ~\($0)%" } ?? "Best Value")
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(AppTheme.sunnyYellow)
                         }
@@ -210,9 +216,9 @@ private extension SubscriptionPaywallView {
                         }
 
                         if selectedBillingPeriod == .annual {
-                            Text(monthlyEquivalent(for: package))
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                            Text(weeklyEquivalent(for: package))
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(AppTheme.vibrantTeal)
                         }
                     } else if let price = fallbackPrice {
                         // StoreKit fallback when RevenueCat offerings unavailable
@@ -227,9 +233,9 @@ private extension SubscriptionPaywallView {
                         }
 
                         if selectedBillingPeriod == .annual, let product = subscriptionManager.storeKitAnnualProduct(for: tier) {
-                            Text(storeKitMonthlyEquivalent(for: product))
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
+                            Text(storeKitWeeklyEquivalent(for: product))
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(AppTheme.vibrantTeal)
                         }
                     } else {
                         Text("Loading...")
@@ -278,28 +284,38 @@ private extension SubscriptionPaywallView {
         }
     }
 
-    func monthlyEquivalent(for package: Package) -> String {
+    func weeklyEquivalent(for package: Package) -> String {
         let price = package.storeProduct.price as Decimal
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
-        if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
-            return "Just \(formatted)/month"
+        if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
+            return "just \(formatted)/week"
         }
         return ""
     }
 
-    func storeKitMonthlyEquivalent(for product: Product) -> String {
+    func storeKitWeeklyEquivalent(for product: Product) -> String {
         let price = product.price
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = product.priceFormatStyle.locale
-        if let formatted = formatter.string(from: monthlyPrice as NSDecimalNumber) {
-            return "Just \(formatted)/month"
+        if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
+            return "just \(formatted)/week"
         }
         return ""
+    }
+
+    func annualSavingsPercent(for tier: SubscriptionTier) -> Int? {
+        guard let annual = subscriptionManager.annualPackage(for: tier),
+              let monthly = subscriptionManager.monthlyPackage(for: tier) else { return nil }
+        let annualPerMonth = (annual.storeProduct.price as Decimal) / 12
+        let monthlyPrice = monthly.storeProduct.price as Decimal
+        guard monthlyPrice > 0 else { return nil }
+        let savings = (1 - annualPerMonth / monthlyPrice) * 100
+        return Int((savings as NSDecimalNumber).doubleValue.rounded())
     }
 
     var featureList: some View {
@@ -361,7 +377,11 @@ private extension SubscriptionPaywallView {
         if isOnboarding {
             return "Start Free Trial"
         } else if let package = selectedPackage {
-            return "Subscribe for \(package.localizedPriceString)"
+            if selectedBillingPeriod == .annual {
+                return "Start 14-Day Free Trial"
+            } else {
+                return "Subscribe for \(package.localizedPriceString)"
+            }
         } else {
             return "Continue"
         }
@@ -381,7 +401,7 @@ private extension SubscriptionPaywallView {
 
     var legalText: some View {
         VStack(spacing: 8) {
-            Text("Cancel anytime. Subscription automatically renews unless cancelled at least 24 hours before the end of the current period.")
+            Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
                 .multilineTextAlignment(.center)
@@ -428,7 +448,12 @@ private extension SubscriptionPaywallView {
         do {
             try await subscriptionManager.purchase(package)
             await MainActor.run {
-                finishFlow()
+                if subscriptionManager.hasAccess {
+                    finishFlow()
+                } else {
+                    errorMessage = "Purchase recorded but activation is pending. Please tap 'Restore Purchases' or restart the app."
+                    showError = true
+                }
             }
         } catch {
             errorMessage = error.localizedDescription

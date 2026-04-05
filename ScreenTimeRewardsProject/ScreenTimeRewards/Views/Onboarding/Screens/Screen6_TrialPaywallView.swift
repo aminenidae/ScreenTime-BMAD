@@ -57,14 +57,21 @@ struct Screen6_TrialPaywallView: View {
 
     /// Fine print with dynamic post-trial price (Apple guideline 3.1.2(a))
     private var finePrintText: String {
-        let period = selectedPlan == .annual ? "year" : "month"
-        let price: String? = selectedPlan == .annual
-            ? (annualPackage?.localizedPriceString ?? annualFallbackPrice)
-            : (monthlyPackage?.localizedPriceString ?? monthlyFallbackPrice)
-        if let price {
-            return "Free for 14 days, then \(price)/\(period). Cancel anytime in iPhone Settings."
+        let appleBoilerplate = "Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase."
+        
+        if selectedPlan == .annual {
+            let price = annualPackage?.localizedPriceString ?? annualFallbackPrice
+            if let price {
+                return "Free for 14 days, then \(price)/year.\n\n\(appleBoilerplate)"
+            }
+            return "Free for 14 days.\n\n\(appleBoilerplate)"
+        } else {
+            let price = monthlyPackage?.localizedPriceString ?? monthlyFallbackPrice
+            if let price {
+                return "\(price)/month.\n\n\(appleBoilerplate)"
+            }
+            return appleBoilerplate
         }
-        return "Free for 14 days. Cancel anytime in iPhone Settings."
     }
 
     /// Actual savings % for annual vs monthly — avoids hardcoded inaccurate values
@@ -121,59 +128,9 @@ struct Screen6_TrialPaywallView: View {
                     .padding(.horizontal, layout.horizontalPadding)
 
                     // Trial timeline — Apple-endorsed trust pattern
-                    HStack(spacing: 0) {
-                        VStack(spacing: 4) {
-                            Image(systemName: "clock.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(AppTheme.vibrantTeal)
-                            Text("TODAY")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("Free Trial")
-                                .font(.system(size: 9))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                        .frame(maxWidth: .infinity)
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                        VStack(spacing: 4) {
-                            Image(systemName: "bell.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(AppTheme.sunnyYellow)
-                            Text("DAY 13")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("Reminder")
-                                .font(.system(size: 9))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                        .frame(maxWidth: .infinity)
-
-                        Image(systemName: "chevron.right")
-                            .font(.system(size: 10, weight: .semibold))
-                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-                        VStack(spacing: 4) {
-                            Image(systemName: "creditcard.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                            Text("DAY 15")
-                                .font(.system(size: 10, weight: .bold))
-                            Text("First Charge")
-                                .font(.system(size: 9))
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                        .frame(maxWidth: .infinity)
-                    }
-                    .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .padding(12)
-                    .background(
-                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                            .fill(AppTheme.card(for: colorScheme))
-                    )
-                    .padding(.horizontal, layout.horizontalPadding)
-                    .frame(maxWidth: 500)
+                    TrialTimelineView()
+                        .padding(.horizontal, layout.horizontalPadding)
+                        .frame(maxWidth: 500)
 
                     // Annual card (PROMINENT)
                     AnnualPlanCard(
@@ -415,8 +372,8 @@ private struct AnnualPlanCard: View {
                                     .textCase(.uppercase)
 
                                 Text("just \(weeklyEquivalent) / week")
-                                    .font(.system(size: 14, weight: .regular))
-                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                    .font(.system(size: 14, weight: .bold))
+                                    .foregroundColor(AppTheme.vibrantTeal)
                                     .textCase(.uppercase)
                             } else if let price = fallbackPrice {
                                 // StoreKit fallback
@@ -473,12 +430,17 @@ private struct AnnualPlanCard: View {
             .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
 
-            Text("No commitment. Cancel anytime.")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .textCase(.uppercase)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 12)
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                Text("No commitment. Cancel anytime.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
@@ -541,7 +503,7 @@ private struct MonthlyPlanCard: View {
             .buttonStyle(.plain)
 
             Button(action: onPurchase) {
-                Text("Start 14-Day Free Trial")
+                Text("Subscribe Monthly")
                     .font(.system(size: 18, weight: .bold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 14)
@@ -554,12 +516,17 @@ private struct MonthlyPlanCard: View {
             .opacity(package == nil ? 0.6 : 1.0)
             .padding(.horizontal, 16)
 
-            Text("No commitment. Cancel anytime.")
-                .font(.system(size: 11, weight: .regular))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .textCase(.uppercase)
-                .multilineTextAlignment(.center)
-                .padding(.bottom, 12)
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark.circle.fill")
+                    .font(.system(size: 13))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                Text("No commitment. Cancel anytime.")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+                    .textCase(.uppercase)
+            }
+            .multilineTextAlignment(.center)
+            .padding(.bottom, 12)
         }
         .background(
             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)

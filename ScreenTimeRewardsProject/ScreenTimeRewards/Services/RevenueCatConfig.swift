@@ -18,12 +18,21 @@ enum RevenueCatConfig {
     /// Sandbox API key for development/testing
     static let sandboxAPIKey = "test_OHMkOgzEzvRFQukDbFFlzBTYbhR"
 
-    /// Returns the appropriate API key based on build configuration
+    /// Returns the appropriate API key.
+    /// Note: RevenueCat uses the same `appl_` API key for both Sandbox and Production!
+    /// The SDK automatically detects the environment based on the Apple receipt.
+    /// Using a `test_` API key completely blocks Apple StoreKit fetching.
     static var apiKey: String {
-        #if DEBUG
-        return sandboxAPIKey
-        #else
         return productionAPIKey
+    }
+
+    /// Whether to enable RevenueCat logging.
+    /// True in DEBUG (Xcode) and in TestFlight (sandbox receipt), false in production App Store builds.
+    static var shouldEnableDebugLogging: Bool {
+        #if DEBUG
+        return true
+        #else
+        return Bundle.main.appStoreReceiptURL?.lastPathComponent == "sandboxReceipt"
         #endif
     }
 
@@ -32,13 +41,13 @@ enum RevenueCatConfig {
     /// Entitlement identifiers configured in RevenueCat dashboard
     enum Entitlement {
         /// Solo tier entitlement (single device, no remote monitoring)
-        static let premiumSolo = "premium_solo"
+        static let premiumSolo = "Solo"
 
         /// Individual tier entitlement (1 child, 2 parents)
-        static let premiumIndividual = "premium_individual"
+        static let premiumIndividual = "Individual"
 
         /// Family tier entitlement (5 children, 2 parents per child)
-        static let premiumFamily = "premium_family"
+        static let premiumFamily = "Family"
     }
 
     // MARK: - Product IDs
@@ -46,16 +55,16 @@ enum RevenueCatConfig {
     /// Product identifiers matching App Store Connect
     enum ProductID {
         // Solo Plan (single device, no remote monitoring)
-        static let soloMonthly = "SoloMonthly"
-        static let soloAnnual = "com.screentimerewards.solo.annual"
+        static let soloMonthly = "com.subscription.solo.monthly"
+        static let soloAnnual = "com.subscription.solo.annual"
 
         // Individual Plan (1 child + 2 parents, remote monitoring)
-        static let individualMonthly = "IndividualMonthly"
-        static let individualAnnual = "com.screentimerewards.individual.annual"
+        static let individualMonthly = "com.subscription.individual.monthly"
+        static let individualAnnual = "com.subscription.individual.annual"
 
         // Family Plan (5 children + 2 parents each, remote monitoring)
-        static let familyMonthly = "FamilyMonthly"
-        static let familyAnnual = "com.screentimerewards.family.annual"
+        static let familyMonthly = "com.subscription.family.monthly"
+        static let familyAnnual = "com.subscription.family.annual"
 
         /// All product IDs for reference
         static let all: [String] = [

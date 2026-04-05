@@ -1,5 +1,5 @@
 import SwiftUI
-
+import StoreKit
 struct SubscriptionManagementView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var deviceModeManager: DeviceModeManager
@@ -523,7 +523,18 @@ private extension SubscriptionManagementView {
 
     var managementCard: some View {
         VStack(spacing: 0) {
-            Link(destination: URL(string: "https://apps.apple.com/account/subscriptions")!) {
+            Button {
+                Task {
+                    if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
+                        try? await AppStore.showManageSubscriptions(in: scene)
+                    } else {
+                        // Fallback if scene is not found
+                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
+                            await UIApplication.shared.open(url)
+                        }
+                    }
+                }
+            } label: {
                 HStack {
                     Text("Manage in App Store")
                         .font(.system(size: 15, weight: .medium))

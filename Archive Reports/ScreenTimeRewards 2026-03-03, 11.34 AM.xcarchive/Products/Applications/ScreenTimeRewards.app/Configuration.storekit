@@ -1,0 +1,76 @@
+{
+  "identifier" : "Configuration",
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
+  "settings" : {
+    "applicationName" : "ScreenTime Rewards",
+    "bundle" : "com.screentimerewards",
+    "_storefront" : "USA",
+    "_storeKitErrors" : []
+  },
+  "subscriptionGroups" : [
+    {
+      "id" : "20776E67",
+      "localizations" : [],
+      "name" : "ScreenTime Premium",
+      "subscriptions" : [
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "7.99",
+          "familyShareable" : false,
+          "groupNumber" : 1,
+          "internalID" : "6469881401",
+          "introductoryOffer" : {
+            "internalID" : "70B78597",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Individual plan for 1 child device",
+              "displayName" : "Individual Plan",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.individual.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Individual Monthly",
+          "subscriptionGroupID" : "20776E67",
+          "type" : "RecurringSubscription"
+        },
+        {
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "12.99",
+          "familyShareable" : true,
+          "groupNumber" : 2,
+          "internalID" : "6469881402",
+          "introductoryOffer" : {
+            "internalID" : "70B78598",
+            "numberOfPeriods" : 1,
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P1M"
+          },
+          "localizations" : [
+            {
+              "description" : "Family plan for up to 5 child devices",
+              "displayName" : "Family Plan",
+              "locale" : "en_US"
+            }
+          ],
+          "productID" : "com.screentimerewards.family.monthly",
+          "recurringSubscriptionPeriod" : "P1M",
+          "referenceName" : "Family Monthly",
+          "subscriptionGroupID" : "20776E67",
+          "type" : "RecurringSubscription"
+        }
+      ]
+    }
+  ],
+  "version" : {
+    "major" : 3,
+    "minor" : 0
+  }
+}

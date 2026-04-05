@@ -36,9 +36,19 @@ struct ParentPaywallView: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 20) {
+                    // Hero image
+                    Image("paywall_hero")
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 200)
+                        .clipped()
+                        .cornerRadius(AppTheme.CornerRadius.large)
+                        .padding(.top, 8)
+
                     // Value propositions
                     valuePropositions
-                        .padding(.top, 16)
+                        .padding(.top, 4)
 
                     // Tier selection
                     tierSelectionSection
@@ -46,11 +56,25 @@ struct ParentPaywallView: View {
                     // Billing toggle
                     billingToggle
 
+                    if selectedBilling == .annual {
+                        TrialTimelineView()
+                    }
+
                     // Price display
                     priceDisplay
 
                     // Subscribe button
                     subscribeButton
+
+                    HStack(spacing: 6) {
+                        Image(systemName: "checkmark.circle.fill")
+                            .font(.system(size: 13))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                        Text("No commitment. Cancel anytime.")
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+                    .multilineTextAlignment(.center)
 
                     // Legal
                     legalText
@@ -169,7 +193,7 @@ struct ParentPaywallView: View {
                                      : AppTheme.brandedText(for: colorScheme))
 
                 if period == .annual {
-                    Text("Save 50%")
+                    Text(annualSavingsPercent.map { "Save ~\($0)%" } ?? "Best Value")
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(selectedBilling == period
                                          ? AppTheme.sunnyYellow
@@ -201,8 +225,8 @@ struct ParentPaywallView: View {
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                 if selectedBilling == .annual {
-                    Text("That's just \(monthlyEquivalent)/month")
-                        .font(.system(size: 13, weight: .medium))
+                    Text("just \(weeklyEquivalent) / week")
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundColor(AppTheme.vibrantTeal)
                 }
             } else if let fallbackPrice = currentFallbackPrice {
@@ -216,8 +240,8 @@ struct ParentPaywallView: View {
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
                 if selectedBilling == .annual {
-                    Text("That's just \(storeKitMonthlyEquivalent)/month")
-                        .font(.system(size: 13, weight: .medium))
+                    Text("just \(storeKitWeeklyEquivalent) / week")
+                        .font(.system(size: 17, weight: .bold))
                         .foregroundColor(AppTheme.vibrantTeal)
                 }
             } else {
@@ -244,24 +268,34 @@ struct ParentPaywallView: View {
         }
     }
 
-    private var monthlyEquivalent: String {
+    private var weeklyEquivalent: String {
         guard let package = subscriptionManager.annualPackage(for: selectedTier) else { return "" }
         let price = package.storeProduct.price as Decimal
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
-        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+        return formatter.string(from: weeklyPrice as NSDecimalNumber) ?? ""
     }
 
-    private var storeKitMonthlyEquivalent: String {
+    private var storeKitWeeklyEquivalent: String {
         guard let product = subscriptionManager.storeKitAnnualProduct(for: selectedTier) else { return "" }
         let price = product.price
-        let monthlyPrice = price / 12
+        let weeklyPrice = price / 52
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
         formatter.locale = product.priceFormatStyle.locale
-        return formatter.string(from: monthlyPrice as NSDecimalNumber) ?? ""
+        return formatter.string(from: weeklyPrice as NSDecimalNumber) ?? ""
+    }
+
+    private var annualSavingsPercent: Int? {
+        guard let annual = subscriptionManager.annualPackage(for: selectedTier),
+              let monthly = subscriptionManager.monthlyPackage(for: selectedTier) else { return nil }
+        let annualPerMonth = (annual.storeProduct.price as Decimal) / 12
+        let monthlyPrice = monthly.storeProduct.price as Decimal
+        guard monthlyPrice > 0 else { return nil }
+        let savings = (1 - annualPerMonth / monthlyPrice) * 100
+        return Int((savings as NSDecimalNumber).doubleValue.rounded())
     }
 
     // MARK: - Subscribe Button
@@ -269,15 +303,20 @@ struct ParentPaywallView: View {
     private var subscribeButton: some View {
         Button(action: purchase) {
             HStack {
-                Text("Subscribe Now")
-                    .font(.system(size: 18, weight: .bold))
+                if selectedBilling == .annual {
+                    Text("Start 14-Day Free Trial")
+                        .font(.system(size: 18, weight: .bold))
+                } else {
+                    Text("Subscribe Now")
+                        .font(.system(size: 18, weight: .bold))
 
-                if let package = currentPackage {
-                    Text("- \(package.localizedPriceString)")
-                        .font(.system(size: 16, weight: .medium))
-                } else if let price = currentFallbackPrice {
-                    Text("- \(price)")
-                        .font(.system(size: 16, weight: .medium))
+                    if let package = currentPackage {
+                        Text("- \(package.localizedPriceString)")
+                            .font(.system(size: 16, weight: .medium))
+                    } else if let price = currentFallbackPrice {
+                        Text("- \(price)")
+                            .font(.system(size: 16, weight: .medium))
+                    }
                 }
             }
             .foregroundColor(.white)
@@ -301,10 +340,19 @@ struct ParentPaywallView: View {
                     .multilineTextAlignment(.center)
             }
 
-            Text("Payment will be charged to your Apple ID account. Subscription automatically renews unless canceled at least 24 hours before the end of the current period.")
+            Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
                 .multilineTextAlignment(.center)
+
+            HStack(spacing: 12) {
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
+                Text("•")
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
+            }
+            .font(.system(size: 11))
+            .foregroundColor(AppTheme.vibrantTeal)
         }
     }
 
