@@ -114,7 +114,60 @@ Build 17/18 changes were only applied to `Screen6_TrialPaywallView`. Applied sam
 
 ---
 
-## Submission 8 — Build 21 (Apr 3, 2026)
+## Submission 9 — April 7, 2026 (metadata reply + resubmission)
+
+**Status:** Submitted for review
+
+### What was submitted
+Metadata-only resolution in response to Guideline 3.1.2(c). No new build — same Build 25.
+
+### Pre-submission actions completed (Apr 7, 2026)
+1. **App Store Connect → App Description**: Added ToS and Privacy Policy URLs to bottom of description
+2. **Replied to Apple Resolution Center** (Submission ID 65e2084c): confirmed metadata update, attached screen recording of in-app ToS link
+3. **i6dev-website ToS updated** (`i6dev-website/braincoinz/terms.html`, pushed to `aminenidae/i6dev-website`):
+   - All 6 plans listed with correct prices and renewal periods
+   - Trial length corrected: 30 days → 14 days
+   - Added §4.5 Refund Policy (Apple handles all refunds)
+   - Added §5 Intellectual Property
+   - Added §8 Termination, §9 Service Modifications, §10 Third-Party Terms
+   - Strengthened §11 Liability Limitation (indirect damages exclusion + 12-month cap)
+   - Added §13 Governing Law: Ontario, Canada
+4. **i6dev-website Privacy Policy updated** (`i6dev-website/braincoinz/privacy.html`, pushed to `aminenidae/i6dev-website`):
+   - Updated Last Updated date
+   - Added Third-Party Services section (RevenueCat, Apple payments, DeviceActivity)
+   - Added per-category Data Retention timelines
+   - Added 3 explicit data deletion paths
+   - Expanded COPPA: consent mechanism, children cannot subscribe, no advertising/profiling clause
+   - Added Changes to Policy clause
+5. **Docs synced**: `docs/terms-of-service.md` and `docs/privacy-policy.md` updated to match live website
+
+---
+
+## Submission 8 — Build 25 (Apr 3, 2026 → Apr 7, 2026)
+
+**Status:** Re-review rejection — 1 issue (Apr 7, 2026)
+
+### Issue — Guideline 3.1.2(c): EULA link missing from App Store metadata
+
+**Submission ID:** 65e2084c-2e10-462c-b7e5-1b449de63006
+**Review device:** iPhone 17 Pro Max and iPad Air 11-inch (M3)
+
+Apple's finding: In-app ToS/Privacy links are present in all 4 paywall views, but the **App Store listing metadata** (App Description) does not include a functional link to the Terms of Use (EULA).
+
+### Resolution (Apr 7, 2026) — metadata only, no code change
+
+1. **App Store Connect → App Description**: Appended to the bottom of the description:
+   ```
+   Terms of Use: https://i6dev.ca/braincoinz/terms.html
+   Privacy Policy: https://i6dev.ca/braincoinz/privacy.html
+   ```
+2. **Replied to Apple in Resolution Center** with confirmation + screen recording showing in-app ToS link tapping through to `https://i6dev.ca/braincoinz/terms.html`.
+
+No new build required — metadata-only change.
+
+---
+
+## Submission 8 (original) — Build 21 (Apr 3, 2026)
 
 **Status:** Submitted for review
 
