@@ -1,9 +1,38 @@
-# Privacy Policy
+# Privacy Policy — Brain Coinz
 
-**Last Updated:** February 23, 2026
+**Last Updated:** April 7, 2026
+**Live URL:** https://i6dev.ca/braincoinz/privacy.html
+**Source file:** `i6dev-website/braincoinz/privacy.html`
+
+---
+
+## Changelog
+
+### April 7, 2026 (pass 2 — competitor cross-check)
+- Added explicit Apple payment processing statement (billing handled entirely by Apple; we never access payment details)
+- Expanded Data Retention section with per-category timelines:
+  - iCloud data: until deleted by parent or account closed
+  - Local device data: removed on app deletion
+  - RevenueCat anonymous ID: per RevenueCat's retention policy
+  - Pairing codes: discarded immediately after pairing
+- Added "Subscriptions and Account Registration" clause: children under 13 cannot subscribe or register; only parents (18+) can
+- Added "No advertising or profiling" clause for children's data
+
+### April 7, 2026 (pass 1 — Apple compliance)
+- Updated Last Updated date from February 15 → April 7, 2026
+- Added Third-Party Services section: RevenueCat (anonymous ID + purchase receipts), Apple CloudKit & iCloud, Apple DeviceActivity framework
+- Added Data Retention and Deletion section with 3 deletion paths (in-app reset, iCloud settings, email request with 30-day SLA)
+- Expanded COPPA section: parental consent mechanism (QR code + PIN pairing), what child data is collected, how parents can review/delete
+- Added "Changes to This Policy" clause
+
+### February 15, 2026 (initial)
+- Initial publication
+
+---
+
+## Full Text (current)
 
 ## Introduction
-
 Brain Coinz ("we," "our," or "us") respects your privacy and is committed to protecting your personal information. This Privacy Policy explains how we collect, use, store, and protect information when you use the Brain Coinz mobile application ("the App").
 
 **By using the App, you agree to the collection and use of information in accordance with this Privacy Policy.**
@@ -22,7 +51,7 @@ Brain Coinz ("we," "our," or "us") respects your privacy and is committed to pro
 - Child name or nickname (you choose what to enter)
 - Device identifier (for pairing purposes)
 
-**Important:** We do NOT require:
+**Important: We do NOT require:**
 - Email addresses
 - Phone numbers
 - Passwords (authentication via Apple Family Controls and local PIN)
@@ -45,8 +74,6 @@ Brain Coinz ("we," "our," or "us") respects your privacy and is committed to pro
 - iCloud account identifier (anonymous, for CloudKit sync)
 
 ### 3. Information We Do NOT Collect
-
-We explicitly do NOT collect:
 - Browsing history
 - Location data
 - Contact lists
@@ -59,63 +86,67 @@ We explicitly do NOT collect:
 
 ## How We Use Your Information
 
-We use the collected information solely for the following purposes:
-
-### App Functionality
 - **Pairing Devices:** To establish secure connections between parent and child devices
 - **Tracking Progress:** To monitor educational app usage and calculate earned rewards
 - **CloudKit Sync:** To synchronize data across your family's devices via your private iCloud container
 
-## How We Store and Protect Your Information
+## Third-Party Services
 
-### Data Storage
+### RevenueCat
+Used for subscription management. Receives:
+- An anonymous app user identifier (randomly generated, not linked to identity)
+- Purchase receipts and subscription status (provided by Apple)
+- Subscription events (e.g., trial started, renewed, cancelled)
+
+RevenueCat does not receive name, email, screen time data, or any personal information.
+Privacy policy: https://www.revenuecat.com/privacy
+
+### Apple (Payments, CloudKit & iCloud)
+All subscription billing and payment information is collected and processed directly by Apple through the App Store. We do not store, access, or process payment details at any point. All screen time data and family configurations are stored in the user's private iCloud container, governed by Apple's privacy policy (https://www.apple.com/legal/privacy/). We cannot access this data without explicit iCloud credentials.
+
+### Apple Screen Time Framework (DeviceActivity)
+Used to track app usage on child devices. This data never leaves the device or private iCloud container and is not accessible to us.
+
+## How We Store and Protect Your Information
 
 **iCloud Private Container:**
 - ALL screen time data and configurations are stored in YOUR private iCloud container (`iCloud.com.screentimerewards`)
-- This data is associated with YOUR Apple ID
+- Associated with YOUR Apple ID
 - We cannot access this data without your explicit iCloud credentials
-- Apple controls access, encryption, and security of this data
+- Apple controls access, encryption, and security
 
 **Local Device Storage:**
-- PIN codes are stored locally on your device using Apple's Keychain (encrypted)
+- PIN codes stored using Apple's Keychain (encrypted)
 - App preferences stored in UserDefaults (non-sensitive settings only)
+
+## Data Retention and Deletion
+
+### Retention by data category
+- **Screen time data & configurations (iCloud):** Retained until deleted by the parent or until the iCloud account is closed.
+- **Local device data** (PIN, preferences, daily counters): Removed immediately when the App is deleted from the device.
+- **RevenueCat anonymous ID & subscription events:** Retained per RevenueCat's retention policy (https://www.revenuecat.com/privacy). We do not control this data.
+- **Temporary pairing codes:** Discarded immediately after device pairing is complete.
+
+### How to delete your data
+1. **In-App:** Use the Reset or Delete Data option in the App's settings to clear all local and iCloud data.
+2. **iCloud Settings:** Go to Settings → [your name] → iCloud → Manage Account Storage → Brain Coinz to delete all associated iCloud data.
+3. **Contact Us:** Email support@i6dev.ca to request complete data deletion. We will respond within 30 days.
 
 ## Children's Privacy (COPPA Compliance)
 
-Brain Coinz is designed for families with children under 13. We take children's privacy seriously and comply with the Children's Online Privacy Protection Act (COPPA).
+### Subscriptions and Account Registration
+Children under 13 cannot subscribe to or register for Brain Coinz. Only parents or guardians (18+) may create an account and purchase a subscription. Children use the App exclusively on their own device under the parent's active authorization — they do not have independent accounts.
 
 ### Parental Consent
-- **Required:** Parent/guardian must set up the App and authorize child device pairing
-- **Control:** Parents control all settings, data collection, and can delete data at any time
+- **Required:** A parent or guardian must set up the App on the parent device and explicitly authorize each child device by completing the pairing process (via QR code scan and PIN verification). No child device can be monitored without this active parental authorization.
+- **Control:** Parents control all settings, monitored apps, reward thresholds, and can revoke access or delete all data at any time.
+- **What we collect from children:** Only the child's nickname (entered by the parent) and screen time usage data on the child's device. Stored exclusively in the family's private iCloud container; not accessible to us.
+- **No advertising or profiling:** We do not use children's data for advertising, profiling, or sale to third parties.
+- **Data review and deletion:** Parents can review or delete all data at any time via the App or by contacting support@i6dev.ca.
 
-### Data from Children
-We collect from child devices only:
-- App usage duration (which apps, how long)
-- Device type and iOS version
-
-We do NOT collect from children:
-- Names (unless parent enters them)
-- Photographs or videos
-- Location data
-- Contact information
-- Any information beyond what's necessary for App functionality
-
-### Parental Rights
-Parents can:
-- Review all data collected from their child
-- Request deletion of child data by contacting support@i6dev.ca
-- Refuse further collection by uninstalling the App
-- Revoke Screen Time permissions at any time
-- Unpair child devices at any time
-
-### Third-Party Child Data
-We do NOT disclose children's data to third parties except:
-- Storage in YOUR iCloud account (you control access)
-- Legal compliance if required by law
+## Changes to This Policy
+We may update this Privacy Policy from time to time. When we make material changes, we will update the "Last Updated" date at the top of this page and notify users through the App or via the App Store update notes. Continued use of the App after changes are posted constitutes your acceptance of the revised Policy.
 
 ## Contact Us
-
-If you have questions, concerns, or requests regarding this Privacy Policy or your personal information:
-
-**Email:** support@i6dev.ca
-**Website:** https://i6dev.ca/braincoinz
+- **Email:** support@i6dev.ca
+- **Website:** https://i6dev.ca/braincoinz
