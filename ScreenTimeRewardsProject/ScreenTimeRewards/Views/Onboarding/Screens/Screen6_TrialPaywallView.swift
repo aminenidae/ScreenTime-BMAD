@@ -342,11 +342,6 @@ private struct AnnualPlanCard: View {
         return formatter.string(from: weeklyPrice as NSDecimalNumber) ?? ""
     }
 
-    private var savingsLabel: String {
-        if let pct = savingsPercent { return "~\(pct)% off today" }
-        return "Best value"
-    }
-
     var body: some View {
         VStack(spacing: 12) {
             Button(action: onSelect) {
@@ -393,9 +388,9 @@ private struct AnnualPlanCard: View {
                             }
                         }
 
-                        // Savings
-                        HStack(spacing: 6) {
-                            Text(savingsLabel)
+                        // Savings — only shown when % is known; badge already says "BEST VALUE"
+                        if let pct = savingsPercent {
+                            Text("~\(pct)% off today")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
                                 .textCase(.uppercase)
