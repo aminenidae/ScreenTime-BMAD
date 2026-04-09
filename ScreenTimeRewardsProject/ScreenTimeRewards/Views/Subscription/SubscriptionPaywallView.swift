@@ -12,13 +12,20 @@ struct SubscriptionPaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var selectedTier: SubscriptionTier = .individual
+    @State private var selectedTier: SubscriptionTier
     @State private var selectedBillingPeriod: BillingPeriod = .annual
     @State private var isPurchasing = false
+    @State private var isLoadingProducts = false
     @State private var showError = false
     @State private var errorMessage = ""
     var isOnboarding: Bool = false
     var onComplete: (() -> Void)? = nil
+
+    init(initialTier: SubscriptionTier = .individual, isOnboarding: Bool = false, onComplete: (() -> Void)? = nil) {
+        self._selectedTier = State(initialValue: initialTier)
+        self.isOnboarding = isOnboarding
+        self.onComplete = onComplete
+    }
 
     enum BillingPeriod: String, CaseIterable {
         case monthly = "Monthly"
@@ -76,6 +83,12 @@ struct SubscriptionPaywallView: View {
                 .padding()
             }
         }
+        .task {
+            guard selectedPackage == nil && selectedStoreKitProduct == nil else { return }
+            isLoadingProducts = true
+            await subscriptionManager.loadOfferings()
+            isLoadingProducts = false
+        }
         .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
@@ -90,6 +103,14 @@ struct SubscriptionPaywallView: View {
             return subscriptionManager.monthlyPackage(for: selectedTier)
         case .annual:
             return subscriptionManager.annualPackage(for: selectedTier)
+        }
+    }
+
+    /// StoreKit fallback product when RevenueCat offerings are unavailable
+    private var selectedStoreKitProduct: Product? {
+        switch selectedBillingPeriod {
+        case .monthly: return subscriptionManager.storeKitMonthlyProduct(for: selectedTier)
+        case .annual:  return subscriptionManager.storeKitAnnualProduct(for: selectedTier)
         }
     }
 }
@@ -354,7 +375,7 @@ private extension SubscriptionPaywallView {
             }
         } label: {
             HStack {
-                if isPurchasing {
+                if isPurchasing || isLoadingProducts {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .tint(.white)
@@ -369,8 +390,8 @@ private extension SubscriptionPaywallView {
             .foregroundColor(.white)
             .cornerRadius(12)
         }
-        .disabled(isPurchasing || selectedPackage == nil)
-        .opacity(selectedPackage == nil ? 0.6 : 1.0)
+        .disabled(isPurchasing || isLoadingProducts || (selectedPackage == nil && selectedStoreKitProduct == nil))
+        .opacity((selectedPackage == nil && selectedStoreKitProduct == nil && !isLoadingProducts) ? 0.6 : 1.0)
     }
 
     var buttonText: String {
@@ -382,6 +403,8 @@ private extension SubscriptionPaywallView {
             } else {
                 return "Subscribe for \(package.localizedPriceString)"
             }
+        } else if selectedStoreKitProduct != nil {
+            return selectedBillingPeriod == .annual ? "Start 14-Day Free Trial" : "Subscribe"
         } else {
             return "Continue"
         }
@@ -436,17 +459,19 @@ private extension SubscriptionPaywallView {
 
 private extension SubscriptionPaywallView {
     func purchase() async {
-        guard let package = selectedPackage else {
-            errorMessage = "No subscription package available"
-            showError = true
-            return
-        }
-
         isPurchasing = true
         defer { isPurchasing = false }
 
         do {
-            try await subscriptionManager.purchase(package)
+            if let package = selectedPackage {
+                try await subscriptionManager.purchase(package)
+            } else if let product = selectedStoreKitProduct {
+                try await subscriptionManager.purchaseStoreKitProduct(product)
+            } else {
+                errorMessage = "No subscription package available"
+                showError = true
+                return
+            }
             await MainActor.run {
                 if subscriptionManager.hasAccess {
                     finishFlow()

@@ -386,6 +386,26 @@ final class SubscriptionManager: NSObject, ObservableObject {
         print("[SubscriptionManager] Purchase complete: \(package.storeProduct.productIdentifier), hasAccess: \(hasAccess)")
     }
 
+    /// Purchase directly via StoreKit when RevenueCat package unavailable (offerings failed to load)
+    func purchaseStoreKitProduct(_ product: Product) async throws {
+        let result = try await product.purchase()
+
+        switch result {
+        case .success:
+            // Sync the purchase to RevenueCat
+            customerInfo = try await Purchases.shared.restorePurchases()
+            updateTierFromCustomerInfo()
+            await updateLocalSubscription(from: customerInfo)
+            print("[SubscriptionManager] StoreKit purchase complete: \(product.id), hasAccess: \(hasAccess)")
+        case .userCancelled:
+            throw SubscriptionError.userCancelled
+        case .pending:
+            break
+        @unknown default:
+            break
+        }
+    }
+
     /// Restore purchases from the App Store
     func restorePurchases() async throws {
         customerInfo = try await Purchases.shared.restorePurchases()
@@ -769,8 +789,16 @@ final class SubscriptionManager: NSObject, ObservableObject {
             )
 
             if isValid {
-                // Update tier if parent subscription is valid
-                if tier == .individual || tier == .family {
+                if tier == .solo {
+                    // Solo doesn't support a separate child device
+                    currentTier = .trial
+                    currentStatus = .expired
+                    #if DEBUG
+                    print("[SubscriptionManager] Parent on Solo - child access revoked")
+                    #endif
+                } else {
+                    // trial, individual, family all support child pairing
+                    // Inherit parent's tier and status; status carries the real access state
                     if currentTier != tier {
                         currentTier = tier
                         #if DEBUG
@@ -778,13 +806,6 @@ final class SubscriptionManager: NSObject, ObservableObject {
                         #endif
                     }
                     currentStatus = status
-                } else {
-                    // Parent downgraded to Solo or Trial (can't have children)
-                    currentTier = .trial
-                    currentStatus = .expired
-                    #if DEBUG
-                    print("[SubscriptionManager] Parent downgraded - child access revoked")
-                    #endif
                 }
             } else {
                 // Parent subscription expired/invalid

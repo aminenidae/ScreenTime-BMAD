@@ -7,6 +7,7 @@
 //
 
 import SwiftUI
+import StoreKit
 import RevenueCat
 
 /// Subscription view for child devices showing Solo plan and parent pairing option
@@ -17,8 +18,10 @@ struct ChildSubscriptionView: View {
 
     @State private var selectedBillingPeriod: BillingPeriod = .annual
     @State private var isPurchasing = false
-        @State private var showError = false
+    @State private var isLoadingProducts = false
+    @State private var showError = false
     @State private var errorMessage = ""
+    @State private var showPairingView = false
 
     var onComplete: (() -> Void)?
 
@@ -33,6 +36,13 @@ struct ChildSubscriptionView: View {
             return subscriptionManager.monthlyPackage(for: .solo)
         case .annual:
             return subscriptionManager.annualPackage(for: .solo)
+        }
+    }
+
+    private var selectedStoreKitProduct: Product? {
+        switch selectedBillingPeriod {
+        case .monthly: return subscriptionManager.storeKitMonthlyProduct(for: .solo)
+        case .annual:  return subscriptionManager.storeKitAnnualProduct(for: .solo)
         }
     }
 
@@ -97,7 +107,16 @@ struct ChildSubscriptionView: View {
                 }
             }
         }
-                .alert("Error", isPresented: $showError) {
+        .task {
+            guard selectedPackage == nil && selectedStoreKitProduct == nil else { return }
+            isLoadingProducts = true
+            await subscriptionManager.loadOfferings()
+            isLoadingProducts = false
+        }
+        .sheet(isPresented: $showPairingView) {
+            ChildPairingView()
+        }
+        .alert("Error", isPresented: $showError) {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
@@ -307,7 +326,7 @@ private extension ChildSubscriptionView {
             }
         } label: {
             HStack {
-                if isPurchasing {
+                if isPurchasing || isLoadingProducts {
                     ProgressView()
                         .progressViewStyle(.circular)
                         .tint(.white)
@@ -322,8 +341,8 @@ private extension ChildSubscriptionView {
             .foregroundColor(.white)
             .cornerRadius(12)
         }
-        .disabled(isPurchasing || selectedPackage == nil)
-        .opacity(selectedPackage == nil ? 0.6 : 1.0)
+        .disabled(isPurchasing || isLoadingProducts || (selectedPackage == nil && selectedStoreKitProduct == nil))
+        .opacity((selectedPackage == nil && selectedStoreKitProduct == nil && !isLoadingProducts) ? 0.6 : 1.0)
     }
 
     var buttonText: String {
@@ -384,6 +403,22 @@ private extension ChildSubscriptionView {
                 stepRow(number: 3, text: "Scan to connect and unlock this device")
             }
             .padding(.vertical, 8)
+
+            Button {
+                showPairingView = true
+            } label: {
+                HStack(spacing: 10) {
+                    Image(systemName: "qrcode.viewfinder")
+                        .font(.system(size: 18))
+                    Text("Scan Parent's QR Code")
+                        .font(.system(size: 16, weight: .bold))
+                }
+                .frame(maxWidth: .infinity)
+                .frame(height: 52)
+                .background(AppTheme.sunnyYellow)
+                .foregroundColor(.black)
+                .cornerRadius(12)
+            }
         }
         .padding(20)
         .background(
@@ -447,17 +482,19 @@ private extension ChildSubscriptionView {
 private extension ChildSubscriptionView {
 
     func purchase() async {
-        guard let package = selectedPackage else {
-            errorMessage = "No subscription package available"
-            showError = true
-            return
-        }
-
         isPurchasing = true
         defer { isPurchasing = false }
 
         do {
-            try await subscriptionManager.purchase(package)
+            if let package = selectedPackage {
+                try await subscriptionManager.purchase(package)
+            } else if let product = selectedStoreKitProduct {
+                try await subscriptionManager.purchaseStoreKitProduct(product)
+            } else {
+                errorMessage = "No subscription package available"
+                showError = true
+                return
+            }
             await MainActor.run {
                 if subscriptionManager.hasAccess {
                     onComplete?()

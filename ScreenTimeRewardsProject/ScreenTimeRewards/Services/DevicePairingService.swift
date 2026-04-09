@@ -5,7 +5,7 @@ import Combine
 import CoreData
 
 enum PairingError: LocalizedError {
-    case maxParentsReached
+    case maxParentsReached(limit: Int)
     case deviceLimitReached
     case shareNotFound
     case invalidQRCode
@@ -21,8 +21,8 @@ enum PairingError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .maxParentsReached:
-            return "This child device is already paired with the maximum number of parent devices (2). Please unpair from one parent before adding another."
+        case .maxParentsReached(let limit):
+            return "This child device is already paired with the maximum number of parent devices (\(limit)). Please unpair from one parent before adding another."
         case .deviceLimitReached:
             return "Device limit reached. Upgrade to the Family plan to add more child devices."
         case .shareNotFound:
@@ -455,7 +455,7 @@ class DevicePairingService: ObservableObject {
 
         // Check if this child can pair with another parent (based on subscription tier)
         guard canAnotherParentPair() else {
-            throw PairingError.maxParentsReached
+            throw PairingError.maxParentsReached(limit: SubscriptionManager.shared.parentDeviceLimitPerChild)
         }
 
         // Verify parent has active subscription BEFORE accepting CloudKit share
@@ -782,7 +782,7 @@ class DevicePairingService: ObservableObject {
 
         // Check if this child can pair with another parent
         guard canAnotherParentPair() else {
-            throw PairingError.maxParentsReached
+            throw PairingError.maxParentsReached(limit: SubscriptionManager.shared.parentDeviceLimitPerChild)
         }
 
         // Check local expiration first
@@ -984,7 +984,7 @@ class DevicePairingService: ObservableObject {
             #if DEBUG
             print("[DevicePairingService] ⚠️ Already paired with another parent. Local pairing only supports 1 parent.")
             #endif
-            throw PairingError.maxParentsReached
+            throw PairingError.maxParentsReached(limit: 1)
         }
 
         isPairing = true
@@ -1159,9 +1159,11 @@ class DevicePairingService: ObservableObject {
     }
 
     /// Check if another parent can pair with this child device
-    /// Uses subscription tier limits from SubscriptionManager
+    /// Uses subscription tier limits from SubscriptionManager.
+    /// First pairing is always allowed — the child inherits a subscription via pairing.
     func canAnotherParentPair() -> Bool {
         let currentCount = getPairedParentCount()
+        guard currentCount > 0 else { return true }
         let limit = SubscriptionManager.shared.parentDeviceLimitPerChild
         return currentCount < limit
     }

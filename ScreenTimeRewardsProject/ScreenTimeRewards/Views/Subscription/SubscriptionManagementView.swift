@@ -6,6 +6,7 @@ struct SubscriptionManagementView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
     @State private var showPaywall = false
+    @State private var paywallInitialTier: SubscriptionTier = .individual
     @State private var showChildPaywall = false
     @State private var showPairingView = false
     @State private var isRestoring = false
@@ -31,7 +32,7 @@ struct SubscriptionManagementView: View {
             }
         }
         .sheet(isPresented: $showPaywall) {
-            SubscriptionPaywallView()
+            SubscriptionPaywallView(initialTier: paywallInitialTier)
         }
         .sheet(isPresented: $showChildPaywall) {
             ChildSubscriptionView()
@@ -223,6 +224,7 @@ struct SubscriptionManagementView: View {
                 // Upgrade button (if not already on Family)
                 if subscriptionManager.currentTier != .family {
                     Button {
+                        paywallInitialTier = .family
                         showPaywall = true
                     } label: {
                         HStack {
@@ -487,6 +489,7 @@ private extension SubscriptionManagementView {
     var upgradeCard: some View {
         if subscriptionManager.currentTier == .individual {
             Button {
+                paywallInitialTier = .family
                 showPaywall = true
             } label: {
                 HStack {
@@ -503,6 +506,7 @@ private extension SubscriptionManagementView {
             }
         } else if subscriptionManager.currentTier == .trial {
             Button {
+                paywallInitialTier = .individual
                 showPaywall = true
             } label: {
                 HStack {

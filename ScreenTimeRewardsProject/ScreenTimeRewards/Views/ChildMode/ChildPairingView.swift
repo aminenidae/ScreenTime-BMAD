@@ -167,7 +167,10 @@ private extension ChildPairingView {
 
     /// Whether the user can add another parent device
     var canAddParent: Bool {
-        pairedParents.count < maxParentDevices
+        // Always allow pairing if child has no parent yet — pairing is how the child
+        // inherits a subscription. Subscription-based cap only applies once paired.
+        guard !pairedParents.isEmpty else { return true }
+        return pairedParents.count < maxParentDevices
     }
 
     var scanCard: some View {
@@ -219,7 +222,7 @@ private extension ChildPairingView {
     }
 
     var scanCardSubtitle: String {
-        if pairedParents.count >= maxParentDevices {
+        if !canAddParent {
             return "Maximum of \(maxParentDevices) parent devices reached."
         } else if pairedParents.isEmpty {
             return "Ask your parent for their code to scan it with the camera."
@@ -364,7 +367,7 @@ private extension ChildPairingView {
                     // Show specific error for same-account pairing
                     if case PairingError.sameAccountPairing = error {
                         self.errorMessage = error.localizedDescription
-                    } else if case PairingError.maxParentsReached = error {
+                    } else if case PairingError.maxParentsReached(_) = error {
                         self.errorMessage = error.localizedDescription
                     } else {
                         self.errorMessage = "Failed to pair: \(error.localizedDescription)"
