@@ -691,11 +691,12 @@ final class SubscriptionManager: NSObject, ObservableObject {
         currentTier == .solo
     }
 
-    /// Whether this is a child device receiving subscription access from a parent
-    /// True when child device has Individual/Family tier (which can only come from parent pairing)
+    /// Whether this is a child device receiving subscription access from a parent.
+    /// True when the child has at least one paired parent AND currently has access.
+    /// Reverts to false when the child unpairs or the parent subscription expires.
     var isParentPairedSubscription: Bool {
-        deviceManager.currentMode == .childDevice &&
-        (currentTier == .individual || currentTier == .family)
+        guard deviceManager.currentMode == .childDevice else { return false }
+        return hasAccess && !DevicePairingService.shared.getPairedParents().isEmpty
     }
 
     // MARK: - Excess Children Detection
