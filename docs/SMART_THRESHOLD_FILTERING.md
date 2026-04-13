@@ -785,3 +785,205 @@ Real usage = 36 thresholds × 60s = 36 min. Inflation = exactly **60 min** = one
 **Remaining limitation:** BGProcessingTask (`requiresNetworkConnectivity=true`, no `requiresExternalPower`) is also deferrable by iOS. A 2h 16min gap (09:00–11:16, Mar 15) with no background execution was observed during active daytime use. True background execution (UPLOAD_MONITORING entries without preceding REGISTER) not yet confirmed from device testing.
 
 **Long-term fix needed:** Silent remote push from parent device to child via CloudKit — most reliable on-demand background wake mechanism available in iOS. Parent app's background sync could trigger a silent push to the child device every ~30 min.
+
+---
+
+### Midnight Dark Window — Full BGTask Failure Analysis (Apr 11, 2026)
+
+**Status:** OPEN — root cause of overcounting still unknown (see "Disproven Fix Attempt" section below)
+
+**Problem:** App shows 0 minutes all day, then jumps to 55-69 minutes when user opens app at 18:49. Cross-reference with iOS Screen Time confirmed this IS real overcounting — not delayed recognition. BB131A01 showed 55 min recorded but only 23 min real iOS usage (32 min excess ≈ yesterday's 33 min iOS usage).
+
+**Evidence from April 8-11 device logs:**
+
+**BGTask log:**
+```
+[2026-04-11 18:49:46] MIDNIGHT_HEALTH — OK (submitted=6 ran=0 lastScheduled=23h ago)
+[2026-04-11 18:49:47] MIDNIGHT_RESET — task started (run #1)
+[2026-04-11 18:50:02] MIDNIGHT_RESET — EXPIRED (iOS killed before completion)
+```
+`submitted=6 ran=0` across 4 consecutive days. BGAppRefreshTask never executed at midnight. First execution at 18:49 when user opened the app — 17+ hours late.
+
+**Midnight diagnostic log:**
+```
+[00:00:00.087] MIDNIGHT_PENDING_SET — blocking events until scheduleActivity for 6 apps
+[07:37:59.147] DIAG_MIDNIGHT_TIMEOUT clearing flag after 27479s
+[07:37:59.191] DIAG_NEW_DAY appID=E54C1C9E... initial=60s thresh=60s
+```
+SKIP_MIDNIGHT 2h timeout fired at 07:38 (first event arrived 7.6h after midnight — no events came during the 2h window to trigger earlier clearance). After timeout: E54C1C9E and C6DA269B resumed recording (their stale threshold windows happened to cover today's usage). BB131A01 (stale window 21-80) and E8B1C8C6 (stale window 16-75) remained dark — no thresholds below 16/21 registered, so today's usage from 0 never triggered an event.
+
+**Extension log pattern (Apr 11):**
+```
+[07:38:01] MIDNIGHT_TIMEOUT — 2hr expired, clearing midnight_pending_refresh
+[07:38:02] RECORD appID=E54C1C9E thresh=60s → partial tracking resumes
+...18:49... (BGTask finally runs, scheduleActivity registers fresh 1-60)
+[18:50:01] RECORD appID=BB131A01 thresh=57min → bulk catch-up, real iOS cumulative
+```
+
+**Root cause chain:**
+1. Midnight: Extension sets `midnight_pending_refresh=true` ✓
+2. BGAppRefreshTask scheduled for 00:01 — **never executes** (iOS ML throttling, child device)
+3. BGProcessingTask (usage-upload piggyback) — **also didn't execute overnight** on Apr 11
+4. SKIP_MIDNIGHT blocks ALL events for 2h ✓ (correct behavior)
+5. No events arrive during 2h window (no usage at 00:00-02:00) — timeout check never runs
+6. First event at 07:38 → timeout fires (27479s > 7200s) → flag cleared
+7. Apps with stale threshold floors > 0 remain in "dark window" (no thresholds to trigger)
+8. Dark window persists until 18:49 when user opens app → `scheduleActivity()` → fresh thresholds → iOS fires all accumulated catch-ups (real data)
+
+**Key insight:** The 2h timeout constant (7200s at line 376 of extension) IS correct. The 27479s in the log is NOT a timeout misconfiguration — it's the elapsed time when the first event HAPPENED to arrive and check the condition. The timeout expired at 02:00 but nobody checked until 07:38.
+
+**SKIP_REGRESSION vs SKIP_RESTART change (feature/streamline-usage-recording):** In March 28 logs (main branch), events after INTERVAL_START were blocked by SKIP_RESTART. In April 11 logs (feature branch), they're blocked by SKIP_REGRESSION. This indicates `monitoring_restart_timestamp` is no longer updated in `intervalDidStart()` — only in `scheduleActivity()`. Impact: absorb window no longer resets on each INTERVAL_START, only on explicit restarts.
+
+---
+
+### Disproven Fix Attempt: Cumulative-Aware Threshold System (Apr 11-12, 2026)
+
+**Initial hypothesis:** iOS `includesPastActivity: true` cumulative persists indefinitely across midnight.
+
+**DISPROVEN by Apr 12 device testing.** iOS cumulative RESETS at midnight. Evidence:
+- Registered thresholds 61-120 after midnight (based on yesterday's 60min lastThreshold)
+- Child used apps for 32+ minutes — zero events fired
+- Thresholds 1-60 registered after revert → iOS immediately fired catch-ups for those 32 minutes
+- New app with lastThreshold=0 recorded normally while old apps (lastThreshold=3600s) were blocked
+
+**What was tried (all reverted — branch `feature/midnight-overcounting-fix` for reference):**
+
+1. **Change 1:** Preserved lastThreshold across midnight (removed reset in `intervalDidStart()` and `resetAllDailyCounters()`) → Caused lastThreshold=3600s to persist, blocking ALL new-day events
+2. **Change 2:** Changed cross-day filter from `== lastThreshold` to `<= lastThreshold` → Combined with Change 1, blocked every threshold (60s <= 3600s)
+3. **Change 3:** Used `max(extToday, lastThreshold)` for window start → Placed thresholds at 61-120 when iOS cumulative was 0, so no events ever fired. **Reverted first.**
+
+**Result:** Zero usage recording for all existing apps. Only new apps (lastThreshold=0) worked.
+
+**Lesson:** `lastThreshold` MUST reset at midnight. iOS cumulative resets, so yesterday's high-water mark is meaningless on a new day.
+
+**Original overcounting root cause — LIKELY IDENTIFIED (Apr 12):** Out-of-order catch-up events after `startMonitoring()`. iOS fires catch-ups non-sequentially — if multiple high-threshold events slip through before SKIP_REGRESSION blocks them, usage gets inflated. The same mechanism causes undercounting when the highest event arrives first and blocks all lower ones. See "Out-of-Order Catch-Up Events" section below.
+
+---
+
+### scheduleActivity() Dependency — UX Problem & Solution Options (Apr 12, 2026)
+
+**Core problem:** `scheduleActivity()` (main app) is the ONLY way to register fresh thresholds. After midnight, yesterday's stale thresholds (e.g., window 61-120) don't cover today's usage (iOS cumulative resets to 0). If the child opens a learning app without opening the main app first, usage goes untracked — potentially for hours. This is a frustrating UX for parents: the child "wastes" learning time that doesn't count toward rewards.
+
+**Why existing mitigations fail:**
+| Mechanism | Status | Problem |
+|-----------|--------|---------|
+| BGAppRefreshTask (midnight + every 45min) | `submitted=6 ran=0` on child device | iOS ML throttling — never executes |
+| BGProcessingTask (usage-upload piggyback) | Also didn't execute overnight Apr 11 | Same iOS throttling |
+| Extension `extensionRebuildSlidingWindow()` | Exists but was never called at midnight | Was only triggered by WINDOW_TOP_HIT during recording |
+| SKIP_MIDNIGHT 2h timeout | Only helps if events arrive to trigger the check | If stale window is 61+, no events arrive at all |
+
+**Options evaluated (Apr 12, 2026):**
+
+**Option 1: Extension-side midnight rebuild (IMPLEMENTED)** — `intervalDidStart()` fires reliably at 00:00. Call `extensionRebuildSlidingWindow()` right there to register fresh 1-60 thresholds. Safe because iOS cumulative is 0 at midnight — no catch-ups to fire. Falls back to MIDNIGHT_PENDING if rebuild fails. See "Extension-Side Midnight Rebuild" section below.
+
+**Option 2: Silent push notifications (parent → child)** — Parent device sends silent push via CloudKit/APNs every ~30 min → wakes child app → `scheduleActivity()` runs. Most reliable iOS background wake mechanism. Requires server infrastructure or CloudKit subscription setup. Good long-term solution but heavier to build. Consider if Option 1 proves insufficient for intraday threshold exhaustion. **NOTE:** Only viable for Individual and Family plans where a parent device is paired/synced. For Solo plans (no parent device), this approach is not possible — the UX would need to guide the child to open the main app themselves (e.g., morning reminder notification).
+
+**Option 3: Always register thresholds starting at 1** — Instead of sliding window from `currentMinutes+1`, always include thresholds 1-60 regardless of current usage. Duplicates filtered by SKIP_REGRESSION. Wastes threshold slots but guarantees events fire on a fresh day. Downside: uses more of the ~500 iOS threshold budget (could register 1-60 AND 61-120 for each app = 120 per app, only safe for 4 apps).
+
+**Option 4: WidgetKit timeline refresh** — Add a simple home screen widget. iOS gives widgets periodic background refresh time (~15-60 min). Use `TimelineProvider.getTimeline()` to call `scheduleActivity()`. More reliable than BGTask on some devices. Requires widget extension target. The child/parent would need to add the widget to their home screen.
+
+**Option 5: Register overlapping windows** — Register both 1-60 AND the sliding window (e.g., 45-104). Uses more threshold budget but provides coverage even if the window assumption is wrong. Combined with Option 3. Practical limit: ~4 apps with 120 thresholds each = 480 (near 500 limit).
+
+**Decision:** Option 1 implemented first — simplest, no new infrastructure, leverages existing code. If it works at midnight but intraday exhaustion remains a problem, Option 2 (silent push) is the next escalation. Option 4 (widget) is a lighter alternative to Option 2 worth considering.
+
+---
+
+### Extension-Side Midnight Rebuild (Apr 12, 2026)
+
+**Status:** IMPLEMENTED (branch: feature/streamline-usage-recording)
+
+**Problem:** `scheduleActivity()` lives in the main app. After midnight, yesterday's stale thresholds (e.g., window 61-120) don't cover today's usage (iOS cumulative resets to 0). If the child opens a learning app without opening the main app first, usage goes untracked — potentially for hours. BGAppRefreshTask is unreliable on child devices (`submitted=6 ran=0` across 4 days).
+
+**Evidence:** Apr 12 logs show `intervalDidStart()` fires reliably at 00:00:00.146, but `scheduleActivity()` didn't run until 00:45:34 when the user manually opened the app. The 45-minute gap had zero tracking. Without manual intervention, the gap would persist until the 2h SKIP_MIDNIGHT timeout.
+
+**Solution:** At midnight, the extension now rebuilds thresholds itself instead of waiting for the main app:
+
+1. `intervalDidStart()` detects genuine midnight (day change) ✓ (existing)
+2. Resets `lastThreshold` to 0 for all apps ✓ (existing)
+3. **NEW:** Resets daily counters (`resetAllDailyCounters`) so `ext_usage_today=0`
+4. **NEW:** Calls `extensionRebuildSlidingWindow()` which registers fresh 1-60 thresholds via `DeviceActivityCenter().startMonitoring()`
+5. **NEW:** If rebuild succeeds → no `MIDNIGHT_PENDING` set (tracking starts immediately)
+6. **NEW:** If rebuild fails → falls back to `MIDNIGHT_PENDING` (existing behavior)
+
+**Why extension-initiated `startMonitoring()` is safe at midnight:** The known pitfall ("iOS immediately fires all thresholds") only applies when there IS cumulative usage to catch up on. At midnight, iOS cumulative is 0. Registering thresholds 1-60 when cumulative is 0 means no catch-ups fire — the extension simply waits for real usage to accumulate minute by minute.
+
+**Expected log output at midnight:**
+```
+[00:00:00] MIDNIGHT_START activity=ScreenTimeTracking trackedApps=8
+[00:00:00]   APP_STATE BB131A01... ext_today=3420s ext_date=2026-04-11 lastThresh=3600s
+[00:00:00] MIDNIGHT_RESET_COMPLETE — lastThreshold reset for 8 apps
+[00:00:00] EXT_REBUILD_APP appID=BB131A01... current=0min → new window 1-60
+[00:00:00] EXT_REBUILD_SUCCESS events=480 apps=8
+[00:00:00] MIDNIGHT_EXT_REBUILD_OK ��� fresh 1-60 thresholds registered, no MIDNIGHT_PENDING needed
+```
+
+**Fallback (if rebuild fails):**
+```
+[00:00:00] EXT_REBUILD_FAILED: <error>
+[00:00:00] MIDNIGHT_PENDING_SET — ext rebuild failed, blocking events until scheduleActivity
+```
+In this case, behavior is identical to the previous implementation — events blocked until main app opens or 2h timeout expires.
+
+**SKIP_MIDNIGHT filter (Filter 0) retained** as safety net for rebuild failures. Not removed.
+
+**scheduleActivity() lastThreshold reset (also Apr 12):** Added `sharedDefaults.set(0, forKey: "usage_\(logicalID)_lastThreshold")` to the date-mismatch branch in `scheduleActivity()`. This ensures that when the main app opens on a new day, stale lastThreshold values from yesterday are cleaned up — even if the extension's midnight reset didn't run (e.g., old build processed midnight without resetting). Without this, SKIP_REGRESSION blocks all events because `threshold <= staleLastThreshold`. This is a defense-in-depth fix: the extension midnight rebuild is the primary path, but `scheduleActivity()` is the safety net.
+
+**STALE_THRESHOLD_RESET — MONITORING_ALIVE Path (also Apr 12):** Third defense layer. Problem: when `MONITORING_ALIVE` detects active monitoring, it skips `scheduleActivity()` entirely — so the lastThreshold reset added to `scheduleActivity()` never executes. Fix: Added a lastThreshold reset loop in the `MONITORING_ALIVE` path in `ScreenTimeService.swift` (~line 495) that runs on **every app open**. For each tracked app, checks `ext_usage_\(appID)_date != today` → resets `usage_\(appID)_lastThreshold` to 0. This is why apps started recording again after opening the main app even though `scheduleActivity()` didn't run (monitoring was already active). Three-layer defense summary:
+1. `intervalDidStart()` at midnight → resets lastThreshold (primary)
+2. `scheduleActivity()` date-mismatch branch → resets lastThreshold (when main app triggers fresh monitoring)
+3. `MONITORING_ALIVE` path → resets lastThreshold (when monitoring is already active, scheduleActivity skipped)
+
+---
+
+### Out-of-Order Catch-Up Events (Apr 12, 2026)
+
+**Status:** DISCOVERED — NOT YET FIXED
+
+**Discovery:** After `startMonitoring()` with `includesPastActivity: true`, iOS fires catch-up events for all thresholds below the current cumulative usage. These events arrive **OUT OF ORDER** — iOS does not guarantee sequential delivery.
+
+**Device evidence (Apr 12):**
+- **C6DA269B** (~34min real usage): min.60 fired first → lastThresh set to 3600 → then min.29 (1740s), min.37 (2220s) arrived → `SKIP_REGRESSION` blocked them because `1740 <= 3600`. Only 1 minute recorded instead of ~34.
+- **BB131A01** (~15min real usage): min.15 fired first → lastThresh set to 900 → then min.8 (480s), min.9 (540s), min.13 (780s) arrived → all blocked because `<= 900`.
+- **E8B1C8C6**: min.3 rejected (thresh=180 <= lastThresh=1560) — higher events already recorded.
+
+**Root cause:** Same-day `SKIP_REGRESSION` filter (`thresholdSeconds <= lastThreshold`) assumes thresholds arrive in monotonic ascending order. iOS violates this assumption during catch-up bursts after `startMonitoring()`. The first event to arrive (often a high threshold) sets `lastThreshold` high, then all lower-numbered events are blocked.
+
+**Impact:** This is the likely root cause of BOTH historical issues:
+- **Overcounting:** If multiple high-threshold events slip through before `SKIP_REGRESSION` kicks in (e.g., min.60 AND min.55 both record +60s each before either sets lastThreshold high enough to block the other)
+- **Undercounting:** If the highest event arrives first and blocks all lower events (the pattern seen Apr 12)
+
+**Scope:** Only affects **intraday restarts** where there is existing cumulative usage:
+- `WINDOW_TOP_HIT` → `extensionRebuildSlidingWindow()` during the day
+- Manual monitoring restarts
+- `scheduleActivity()` restarts from main app
+
+**NOT a problem at midnight:** iOS cumulative resets to 0 at midnight, so there are no catch-ups to fire. The extension-side midnight rebuild is unaffected.
+
+**Current filter chain (no SKIP_RESTART absorb window):**
+The filter chain in `setUsageToThreshold()` is:
+1. Filter 0: `SKIP_MIDNIGHT` — blocks events during midnight pending refresh
+2. Filter 1: Min threshold validation — blocks thresholdSeconds < 60
+3. Filter 2: Shielded reward app — blocks events for currently-shielded reward apps
+4. Filter 3: `SKIP_REGRESSION` — blocks thresholdSeconds <= lastThreshold (same day) or == lastThreshold (cross day)
+
+Note: The `SKIP_RESTART` 60s absorb window referenced in earlier documentation does NOT exist in the current filter chain. The `monitoring_restart_timestamp` is set but only used for shield checks on rejected events, not for filtering.
+
+**Potential fix approaches (not yet implemented):**
+1. **Re-add SKIP_RESTART absorb window:** Block ALL events for N seconds after restart, capture the MAX threshold seen. After the window closes, set lastThreshold to max and record the correct usage delta. Ensures out-of-order events during catch-up don't corrupt lastThreshold.
+2. **Set usage = max(current, threshold):** Instead of delta accumulation, treat catch-up events as absolute positions. Only update usage if threshold > current recorded value. Eliminates ordering dependency.
+3. **Accept undercounting for catch-ups:** Real-time minute-by-minute tracking (non-catch-up) works correctly since events arrive one at a time in order. Catch-up undercounting only affects restart scenarios.
+
+---
+
+### FamilyControls Authorization Behavior (Apr 12, 2026)
+
+**Discovery:** Toggling off Brain Coinz in iOS Screen Time settings **revokes the FamilyControls authorization entirely** — not just the current monitoring session. Re-enabling triggers the full system authorization prompt: *"Brain Coinz Would Like to Access Screen Time"* with Continue/Don't Allow buttons.
+
+**Implication:** Our app's `requestAuthorization()` (called on launch) may silently re-obtain authorization without showing this prompt — the `authorizationStatus` check (`== .approved`) would fail, triggering `requestAuthorization()` which could re-authorize silently or show the prompt depending on iOS state.
+
+**Concern:** If a parent intentionally revokes Brain Coinz's Screen Time access, our app should respect that decision rather than silently re-authorizing on the next launch. This is a trust/compliance consideration for the parent-child relationship model.
+
+**Status:** Needs review. Consider:
+- Detecting revoked authorization and showing an in-app message instead of silently re-requesting
+- Distinguishing between "never authorized" (first launch) and "authorization revoked" (parent decision)
+- Whether iOS handles this distinction automatically via the system prompt

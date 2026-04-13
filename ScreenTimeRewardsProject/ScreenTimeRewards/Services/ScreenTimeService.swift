@@ -497,6 +497,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     print("[ScreenTimeService] ✅ Monitoring already active at OS level — skipping restart to prevent phantom floods")
                     #endif
 
+                    // Reset stale lastThreshold on new day — even when monitoring is alive.
+                    // If a previous build (or failed midnight reset) left lastThreshold at
+                    // yesterday's high-water mark, SKIP_REGRESSION blocks all new-day events.
+                    // This runs unconditionally on every app open to clean up stale state.
+                    if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                        let fmt = DateFormatter()
+                        fmt.dateFormat = "yyyy-MM-dd"
+                        let todayStr = fmt.string(from: Date())
+                        let trackedIDs = sharedDefaults.stringArray(forKey: "tracked_app_ids") ?? []
+                        for appID in trackedIDs {
+                            let extDate = sharedDefaults.string(forKey: "ext_usage_\(appID)_date")
+                            if extDate != todayStr {
+                                let oldThresh = sharedDefaults.integer(forKey: "usage_\(appID)_lastThreshold")
+                                if oldThresh > 0 {
+                                    sharedDefaults.set(0, forKey: "usage_\(appID)_lastThreshold")
+                                    lifecycleLog("STALE_THRESHOLD_RESET appID=\(appID.prefix(8))... lastThreshold was \(oldThresh)s, reset to 0 (extDate=\(extDate ?? "nil") != today)")
+                                }
+                            }
+                        }
+                    }
+
                     // Check midnight_pending even when monitoring is alive.
                     // After midnight, thresholds become stale (yesterday's ranges
                     // don't cover today's 0 cumulative) and SKIP_MIDNIGHT blocks
@@ -2259,8 +2280,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     lifecycleLog("SLIDING_WINDOW_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) → \(extTodaySeconds / 60) min")
                     midnightDiagnosticLog("SCHEDULE_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") extTodaySeconds=\(extTodaySeconds) currentMinutes=\(extTodaySeconds / 60)")
                 } else {
-                    lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → defaulting to 0 min")
-                    midnightDiagnosticLog("SCHEDULE_READ_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → 0min")
+                    // Date mismatch — also reset lastThreshold so SKIP_REGRESSION doesn't block new-day events
+                    // using yesterday's stale high-water mark (e.g., lastThreshold=3600 blocks threshold=60)
+                    sharedDefaults.set(0, forKey: "usage_\(app.logicalID)_lastThreshold")
+                    lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → defaulting to 0 min, lastThreshold reset")
+                    midnightDiagnosticLog("SCHEDULE_READ_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → 0min, lastThreshold=0")
                 }
             }
         }

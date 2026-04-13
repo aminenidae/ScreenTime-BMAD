@@ -164,13 +164,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     midnightDiagnosticLog("  APP_STATE \(diagAppID.prefix(8))... ext_today=\(extToday)s ext_date=\(extDate) lastThresh=\(lastThresh)s usage_today=\(usageToday)s", defaults: defaults)
                 }
 
-                // SKIP_MIDNIGHT: Block all events until scheduleActivity() registers fresh thresholds.
-                // At midnight, old thresholds remain registered. iOS fires catch-ups for yesterday's
-                // residual that would record as phantom today usage. Block until fresh thresholds arrive.
-                defaults.set(true, forKey: "midnight_pending_refresh")
-                defaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
-
-                midnightDiagnosticLog("MIDNIGHT_PENDING_SET — blocking events until scheduleActivity for \(diagTrackedIDs.count) apps", defaults: defaults)
+                // Midnight PENDING_SET is deferred — set below only if extension rebuild fails
             } else if defaults.bool(forKey: "midnight_diagnostic_active") {
                 // Non-midnight intervalDidStart (restart-triggered) — log it, don't clear
                 midnightDiagnosticLog("RESTART_INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
@@ -191,6 +185,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 }
                 if defaults.bool(forKey: "midnight_diagnostic_active") {
                     midnightDiagnosticLog("MIDNIGHT_RESET_COMPLETE — lastThreshold reset for \(trackedAppIDs.count) apps", defaults: defaults)
+                }
+
+                // Reset daily counters so rebuild sees fresh ext_usage=0 → window 1-60
+                let calendar = Calendar.current
+                let startOfToday = calendar.startOfDay(for: Date()).timeIntervalSince1970
+                let globalResetKey = "global_daily_reset_timestamp"
+                let lastGlobalReset = defaults.double(forKey: globalResetKey)
+                if lastGlobalReset < startOfToday {
+                    resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
+                    defaults.set(startOfToday, forKey: globalResetKey)
+                }
+
+                // Attempt extension-side rebuild: register fresh 1-60 thresholds at midnight.
+                // iOS cumulative is 0 at midnight, so no catch-ups fire — safe to startMonitoring().
+                let rebuildSuccess = extensionRebuildSlidingWindow(defaults: defaults)
+                if rebuildSuccess {
+                    midnightDiagnosticLog("MIDNIGHT_EXT_REBUILD_OK — fresh 1-60 thresholds registered, no MIDNIGHT_PENDING needed", defaults: defaults)
+                    lifecycleLog("MIDNIGHT_EXT_REBUILD — extension registered fresh thresholds at midnight", defaults: defaults)
+                } else {
+                    // Fallback: block events until main app runs scheduleActivity()
+                    defaults.set(true, forKey: "midnight_pending_refresh")
+                    defaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
+                    midnightDiagnosticLog("MIDNIGHT_PENDING_SET — ext rebuild failed, blocking events until scheduleActivity", defaults: defaults)
+                    lifecycleLog("MIDNIGHT_PENDING_SET — ext rebuild failed, waiting for main app", defaults: defaults)
                 }
             }
 
@@ -682,11 +700,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// so iOS fires zero catch-up events — the restart is clean.
     ///
     /// Safety: SKIP_REGRESSION blocks duplicate burst events post-restart.
-    private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults) {
+    @discardableResult
+    private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults) -> Bool {
         guard let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids"),
               !trackedAppIDs.isEmpty else {
             debugLog("EXT_REBUILD_SKIP — no tracked_app_ids", defaults: defaults)
-            return
+            return false
         }
 
         let todayDateString = Self.dayDateFormatter.string(from: Date())
@@ -747,7 +766,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         guard !events.isEmpty else {
             debugLog("EXT_REBUILD_NO_EVENTS — nothing to register", defaults: defaults)
-            return
+            return false
         }
 
         let schedule = DeviceActivitySchedule(
@@ -769,10 +788,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(topMin, forKey: "window_top_min_\(logicalID)")
             }
             debugLog("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)", defaults: defaults)
+            return true
         } catch {
             // Undo restart timestamp so SKIP_RESTART doesn't block real events
             defaults.removeObject(forKey: "monitoring_restart_timestamp")
             debugLog("EXT_REBUILD_FAILED: \(error)", defaults: defaults)
+            return false
         }
     }
 
