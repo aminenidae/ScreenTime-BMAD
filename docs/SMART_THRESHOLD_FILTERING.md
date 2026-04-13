@@ -987,3 +987,69 @@ Note: The `SKIP_RESTART` 60s absorb window referenced in earlier documentation d
 - Detecting revoked authorization and showing an in-app message instead of silently re-requesting
 - Distinguishing between "never authorized" (first launch) and "authorization revoked" (parent decision)
 - Whether iOS handles this distinction automatically via the system prompt
+
+---
+
+### Console.app os_log Observability (Apr 13, 2026)
+
+**Problem:** Extension `print()` statements and UserDefaults-based `debugLog()` are invisible in Console.app. The only way to read extension logs was opening the main app — which triggers `scheduleActivity()` and masks whether the extension-side midnight rebuild works autonomously.
+
+**Solution:** Added `os_log` via `Logger(subsystem: "i6dev.ScreenTimeRewards.extension", category: "monitor")` to `DeviceActivityMonitorExtension.swift`. Uses `.notice` level (always visible in Console.app — `.info` level is hidden by default).
+
+**16 log points added at critical decision paths:**
+
+| Category | Log Points | Messages |
+|----------|-----------|----------|
+| Midnight lifecycle | 5 | `MIDNIGHT_START`, `INTERVAL_START`, `MIDNIGHT_RESET_COMPLETE`, `MIDNIGHT_EXT_REBUILD_OK`, `MIDNIGHT_PENDING_SET` |
+| Threshold events | 4 | `THRESHOLD` (event + total count), `EVENT` (per-app details), `RECORDED` (success) |
+| Filter decisions | 2 | `SKIP_MIDNIGHT`, `SKIP_REGRESSION` |
+| Usage recording | 2 | `NEW_DAY`, `INCREMENT` |
+| Extension rebuild | 3 | `EXT_REBUILD_APP`, `EXT_REBUILD_SUCCESS`, `EXT_REBUILD_FAILED` |
+
+**4 dead `print()` calls removed** — replaced by the os_log equivalents above.
+
+**Console.app filter:** Subsystem = `i6dev.ScreenTimeRewards.extension`, Category = `monitor`
+
+**Memory impact:** Negligible. `Logger` writes to system log buffer, no heap allocation.
+
+---
+
+### Apr 12→13 Midnight Transition — Console.app Evidence (Apr 13, 2026)
+
+**Setup:** iPhone connected to Mac via USB, Console.app recording, `caffeinate -s` keeping Mac awake. Main app NOT opened after midnight.
+
+**Console.app system-level timeline (pre-os_log build):**
+
+| Time | Event | Source |
+|------|-------|--------|
+| 23:59:01.121 | `ScreenTimeTracking did end` — `intervalDidEnd` fires | UsageTrackingAgent |
+| 23:59:01.132 | Extension launched (PID 86752) for intervalDidEnd | runningboardd |
+| 23:59:01.257 | intervalDidEnd callback completes (~135ms) | runningboardd |
+| 00:00:00.013 | `ScreenTimeTracking did start` — `intervalDidStart` fires | UsageTrackingAgent |
+| 00:00:00.016 | Extension reused (same PID 86752) for intervalDidStart | runningboardd |
+| 00:00:00.160 | iOS computes next interval: Apr 13 00:00 → Apr 13 23:59 | ScreenTimeActivityExtension |
+| 00:00:22.670 | Host connection invalidated (UsageTrackingAgent cancelled) | ScreenTimeActivityExtension |
+| 00:00:23.586 | Extension terminated (PID 86752) — **clean exit, NOT jetsam** | runningboardd |
+
+**Key finding:** Extension had **22+ seconds** at midnight — sufficient for `resetAllDailyCounters()` + `extensionRebuildSlidingWindow()` + UserDefaults flush.
+
+**Post-midnight threshold events (main app never opened):**
+
+| Time | Event | Evidence |
+|------|-------|----------|
+| 00:32:30 | `min.1` reached threshold | UsageTrackingAgent |
+| 00:33:28 | `min.2` reached threshold | UsageTrackingAgent |
+| 00:34:27 | `min.3` reached threshold | UsageTrackingAgent |
+| 00:35:30 | `min.4` reached threshold | UsageTrackingAgent |
+| 00:36:28 | `min.5` reached threshold | UsageTrackingAgent |
+
+**Analysis — extension-side midnight rebuild CONFIRMED WORKING:**
+1. Thresholds start from **min.1** → window correctly built from cumulative=0 (fresh day)
+2. Events fire **~60s apart** → real-time usage tracking, not catch-up
+3. Only 1 app hash (`3453076564568310786`) → matches test setup (single app used)
+4. **Main app was never opened** → proves `extensionRebuildSlidingWindow()` at midnight autonomously registered thresholds 1-60 via `startMonitoring()`
+
+**Remaining work:**
+- Verify with os_log build (`.notice` level) to see full internal decision chain
+- Monitor for window exhaustion at min.60 → automatic `extensionRebuildSlidingWindow()` from `WINDOW_TOP_HIT` path
+- Long-duration test: does tracking continue past 60 minutes without main app?

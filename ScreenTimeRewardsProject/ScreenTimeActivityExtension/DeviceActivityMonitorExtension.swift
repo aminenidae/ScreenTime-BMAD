@@ -3,6 +3,7 @@ import Foundation
 import Darwin // For mach_task_self_ and task_info
 import ManagedSettings
 import UserNotifications
+import os.log
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -17,6 +18,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     }()
     /// Ensures lifecycle log only fires once per process (init() is called per event)
     private static var hasLoggedSession = false
+
+    /// os_log logger for Console.app visibility (extension print() is invisible in Console)
+    private static let logger = Logger(subsystem: "i6dev.ScreenTimeRewards.extension", category: "monitor")
 
     // MARK: - Constants
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
@@ -156,6 +160,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(todayStr, forKey: "midnight_diagnostic_date")
                 let diagTrackedIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
                 midnightDiagnosticLog("MIDNIGHT_START activity=\(activity.rawValue) trackedApps=\(diagTrackedIDs.count)", defaults: defaults)
+                Self.logger.notice("MIDNIGHT_START trackedApps=\(diagTrackedIDs.count)")
                 for diagAppID in diagTrackedIDs {
                     let extToday = defaults.integer(forKey: "ext_usage_\(diagAppID)_today")
                     let extDate = defaults.string(forKey: "ext_usage_\(diagAppID)_date") ?? "nil"
@@ -172,6 +177,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
+            Self.logger.notice("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)")
 
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
 
@@ -186,6 +192,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 if defaults.bool(forKey: "midnight_diagnostic_active") {
                     midnightDiagnosticLog("MIDNIGHT_RESET_COMPLETE — lastThreshold reset for \(trackedAppIDs.count) apps", defaults: defaults)
                 }
+                Self.logger.notice("MIDNIGHT_RESET_COMPLETE lastThreshold reset for \(trackedAppIDs.count) apps")
 
                 // Reset daily counters so rebuild sees fresh ext_usage=0 → window 1-60
                 let calendar = Calendar.current
@@ -203,12 +210,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 if rebuildSuccess {
                     midnightDiagnosticLog("MIDNIGHT_EXT_REBUILD_OK — fresh 1-60 thresholds registered, no MIDNIGHT_PENDING needed", defaults: defaults)
                     lifecycleLog("MIDNIGHT_EXT_REBUILD — extension registered fresh thresholds at midnight", defaults: defaults)
+                    Self.logger.notice("MIDNIGHT_EXT_REBUILD_OK — fresh thresholds registered autonomously")
                 } else {
                     // Fallback: block events until main app runs scheduleActivity()
                     defaults.set(true, forKey: "midnight_pending_refresh")
                     defaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
                     midnightDiagnosticLog("MIDNIGHT_PENDING_SET — ext rebuild failed, blocking events until scheduleActivity", defaults: defaults)
                     lifecycleLog("MIDNIGHT_PENDING_SET — ext rebuild failed, waiting for main app", defaults: defaults)
+                    Self.logger.error("MIDNIGHT_PENDING_SET — ext rebuild FAILED, waiting for main app")
                 }
             }
 
@@ -237,8 +246,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     // MARK: - Threshold Event Handler
     override nonisolated func eventDidReachThreshold(_ event: DeviceActivityEvent.Name, activity: DeviceActivityName) {
-        // Console visibility for development
-        print("🔔 [EXTENSION] THRESHOLD EVENT: \(event.rawValue)")
+        Self.logger.notice("THRESHOLD event=\(event.rawValue)")
 
         // Log FIRST - before any processing that could fail
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
@@ -247,8 +255,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
 
-            // Show event count in console
-            print("🔔 [EXTENSION] Total events: \(eventCount)")
+            Self.logger.notice("THRESHOLD totalEvents=\(eventCount)")
         }
 
         updateHeartbeat()
@@ -312,8 +319,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
         debugLog("EVENT appID=\(appID.prefix(8))... min=\(thresholdMinutes) currentToday=\(currentToday)s lastThresh=\(currentThreshold)s", defaults: defaults)
 
-        // Console visibility for development
-        print("📝 [EXTENSION] Recording: app=\(appID.prefix(8))... minute=\(thresholdMinutes) currentToday=\(currentToday)s")
+        Self.logger.notice("EVENT app=\(appID.prefix(8))... min=\(thresholdMinutes) today=\(currentToday)s lastThresh=\(currentThreshold)s")
 
         // Decode shield configs ONCE — used by filter chain (shielded app check) and post-recording shield updates
         let shieldConfigs: ExtensionShieldConfigsMinimal? = {
@@ -330,9 +336,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Confirm recording success in console
         let newToday = defaults.integer(forKey: "usage_\(appID)_today")
-        print("✅ [EXTENSION] Recorded +60s - total today: \(newToday)s")
+        Self.logger.notice("RECORDED app=\(appID.prefix(8))... total=\(newToday)s")
 
         // 4. Signal re-arm request for continuous tracking
         defaults.set(true, forKey: "rearm_\(appID)_requested")
@@ -394,6 +399,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if timeSinceMidnight < 7200.0 {  // 2-hour safety timeout
                 debugLog("SKIP_MIDNIGHT appID=\(appID.prefix(8))... timeSince=\(Int(timeSinceMidnight))s thresh=\(thresholdSeconds)s", defaults: defaults)
                 if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_MIDNIGHT appID=\(appID.prefix(8))... timeSince=\(Int(timeSinceMidnight))s thresh=\(thresholdSeconds)s", defaults: defaults) }
+                Self.logger.notice("SKIP_MIDNIGHT app=\(appID.prefix(8))... timeSince=\(Int(timeSinceMidnight))s thresh=\(thresholdSeconds)s")
                 return false
             } else {
                 // Safety timeout expired — clear flag and resume recording
@@ -446,6 +452,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if thresholdSeconds <= lastThreshold {
                 debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
                 if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
+                Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
                 return false
             }
         } else {
@@ -481,6 +488,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let initialUsage = 60
             debugLog("NEW_DAY appID=\(appID.prefix(8))... initialUsage=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults)
             if midnightDiagActive { midnightDiagnosticLog("DIAG_NEW_DAY appID=\(appID.prefix(8))... initial=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults) }
+            Self.logger.notice("NEW_DAY app=\(appID.prefix(8))... initial=\(initialUsage)s thresh=\(thresholdSeconds)s")
             defaults.set(initialUsage, forKey: todayKey)
             defaults.set(startOfToday, forKey: todayResetKey)
             defaults.set(initialUsage, forKey: totalKey)
@@ -524,6 +532,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
         if midnightDiagActive { midnightDiagnosticLog("DIAG_INCREMENT appID=\(appID.prefix(8))... old=\(currentToday)s +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s", defaults: defaults) }
+        Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s")
         defaults.set(newToday, forKey: todayKey)
         defaults.set(thresholdSeconds, forKey: lastThresholdKey)
 
@@ -762,6 +771,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             newWindowTops[logicalID] = currentMin + 60
             debugLog("EXT_REBUILD_APP appID=\(logicalID.prefix(8))... current=\(currentMin)min → new window \(currentMin + 1)-\(currentMin + 60)", defaults: defaults)
+            Self.logger.notice("EXT_REBUILD_APP app=\(logicalID.prefix(8))... current=\(currentMin)min window=\(currentMin + 1)-\(currentMin + 60)")
         }
 
         guard !events.isEmpty else {
@@ -788,11 +798,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(topMin, forKey: "window_top_min_\(logicalID)")
             }
             debugLog("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)", defaults: defaults)
+            Self.logger.notice("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)")
             return true
         } catch {
             // Undo restart timestamp so SKIP_RESTART doesn't block real events
             defaults.removeObject(forKey: "monitoring_restart_timestamp")
             debugLog("EXT_REBUILD_FAILED: \(error)", defaults: defaults)
+            Self.logger.error("EXT_REBUILD_FAILED: \(error.localizedDescription)")
             return false
         }
     }
