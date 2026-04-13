@@ -59,5 +59,8 @@ firebase-functions/lib/
 .claude/
 **/.claude/
 
+# Temporary scripts/venvs
+.tmp_yt_api/
+
 # Website (separate repo)
 i6dev-website/
