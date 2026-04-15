@@ -1188,6 +1188,71 @@ Whether Apr 12 Layers 2+3 (intraday `lastThreshold` resets) are the *trigger* of
 
 ---
 
+### Apr 15 Soak Day 2 — Ground-Truth Extension DebugLog (Apr 15, 2026)
+
+**Status:** Soak day 2 of 3 passes on **ground-truth extension debugLog**, pulled on the morning of Apr 15 after the pre-foreground-tracking protocol (run learning apps first, foreground main app once at end — see `feedback_preforeground_tracking_goal.md`). Revert remains uncommitted pending day 3.
+
+**Setup:** Device continued from the Apr 14 end state (6 apps monitored), no main-app launches overnight, learning apps used across the morning of Apr 15 *before* the first main-app foreground at 08:59:32.
+
+**Evidence sources:** iOS-side `Build Reports/Console_midnight.rtf` covers `00:01:11 – 00:13:04` (Console capture started partway — missed `00:00:00 – 00:01:10`). The **extension debugLog covers the full midnight window and the morning tracking session**, filling the Console capture gap.
+
+**Extension debugLog timeline (Apr 15 pre-foreground window):**
+
+| Time | Line | Meaning |
+|------|------|---------|
+| 00:00:41 | `INTERVAL_START` ×3 → `MIDNIGHT_EXT_REBUILD` | Direct confirmation: `intervalDidStart()` ran and `extensionRebuildSlidingWindow()` succeeded. 3× `INTERVAL_START` matches the concurrent-callback pattern documented below under "Concurrent `eventDidReachThreshold` Execution". |
+| 00:00:41 | `SLIDING_WINDOW_DATE_MISMATCH` ×6 (`extDate=nil`, `minutes=0`) | Benign under the Apr 13 revert. `extDate=nil` is the expected fresh-midnight state. The log line was retained; the stale-reset *action* this check used to gate was removed in the Apr 13 revert. |
+| 00:14:38 | `MONITORING_RESTART` (reason: midnight background task) | BG task `com.screentimerewards.midnight-reset` executed 14 min after midnight. Arrived *after* the extension-side rebuild had already registered the window — pure late fallback. |
+| 00:14:42 | `MONITORING_START` events=360 | Fresh 6×60 sliding-window thresholds re-registered by the BG-task restart. Redundant but harmless: cumulative=0 means the same thresholds land. |
+| 08:21:36 | First threshold event — `E8B1C8C6 min.1` | First real usage event of the day. **Before any main-app foreground** — pre-foreground tracking confirmed. |
+| 08:21:36 → 08:49:55 | `DADD46EB` tracked `min.1 → min.15` cleanly | Minute-by-minute increments. No duplicates, no storms, no regressions. |
+| 08:49:55 | `GOAL_CHECK: ✅ 51E884C1-92D goal MET` + `SHIELD_CHECK: ✅ REMOVED shield for 51E884C1-92D` | Reward logic and shield removal executed entirely from the extension, still with no main-app involvement. |
+| 08:51 onward | `BB131A01` tracked `min.1 → min.3` | Second reward app starts clean on the same extension-managed window. |
+| 08:59:32 | `MONITORING_ALIVE` — OS confirms active, skipping restart (app launch) | **First main-app foreground of Apr 15** — 8h 58m after midnight rebuild, 38m after first threshold event. Satisfies the pre-foreground-tracking success criterion. |
+
+**iOS-side Console timeline (`Build Reports/Console_midnight.rtf`, corroborates the extension debugLog):**
+
+| Time | Source | Event |
+|------|--------|-------|
+| 00:00:00 – 00:01:10 | — | Missing from Console capture. Extension debugLog covers this window (see `MIDNIGHT_EXT_REBUILD` at 00:00:41 above). |
+| 00:01:11 – 00:01:44 | `dasd` scoring | `bgRefresh-com.screentimerewards.midnight-reset` → `Decision: MNP`. Early denials; `dasd` eventually grants the task at 00:14:38 (per extension debugLog). |
+| 00:01:37 – 00:01:38 | `ScreenTimeActivityExtension` (pid 7444, host UsageTrackingAgent pid 7405) | `XPC_ERROR_CONNECTION_INTERRUPTED` → `tearing down context` → `runningboardd Removing process` → `Terminated` (`isUserKill=0`). Standard post-callback ephemeral-extension teardown after the 00:00:41 rebuild. |
+| 00:01:38 → 00:02:45 | — | 67s quiet window. Extension debugLog shows no events fired during this span. |
+| 00:02:45 | `UsageTrackingAgent` | Bulk state dump: `usage.app.<logicalID>.min.N/... has (N×60) seconds remaining` for **6 distinct logicalIDs**, `min.1` through `min.60` each. `remaining = minuteNumber × 60` exactly — corroborates cumulative=0 for every monitored app. |
+| 00:09:38 | `audiomxd` | pid 6633 `app<i6dev.ScreenTimeRewards>` → `running-suspended-NotVisible`. Main app is alive but suspended; corroborates "no main-app foreground". |
+| 00:02:55 – 00:13:04 | `dasd` scoring | Continued MNP in the Console window. Extension debugLog shows grant at 00:14:38 — Console capture ends before that point. |
+
+**Interpretation:**
+
+1. **iOS cumulative = 0 for all 6 monitored apps at rebuild time.** Corroborated by both the Console `UsageTrackingAgent` dump (`remaining = minute × 60`) and the extension debugLog (clean 0→15 min progression starting at 08:21:36).
+2. **Main app did not foreground during the critical window.** First `MONITORING_ALIVE` (OS-confirmed app launch) at 08:59:32 — 8h 58m after midnight. The `audiomxd` `running-suspended-NotVisible` state at 00:09:38 corroborates from the iOS side.
+3. **`midnight-reset` BGAppRefreshTask fired at 00:14:38 as late fallback, not primary path.** Extension-side rebuild at 00:00:41 had already registered the window 14 minutes earlier. This reinforces the Apr 11 "BGTasks are unreliable at 00:01" finding and confirms the extension-side rebuild is load-bearing.
+4. **The 67s Console gap (00:01:38 → 00:02:45) is iOS internal propagation, not a monitoring gap.** The extension debugLog shows no events fired in this span; `SKIP_MIDNIGHT` (Filter 0) would have absorbed any stale pre-midnight catch-ups regardless.
+5. **`SLIDING_WINDOW_DATE_MISMATCH` is benign under the Apr 13 revert.** The log fires 6× at 00:00:41 with `extDate=nil, minutes=0`, which is the expected fresh-midnight state. The stale-reset action this log used to guard was removed in the Apr 13 revert — the log line is a retained tracer, not a live reset path.
+6. **Pre-foreground tracking confirmed end-to-end.** Midnight rebuild (00:00:41) → 8 h idle → 28 min `DADD46EB` clean 1→15 min → goal-met shield removal (08:49:55) → `BB131A01` 1→3 min — all before the first main-app foreground at 08:59:32. This is the critical invariant for a child-device deployment.
+
+**Remaining limitations (per the ground-truth rule):**
+
+- No main-app UI screenshot / database snapshot yet — wall-clock vs. recorded daily totals for Apr 14 will be compared on Apr 16 if Day 3 holds
+- Morning usage scale still small (2 reward apps tracked this morning, versus 4+ during the Apr 13 storms) — the revert has not yet been stress-tested against a multi-app storm load
+
+**Comparison to Apr 14:**
+
+| | Apr 14 (Day 1) | Apr 15 (Day 2) |
+|---|---|---|
+| `MIDNIGHT_EXT_REBUILD` debugLog | ✅ directly observed | ✅ directly observed (00:00:41) |
+| Fresh 1–60 thresholds post-midnight | ✅ inferred from `UsageTrackingAgent` state dump at 07:03:56 | ✅ directly observed (Console 00:02:45 + extension debugLog) |
+| Main-app involvement | ❌ (none) | ❌ (none; first `MONITORING_ALIVE` at 08:59:32) |
+| BGTask `midnight-reset` execution | ❌ (not observed firing) | ✅ fired 00:14:38 as late fallback (after extension rebuild) |
+| Intraday `restartMonitoring()` | ✅ 18:22:34 (clean, no storm) | Not in morning capture window |
+| Ground-truth usage comparison | Partial (70 min real → 4200s recorded Apr 13 evening only) | ✅ Pre-foreground: `DADD46EB` clean 1→15 min before 08:59:32 app launch; goal-met shield removal from extension alone |
+
+**Signal read:** no inflation signals; pre-foreground tracking passes ground truth for Day 2. Day 2 evidence is now at parity with or stronger than Day 1 on the critical child-device invariant (extension drives tracking; main app is optional). 3-day soak continues.
+
+**Soak progress: 2 of 3 days complete on ground-truth evidence. Day 3 verification on Apr 16 morning — same protocol (run learning apps first, foreground main app once at end, pull extension debugLog + main-app UI totals for wall-clock comparison). Revert remains uncommitted pending Day 3.**
+
+---
+
 ### Concurrent `eventDidReachThreshold` Execution (Apr 13–14, 2026)
 
 **Status:** OBSERVED but DEPRIORITIZED. The Apr 13 revert appears to resolve the user-visible symptom without touching this race. Remains a theoretical vulnerability pending future storm evidence.
