@@ -1053,3 +1053,243 @@ Note: The `SKIP_RESTART` 60s absorb window referenced in earlier documentation d
 - Verify with os_log build (`.notice` level) to see full internal decision chain
 - Monitor for window exhaustion at min.60 → automatic `extensionRebuildSlidingWindow()` from `WINDOW_TOP_HIT` path
 - Long-duration test: does tracking continue past 60 minutes without main app?
+
+---
+
+### Apr 13 Overcounting Regression — 4-Week Audit & Partial Revert
+
+**Symptom (Apr 12–13 reported by user):**
+Systematic daily inflation floods. Every monitored app (learning AND reward) reaches `lastThresh=3600s` (the 60-min ceiling) regardless of real usage. Reward-app goals falsely report MET. Apr 13 16:44:14+ log window shows dozens of `SKIP_REGRESSION` events for out-of-order catch-up threshold events (min.48, min.47, min.12, min.43, min.2 arriving non-sequentially), with only one `RECORDED` event (`oldToday=3540s +60 = 3600s`). User's position: "the app was stable for a long period that I've decided to distribute the app to app store — something we did recently 7 to 15 days has infected the app."
+
+**Wrong assumption that wasted a cycle:**
+Earlier in the Apr 13 session the midnight-transition evidence (min.1→min.5 firing sequentially over 4 minutes) was treated as proof overcounting was resolved. It was not. Logs showing the new extension-rebuild path executed were evidence the *new code path ran* — not evidence the user-facing symptom (inflation) was gone. Ground truth (comparing real usage to recorded usage) is required before calling overcounting fixed; log patterns alone are insufficient.
+
+**4-week commit audit (Mar 16 → Apr 13)**
+
+Filtered to commits touching `DeviceActivityMonitorExtension.swift`, `ScreenTimeService.swift`, or `ChildBackgroundSyncService.swift`:
+
+| # | Commit | Date | Δ | What it did | Relevance |
+|---|---|---|---|---|---|
+| 1 | `3fd95f0` | Mar 30 22:28 | Ext +27/−12, Svc +9/−9 | Scoped `lastThreshold` reset to midnight-only. Hardened Filter 4 `shieldConfigs=nil` guard. | **Fixed the exact bug now recurring.** Its commit message: *"Without lastThreshold retained, Filter 5 passed everything, catchup_max captured window top (3600s), and apps with no real usage were inflated to 60min."* |
+| 2 | `14bdb0b` | Mar 31 19:11 | ChildBGSync −87 | Removed `monitoring-refresh` BGAppRefreshTask. | Not direct cause of 60-min inflation. Could contribute to intraday window exhaustion. |
+| 3 | `91d87b6` | Mar 31 19:14 | Ext −21 | Removed SKIP_COOLDOWN filter ("redundant with SKIP_REGRESSION"). | Redundancy argument assumes `lastThreshold` remains monotonic. If any path resets `lastThreshold=0` intraday, cooldown fallback was the last line of defense. |
+| 4 | `3522109` | Apr 1 22:45 | Ext −22, Svc −157 | **Removed `catchup_max` system (−179 lines net).** | **Prime suspect.** Memory explicitly warns *"NEVER re-remove catchup_max — scheduleActivity() clearing catchup_max is the correct inflation defense."* Commit did exactly that. |
+| 5 | `1c06b67` | Apr 12 21:14 | Ext +41, Svc +28 | Extension-side midnight rebuild (feature). **Three-layer lastThreshold reset:** midnight, scheduleActivity date-mismatch, MONITORING_ALIVE on every app open. | **Trigger suspect.** Layers 2 and 3 intentionally run intraday — violating the Mar 30 constraint. |
+
+**Prior to Mar 30 the key files had zero commits in the preceding two weeks** — matching the user's description of a stable pre-distribution period.
+
+**Hypothesized inflation chain (not yet empirically proven):**
+1. `3522109` (Apr 1) removed the `scheduleActivity()`-time `catchup_max` inflation defense.
+2. `1c06b67` (Apr 12) added `MONITORING_ALIVE STALE_THRESHOLD_RESET` + `SLIDING_WINDOW_DATE_MISMATCH lastThreshold=0` paths that fire on app open when any app has stale `ext_usage_*_date`.
+3. After midnight rebuild, if main app opens before every app has recorded today's first event, those apps hit Layer 2/3 → `lastThreshold=0`.
+4. `scheduleActivity()` → `startMonitoring()` with `includesPastActivity: true` → iOS replays catch-up events for past activity.
+5. Catch-ups arrive out-of-order (Apr 12 discovery). First arrival with `lastThreshold=0` passes `SKIP_REGRESSION`; `max(60, threshold − lastThreshold)` floor accumulates `+60` per slip; subsequent low-minute events blocked but ceiling already reached.
+
+**Partial revert applied Apr 13 (uncommitted):**
+
+Surgically removed from `ScreenTimeService.swift`:
+
+```diff
+@@ MONITORING_ALIVE path (was :500-519) @@
+-                    // Reset stale lastThreshold on new day — even when monitoring is alive.
+-                    if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+-                        let fmt = DateFormatter()
+-                        fmt.dateFormat = "yyyy-MM-dd"
+-                        let todayStr = fmt.string(from: Date())
+-                        let trackedIDs = sharedDefaults.stringArray(forKey: "tracked_app_ids") ?? []
+-                        for appID in trackedIDs {
+-                            let extDate = sharedDefaults.string(forKey: "ext_usage_\(appID)_date")
+-                            if extDate != todayStr {
+-                                let oldThresh = sharedDefaults.integer(forKey: "usage_\(appID)_lastThreshold")
+-                                if oldThresh > 0 {
+-                                    sharedDefaults.set(0, forKey: "usage_\(appID)_lastThreshold")
+-                                    lifecycleLog("STALE_THRESHOLD_RESET appID=\(appID.prefix(8))... lastThreshold was \(oldThresh)s, reset to 0 ...")
+-                                }
+-                            }
+-                        }
+-                    }
+
+@@ scheduleActivity date-mismatch (was :2283-2285) @@
+-                    // Date mismatch — also reset lastThreshold so SKIP_REGRESSION doesn't block new-day events
+-                    sharedDefaults.set(0, forKey: "usage_\(app.logicalID)_lastThreshold")
+-                    lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH ... → defaulting to 0 min, lastThreshold reset")
++                    lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH ... → defaulting to 0 min")
+```
+
+**Preserved intact:**
+- Extension midnight-only `lastThreshold` reset (`DeviceActivityMonitorExtension.swift:184`) — the Mar 30 fix
+- Extension-side midnight rebuild feature (Apr 12) — fresh 1-60 thresholds at midnight without main app
+- `os_log` observability (Apr 13)
+
+**What this revert tests:**
+Whether Apr 12 Layers 2+3 (intraday `lastThreshold` resets) are the *trigger* of the overcounting floods. If post-revert the device still shows reward apps reaching 3600s, the Apr 1 `catchup_max` removal is the next target. If floods stop, the trigger is isolated and Apr 1 cleanup can stay.
+
+**Verification plan (fresh capture — no earlier-log archaeology):**
+1. Build + deploy child build with the Apr 13 partial revert
+2. Do not open main app after install; leave device overnight
+3. Use only ONE app during the day (ground truth)
+4. Next day, via Console.app filter `subsystem:i6dev.ScreenTimeRewards.extension`:
+   - Zero `STALE_THRESHOLD_RESET` entries (code path removed)
+   - `SLIDING_WINDOW_DATE_MISMATCH` log should show "defaulting to 0 min" only — no "lastThreshold reset"
+   - Unused reward apps: `usage_today=0`
+   - Main-app open should NOT trigger a RECORDED storm
+5. Cross-check in-app usage UI against real device usage
+
+**Pending escalation if revert alone is insufficient:**
+- Restore `catchup_max` system (revert `3522109` selectively)
+- Re-evaluate SKIP_COOLDOWN removal (`91d87b6`) under post-`catchup_max` conditions
+- Re-assess whether `includesPastActivity: true` on intraday rebuilds is contributing to the `max(60, …)` delta amplification
+
+---
+
+### Apr 14 Soak Day 1 — Revert Verification (Apr 14, 2026)
+
+**Status:** Day 1 of 3-day soak clean. Per the feedback rule *"never declare resolved without ground truth"*, this is NOT a fix declaration — extended observation still required before the Apr 13 revert can be committed.
+
+**Setup (Apr 13 evening):**
+- Build with Apr 13 partial revert deployed (still uncommitted)
+- All previously-monitored apps deleted (data was corrupted from the Apr 13 inflation storms)
+- 1 learning + 1 reward app freshly added — no stale `ext_usage_*_date`, no stale `lastThreshold`
+- Console.app recording throughout
+
+**Apr 13 evening baseline (Test A):**
+- 70 min of real learning-app usage → **4200s recorded** (matches 1:1)
+- Reward app stayed at **0** across the session
+- No `STALE_THRESHOLD_RESET` lines observed on a mid-session main-app reopen — confirms the revert is deployed (code path removed)
+
+**Apr 13 → Apr 14 overnight:**
+- Device idle, main app not launched
+- UsageTrackingAgent state dump at 07:03:56 (Apr 14) showed all 120 thresholds (60 per app) with full `remaining` values — iOS had counted **zero activity** for either app since the midnight rebuild, i.e. no phantom catch-ups overnight
+
+**Apr 14 full-day lifecycle timeline (from in-app debugLog dump):**
+
+| Time | Event | Interpretation |
+|------|-------|----------------|
+| 23:59:00 (Apr 13) | `INTERVAL_END` | Scheduled end of previous activity window |
+| 00:00:01 (Apr 14) | `INTERVAL_START` (×2) + `MIDNIGHT_EXT_REBUILD` | **Direct confirmation** the Apr 12 extension-side midnight rebuild works in production — fresh 1–60 thresholds registered autonomously, main app never involved |
+| 07:51, 09:47, 17:38, 19:04 | `EXTENSION_KILLED` → `EXTENSION_INIT` (×4) | Normal ephemeral extension lifecycle; iOS reclaims and re-spawns the process on demand |
+| 18:22:34 | `INTERVAL_END` + `INTERVAL_START` | **Intraday `restartMonitoring()`** — NOT midnight. Attributed to BGTask `monitoring-refresh` (45-min cadence) → `ScreenTimeService.restartMonitoring()`. Critically no storm followed despite `includesPastActivity: true` on the restart |
+| 19:09:51 | `MONITORING_ALIVE — app launch` | **FIRST and only main-app launch of Apr 14**, after a full day of accumulated extension state — exactly the Apr 13 failure scenario. No inflation observed, numbers accurate |
+
+**Later Apr 14 (post-19:09 launch):** User added 2 more learning + 2 more reward apps (total 4 monitored apps). No inflation on any app. Reward apps stayed at 0. See "includesPastActivity Recovery on Mid-Day App Add" section below for the mid-day add behavior details.
+
+**Signals read:**
+- ✅ Midnight transition directly confirmed in the extension debugLog (no longer needs to be inferred from UsageTrackingAgent state dumps)
+- ✅ Intraday `startMonitoring()` at 18:22:34 with `includesPastActivity: true` did NOT produce a catch-up replay storm — the scenario that plagued Apr 13 did not reproduce
+- ✅ Single main-app launch at 19:09 was clean after a full day of accumulated state
+- ✅ No `STALE_THRESHOLD_RESET`, no `SLIDING_WINDOW_DATE_MISMATCH` reset — the two reverted code paths never ran
+
+**Caveats:**
+- The in-app debugLog filter does not include RECORDED/INCREMENT lines — storm detection here is structural (no lifecycle thrashing), not event-level
+- Usage scale is still small vs Apr 13 storms (Apr 13 had 4+ reward apps inflated; today's soak started with 1 reward app before scaling to 2)
+- 18:22:34 intraday restart trigger not yet confirmed empirically (BGTask vs focus change vs some other path)
+
+**Soak progress: 1 of 3 days complete. No inflation signals. Revert remains uncommitted pending days 2–3.**
+
+---
+
+### Concurrent `eventDidReachThreshold` Execution (Apr 13–14, 2026)
+
+**Status:** OBSERVED but DEPRIORITIZED. The Apr 13 revert appears to resolve the user-visible symptom without touching this race. Remains a theoretical vulnerability pending future storm evidence.
+
+**Evidence 1 — Apr 13 21:41:45 (single real min.64 crossing, one app):**
+
+```
+21:41:45.235XXX  THRESHOLD event=<private>                          (×15, within 65µs)
+21:41:45.236XXX  THRESHOLD totalEvents=2306                         (×15, all read 2305, all write 2306)
+21:41:45.238XXX  EVENT min=64 today=3720s lastThresh=3780s          (×15, identical pre-state)
+21:41:45.242XXX  INCREMENT +60s = 3780s thresh=3840s lastThresh=3780s  (×15)
+21:41:45.255XXX  RECORDED total=3780s                               (×15)
+```
+
+Smoking gun: `totalEvents=2306` printed 15 times. All 15 threads read counter=2305, incremented, wrote 2306. Only possible with concurrent execution of `eventDidReachThreshold` (marked `nonisolated` with no lock in `recordUsageEfficiently`).
+
+**Evidence 2 — Apr 14 19:38:14 (new-app add burst, `Build Reports/console-added-apps.rtf`):**
+
+Every event pair during the add burst showed ×5 duplication at the os_log emission level:
+
+```
+19:38:14.978XXX  THRESHOLD event=<private>                   (×5)
+19:38:14.982XXX  THRESHOLD totalEvents=2380                  (×5, all 5 wrote 2380)
+19:38:14.994XXX  RECORDED app=<private>... total=60s         (×5)
+19:38:15.021XXX  THRESHOLD event=<private>                   (×5)
+19:38:15.027XXX  THRESHOLD totalEvents=2381                  (×5)
+...continuing for totalEvents=2382, 2383, 2384, 2385, 2386, 2387, 2388
+```
+
+Confirms concurrent execution is **steady-state**, not a one-off. Observed with both 1 app (Apr 13) and 4 apps (Apr 14). Duplication count varies (×5 vs ×15) but the read-before-write pattern is identical.
+
+**Why benign for same-event duplicates (what we've actually observed):**
+- All N concurrent threads read identical pre-state (`today=X`, `lastThreshold=Y`)
+- All compute identical delta via `max(60, thresholdSeconds − lastThreshold)`
+- All write identical final state
+- Net effect: one logical increment, despite N physical callback invocations
+
+**Why potentially NOT idempotent for different-event concurrent delivery (hypothesis, not directly observed):**
+
+iOS's out-of-order catch-up burst (Apr 12 discovery) is exactly a different-event concurrent delivery. If the race interacts with that delivery model:
+
+- Thread A: `min.60` thresh=3600 reads `lastThresh=0` → passes SKIP_REGRESSION → writes `lastThresh=3600`
+- Thread B: `min.45` thresh=2700 reads `lastThresh=0` (before A's write landed) → passes SKIP_REGRESSION (should have been blocked) → writes `lastThresh=2700` (clobbers A)
+- Thread C: `min.20` thresh=1200 reads `lastThresh=0` → passes SKIP_REGRESSION → writes `lastThresh=1200`
+- ...N concurrent catch-ups each slip +60s past the regression filter
+
+N concurrent slippages = N×60s inflation. 60 concurrent catch-ups = 3600s = the exact 60-min ceiling seen Apr 13.
+
+**Why not prioritized now:**
+- Apr 14 soak day 1 is clean — the Apr 13 revert appears to eliminate the trigger condition (intraday `lastThreshold=0` resets) that gave concurrent catch-ups a path through SKIP_REGRESSION
+- Without an active storm to analyze, escalating to serialization changes would be speculative
+
+**Escalation trigger (if a storm recurs):**
+1. Check `grep INCREMENT` within a 100 ms window of the storm. Multiple different `thresh=` values → concurrent-delivery confirmed.
+2. Check `ext_total_events_received` counter advancement vs observed `THRESHOLD event=` duplicate count. Counter advancing by less than observed count = direct proof of racing reads.
+3. If confirmed, candidate fixes (documented, not implemented): NSLock around `recordUsageEfficiently` (simplest), serial `DispatchQueue` for all recording work, or CAS on `usage_*_lastThreshold` before writing.
+
+---
+
+### `includesPastActivity` Recovery on Mid-Day App Add (Apr 14, 2026)
+
+**Status:** Characterized behavior. Not a bug — the correct safe side of the Apr 12 out-of-order catch-up discovery. No code change planned.
+
+**Scenario:** User added 4 apps (2 learning + 2 reward) mid-day via main-app UI at ~19:38. The 2 learning apps had real usage earlier in the day (14 min and 11 min respectively) but were not previously being monitored by Brain Coinz.
+
+**Observed:**
+- Within seconds of being added, the 2 learning apps showed **7 min and 6 min recorded** respectively — roughly 50% of their true prior-day usage
+- The 2 reward apps stayed at **0** (correct — they had not been used)
+- No inflation on any app
+
+**Log trace from `Build Reports/console-added-apps.rtf` (19:38:14.978 → 19:38:15.267, a ~290 ms window):**
+
+| Time | Event | Effect |
+|------|-------|--------|
+| 14.978 | THRESHOLD batch (App A, first event) | → `RECORDED total=60s` |
+| 15.021 | THRESHOLD batch (App B, first event) | → `RECORDED total=60s` |
+| 15.071 | THRESHOLD batch (App A) | `INCREMENT +240s = 300s thresh=1020s lastThresh=780s` — delta math jumped 4 minutes because this catch-up arrived with a much higher `thresh` than the previous event had set `lastThresh` to |
+| 15.118 | THRESHOLD batch (App B) | `INCREMENT +60s = 120s thresh=600s lastThresh=540s` |
+| 15.201 | THRESHOLD batch (App A) | `INCREMENT +120s = 420s thresh=1140s lastThresh=1020s` → **7 min final** ✅ matches user observation |
+| 15.242 | `SKIP_REGRESSION thresh=60 <= lastThresh=1140` | App A: out-of-order min.1 catch-up correctly blocked |
+| 15.255 | `SKIP_REGRESSION thresh=300 <= lastThresh=600` | App B: out-of-order min.5 catch-up blocked |
+| 15.267 | `SKIP_REGRESSION thresh=1080 <= lastThresh=1140` | App A: out-of-order min.18 catch-up blocked |
+
+**Mechanism:**
+
+`extensionRebuildSlidingWindow()` at `DeviceActivityMonitorExtension.swift:757` uses `includesPastActivity: true` when registering the fresh 1–60 thresholds for the newly-added apps. This tells iOS: *"evaluate today's cumulative usage for these apps against the new thresholds."* iOS then fires catch-up threshold events for every minute of prior usage for those apps on the current day.
+
+The catch-ups arrive **out of order** (the Apr 12 discovery). `SKIP_REGRESSION` blocks any catch-up whose `thresholdSeconds <= lastThreshold` — i.e., any low-minute catch-up arriving after a higher-minute one has already advanced `lastThreshold`. This is exactly the protection that prevents the Apr 13 inflation pattern.
+
+**Net effect:** ~50% recovery of prior usage (7/14, 6/11 in observed data). The recovered fraction depends on the random order in which iOS delivers the catch-ups.
+
+**This is intended behavior, not a bug.**
+
+The alternative — accepting all catch-ups in arrival order — is exactly what produced the Apr 13 3600s ceiling. The partial undercount is the *safe* side of the trade-off that we explicitly chose via the Apr 13 revert.
+
+**UX note:** User confirmed that partial (or zero) recovery for mid-day app additions matches user expectation. "Tracking starts when you add the app" is the natural user mental model; any prior-day recovery is a bonus, not a deficit. No user-visible feature gap.
+
+**Optional future simplification (not planned, recorded for completeness):**
+
+Flip `includesPastActivity: false` specifically on the newly-added-app code path, so new apps cleanly start at 0 rather than partial recovery. Keep `true` on the midnight rebuild and cross-day reconciliation paths where replay is genuinely needed. Benefits:
+- New-app starts are unambiguously at 0 (no partial/random numbers to explain)
+- Removes one of the `includesPastActivity: true` replay surfaces from the catch-up attack surface
+- Does not affect ongoing tracking — once the app is registered, real-time events fire in order
+
+Do not attempt during the current 3-day soak; only consider after the revert is committed and the system is stable.
