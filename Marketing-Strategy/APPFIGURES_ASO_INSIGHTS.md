@@ -1,6 +1,6 @@
 # Appfigures ASO Strategy & Insights 🚀
 
-Based on the analysis of the most recent and highly relevant videos from the [Appfigures YouTube Channel](https://www.youtube.com/@appfigures), here are the most critical strategies to optimize your App Store rankings for **ScreenTimeRewards** (now that the app is officially distributed).
+Based on the analysis of the most recent and highly relevant videos from the [Appfigures YouTube Channel](https://www.youtube.com/@appfigures), here are the most critical strategies to optimize your App Store rankings for **Brain Coinz** (now that the app is officially distributed).
 
 ## 1. Massive Algorithm Update: Screenshots Now Impact Ranking 🚨
 Apple made a major unannounced change recently: **The algorithm now uses AI to read text from your App Store screenshots** and factors those keywords into your search rank.
