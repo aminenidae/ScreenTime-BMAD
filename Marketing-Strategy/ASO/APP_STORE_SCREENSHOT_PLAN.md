@@ -1,4 +1,6 @@
-# App Store Screenshot Plan for ScreenTime Rewards
+# App Store Screenshot Plan for Brain Coinz
+
+> **Status:** Shipped with 1.0.3(1) (approved 2026-04-17). The 8 production screenshots live at `/screenshots/final/01-*.png … 08-*.png`. This doc remains the reference for the narrative arc + view mapping; use it when iterating captions for OCR optimization (see `ASO_EXECUTION_PLAN.md` → "Out of Scope") or when the app's active feature set changes.
 
 ## Overview
 This plan outlines the 8 recommended screenshots for App Store submission, mapping your app's active features to proven patterns from competitor analysis (BePresent).
@@ -229,7 +231,7 @@ xcrun simctl io booted screenshot ~/Desktop/screenshot_1_hero.png
 
 ## Differentiation from BePresent
 
-| BePresent | ScreenTime Rewards |
+| BePresent | Brain Coinz |
 |-----------|-------------------|
 | Individual focus | Family focus |
 | "Block apps" messaging | "Earn time" messaging |
@@ -258,7 +260,7 @@ xcrun simctl io booted screenshot ~/Desktop/screenshot_1_hero.png
 ## File Tree
 
 ```
-ScreenTimeRewardsProject/ScreenTimeRewards/
+ScreenTimeRewardsProject/ScreenTimeRewards/  # Xcode project folder (preserved from original bundle)
 ├── Views/
 │   ├── ChildMode/
 │   │   ├── ChildDashboardView.swift          ← Screenshot 1

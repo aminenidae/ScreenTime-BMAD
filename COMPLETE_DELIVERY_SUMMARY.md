@@ -82,7 +82,9 @@
 
 ```
 https://github.com/aminenidae/ScreenTime-BMAD
-├── Marketing-Strategy/ (7 docs)
+├── Marketing-Strategy/
+│   ├── ASO/ (all ASO strategy, metadata, screenshots, competitor intel)
+│   └── (channel, social, broad market research)
 └── Design-System/ (6 docs)
 ```
 

@@ -1,8 +1,8 @@
 # Brain Coinz — ASO Execution Plan (1.0.3(1) Resubmission)
 
-**Status:** Ready to paste into App Store Connect
+**Status:** ✅ Deployed 2026-04-17 — live in production. Awaiting Day 14 (2026-05-01) and Day 21 (2026-05-08) rank re-measures against `BASELINE_METRICS.md`.
 **Target version:** 1.0.3(1) (replaces live 1.0.2(26))
-**Snapshot date:** 2026-04-14
+**Snapshot date:** 2026-04-14 (metadata drafted); **deploy date:** 2026-04-17
 **Positioning thesis:** Brain Coinz is the **kid version of Unrot/Unglue** — automated learn-to-earn screen time. NOT a parental-controls, chore-chart, or study-timer app.
 
 Related files:

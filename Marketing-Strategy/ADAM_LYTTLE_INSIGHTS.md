@@ -1,6 +1,6 @@
 # Adam Lyttle ASO & Marketing Insights 📈
 
-Based on an analysis of the most recent and highly relevant videos from the [Adam Lyttle Apps YouTube Channel](https://www.youtube.com/@adamlyttleapps), here are the most critical strategies to optimize ScreenTimeRewards, improve our paywalls, and master app onboarding.
+Based on an analysis of the most recent and highly relevant videos from the [Adam Lyttle Apps YouTube Channel](https://www.youtube.com/@adamlyttleapps), here are the most critical strategies to optimize Brain Coinz, improve our paywalls, and master app onboarding.
 
 ## 1. Paywall Features That Will Get You Rejected ❌
 Apple has started cracking down on *dark patterns* and specific paywall conversion elements in 2026. Do NOT use these:
@@ -11,7 +11,7 @@ Apple has started cracking down on *dark patterns* and specific paywall conversi
 ---
 
 ## 2. The 3 Tiers of App Onboarding 🛤
-Most apps lose 25% of their downloaded users instantly because the onboarding is terrible. You have one shot. Choose the right one for ScreenTimeRewards:
+Most apps lose 25% of their downloaded users instantly because the onboarding is terrible. You have one shot. Choose the right one for Brain Coinz:
 
 1. **The Educational Flow:** A single, fast, Apple-style screen. *Must be paired with a Soft Paywall.* If you hit users with a Hard Paywall right after 1 quick screen, it will fail because they haven't experienced the value yet.
 2. **The Benefit-Driven Flow** *(Most Common)*: DO NOT use this as a spec sheet (e.g., "Feature A, Feature B"). Use this to show a **transformation** (e.g., "Gain control of your kid's screen time securely"). Often uses a soft paywall or delayed hard paywall.
@@ -34,4 +34,4 @@ Relying entirely on organic ASO for revenue growth hits a ceiling fast.
 Why are recipe apps doing $100k/mo when recipes are free online? Because finding a recipe on Google is now a terrible UX fraught with SEO spam, popups, and 4000-word life stories. A successful app doesn't market itself by its features (e.g. "We have recipes"); it markets the solution: **"Batch cook to save you time. Quick search by what's left in your fridge."** 
 
 > [!IMPORTANT]
-> Apply this to ScreenTimeRewards: We aren't selling a "lock app." We are selling "An end to dinner-time device fights. An automated allowance that teaches your kid responsibility without you intervening."
+> Apply this to Brain Coinz: We aren't selling a "lock app." We are selling "An end to dinner-time device fights. An automated allowance that teaches your kid responsibility without you intervening."
