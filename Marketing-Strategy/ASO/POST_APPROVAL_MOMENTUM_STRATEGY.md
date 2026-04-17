@@ -1,6 +1,6 @@
 # Post-Approval Momentum Strategy — Brain Coinz
 
-**Version:** 1.3 (2026-04-17)
+**Version:** 1.4 (2026-04-17)
 **Applies to:** Brain Coinz 1.0.3(1), approved 2026-04-17, 0 downloads, 0 reviews at writing.
 **Companion docs:** `BASELINE_METRICS.md`, `ASO_EXECUTION_PLAN.md`, `APPFIGURES_ASO_INSIGHTS.md` (§5–12 are new 2026 Q&A findings)
 
@@ -49,7 +49,7 @@ Brain Coinz launched post-June-2025, so we are in the nerfed-organic cohort. `BA
 
 Six things follow from the combined Lyttle + Ariel evidence:
 
-1. **Run the ASA Visibility campaign on brand now — but flip to "off brand" once `brain coinz` reaches #1 organically.** This reconciles the Lyttle (pro-brand-bid) vs. Ariel (anti-brand-bid) split. Daily rank check on `brain coinz` is the trigger.
+1. **Lyttle's brand-bid structure assumes pre-existing brand awareness we don't have.** His $66/7-day Visibility campaign only generated installs because his app already had word-of-mouth traffic searching his brand. Brain Coinz has zero brand awareness → bidding on `brain coinz` protects against an attack nobody is making. Revised play: either (a) skip ASA entirely in Week 1 and reinvest attention in rating volume, or (b) run a minimal defensive bid on `brain coinz` ($2 CPT, $5/day cap) and a scoped test of the category term `earn screen time` ($10 CPT, $50/day, 5 days) to get real CPA data before scaling. Flip the brand bid off once `brain coinz` reaches #1 organically.
 2. **Rating VOLUME is the #1 ranking lever for the first 30 days.** Star value doesn't matter (Ariel); 1-star reviews still count toward the rating-velocity signal. Focus on getting ratings AT ALL, at an early and frequent prompt point.
 3. **Start prompting for ratings early.** 75%+ users leave by day 2. A first-run prompt at the earliest delight moment (first successful unlock) beats a sophisticated later-stage prompt that 75% of users never see.
 4. **Shift paid keyword strategy toward longtail.** Core single-word keywords (`screen time`, `parental control`) are uncompetitive for us in the first 30 days. Paid *and* organic should target 2–3 word phrases where competitors aren't already indexed.
@@ -64,14 +64,19 @@ Aligned with Day 14 (2026-05-01) and Day 21 (2026-05-08) re-measurements in `ASO
 
 ### Week 1 (2026-04-17 → 2026-04-24): Bridge the organic lag + kickstart rating velocity
 
-1. **Set up ASA Visibility campaign TODAY** with Lyttle's structure, modified per Ariel's guidance:
+1. **Decide on ASA posture — Lyttle's $1,000/day Visibility structure does NOT port over cleanly.** His structure assumed pre-existing brand awareness (people already searching his brand name). Brain Coinz has zero brand awareness, so a pure brand-term campaign will spend ~$0 and generate ~0 installs. Pick one:
+
+   **Option A — Skip ASA in Week 1.** Reinvest attention into rating volume (action 3 below). Re-evaluate at Day 14 once organic data is in. Defensible, zero cash risk.
+
+   **Option B — Minimal scoped ASA** (recommended if cash allows $250–$500 test budget):
    - **Campaign name:** "Visibility"
-   - **Keywords (exact match only):** `brain coinz`, `brain coinz earn screen time`, `earn screen time`
-   - **Search Match:** OFF (both experts unanimous)
-   - **Max CPT bid:** $10
-   - **Daily budget:** $1,000 (ceiling — Lyttle spent $66 total over 7 days)
-   - **Trigger to switch off:** the day `brain coinz` reaches #1 organically and holds for 48h
-   - Do NOT add Discovery campaigns; at our budget it wastes 30% on broad-match ideas (Ariel).
+   - **Ad group 1 — Brand defense** (exact match): `brain coinz` only. **Max CPT $2, daily budget $5.** Pure insurance against competitor brand-bidding.
+   - **Ad group 2 — Category test** (exact match): `earn screen time`. **Max CPT $10, daily budget $50, 5-day test.** After 5 days, compute CPA. Scale if sane; kill if not.
+   - **Drop** `brain coinz earn screen time` — nobody types that.
+   - **Search Match:** OFF (both experts unanimous).
+   - **Discovery campaigns:** none. At our budget tier Ariel confirms 30% spend waste on broad-match ideas.
+   - **Trigger to pause brand-defense group:** the day `brain coinz` reaches #1 organically and holds for 48h.
+   - **Trigger to scale/kill category group:** CPA evaluation at end of Day 5.
 
 2. **Verify the App Store recommended-search-list boost manually.** Open the iOS App Store, search each phrase in our app name/subtitle. If "Brain Coinz: Earn Screen Time" appears in the auto-suggestion dropdown before search results render, screenshot it — that window closes within days.
 
@@ -135,6 +140,7 @@ Appfigures (Ariel Michaeli, 15+ years ASO, Appfigures co-founder/CEO):
 
 ## Changelog
 
+- **v1.4 (2026-04-17):** Revised ASA Week 1 recommendation after recognizing Lyttle's brand-bid structure assumes pre-existing brand awareness Brain Coinz lacks. Replaced the "$1,000/day Visibility on brand" plan with two scoped options: (A) skip ASA in Week 1, or (B) minimal split — `$5/day` brand-defense on `brain coinz` + `$50/day × 5-day` category test on `earn screen time`. Dropped `brain coinz earn screen time` (no search volume). Annotated "Six things follow" item 1 with the same caveat.
 - **v1.3 (2026-04-17):** Resolved Open Gaps #1 and #2 via Astro competitor analysis of the 9 `earn screen time` dropdown apps. Dropdown check confirmed Brain Coinz absent (autocomplete not yet indexed) — recommended-search-list boost did not fire. Keyword gap analysis surfaced 5 longtail candidates (parked for Week 2). Added Open Gap #6: the real competitive set for kids+earn is 3 small apps (ScreenEarn, ScreenCoach, Thrive), not the 9 adult-productivity apps in the dropdown. `earn screen time` added to Astro tracking set with Day-1 baseline rank 1000.
 - **v1.2 (2026-04-17):** Incorporated transcript analysis of 4 long-form Appfigures Q&A/AMA videos + 6 shorts. Retention reclassified Consensus → **Disputed** (Ariel's direct contradiction). Rating volume (not star value) promoted to primary lever. Added longtail keyword strategy, keyword-gap analysis, and name-ordering decision gate. Reconciled Lyttle vs. Ariel on brand bidding — our case (rank #33) is Lyttle's; flip to Ariel's once we reach #1.
 - **v1.1 (2026-04-17):** Lyttle transcripts verified via Data API. ASA Visibility moved from "after 10 reviews" to "day 1." Recommended-search-list boost added as Week 1 action.
