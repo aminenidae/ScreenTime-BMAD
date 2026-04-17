@@ -2,13 +2,14 @@
 //  RatingPromptService.swift
 //  ScreenTimeRewards
 //
-//  Single-shot system rating prompt at the first proven delight moment.
+//  Single-shot-per-trigger system rating prompt at parent-mode delight moments.
 //  Rating VOLUME (not stars) is the primary App Store ranking lever for the
-//  first 30 days — prompt early, once, at a moment of real payoff.
+//  first 30 days — prompt early and at multiple delight points, let Apple's
+//  3-per-365-day rate limit be the ultimate guardrail.
 //
 //  Gated behind active parent-mode authentication so the prompt never
 //  surfaces to a child (kid-retaliation 1-stars + child-account submit
-//  failures would both burn the single slot).
+//  failures would both burn the slot).
 //
 
 import Foundation
@@ -17,6 +18,7 @@ import UIKit
 
 enum RatingPromptTrigger: String {
     case firstParentSuccess    // parent: dashboard shows earned minutes > 0
+    case firstWeeklyWin        // parent: dashboard shows a 3+ day streak (behavior-pattern proof)
 }
 
 final class RatingPromptService {
@@ -24,22 +26,33 @@ final class RatingPromptService {
     private init() {}
 
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
-    private let firedFlagKey = "rating_prompt_fired_v1"
+    private let legacyFiredFlagKey = "rating_prompt_fired_v1"
 
     private var sharedDefaults: UserDefaults? {
         UserDefaults(suiteName: appGroupIdentifier)
     }
 
+    private func firedFlagKey(for trigger: RatingPromptTrigger) -> String {
+        "rating_prompt_fired_\(trigger.rawValue)_v1"
+    }
+
+    func hasFired(trigger: RatingPromptTrigger) -> Bool {
+        sharedDefaults?.bool(forKey: firedFlagKey(for: trigger)) ?? false
+    }
+
     /// Request a system review prompt if:
-    /// - device hasn't shown one yet (App Group flag)
+    /// - this trigger hasn't fired yet on this device (per-trigger App Group flag)
     /// - parent mode is actively authenticated (adult-only context)
     /// - main app is foregrounded
-    /// Apple's own 3-per-365-day rate limit applies on top.
+    /// Apple's own 3-per-365-day rate limit applies on top and is the ultimate cap.
     @MainActor
     func requestReviewIfEligible(trigger: RatingPromptTrigger) {
         guard let defaults = sharedDefaults else { return }
 
-        if defaults.bool(forKey: firedFlagKey) {
+        migrateLegacyFlagIfNeeded(defaults: defaults)
+
+        let flagKey = firedFlagKey(for: trigger)
+        if defaults.bool(forKey: flagKey) {
             print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_SKIPPED: already_fired (trigger=\(trigger.rawValue))")
             return
         }
@@ -59,8 +72,18 @@ final class RatingPromptService {
         } else {
             SKStoreReviewController.requestReview(in: scene)
         }
-        defaults.set(true, forKey: firedFlagKey)
+        defaults.set(true, forKey: flagKey)
         print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_FIRED: trigger=\(trigger.rawValue)")
+    }
+
+    /// One-time migration from the legacy single-flag scheme (pre-Option-B).
+    /// Users who already saw a prompt under the old scheme are treated as having
+    /// consumed `firstParentSuccess` so they aren't re-prompted for it.
+    private func migrateLegacyFlagIfNeeded(defaults: UserDefaults) {
+        guard defaults.bool(forKey: legacyFiredFlagKey) else { return }
+        defaults.set(true, forKey: firedFlagKey(for: .firstParentSuccess))
+        defaults.removeObject(forKey: legacyFiredFlagKey)
+        print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_MIGRATED: legacy_flag → firstParentSuccess")
     }
 
     @MainActor

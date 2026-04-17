@@ -56,14 +56,28 @@ struct ParentDashboardView: View {
         .onAppear {
             // Update the adapter with the actual view model from environment
             updateAdapter()
-            if dataAdapter.earnedMinutes > 0 {
-                RatingPromptService.shared.requestReviewIfEligible(trigger: .firstParentSuccess)
-            }
+            tryFirePromptForCurrentState()
         }
-        .onChange(of: dataAdapter.earnedMinutes) { newValue in
-            if newValue > 0 {
-                RatingPromptService.shared.requestReviewIfEligible(trigger: .firstParentSuccess)
-            }
+        .onChange(of: dataAdapter.earnedMinutes) { _ in
+            tryFirePromptForCurrentState()
+        }
+        .onChange(of: dataAdapter.currentStreak) { _ in
+            tryFirePromptForCurrentState()
+        }
+    }
+
+    /// Prefer the stronger delight trigger (firstWeeklyWin) when both are eligible.
+    /// Don't fire the weaker trigger after the stronger one has already consumed a slot.
+    private func tryFirePromptForCurrentState() {
+        let service = RatingPromptService.shared
+
+        if dataAdapter.currentStreak >= 3 {
+            service.requestReviewIfEligible(trigger: .firstWeeklyWin)
+            return
+        }
+
+        if dataAdapter.earnedMinutes > 0 && !service.hasFired(trigger: .firstWeeklyWin) {
+            service.requestReviewIfEligible(trigger: .firstParentSuccess)
         }
     }
 
