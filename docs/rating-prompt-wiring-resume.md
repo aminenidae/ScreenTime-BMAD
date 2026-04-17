@@ -10,15 +10,14 @@ Brain Coinz approved 1.0.3(1) on 2026-04-17 with 0 reviews. Per Ariel Michaeli (
 
 ## What was wired
 
-Single-shot system review prompt via `SKStoreReviewController` / `AppStore.requestReview(in:)`, gated by a UserDefaults flag in the shared app group `group.com.screentimerewards.shared`. Apple's own 3-per-365-day rate limit applies on top.
+Single-shot system review prompt via `SKStoreReviewController` / `AppStore.requestReview(in:)`, gated by a UserDefaults flag in the shared app group `group.com.screentimerewards.shared`. Apple's own 3-per-365-day rate limit applies on top. **Parent-authenticated context only** — never fires for a child-facing session.
 
-**New file:**
-- `ScreenTimeRewards/Services/RatingPromptService.swift` — singleton with `requestReviewIfEligible(trigger:)` and `drainPendingIfNeeded()`. Queues via `rating_prompt_pending_v1` when triggered without an active foreground scene (e.g., extension-driven shield drop while app backgrounded); drains on next `.active` scenePhase. Fires flag `rating_prompt_fired_v1`.
+**File:**
+- `ScreenTimeRewards/Services/RatingPromptService.swift` — singleton with `requestReviewIfEligible(trigger:)`. Three guards before firing: (1) not already fired (App Group flag `rating_prompt_fired_v1`), (2) `SessionManager.shared.isParentAuthenticated == true`, (3) `activeForegroundScene()` returns a foreground-active scene. Whole method is `@MainActor` to safely read `SessionManager`.
 
-**Call sites (3 total, 2 code paths, 1 shared flag):**
-1. `Services/BlockingCoordinator.swift:1049` — child-side `.firstUnlock` at the end of the `!tokensToUnblock.isEmpty` branch in `syncAllRewardApps`. This is the real shield-drop event path (confirmed by tracing — `AppUsageViewModel.unlockRewardApp/s` both route through this coordinator).
-2. `Views/ParentMode/ParentDashboardView.swift:60,65` — parent-side `.firstParentSuccess` on `.onAppear` (guard `earnedMinutes > 0`) and `.onChange(of: dataAdapter.earnedMinutes)`. Both share the same fired flag, so whichever trigger fires first consumes the slot.
-3. `ScreenTimeRewardsApp.swift:109–112` — drain hook in the `scenePhase .active` handler for background-queued prompts.
+**Call sites (2, both parent-side):**
+1. `Views/ParentMode/ParentDashboardView.swift:60` — `.firstParentSuccess` on `.onAppear` (guard `earnedMinutes > 0`).
+2. `Views/ParentMode/ParentDashboardView.swift:65` — `.firstParentSuccess` on `.onChange(of: dataAdapter.earnedMinutes)`.
 
 **Paywall isolation:** grep-verified zero references to `RatingPromptService` / `requestReview` / `SKStoreReviewController` / `AppStore.requestReview` under `Views/Onboarding/`. Apple rejects apps that prompt for reviews adjacent to a paywall.
 
@@ -35,15 +34,16 @@ Single-shot system review prompt via `SKStoreReviewController` / `AppStore.reque
 2. **Runtime verification on TestFlight** — not yet done:
    - Fresh install → complete parent onboarding → paywall → parent dashboard shows earned minutes > 0 → expect system rating prompt + console line `DEBUG_LOG_RATING_PROMPT_FIRED: trigger=firstParentSuccess`.
    - Second launch → same flow → expect `DEBUG_LOG_RATING_PROMPT_SKIPPED: already_fired` and no prompt.
-   - Child flow: learning goal completes → shield drops → expect `DEBUG_LOG_RATING_PROMPT_FIRED: trigger=firstUnlock` on first unlock only.
+   - Child-device flow: learning goal completes → shield drops → expect NO prompt (child context, parent not authenticated). PIN-enter to parent mode on child device, open dashboard with earned minutes > 0 → expect prompt to fire.
+   - Parent-session locked (e.g., app backgrounded on child device, returns without re-auth) → dashboard appears → expect `DEBUG_LOG_RATING_PROMPT_SKIPPED: parent_not_authenticated`.
 
 3. **ASO-side verification (Day 14, 2026-05-01):** `mcp__astro__get_app_ratings(appId: "6753270211")` — any review count > 0 is working-as-intended.
 
 ## Known decisions (do not re-debate on resume)
 
-- **Single flag, two triggers:** whichever trigger fires first wins; later trigger no-ops. Apple's global 3-per-365 limit applies anyway.
+- **Parent-authenticated context only.** Prompt is guarded by `SessionManager.shared.isParentAuthenticated`. Revised 2026-04-17 after recognizing three child-context failure modes: (1) kid-retaliation 1-star reviews as payback for screen-time restrictions, (2) under-13 child Apple IDs may have In-App Ratings & Reviews disabled → prompt fires but submits nothing and burns the single slot, (3) Kids-Category / COPPA prompting-kids concerns. The child-side `.firstUnlock` call site in `BlockingCoordinator.swift` was removed.
+- **Single flag, dashboard-only triggers.** Both `onAppear` and `onChange` call sites on `ParentDashboardView` share `rating_prompt_fired_v1`; first successful fire consumes the slot. Apple's global 3-per-365 limit applies on top.
 - **No custom "Rate us" UI.** Ariel: custom UI dilutes the system-prompt budget.
-- **Child Apple ID eligibility risk accepted:** if the child device uses a Family Sharing managed Apple ID that can't submit reviews, the prompt fires but submits nothing. Many "child" devices are shared-family devices on a parent's Apple ID anyway. Not over-engineering detection.
 - **No metadata edits** during the 14-day ASO measurement window (through 2026-05-01).
 
 ## Unrelated pending work (NOT in the rating-prompt commit)
@@ -55,9 +55,8 @@ Single-shot system review prompt via `SKStoreReviewController` / `AppStore.reque
 
 ## Key files to read on resume
 
-- `ScreenTimeRewards/Services/RatingPromptService.swift` (new, full impl)
-- `ScreenTimeRewards/Services/BlockingCoordinator.swift` line ~1030–1050 (`syncAllRewardApps`, child trigger)
+- `ScreenTimeRewards/Services/RatingPromptService.swift` (full impl — three guards: fired-flag, parent-auth, foreground-scene)
+- `ScreenTimeRewards/Services/SessionManager.swift` (`isParentAuthenticated` is the load-bearing guard signal)
 - `ScreenTimeRewards/Views/ParentMode/ParentDashboardView.swift` lines 56–69 (parent triggers)
-- `ScreenTimeRewards/ScreenTimeRewardsApp.swift` line ~109–112 (drain hook)
 - Plan: `/Users/ameen/.claude/plans/i-wanna-start-a-happy-moth.md`
 - ASO rationale: `Marketing-Strategy/ASO/APPFIGURES_ASO_INSIGHTS.md` §5
