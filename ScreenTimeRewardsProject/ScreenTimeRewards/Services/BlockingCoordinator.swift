@@ -1045,6 +1045,8 @@ class BlockingCoordinator: ObservableObject {
                     }
                 }
             }
+
+            RatingPromptService.shared.requestReviewIfEligible(trigger: .firstUnlock)
         }
 
         // Check Streak

@@ -56,6 +56,14 @@ struct ParentDashboardView: View {
         .onAppear {
             // Update the adapter with the actual view model from environment
             updateAdapter()
+            if dataAdapter.earnedMinutes > 0 {
+                RatingPromptService.shared.requestReviewIfEligible(trigger: .firstParentSuccess)
+            }
+        }
+        .onChange(of: dataAdapter.earnedMinutes) { newValue in
+            if newValue > 0 {
+                RatingPromptService.shared.requestReviewIfEligible(trigger: .firstParentSuccess)
+            }
         }
     }
 

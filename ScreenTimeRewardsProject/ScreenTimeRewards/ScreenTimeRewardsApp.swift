@@ -106,6 +106,11 @@ struct ScreenTimeRewardsApp: App {
                     print("[ScreenTimeRewardsApp] 🔓 Checked extension unlock state")
                 }
 
+                // Drain any rating prompt queued from a background trigger
+                Task { @MainActor in
+                    RatingPromptService.shared.drainPendingIfNeeded()
+                }
+
                 // Start background sync as safety net for missed Darwin notifications
                 ScreenTimeService.shared.startBackgroundSync()
                 print("[ScreenTimeRewardsApp] 🔄 Started background sync timer (5min polling)")
