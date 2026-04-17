@@ -1,7 +1,9 @@
 # Smart Threshold Filtering
 
-**Date**: 2026-02-14
+**Date**: 2026-02-14 (original); last updated 2026-04-16
 **Supersedes**: `FLOOD_PREVENTION_AND_RECOVERY_PLAN.md`, `PHANTOM_FIX_ATTEMPTS.md`, `PHANTOM_FIX_ATTEMPT_12.md`, `PHANTOM_FIX_PLAN_2026-01-28.md`, `PHANTOM_RESTART_LESSONS_LEARNED.md`
+
+> **Status (2026-04-16): ✅ FIXED on test device after 3-day soak.** Apr 12 extension-side midnight rebuild (`1c06b67`) + Apr 13 intraday-reset revert (`ae2e565`) are both committed and validated against iOS Screen Time wall-clock on Apr 16. Continued multi-device observation recommended before declaring closed across the install base — see [Apr 16 Soak Day 3](#apr-16-soak-day-3--fixed-wall-clock-parity-with-ios-screen-time-apr-16-2026).
 
 ---
 
@@ -1250,6 +1252,50 @@ Whether Apr 12 Layers 2+3 (intraday `lastThreshold` resets) are the *trigger* of
 **Signal read:** no inflation signals; pre-foreground tracking passes ground truth for Day 2. Day 2 evidence is now at parity with or stronger than Day 1 on the critical child-device invariant (extension drives tracking; main app is optional). 3-day soak continues.
 
 **Soak progress: 2 of 3 days complete on ground-truth evidence. Day 3 verification on Apr 16 morning — same protocol (run learning apps first, foreground main app once at end, pull extension debugLog + main-app UI totals for wall-clock comparison). Revert remains uncommitted pending Day 3.**
+
+---
+
+### Apr 16 Soak Day 3 — FIXED, Wall-Clock Parity with iOS Screen Time (Apr 16, 2026)
+
+**Status:** ✅ **FIXED.** Day 3 of 3 passes on ground truth. User confirmed: *"the usage on our app matches perfectly the usage recorded on iOS Screen Time."* The Apr 13 revert has been committed as `ae2e565` ("fix(usage): revert intraday lastThreshold resets + bump to 1.0.3(1)"). Apr 12 extension-side midnight rebuild is committed as `1c06b67`. The overcounting regression discovered Apr 12-13 is resolved.
+
+**Caveat per the ground-truth feedback rule:** "fixed" here means passes ground truth on the test device across a 3-day soak. Continued multi-device observation remains prudent — different usage patterns, app counts, and hardware could still surface edge cases.
+
+**Extension debugLog timeline (Apr 16):**
+
+| Time | Line | Meaning |
+|------|------|---------|
+| 23:59:01 (Apr 15) | `INTERVAL_END` | Scheduled end of previous activity window |
+| 00:00:00 (Apr 16) | `INTERVAL_START` ×2 → `MIDNIGHT_EXT_REBUILD` | Extension-side midnight rebuild fired autonomously (main app not involved). Matches Apr 14 and Apr 15 pattern. |
+| 07:23:59 – 07:36:58 | `EXTENSION_KILLED` / `EXTENSION_INIT` ×2 | Normal ephemeral-extension lifecycle churn |
+| 12:39:00 | `MONITORING_ALIVE — OS confirms active, skipping restart (app launch)` | **First main-app foreground of Apr 16** — 12h 39m after midnight rebuild. Pre-foreground tracking window. |
+| 12:39:00 | `SLIDING_WINDOW_READ C6DA269B extDate=2026-04-16 today=2026-04-16 → 18 min` | **Pre-foreground tracking confirmed:** 18 min recorded for C6DA269B before any main-app launch. Ground truth vs iOS Screen Time confirmed by user. |
+| 12:39:00 | `SLIDING_WINDOW_DATE_MISMATCH` ×6 (`extDate=nil`, `extTodaySeconds=0`) | Benign under the Apr 13 revert — the 6 other apps had zero usage on Apr 16, so `ext_usage_*_date` was never written. Log line is a tracer; no lastThreshold reset action runs. |
+| 12:39:02 | `SLIDING_WINDOW C6DA269B current=18min range=19-78 (60 thresholds) windowTop=78` | Sliding window correctly re-centered above current usage after main-app launch. No restart storm. |
+| 12:39:08 | `MONITORING_START — events=420 (sliding window, 18 min already tracked)` | 7 apps × 60 thresholds = 420. 18 min preserved across the restart. |
+| 13:25 – 18:37 | `EXTENSION_KILLED` / `EXTENSION_INIT` ×6 | Normal ephemeral lifecycle across the afternoon |
+| 19:07:49 – 20:30:23 | `EXTENSION_GAP — no heartbeat for 82m` | **Real no-usage period** — user confirmed no apps were opened during this window. Not a silent failure. |
+
+**Interpretation:**
+
+1. **Midnight rebuild is load-bearing and stable for 3 consecutive days** (Apr 14, 15, 16). No main-app involvement required for next-day tracking to start.
+2. **Pre-foreground tracking works across midnight** — 18 min accurate on C6DA269B at the first main-app launch 12h 39m into the day.
+3. **Wall-clock parity confirmed by user** against iOS Screen Time — the external ground truth we had been missing since Apr 13.
+4. **No inflation, no phantom storms, no catch-up floods** across a full day with 7 monitored apps.
+5. **The 82m extension heartbeat gap was real idle time, not a failure mode** — user-confirmed.
+
+**Ongoing monitoring (per user request):**
+
+Run the same soak protocol on additional devices with varied usage patterns before declaring this closed across the install base. Until then, keep an eye on:
+- Multi-device variance (different app counts, different parent-managed vs. self-managed setups)
+- Intraday restart scenarios with **significant existing usage across multiple apps** (Apr 16's 12:39 restart exercised the date-mismatch path for 6 zero-usage apps; the out-of-order catch-up path was not stressed)
+- Any recurrence of `3600s` ceiling hits in Console logs → escalate to the deprioritized concurrent-`eventDidReachThreshold` hypothesis below
+
+**Pending items closed by Apr 16 validation:**
+
+- ✅ Apr 13 intraday-reset revert: committed (`ae2e565`)
+- ✅ Apr 12 midnight rebuild: committed (`1c06b67`)
+- ❌ **Apr 1 `catchup_max` removal revert: no longer required.** The revert of Apr 12 Layers 2+3 alone eliminated overcounting. `catchup_max` system can remain removed.
 
 ---
 
