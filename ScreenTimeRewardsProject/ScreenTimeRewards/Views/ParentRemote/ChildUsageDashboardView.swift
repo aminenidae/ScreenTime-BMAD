@@ -353,6 +353,36 @@ private struct ChildHomeTabView: View {
             .padding(.horizontal, 16)
             .padding(.top, 16)
         }
+        .onAppear {
+            tryFirePromptForCurrentState()
+        }
+        .onChange(of: dataAdapter.earnedMinutes) { _ in
+            tryFirePromptForCurrentState()
+        }
+        .onChange(of: dataAdapter.currentStreak) { _ in
+            tryFirePromptForCurrentState()
+        }
+    }
+
+    /// Prefer the stronger delight trigger (firstWeeklyWin) when both are eligible.
+    /// Don't fire the weaker trigger after the stronger one has already consumed a slot.
+    private func tryFirePromptForCurrentState() {
+        let service = RatingPromptService.shared
+
+        let d = UserDefaults(suiteName: "group.com.screentimerewards.shared")
+        let fpsFlag = d?.bool(forKey: "rating_prompt_fired_firstParentSuccess_v1") ?? false
+        let fwwFlag = d?.bool(forKey: "rating_prompt_fired_firstWeeklyWin_v1") ?? false
+        let legacyFlag = d?.bool(forKey: "rating_prompt_fired_v1") ?? false
+        print("[RatingDebug] tryFire(parent-device) earned=\(dataAdapter.earnedMinutes) streak=\(dataAdapter.currentStreak) fpsFlag=\(fpsFlag) fwwFlag=\(fwwFlag) legacy=\(legacyFlag)")
+
+        if dataAdapter.currentStreak >= 3 {
+            service.requestReviewIfEligible(trigger: .firstWeeklyWin)
+            return
+        }
+
+        if dataAdapter.earnedMinutes > 0 && !service.hasFired(trigger: .firstWeeklyWin) {
+            service.requestReviewIfEligible(trigger: .firstParentSuccess)
+        }
     }
 }
 

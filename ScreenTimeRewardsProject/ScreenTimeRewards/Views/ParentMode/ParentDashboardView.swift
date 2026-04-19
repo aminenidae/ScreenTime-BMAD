@@ -71,6 +71,12 @@ struct ParentDashboardView: View {
     private func tryFirePromptForCurrentState() {
         let service = RatingPromptService.shared
 
+        let d = UserDefaults(suiteName: "group.com.screentimerewards.shared")
+        let fpsFlag = d?.bool(forKey: "rating_prompt_fired_firstParentSuccess_v1") ?? false
+        let fwwFlag = d?.bool(forKey: "rating_prompt_fired_firstWeeklyWin_v1") ?? false
+        let legacyFlag = d?.bool(forKey: "rating_prompt_fired_v1") ?? false
+        print("[RatingDebug] tryFire earned=\(dataAdapter.earnedMinutes) streak=\(dataAdapter.currentStreak) fpsFlag=\(fpsFlag) fwwFlag=\(fwwFlag) legacy=\(legacyFlag)")
+
         if dataAdapter.currentStreak >= 3 {
             service.requestReviewIfEligible(trigger: .firstWeeklyWin)
             return

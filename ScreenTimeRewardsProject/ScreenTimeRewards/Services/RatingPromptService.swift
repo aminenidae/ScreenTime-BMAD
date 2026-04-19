@@ -7,9 +7,10 @@
 //  first 30 days — prompt early and at multiple delight points, let Apple's
 //  3-per-365-day rate limit be the ultimate guardrail.
 //
-//  Gated behind active parent-mode authentication so the prompt never
-//  surfaces to a child (kid-retaliation 1-stars + child-account submit
-//  failures would both burn the slot).
+//  Gated behind active parent-authenticated context (either child-device
+//  parent mode via PIN, or parent-device authenticated session) so the
+//  prompt never surfaces to a child (kid-retaliation 1-stars + child-account
+//  submit failures would both burn the slot).
 //
 
 import Foundation
@@ -57,7 +58,8 @@ final class RatingPromptService {
             return
         }
 
-        guard SessionManager.shared.isParentAuthenticated else {
+        let session = SessionManager.shared
+        guard session.isParentAuthenticated || session.isParentDeviceAuthenticated else {
             print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_SKIPPED: parent_not_authenticated (trigger=\(trigger.rawValue))")
             return
         }
