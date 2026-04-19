@@ -153,7 +153,7 @@ i6 Development
 
 The reply stated *"Reviewer notes with a demo PIN have been added to App Review Information."* The Notes block above was submitted **without** a demo PIN — it instructs the reviewer to create one at step 4. The app was approved Apr 17 despite the mismatch, confirming the reviewer's blocker was the questionnaire answer, not the Notes content.
 
-**Forward fix (next submission):** add an actual demo PIN to the Notes block (e.g., `Demo PIN: 1234`) so any future reply that references a demo PIN is truthful, and so reviewers can move through the parent flow faster.
+**Forward fix (next submission):** correct the Resolution Center reply template so it does NOT claim a demo PIN exists. The PIN is device-local — it's created at first launch on the reviewer's test device and stored in Keychain. There is no way to ship a preset PIN to the reviewer's install, so the Notes block should continue to instruct the reviewer to create one at step 4 (as it does today). Do NOT add a "Demo PIN: XXXX" line.
 
 ### Lesson for future ASO metadata-only submissions
 

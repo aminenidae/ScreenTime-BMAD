@@ -64,6 +64,8 @@ Aligned with Day 14 (2026-05-01) and Day 21 (2026-05-08) re-measurements in `ASO
 
 ### Week 1 (2026-04-17 → 2026-04-24): Bridge the organic lag + kickstart rating velocity
 
+**0. [AUDIT ACTION 2026-04-18] Deploy the ES_MX keyword field.** The ES_MX payload documented in `ASO_EXECUTION_PLAN.md` §4 was drafted but never shipped — this is ~100 chars of free keyword budget sitting on the floor. Ship as metadata-only update (no binary change → sub-24h review typical). Expected lift targets on re-measure: `app blocker` Pop 50, `app lock` Pop 55, `play time` Pop 40, `parent app` Pop 33. This action likely outweighs every other Week 1 lever except rating volume. Also: fix `BASELINE_METRICS.md` primary success criteria (done 2026-04-18) so Day 14/21 measurement tracks the keywords we actually deployed.
+
 1. **Decide on ASA posture — Lyttle's $1,000/day Visibility structure does NOT port over cleanly.** His structure assumed pre-existing brand awareness (people already searching his brand name). Brain Coinz has zero brand awareness, so a pure brand-term campaign will spend ~$0 and generate ~0 installs. Pick one:
 
    **Option A — Skip ASA in Week 1.** Reinvest attention into rating volume (action 3 below). Re-evaluate at Day 14 once organic data is in. Defensible, zero cash risk.
@@ -91,6 +93,30 @@ Aligned with Day 14 (2026-05-01) and Day 21 (2026-05-08) re-measurements in `ASO
 1. **Screenshot OCR audit.** Audit 8 live screenshots against the 1.0.3 keyword field. Any keyword with zero OCR coverage is a candidate for caption tweak on the next screenshot refresh.
 2. **Keep name / subtitle / keyword field untouched.** Don't edit during the measurement window — we need 14 clean days for the diff against `BASELINE_METRICS.md`.
 3. **Draft longtail keyword candidates.** From the gap analysis in Week 1, propose a 10x-localization expansion (per `APPFIGURES_ASO_INSIGHTS.md` §4) to be deployed AFTER Day 21 if the current metadata hasn't moved the needle.
+
+### Day 21+ metadata-only submission (staged, post-measurement)
+
+Queued from the 2026-04-18 audit. Ship in this order once Day 14 data confirms the ES_MX deploy is clearing review:
+
+1. **Enable a second English locale (EN_AU or EN_CA).** Non-overlapping 100-char keyword field targets tokens absent from EN_US. Draft:
+   ```
+   family,child,school,smart,reading,math,timer,chart,allowance,help
+   ```
+   Unlocks `family app`, `school app`, `reading app`, `allowance app` (Pop 5, Diff 55), `reward chart` (Pop 8, Diff **23** — second-lowest in set). No positioning risk.
+
+2. **Stage competitor conquest in a non-US locale** (FR_FR or DE — farther from US review scrutiny than ES_ES):
+   ```
+   qustodio,bark,aura,life360,kidslox,opal,screenzen
+   ```
+   Apple has tightened 2.3.7/2.3.10 enforcement on competitor-name keywords — keep OUT of EN_US. Ship only after EN_AU/EN_CA clears review.
+
+3. **Swap `goal` → `chart` in EN_US keyword field** (same 97/100 char count):
+   ```
+   motivate,positive,reinforcement,educational,limit,reduce,play,productivity,chart,game,daily,unlock
+   ```
+   `goal` is flagged "soft-fit adjacency" in §3; `chart` unlocks the Diff-23 `reward chart`.
+
+4. **IAP display name rewrite (deprioritized).** IAP display names are **not a confirmed search-indexing surface** — Apple documents only name, subtitle, keywords field, and screenshot OCR. If the names are rewritten at all, rationale is conversion clarity (what the user sees in the purchase sheet) and Promoted IAP card readiness, NOT organic keyword lift. Also consider sequencing: subscription-group consolidation (`project_subscription_groups.md`) will force a rewrite anyway.
 
 ### Day 14 (2026-05-01) and Day 21 (2026-05-08): Re-measure & decide
 

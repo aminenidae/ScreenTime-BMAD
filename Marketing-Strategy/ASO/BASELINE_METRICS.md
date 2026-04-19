@@ -79,20 +79,24 @@ This means any meaningful movement after redeploy is measurable lift. The bar is
 
 ## Success Criteria (re-check at day 14 and day 21)
 
-**Primary win conditions:**
-- `earn screen time` (Pop 5, Diff 45) → from 1000 into top 50
-- `chore chart` (Pop 29, Diff 52) → from 1000 into top 200
-- `homework tracker` (Pop 34, Diff 53) → from 1000 into top 200
-- `study timer` (Pop 42, Diff 62) → from 1000 into top 300
-- `reward chart` (Pop 8, Diff **23**) → from 1000 into top 100 (lowest-difficulty target)
+> **2026-04-18 revision (audit correction):** Previous primary list included `chore chart`, `homework tracker`, `study timer`, `reward chart` — all of which `ASO_EXECUTION_PLAN.md` §"Dropped from earlier drafts" explicitly removed as feature-mismatches. Those tokens are in NO field and will never rank; measuring against them guaranteed false failure. Primary list below is now aligned with the tokens actually deployed in 1.0.3(1).
+
+**Primary win conditions** (aligned with deployed 1.0.3(1) metadata):
+- `earn screen time` (Pop 5, Diff 45) → from 1000 into top 50 — core name phrase
+- `reward kids` (Pop 5, Diff **21** — lowest Diff in set) → from 1000 into top 100 — subtitle core
+- `positive reinforcement` (Pop 5, Diff **39**) → from 1000 into top 100 — keyword-field combo
+- `motivate kids` (Pop 5, Diff 44) → from 1000 into top 150
+- `limit screen time` (Pop **23**, Diff 55) → from 1000 into top 200
 - `brain coinz` holds or improves from rank 33
 
 **Secondary:**
-- `screen time rewards`, `kids rewards`, `learn to earn`, `earn play time` all indexing at any rank < 1000 (currently unranked)
-- `play time` (Pop 40) entering top 300
+- `play time` (Pop 40, Diff 65) → entering top 300 — requires ES_MX slot to be deployed (see audit note)
+- `reduce screen time`, `screen time limit`, `kids rewards`, `screen time rewards`, `earn play time` all indexing at any rank < 1000
 
 **Rollback trigger:**
 - If `brain coinz` rank drops below 150 AND no tracked keyword replaces it by day 21 → revert to baseline live metadata
+
+**Audit note (2026-04-18):** The ES_MX keyword field documented in `ASO_EXECUTION_PLAN.md` §4 (`app,blocker,lock,play,time,...`) was drafted but **never deployed**. Keywords that require the ES_MX slot (`app blocker` Pop 50, `app lock` Pop 55, `play time` Pop 40, `parent app` Pop 33) cannot be expected to move at Day 14/21 unless that slot is deployed as a metadata-only update first.
 
 ## How to Re-run
 

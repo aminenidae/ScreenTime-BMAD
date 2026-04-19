@@ -1,9 +1,26 @@
 # Brain Coinz — ASO Execution Plan (1.0.3(1) Resubmission)
 
-**Status:** ✅ Deployed 2026-04-17 — live in production. Awaiting Day 14 (2026-05-01) and Day 21 (2026-05-08) rank re-measures against `BASELINE_METRICS.md`.
+**Status:** ⚠️ **Partially deployed 2026-04-17.** EN_US name + subtitle + keyword field + promo text + description are live. **ES_MX keyword field (§4 below) was drafted but NOT deployed.** See "Deployment State" audit below. Awaiting Day 14 (2026-05-01) and Day 21 (2026-05-08) rank re-measures against `BASELINE_METRICS.md`.
 **Target version:** 1.0.3(1) (replaces live 1.0.2(26))
 **Snapshot date:** 2026-04-14 (metadata drafted); **deploy date:** 2026-04-17
 **Positioning thesis:** Brain Coinz is the **kid version of Unrot/Unglue** — automated learn-to-earn screen time. NOT a parental-controls, chore-chart, or study-timer app.
+
+---
+
+## Deployment State (2026-04-18 audit)
+
+| Slot | Status | Notes |
+|---|---|---|
+| App name (EN_US) | ✅ Live | `Brain Coinz: Earn Screen Time` |
+| Subtitle (EN_US) | ✅ Live | `Reward Kids for Learning Apps` |
+| Keyword field (EN_US) | ✅ Live | 97/100 chars |
+| Promo text (EN_US) | ✅ Live | 158/170 chars |
+| Description (EN_US) | ✅ Live | Edits applied per §6 |
+| **Keyword field (ES_MX)** | ❌ **Drafted, not deployed** | 91/100 chars. **Priority 1 action** — free 100-char slot unlocks Pop 50 `app blocker`, Pop 55 `app lock`, Pop 40 `play time`, Pop 33 `parent app`. Ship as metadata-only update. |
+| Primary category | ✅ Lifestyle | |
+| Secondary category | ✅ **Education** | Confirmed 2026-04-18. Good topical match for `learning`/`educational` queries; surfaces in Education browse + Today tab. |
+| **IAP/Subscription display names** | ⚠️ Generic ("Family monthly", "Individual annual") | **Not a confirmed search-indexing surface** — Apple's documented indexed fields are name, subtitle, keywords field, and screenshot OCR. IAP names are NOT on that list. Still relevant for (a) conversion clarity on the product page + purchase sheet, and (b) Promoted IAP cards if a subscription is ever marked Promoted. Not a priority ranking play. |
+| Additional locales (EN_AU, EN_CA, EN_GB, FR, DE, PT_BR) | ❌ None | Each enabled locale = free 100-char keyword budget. Lowest-friction add: EN_AU or EN_CA (English users see native copy). |
 
 Related files:
 - `BASELINE_METRICS.md` — pre-deploy Astro ranks (re-check at day 14 and 21)
