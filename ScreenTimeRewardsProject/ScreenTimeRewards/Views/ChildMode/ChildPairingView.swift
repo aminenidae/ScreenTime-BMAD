@@ -333,18 +333,7 @@ private extension ChildPairingView {
 
         Task {
             do {
-                guard let payload = pairingService.parsePairingQRCode(jsonString) else {
-                    throw NSError(domain: "PairingError", code: -1,
-                                userInfo: [NSLocalizedDescriptionKey: "Invalid QR code format"])
-                }
-
-                // Check if already paired with this parent
-                if pairedParents.contains(where: { $0.id == payload.parentDeviceID }) {
-                    throw NSError(domain: "PairingError", code: -2,
-                                userInfo: [NSLocalizedDescriptionKey: "Already paired with this parent device"])
-                }
-
-                try await pairingService.acceptParentShareAndRegister(from: payload)
+                try await pairingService.handleScannedQRCode(jsonString)
 
                 // Trigger upload and config refresh
                 Task {

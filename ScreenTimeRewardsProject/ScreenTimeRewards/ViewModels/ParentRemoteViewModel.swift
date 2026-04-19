@@ -677,14 +677,11 @@ class ParentRemoteViewModel: ObservableObject {
                 selectedChildDevice = firstDevice
                 await loadChildData(for: firstDevice)
             }
-        } catch let error as CKError {
+        } catch {
             #if DEBUG
-            print("[ParentRemoteViewModel] CloudKit error: \(error)")
+            print("[ParentRemoteViewModel] Error loading child devices: \(error)")
             #endif
             handleCloudKitError(error)
-        } catch {
-            errorMessage = "Failed to load child devices: \(error.localizedDescription)"
-            print("[ParentRemoteViewModel] Error loading child devices: \(error)")
         }
 
         isLoadingDevices = false
@@ -918,11 +915,9 @@ class ParentRemoteViewModel: ObservableObject {
 
             // Load extension sync status for diagnostics
             await loadExtensionSyncStatus(for: device)
-        } catch let error as CKError {
-            handleCloudKitError(error)
         } catch {
-            errorMessage = "Failed to load child data: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error loading child data: \(error)")
+            handleCloudKitError(error)
         }
 
         isLoadingChildData = false
@@ -1234,11 +1229,9 @@ class ParentRemoteViewModel: ObservableObject {
 
             // Refresh configurations
             await loadChildData(for: selectedDevice)
-        } catch let error as CKError {
-            handleCloudKitError(error)
         } catch {
-            errorMessage = "Failed to send configuration: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error sending configuration: \(error)")
+            handleCloudKitError(error)
         }
     }
 
@@ -1254,49 +1247,53 @@ class ParentRemoteViewModel: ObservableObject {
 
             // Refresh configurations
             await loadChildData(for: selectedDevice)
-        } catch let error as CKError {
-            handleCloudKitError(error)
         } catch {
-            errorMessage = "Failed to send configuration: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error sending configuration: \(error)")
+            handleCloudKitError(error)
         }
     }
-    
+
     /// Request a sync from the child device
     func requestChildSync() async {
         guard let selectedDevice = selectedChildDevice else { return }
-        
+
         do {
             try await cloudKitService.requestChildSync(deviceID: selectedDevice.deviceID ?? "")
-        } catch let error as CKError {
-            handleCloudKitError(error)
         } catch {
-            errorMessage = "Failed to request sync: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error requesting sync: \(error)")
+            handleCloudKitError(error)
         }
     }
-    
+
     /// Force a sync now
     func forceSyncNow() async {
         do {
             try await cloudKitService.forceSyncNow()
-        } catch let error as CKError {
-            handleCloudKitError(error)
         } catch {
-            errorMessage = "Failed to force sync: \(error.localizedDescription)"
             print("[ParentRemoteViewModel] Error forcing sync: \(error)")
+            handleCloudKitError(error)
         }
     }
     
     /// Handle CloudKit specific errors
-    private func handleCloudKitError(_ error: CKError) {
-        switch error.code {
+    private func handleCloudKitError(_ error: Error) {
+        if isCloudKitQuotaExceeded(error) {
+            errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, then try again."
+            print("[ParentRemoteViewModel] CloudKit quota exceeded: \(error.localizedDescription)")
+            return
+        }
+
+        guard let ckError = error as? CKError else {
+            errorMessage = "iCloud error: \(error.localizedDescription)"
+            print("[ParentRemoteViewModel] CloudKit error (unbridged): \(error)")
+            return
+        }
+
+        switch ckError.code {
         case .notAuthenticated:
             errorMessage = "iCloud account not signed in. Please sign in to iCloud in Settings."
         case .networkUnavailable, .networkFailure:
             errorMessage = "Network unavailable. Please check your connection and try again."
-        case .quotaExceeded:
-            errorMessage = "iCloud storage quota exceeded. Please free up space in iCloud."
         case .zoneBusy:
             errorMessage = "iCloud is busy. Please try again in a moment."
         case .badContainer, .badDatabase:
@@ -1304,10 +1301,10 @@ class ParentRemoteViewModel: ObservableObject {
         case .permissionFailure:
             errorMessage = "Insufficient permissions. Please check iCloud settings."
         default:
-            errorMessage = "iCloud error: \(error.localizedDescription)"
+            errorMessage = "iCloud error: \(ckError.localizedDescription)"
         }
-        
-        print("[ParentRemoteViewModel] CloudKit error (\(error.code)): \(error.localizedDescription)")
+
+        print("[ParentRemoteViewModel] CloudKit error (\(ckError.code)): \(ckError.localizedDescription)")
     }
     
     /// De-duplicate and aggregate usage records for the same app

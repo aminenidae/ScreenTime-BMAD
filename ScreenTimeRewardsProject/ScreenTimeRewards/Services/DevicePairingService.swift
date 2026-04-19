@@ -51,6 +51,26 @@ enum PairingError: LocalizedError {
     }
 }
 
+/// Returns true if the error is any flavor of CloudKit quota-exceeded.
+/// Per-record failures from `modifyRecords` often surface as NSError in
+/// CKErrorDomain without bridging cleanly to `CKError`, so the Swift cast
+/// alone isn't enough.
+func isCloudKitQuotaExceeded(_ error: Error) -> Bool {
+    if let ck = error as? CKError {
+        if ck.code == .quotaExceeded { return true }
+        if ck.code == .partialFailure,
+           let partials = ck.partialErrorsByItemID?.values {
+            return partials.contains { isCloudKitQuotaExceeded($0) }
+        }
+    }
+    let ns = error as NSError
+    if ns.domain == CKErrorDomain,
+       ns.code == CKError.Code.quotaExceeded.rawValue {
+        return true
+    }
+    return false
+}
+
 @MainActor
 class DevicePairingService: ObservableObject {
     static let shared = DevicePairingService()

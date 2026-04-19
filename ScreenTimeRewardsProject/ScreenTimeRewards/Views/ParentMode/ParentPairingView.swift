@@ -506,9 +506,13 @@ struct ParentPairingView: View {
                 if let cloudKitError = ckError as? CKError, cloudKitError.code == .notAuthenticated {
                     self.cloudKitStatus = .notAuthenticated
                     self.errorMessage = nil
+                } else if isCloudKitQuotaExceeded(ckError) {
+                    self.errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again."
                 } else {
                     self.errorMessage = "Connection error. Please check your internet and try again."
                 }
+            } else if isCloudKitQuotaExceeded(error) {
+                self.errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again."
             } else if let ckError = error as? CKError {
                 switch ckError.code {
                 case .notAuthenticated:
@@ -516,8 +520,6 @@ struct ParentPairingView: View {
                     self.errorMessage = nil
                 case .networkUnavailable, .networkFailure:
                     self.errorMessage = "No internet connection. Please connect and try again."
-                case .quotaExceeded:
-                    self.errorMessage = "iCloud storage is full. Please free up space in Settings."
                 default:
                     self.errorMessage = "iCloud error: \(ckError.localizedDescription)"
                 }

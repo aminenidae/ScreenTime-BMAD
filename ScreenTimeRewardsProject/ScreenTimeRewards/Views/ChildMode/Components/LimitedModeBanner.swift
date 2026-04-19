@@ -159,6 +159,7 @@ struct ChildPairingPromptView: View {
     @ObservedObject var syncService = ChildBackgroundSyncService.shared
 
     @State private var showScanner = false
+    @State private var pairingErrorMessage: String? = nil
 
     var body: some View {
         NavigationView {
@@ -196,6 +197,18 @@ struct ChildPairingPromptView: View {
                 showScanner = false
                 handleScanResult(result)
             }
+        }
+        .alert(
+            "Pairing failed",
+            isPresented: Binding(
+                get: { pairingErrorMessage != nil },
+                set: { if !$0 { pairingErrorMessage = nil } }
+            ),
+            presenting: pairingErrorMessage
+        ) { _ in
+            Button("OK", role: .cancel) { pairingErrorMessage = nil }
+        } message: { msg in
+            Text(msg)
         }
     }
 
@@ -275,10 +288,13 @@ struct ChildPairingPromptView: View {
                         dismiss()
                     }
                 } catch {
-                    // Handle error - could show alert
                     #if DEBUG
                     print("[ChildPairingPromptView] Pairing failed: \(error)")
                     #endif
+                    await MainActor.run {
+                        pairingErrorMessage = (error as? LocalizedError)?.errorDescription
+                            ?? error.localizedDescription
+                    }
                 }
             }
         case .failure(let error):

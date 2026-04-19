@@ -1,4 +1,5 @@
 import SwiftUI
+import Combine
 
 struct ParentRemoteDashboardView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
@@ -10,9 +11,36 @@ struct ParentRemoteDashboardView: View {
     @State private var deviceCountBeforePairing = 0  // Track count to detect new pairing
     @State private var hasLoadedInitialData = false  // Prevent re-sync on navigation back
     @Environment(\.colorScheme) var colorScheme
+    @Environment(\.scenePhase) private var scenePhase
     // Added @AppStorage for parent name as per UX/UI improvements Phase 1
     // Using device name as fallback since we couldn't find a specific parent name field
     @AppStorage("parentName") private var parentName: String = ""
+    @AppStorage("parent_remote_last_refresh") private var lastRefreshEpoch: Double = 0
+    @State private var nowTick: Date = Date()  // drives "Last synced Xm ago" relative text
+
+    /// Auto-refresh only if data is older than this many seconds.
+    private let autoRefreshStaleSeconds: TimeInterval = 3600  // 1 hour
+
+    private var lastRefreshDate: Date? {
+        lastRefreshEpoch > 0 ? Date(timeIntervalSince1970: lastRefreshEpoch) : nil
+    }
+
+    private var isDataStale: Bool {
+        guard let last = lastRefreshDate else { return true }
+        return Date().timeIntervalSince(last) > autoRefreshStaleSeconds
+    }
+
+    private var lastSyncedCaption: String? {
+        guard let last = lastRefreshDate else { return nil }
+        let seconds = Int(Date().timeIntervalSince(last))
+        if seconds < 60 { return "Just now" }
+        let minutes = seconds / 60
+        if minutes < 60 { return "Updated \(minutes)m ago" }
+        let hours = minutes / 60
+        if hours < 24 { return "Updated \(hours)h ago" }
+        let days = hours / 24
+        return "Updated \(days)d ago"
+    }
 
     /// Returns true when exactly one child device is linked (skip carousel)
     private var isSingleDeviceMode: Bool {
@@ -67,6 +95,12 @@ struct ParentRemoteDashboardView: View {
                                 Text("Device: \(modeManager.deviceName)")
                                     .font(.subheadline)
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+
+                                if let caption = lastSyncedCaption {
+                                    Text(caption)
+                                        .font(.caption2)
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                }
                             }
                             .padding(.top)
 
@@ -158,8 +192,15 @@ struct ParentRemoteDashboardView: View {
                 guard !hasLoadedInitialData else { return }
                 hasLoadedInitialData = true
                 Task {
-                    await refreshData()
+                    await refreshData(isAuto: true)
                 }
+            }
+            .onChange(of: scenePhase) { newPhase in
+                guard newPhase == .active, hasLoadedInitialData, isDataStale else { return }
+                Task { await refreshData(isAuto: true) }
+            }
+            .onReceive(Timer.publish(every: 60, on: .main, in: .common).autoconnect()) { date in
+                nowTick = date
             }
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.large)
@@ -201,6 +242,11 @@ struct ParentRemoteDashboardView: View {
                             Text("Family Dashboard")
                                 .font(.caption)
                                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            if let caption = lastSyncedCaption {
+                                Text(caption)
+                                    .font(.caption2)
+                                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            }
                         }
                     }
                 }
@@ -266,24 +312,32 @@ struct ParentRemoteDashboardView: View {
                     if let firstChild = viewModel.linkedChildDevices.first {
                         await viewModel.loadChildData(for: firstChild)
                     }
+                    lastRefreshEpoch = Date().timeIntervalSince1970
                 }
             }
         }
         .navigationViewStyle(.stack)
     }
     
-    private func refreshData() async {
-        withAnimation(.easeInOut(duration: 0.3)) {
-            showingRefreshIndicator = true
+    private func refreshData(isAuto: Bool = false) async {
+        if !isAuto {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                showingRefreshIndicator = true
+            }
         }
         defer {
-            withAnimation(.easeInOut(duration: 0.3)) {
-                showingRefreshIndicator = false
+            if !isAuto {
+                withAnimation(.easeInOut(duration: 0.3)) {
+                    showingRefreshIndicator = false
+                }
             }
         }
 
         await viewModel.loadLinkedChildDevices()
-        // Child data loading is handled by ChildUsagePageView.onAppear
+        if let device = viewModel.selectedChildDevice ?? singleDevice {
+            await viewModel.loadChildData(for: device)
+        }
+        lastRefreshEpoch = Date().timeIntervalSince1970
     }
 }
 

@@ -1164,11 +1164,10 @@ private struct AppConfigRow: View {
     }
 
     var usageTime: String {
-        if !appHistory.isEmpty {
-            return TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal))
-        }
-        guard let record = usage else { return "0m" }
-        return TimeFormatting.formatSecondsCompact(TimeInterval(record.totalSeconds))
+        // Today only, from daily history. Never fall back to UsageRecord.totalSeconds
+        // — that's an arbitrary session from any date, labeling phantom minutes as
+        // "Today's Usage" for apps the child never used today.
+        TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal))
     }
 
     var body: some View {
@@ -1307,21 +1306,18 @@ private struct FullAppConfigRow: View {
                         }
                     }
 
-                    // Usage time with clock icon
+                    // Usage time with clock icon — today only, from daily history.
+                    // Never fall back to UsageRecord.totalSeconds: that's an arbitrary
+                    // session from any date, which showed phantom minutes for apps the
+                    // child never used today.
                     HStack(spacing: 4) {
                         Image(systemName: "clock.fill")
                             .font(.system(size: 10))
                             .foregroundColor(secondaryTextColor)
 
-                        if !appHistory.isEmpty {
-                            Text(TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal)))
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(categoryColor)
-                        } else {
-                            Text(usageTime)
-                                .font(.system(size: 13, weight: .semibold))
-                                .foregroundColor(categoryColor)
-                        }
+                        Text(TimeFormatting.formatSecondsCompact(TimeInterval(todayTotal)))
+                            .font(.system(size: 13, weight: .semibold))
+                            .foregroundColor(categoryColor)
                     }
                 }
 
