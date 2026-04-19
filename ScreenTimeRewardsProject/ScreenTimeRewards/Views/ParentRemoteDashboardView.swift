@@ -108,6 +108,29 @@ struct ParentRemoteDashboardView: View {
                                     }
                                     .buttonStyle(.borderedProminent)
                                     .tint(AppTheme.vibrantTeal)
+
+                                    // Recovery path for previously-paired children whose
+                                    // CloudKit zones didn't surface (iCloud swap, deviceID
+                                    // drift, transient sync delay).
+                                    Button(action: {
+                                        Task { await refreshData() }
+                                    }) {
+                                        HStack(spacing: 6) {
+                                            Image(systemName: showingRefreshIndicator
+                                                  ? "arrow.triangle.2.circlepath"
+                                                  : "arrow.clockwise")
+                                            Text("Refresh")
+                                        }
+                                        .font(.subheadline)
+                                    }
+                                    .buttonStyle(.bordered)
+                                    .disabled(showingRefreshIndicator)
+
+                                    Text("Already paired a child? Make sure the child's device has opened Brain Coinz at least once and that you're signed into the same iCloud account used during pairing.")
+                                        .font(.caption)
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                        .multilineTextAlignment(.center)
+                                        .padding(.top, 4)
                                 }
                                 .padding()
                                 .background(

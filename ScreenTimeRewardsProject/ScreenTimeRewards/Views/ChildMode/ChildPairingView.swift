@@ -37,6 +37,7 @@ struct ChildPairingView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
     @StateObject private var pairingService = DevicePairingService.shared
+    @ObservedObject private var syncService = ChildBackgroundSyncService.shared
     @State private var showScanner = false
     @State private var errorMessage: String?
     @State private var isPairing = false
@@ -253,6 +254,7 @@ private extension ChildPairingView {
                 ForEach(pairedParents) { parent in
                     ParentInfoListItem(
                         parent: parent,
+                        needsReconnect: syncService.needsReconnect,
                         onUnpair: {
                             parentToUnpair = parent
                             showingUnpairConfirmation = true
@@ -399,6 +401,9 @@ private extension ChildPairingView {
 /// List item for displaying paired parent info (using PairedParentInfo)
 struct ParentInfoListItem: View {
     let parent: PairedParentInfo
+    /// When true, the parent's CloudKit zone is unreachable (e.g., iCloud swap).
+    /// The row reflects a "Reconnect needed" state instead of green "Connected".
+    var needsReconnect: Bool = false
     let onUnpair: () -> Void
     @Environment(\.colorScheme) private var colorScheme
 
@@ -422,10 +427,10 @@ struct ParentInfoListItem: View {
 
                 HStack(spacing: 6) {
                     Circle()
-                        .fill(Color.green)
+                        .fill(needsReconnect ? AppTheme.sunnyYellow : Color.green)
                         .frame(width: 8, height: 8)
 
-                    Text("Connected")
+                    Text(needsReconnect ? "Reconnect needed" : "Connected")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 }

@@ -38,6 +38,11 @@ class ChildBackgroundSyncService: ObservableObject {
     /// Days remaining in trial (for Family path)
     @Published private(set) var trialDaysRemaining: Int?
 
+    /// True when `pairedParents[].sharedZoneID` no longer resolves in the shared CloudKit DB
+    /// (e.g., parent switched iCloud accounts — old zone orphaned). Signals that banner's
+    /// Connect button should open the fresh-scan flow instead of re-verifying.
+    @Published private(set) var needsReconnect: Bool = false
+
     private let cloudKitService = CloudKitSyncService.shared
     private let offlineQueue = OfflineQueueManager.shared
 
@@ -681,6 +686,41 @@ class ChildBackgroundSyncService: ObservableObject {
         } catch {
             #if DEBUG
             print("[ChildBackgroundSyncService] ❌ Failed to schedule subscription verification: \(error)")
+            #endif
+        }
+    }
+
+    /// Detect when the locally-cached parent zone no longer exists in the shared CloudKit DB.
+    /// Happens when the parent switches iCloud accounts after pairing: child's UserDefaults
+    /// still points at the old zone (now orphaned in the parent's old iCloud account).
+    /// Updates `needsReconnect` so UI can route to the fresh-scan flow instead of re-verifying.
+    @MainActor
+    func verifyPairedZoneReachable() async {
+        let pairedParents = DevicePairingService.shared.getPairedParents()
+
+        // Only relevant once the device has been paired at least once.
+        guard !pairedParents.isEmpty else {
+            if needsReconnect { needsReconnect = false }
+            return
+        }
+
+        let expectedZoneIDs = Set(pairedParents.map { $0.sharedZoneID })
+        let reachable = await cloudKitService.reachableSharedParentZoneNames()
+
+        // If we can't enumerate any zones (transient CloudKit error), don't flip the flag.
+        guard !reachable.isEmpty else { return }
+
+        let anyUnreachable = !expectedZoneIDs.isSubset(of: reachable)
+
+        if anyUnreachable != needsReconnect {
+            needsReconnect = anyUnreachable
+            #if DEBUG
+            if anyUnreachable {
+                let missing = expectedZoneIDs.subtracting(reachable)
+                print("[ChildBackgroundSyncService] ⚠️ Paired parent zone(s) unreachable — needsReconnect=true. Missing: \(missing)")
+            } else {
+                print("[ChildBackgroundSyncService] ✅ All paired parent zones reachable — needsReconnect=false")
+            }
             #endif
         }
     }

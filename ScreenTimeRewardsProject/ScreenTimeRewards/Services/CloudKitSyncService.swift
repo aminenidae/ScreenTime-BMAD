@@ -3800,11 +3800,18 @@ class CloudKitSyncService: ObservableObject {
             // Look in all shared zones for parent info
             for zone in zones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
                 do {
-                    // Query for RegisteredDevice records in this zone
-                    let predicate = NSPredicate(format: "CD_deviceID == %@ OR CD_parentDeviceID == %@", parentDeviceID, parentDeviceID)
-                    let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+                    // CloudKit does not support OR across two different fields in one predicate.
+                    // Run two single-field queries sequentially: parent's own registration (CD_deviceID),
+                    // then fall back to child's record pointing at parent (CD_parentDeviceID).
+                    var predicate = NSPredicate(format: "CD_deviceID == %@", parentDeviceID)
+                    var query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+                    var (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
 
-                    let (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
+                    if matches.isEmpty {
+                        predicate = NSPredicate(format: "CD_parentDeviceID == %@", parentDeviceID)
+                        query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+                        (matches, _) = try await sharedDB.records(matching: query, inZoneWith: zone.zoneID)
+                    }
 
                     for (_, result) in matches {
                         if case .success(let record) = result {
@@ -3849,6 +3856,21 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] ⚠️ Could not verify parent subscription, assuming valid")
         #endif
         return (.trial, .trial, true)
+    }
+
+    /// Return the set of `ChildMonitoring-*` shared zone names the current iCloud account can access.
+    /// Used by the child to detect when its locally-cached parent zone is no longer reachable
+    /// (e.g., parent switched iCloud accounts after pairing — zone remains orphaned in old account).
+    func reachableSharedParentZoneNames() async -> Set<String> {
+        do {
+            let zones = try await container.sharedCloudDatabase.allRecordZones()
+            return Set(zones.map { $0.zoneID.zoneName }.filter { $0.hasPrefix("ChildMonitoring-") })
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Failed to fetch shared zones for reachability check: \(error.localizedDescription)")
+            #endif
+            return []
+        }
     }
 
     /// Count parent devices that have paired with a specific child

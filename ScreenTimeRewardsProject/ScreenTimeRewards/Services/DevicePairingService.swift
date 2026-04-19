@@ -1073,18 +1073,15 @@ class DevicePairingService: ObservableObject {
         }
     }
 
-    /// Add a new paired parent
+    /// Add a new paired parent, or refresh an existing entry with the same id.
+    /// Replace-on-match handles the iCloud-swap re-pair case: the parent's deviceID
+    /// (Keychain-stable) is unchanged, but their sharedZoneID/Owner/rootRecordName
+    /// point to a new CloudKit zone in the new iCloud account. Skipping would leave
+    /// the child reading from the dead zone.
     func addPairedParent(_ parent: PairedParentInfo) {
         var parents = getPairedParents()
-
-        // Don't add duplicates
-        if parents.contains(where: { $0.id == parent.id }) {
-            #if DEBUG
-            print("[DevicePairingService] Parent \(parent.id) already paired, skipping")
-            #endif
-            return
-        }
-
+        let isReplacement = parents.contains(where: { $0.id == parent.id })
+        parents.removeAll { $0.id == parent.id }
         parents.append(parent)
         savePairedParents(parents)
 
@@ -1092,7 +1089,8 @@ class DevicePairingService: ObservableObject {
         syncParentZoneInfoToAppGroup()
 
         #if DEBUG
-        print("[DevicePairingService] ✅ Added parent: \(parent.deviceName) (\(parent.id))")
+        let verb = isReplacement ? "🔁 Refreshed" : "✅ Added"
+        print("[DevicePairingService] \(verb) parent: \(parent.deviceName) (\(parent.id))")
         print("[DevicePairingService] Total paired parents: \(parents.count)")
         #endif
     }

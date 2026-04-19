@@ -59,6 +59,10 @@ struct ChildDashboardView: View {
                 // Limited mode banner (subscription expired/trial ended)
                 LimitedModeBanner()
 
+                // Non-blocking reconnect prompt (paired zone unreachable,
+                // subscription still valid — sync broken but access preserved).
+                PairingReconnectBanner()
+
                 ScrollView {
                     VStack(spacing: 16) {
                         // Hero Time Bank Card

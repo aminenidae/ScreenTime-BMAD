@@ -144,6 +144,19 @@ struct ScreenTimeRewardsApp: App {
                         print("[ScreenTimeRewardsApp] 🔄 Refreshed parent subscription status")
                     }
 
+                    // Refresh hasFullAccess so the LimitedModeBanner reflects the current
+                    // paired+subscribed state on foreground, not just after a 24h BGTask.
+                    Task {
+                        await ChildBackgroundSyncService.shared.verifyParentSubscription()
+                        print("[ScreenTimeRewardsApp] 🔄 Refreshed hasFullAccess (banner state)")
+                    }
+
+                    // Detect orphaned parent zone (e.g., parent switched iCloud post-pair).
+                    // Sets needsReconnect so the banner routes Connect → fresh scan flow.
+                    Task {
+                        await ChildBackgroundSyncService.shared.verifyPairedZoneReachable()
+                    }
+
                     // Process any pending CloudKit syncs that failed in the extension
                     // Extension may timeout on sync; main app retries as backup
                     Task {

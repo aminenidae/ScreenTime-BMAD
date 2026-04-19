@@ -14,6 +14,7 @@ struct LimitedModeBanner: View {
     @Environment(\.colorScheme) private var colorScheme
 
     @State private var showPairingSheet = false
+    @State private var isRefreshing = false
 
     var body: some View {
         if !syncService.hasFullAccess {
@@ -37,16 +38,27 @@ struct LimitedModeBanner: View {
 
                     Spacer()
 
-                    // Action button
-                    Button(action: { showPairingSheet = true }) {
-                        Text("Connect")
-                            .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(bannerColor)
-                            .padding(.horizontal, 12)
-                            .padding(.vertical, 6)
-                            .background(Color.white)
-                            .cornerRadius(12)
+                    // Action button — if already paired AND zone still reachable, re-verify.
+                    // If paired but zone unreachable (e.g., parent swapped iCloud), force rescan.
+                    Button(action: handleConnectTapped) {
+                        Group {
+                            if isRefreshing {
+                                ProgressView()
+                                    .progressViewStyle(.circular)
+                                    .tint(bannerColor)
+                            } else {
+                                Text(shouldRescan ? "Reconnect" : (isAlreadyPaired ? "Retry" : "Connect"))
+                                    .font(.system(size: 12, weight: .bold))
+                                    .foregroundColor(bannerColor)
+                            }
+                        }
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 6)
+                        .frame(minWidth: 64)
+                        .background(Color.white)
+                        .cornerRadius(12)
                     }
+                    .disabled(isRefreshing)
                 }
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
@@ -55,6 +67,34 @@ struct LimitedModeBanner: View {
             .sheet(isPresented: $showPairingSheet) {
                 ChildPairingPromptView()
             }
+        }
+    }
+
+    private var isAlreadyPaired: Bool {
+        DevicePairingService.shared.hasValidPairing()
+    }
+
+    /// True when the child is locally "paired" but the parent zone is unreachable —
+    /// so Retry/re-verify can't succeed. Force a fresh scan instead.
+    private var shouldRescan: Bool {
+        isAlreadyPaired && syncService.needsReconnect
+    }
+
+    private func handleConnectTapped() {
+        if shouldRescan {
+            // Paired locally but parent zone unreachable → need a fresh QR scan.
+            showPairingSheet = true
+        } else if isAlreadyPaired {
+            // Paired but banner is showing → stale cache. Re-verify both state stores.
+            isRefreshing = true
+            Task {
+                await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
+                await syncService.verifyParentSubscription()
+                await syncService.verifyPairedZoneReachable()
+                await MainActor.run { isRefreshing = false }
+            }
+        } else {
+            showPairingSheet = true
         }
     }
 
