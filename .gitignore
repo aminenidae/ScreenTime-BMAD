@@ -55,6 +55,10 @@ GoogleService-Info.plist
 firebase-functions/node_modules/
 firebase-functions/lib/
 
+# Firebase CLI debug logs
+firebase-debug.log
+firebase-debug*.log
+
 # Claude local config
 .claude/
 **/.claude/
