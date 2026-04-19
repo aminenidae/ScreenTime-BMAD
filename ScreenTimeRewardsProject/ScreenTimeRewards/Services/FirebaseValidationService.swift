@@ -226,6 +226,9 @@ final class FirebaseValidationService: ObservableObject {
                 throw FirebaseValidationError.serverError("Invalid response")
             }
 
+            // Persist familyId so cachedFamilyId / isSecurePairingEnabled returns true
+            UserDefaults.standard.set(familyId, forKey: "firebase_family_id")
+
             // Cache family info locally
             await loadFamilyInfo(familyId: familyId)
             deviceRole = .subscriber

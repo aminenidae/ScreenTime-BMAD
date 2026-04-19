@@ -31,6 +31,9 @@ struct SettingsTabView: View {
     @State private var showingDiagnosticReport = false
     @State private var diagnosticReportText = ""
 
+    @State private var firebaseFamilyResult: String = ""
+    @State private var isCreatingFirebaseFamily = false
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
@@ -147,6 +150,7 @@ struct SettingsTabView: View {
                             monitoringLogRow
                             midnightDiagnosticLogRow
                             bgtaskLogRow
+                            firebaseFamilySetupRow
                         }
                         #endif
 
@@ -1213,6 +1217,89 @@ private extension SettingsTabView {
         }
         .buttonStyle(PlainButtonStyle())
     }
+
+    #if DEBUG
+    var firebaseFamilySetupRow: some View {
+        Button(action: {
+            guard !isCreatingFirebaseFamily else { return }
+            isCreatingFirebaseFamily = true
+            firebaseFamilyResult = "Creating…"
+            Task {
+                SubscriptionManager.shared.activateDevSubscription(tier: .family)
+                // Bypass createFirebaseFamilyIfNeeded() guards (parentDevice mode) so this
+                // works on any device during testing. Step 3 writes firebase_family_id.
+                let result: String
+                do {
+                    if let existing = FirebaseValidationService.shared.currentFamilyId {
+                        result = "familyId: \(existing) (existing)"
+                    } else {
+                        let id = try await FirebaseValidationService.shared.createFamily(subscriptionTier: .family)
+                        result = "familyId: \(id)"
+                    }
+                } catch {
+                    result = "Failed: \(error.localizedDescription)"
+                }
+                await MainActor.run {
+                    firebaseFamilyResult = result
+                    isCreatingFirebaseFamily = false
+                }
+            }
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.orange.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "flame.fill")
+                        .font(.system(size: 20))
+                        .foregroundColor(.orange)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Activate Test Family (Firebase)")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text(firebaseFamilyResult.isEmpty
+                         ? "DEBUG: create Firebase family without RC purchase"
+                         : firebaseFamilyResult)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                        .lineLimit(2)
+                }
+
+                Spacer()
+
+                if isCreatingFirebaseFamily {
+                    ProgressView()
+                } else {
+                    Image(systemName: "arrow.right.circle")
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .contextMenu {
+            if firebaseFamilyResult.hasPrefix("familyId: ") {
+                Button("Copy familyId") {
+                    let id = String(firebaseFamilyResult.dropFirst("familyId: ".count))
+                    UIPasteboard.general.string = id
+                }
+            }
+        }
+    }
+    #endif
 
 }
 
