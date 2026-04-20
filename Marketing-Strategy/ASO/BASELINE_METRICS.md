@@ -105,3 +105,40 @@ mcp__astro__get_app_keywords(appId: "6753270211", store: "us")
 ```
 
 Diff the `currentRanking` column against this snapshot at day 14 and day 21.
+
+---
+
+## 2026-04-19 Pop>5 / Diff<60 Watchlist Additions
+
+Added 14 candidate keywords to Astro tracking; 9 survived the **Pop > 5 AND Diff < 60** filter and are tagged `pop>5-diff<60-watchlist` (green). Dropped from tracking in spirit (kept registered, but excluded from priority): `app timer` (Diff 68), `time app` (Diff 73), `chore app` (Diff 72), `chores` (Diff 68), `rewards` (Diff 84).
+
+**Subsequently added (same session):** `screen time limit` (Pop 11 / Diff 55) — qualifies, tagged. 4th indexing-pipeline canary (all three tokens already in deployed metadata).
+
+### Survivors at baseline (all rank 1000)
+
+| Keyword | Pop | Diff | Token coverage in deployed 1.0.3(1) | Day 14 hypothesis |
+|---|---|---|---|---|
+| brainrot | 55 | 48 | ❌ `brainrot` missing | Stay 1000 — needs ES_MX add |
+| claim app | 59 | 50 | ⚠️ `app` covered, `claim` missing | Stay 1000 — investigate intent before adding `claim` |
+| parenting | 23 | 57 | ❌ `parenting` missing | Stay 1000 — needs ES_MX add |
+| time control | 20 | 48 | ⚠️ `time` ✓, `control` missing | Stay 1000 — needs ES_MX add |
+| screen blocker | 13 | 52 | ⚠️ `screen` ✓, `blocker` missing | Stay 1000 — needs ES_MX add |
+| points | 9 | 58 | ❌ `points` missing | Stay 1000 — needs ES_MX add |
+| **time limit** | 7 | 55 | ✅ `time` (name) + `limit` (KW field) | **Should index** — if 1000 by 2026-05-01, indexing pipeline broken. OurPact ranks #12 here. |
+| **app limit** | 7 | 55 | ✅ `app` (subtitle stem) + `limit` (KW) | **Should index** by Day 14 |
+| **screen limit** | 6 | 56 | ✅ `screen` (name) + `limit` (KW) | **Should index** by Day 14 |
+| **screen time limit** | 11 | 55 | ✅ `screen` + `time` (name) + `limit` (KW) | **Should index** by Day 14 |
+
+### Action implications
+
+- **Day 14 (2026-05-01) verification:** `time limit`, `app limit`, `screen limit` are the indexing-pipeline canaries. If they're still 1000 with all-token coverage, something is wrong with the deploy or the screenshot OCR is overriding signal.
+- **6 partial/missing tokens flagged for ES_MX deploy:** `brainrot`, `claim`, `parenting`, `control`, `blocker`, `points`. None of these are in the drafted ES_MX field per `ASO_EXECUTION_PLAN.md` §4 — that draft predates this session. When ES_MX is finally deployed, expand the draft to include these 6 tokens (or the highest-fit subset; `claim` carries crypto/refund-traffic risk worth gating).
+- All 9 carry an Astro keyword note explaining the rationale and Day 14 target.
+
+### How to re-pull this watchlist
+
+```
+mcp__astro__get_app_keywords(appId: "6753270211", store: "us")
+```
+
+Filter the result to entries where the `tag` is `pop>5-diff<60-watchlist` (or equivalently, where Pop > 5 AND Diff < 60).
