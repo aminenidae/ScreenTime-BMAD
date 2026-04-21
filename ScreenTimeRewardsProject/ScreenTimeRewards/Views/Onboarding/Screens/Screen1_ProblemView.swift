@@ -77,13 +77,16 @@ struct Screen1_ProblemView: View {
             .padding(.horizontal, layout.horizontalPadding)
 
             // Simulator-only: Skip to paywall for App Store screenshots
+            // Gated behind UserDefaults so it can be hidden during ASC screenshot capture.
             #if targetEnvironment(simulator)
-            Button("📸 Skip to Paywall (Simulator Only)") {
-                onboarding.skipToPaywall()
+            if UserDefaults.standard.bool(forKey: "showSimulatorDebugButtons") {
+                Button("📸 Skip to Paywall (Simulator Only)") {
+                    onboarding.skipToPaywall()
+                }
+                .font(.system(size: 12))
+                .foregroundColor(.orange)
+                .padding(.top, 8)
             }
-            .font(.system(size: 12))
-            .foregroundColor(.orange)
-            .padding(.top, 8)
             #endif
 
             Spacer(minLength: layout.isLandscape ? 12 : 24)

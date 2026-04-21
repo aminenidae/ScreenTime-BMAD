@@ -27,7 +27,7 @@ struct OnboardingContainerView: View {
                     ))
 
             case 2:
-                Screen2_SolutionView()
+                Screen2_SolutionStepView()
                     .transition(.asymmetric(
                         insertion: .move(edge: .trailing),
                         removal: .move(edge: .leading)

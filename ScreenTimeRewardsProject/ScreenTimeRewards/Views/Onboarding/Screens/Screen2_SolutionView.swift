@@ -1,5 +1,15 @@
 import SwiftUI
 
+// MARK: - DEPRECATED
+//
+// This view is NO LONGER in the onboarding flow.
+// Replaced by `Screen2_SolutionStepView` (one dedicated full-screen step per image),
+// which gives each solution step its own OCR-readable title for ASC screenshot capture
+// and App Store search indexing.
+//
+// Kept in the project as reference / potential re-use in a future Settings "tour" surface.
+// Do NOT route the onboarding container to this view without discussing ASO implications first.
+
 // MARK: - Step Card Model
 
 private struct SolutionStepCard: Identifiable {
@@ -10,7 +20,7 @@ private struct SolutionStepCard: Identifiable {
     let subtitle: String
 }
 
-/// Screen 2: Solution (5-Step Cycle with Image Cards)
+/// Screen 2: Solution (5-Step Cycle with Image Cards) — DEPRECATED, see header
 /// Explains the unique 5-step system with visual image cards
 /// Features staggered enter animations with auto-scroll to focus on each step
 /// Adapts to iPad with grid layout and landscape with smaller cards

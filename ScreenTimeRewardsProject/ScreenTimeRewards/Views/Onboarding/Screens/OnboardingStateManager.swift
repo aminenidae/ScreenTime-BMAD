@@ -53,6 +53,10 @@ class OnboardingStateManager: ObservableObject {
     @Published var currentScreen: Int = 1
     @Published var completedScreens: [Int] = []
 
+    /// Sub-step index for Screen 2 (solution flow): 0..4 across 5 dedicated step screens.
+    /// Reset to 0 whenever currentScreen becomes 2; advanced via `advanceSolutionStep()`.
+    @Published var solutionStepIndex: Int = 0
+
     // Setup path selection (Solo vs Family)
     @Published var selectedPath: SetupPath?
 
@@ -104,9 +108,35 @@ class OnboardingStateManager: ObservableObject {
         withAnimation(.easeInOut(duration: 0.3)) {
             currentScreen += 1
         }
+        // Reset solution sub-step when entering Screen 2
+        if currentScreen == 2 {
+            solutionStepIndex = 0
+        }
         saveState()
         logEvent("onboarding_screen\(currentScreen - 1)_cta_tapped")
     }
+
+    /// Advance to the next sub-step inside Screen 2 (solution flow).
+    /// When the last step is passed, advances to the next top-level screen.
+    func advanceSolutionStep(totalSteps: Int) {
+        if solutionStepIndex < totalSteps - 1 {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                solutionStepIndex += 1
+            }
+            logEvent("onboarding_screen2_step\(solutionStepIndex)_advanced")
+        } else {
+            advanceScreen()
+        }
+    }
+
+    #if targetEnvironment(simulator)
+    /// Simulator-only helper for ASC capture: jump directly to a specific solution step.
+    func jumpToSolutionStep(_ index: Int) {
+        currentScreen = 2
+        solutionStepIndex = index
+        saveState()
+    }
+    #endif
 
     func goBack() {
         guard currentScreen > 1 else { return }
