@@ -1404,3 +1404,55 @@ Flip `includesPastActivity: false` specifically on the newly-added-app code path
 - Does not affect ongoing tracking — once the app is registered, real-time events fire in order
 
 Do not attempt during the current 3-day soak; only consider after the revert is committed and the system is stable.
+
+### Mid-Day App Add — Catch-Up Storm with Stuck MIDNIGHT_PENDING (Apr 21, 2026)
+
+**Status:** NON-PRIORITY — pending further user testing to assess real-world impact. Logged for reference; do not act without fresh reproduction evidence.
+
+**Scenario:** After a week of stable tracking, user added a learning app (logicalID `50AB3A4D-2AD`) to the main-app selection at ~22:42. App was **not used at all today per user**, yet **19 min of false usage were recorded** within a single ~300 ms burst.
+
+**Key log window (session `C71C2DE7`, 2026-04-21 22:42:27 → 22:42:28):**
+
+- **22:39:26** — App launch detected stale `MIDNIGHT_PENDING` flag. No `MIDNIGHT_EXT_REBUILD_SUCCESS` / `MIDNIGHT_PENDING_CLEARED` entries appear anywhere between 2026-04-12 08:01:28 and 2026-04-21 22:39:27 — the flag had been stuck through multiple midnights. Foreground-triggered restart rebuilt thresholds for tracked set `{29E37F2B, 0454A303}` (count=2); **50AB3A4D was NOT in the set.**
+- **22:42:04** — User added apps. `TRACKED_APP_IDS_SET count=3` adds `50AB3A4D`. `SLIDING_WINDOW 50AB3A4D... current=0min range=1-60`.
+- **22:42:05** — `MONITORING_ALREADY_ACTIVE — skipping redundant startMonitoring` (first reload skipped).
+- **22:42:11** — Second `MONITORING_RELOAD` with `count=2 {50AB3A4D, 29E37F2B}`, `MONITORING_START events=120` (actual `startMonitoring` call with `includesPastActivity: true` against fresh 1-60 window for 50AB3A4D).
+- **22:42:27.571** — First event in the cascade already shows `currentToday=1020s lastThresh=3480s` — meaning prior (un-logged-in-excerpt) catch-ups already pushed `lastThreshold` to min.58 and `today` to 17 min before the visible burst begins.
+- **22:42:27** — Out-of-order cascade: min.52 → 12 → 37 → 21 → 10 → 50 → **60 (RECORDED +120s → 1140s = 19 min)** → 17 → 2 → 6 → 41 → 8 → 23 → 27 → 32 → 16 → 45 → 4 → 55 → 59 → 22 → 19. All except min.60 blocked by `SKIP_REGRESSION`.
+- **22:42:29** — `SLIDING_WINDOW_READ 50AB3A4D... → 19 min` confirms the false total now persisted.
+
+**Why this is worse than the Apr 14 case:**
+
+The Apr 14 incident (previous section) recovered ~50% of *real* prior-day usage when apps were added mid-day — partial undercount, within user mental model ("tracking starts when you add the app"). The Apr 21 incident reports **19 min of fabricated usage for an app the user asserts had zero actual usage today**. If the user's ground-truth is correct, this is either:
+
+1. **Cross-midnight cumulative leakage**: `INTERVAL_START` at 00:00:56 may not have reset iOS's internal cumulative for this Application token — possibly linked to the stuck `MIDNIGHT_PENDING` flag meaning extension-side rebuild never ran cleanly on 2026-04-21 midnight (nor any midnight since 2026-04-13).
+2. **Stale iOS Screen Time data** for the specific Application token being replayed on fresh `startMonitoring()`.
+3. **User ground-truth is imperfect** and the app actually had 19+ min of genuine usage today that the user doesn't recall.
+
+Cannot distinguish these without reproduction on a controlled device.
+
+**Secondary concern — stuck `MIDNIGHT_PENDING`:**
+
+Between 2026-04-12 08:01:28 (last `MIDNIGHT_PENDING_CLEARED`) and 2026-04-21 22:39:26 (flag re-detected on foreground), no `MIDNIGHT_EXT_REBUILD_SUCCESS`, no `MIDNIGHT_PENDING_CLEARED`, no midnight counter-reset logs appear in the extension debugLog — only bare `INTERVAL_END`/`INTERVAL_START` pairs. Possibilities:
+- Extension-side midnight rebuild (`intervalDidStart()` day-change branch) is silently failing or its log lines are gated behind an unreachable branch.
+- The app was never foregrounded long enough during those days for the stale flag to surface, so the visible "week of stability" may have been tracking running off the pre-2026-04-12 thresholds with SKIP_MIDNIGHT blanking all post-midnight events.
+- Logs truncated or not flushed.
+
+**Rapid successive `MONITORING_RELOAD` observation:**
+
+The same 22:42 window shows 4 reloads in ~30 s (counts going 3 → 2 → 120 thresholds → 180 → 120 → 840) as the user edited the selection. Each `startMonitoring()` is a catch-up attack surface. Debouncing reloads in `ScreenTimeService` (e.g., 500 ms coalesce) would reduce the surface but is a secondary optimization.
+
+**Not acting now — deferred until user completes further tests:**
+
+User will run additional real-device tests to:
+1. Confirm whether the recorded 19 min truly had no corresponding real usage (rule out user ground-truth error).
+2. Check whether the stuck `MIDNIGHT_PENDING` is reproducible across device reboots / multiple days.
+3. Assess how often real users hit this pattern in practice (mid-day app add after a stuck midnight).
+
+If reproduction confirms real fabrication of usage (not just partial prior-day recovery), candidate remediations in priority order:
+
+1. **Track newly-added apps explicitly.** In `scheduleActivity()` diff the incoming `tracked_app_ids` against the previous set; for added apps, register thresholds with `includesPastActivity: false` (per the Apr 14 "optional future simplification" already logged above). This cleanly pins new apps to 0 regardless of iOS cumulative state.
+2. **Audit extension-side midnight rebuild logging.** Find why `MIDNIGHT_EXT_REBUILD_SUCCESS` never appears after 2026-04-12 — either the day-change detection is missing events or the log line is unreachable. Make midnight rebuild success/failure loudly observable.
+3. **Debounce `MONITORING_RELOAD`** in `ScreenTimeService` to coalesce rapid selection edits into a single `startMonitoring()` call.
+
+**Do not act without a fresh reproduction** — this could be user ground-truth error, a one-off from the stuck-pending-flag edge case, or a real regression in the mid-day-add path. The Apr 14 characterization was explicitly "no code change planned" on the same mechanism; we need stronger evidence before flipping that.
