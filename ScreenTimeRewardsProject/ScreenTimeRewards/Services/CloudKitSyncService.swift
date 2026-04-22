@@ -35,6 +35,33 @@ class CloudKitSyncService: ObservableObject {
     private let persistenceController = PersistenceController.shared
     private let offlineQueue = OfflineQueueManager.shared
 
+    /// Session-scoped cache of (zoneName, recordType) pairs that returned
+    /// `Did not find record type` once already. The fallback all-zones path for
+    /// `CD_ShieldState` (and any other record type) would otherwise re-hit every
+    /// zone on every fetch, trigger CK rate-limit ("Error rate mitigation activated"),
+    /// and poison the rest of the session's latency.
+    ///
+    /// Cleared naturally at process exit; no disk persistence (schema could be added
+    /// later in the process lifetime).
+    private static let schemaMissLock = NSLock()
+    private static var schemaMissSet = Set<String>()
+
+    private static func schemaKey(zone: String, recordType: String) -> String {
+        "\(zone):\(recordType)"
+    }
+
+    static func shouldSkipZone(_ zone: String, recordType: String) -> Bool {
+        schemaMissLock.lock()
+        defer { schemaMissLock.unlock() }
+        return schemaMissSet.contains(schemaKey(zone: zone, recordType: recordType))
+    }
+
+    static func recordSchemaMiss(zone: String, recordType: String) {
+        schemaMissLock.lock()
+        defer { schemaMissLock.unlock() }
+        schemaMissSet.insert(schemaKey(zone: zone, recordType: recordType))
+    }
+
     // MARK: - Parent Zone Info Helper
 
     /// Holds zone info needed for syncing to parent's shared zone
@@ -2112,6 +2139,12 @@ class CloudKitSyncService: ObservableObject {
                 continue
             }
 
+            // Skip zones that already returned "Did not find record type" this
+            // session — prevents the 25-zone cascade from triggering CK rate-limit.
+            if Self.shouldSkipZone(zone.zoneID.zoneName, recordType: "CD_ShieldState") {
+                continue
+            }
+
             do {
                 let predicate = NSPredicate(format: "CD_deviceID == %@", deviceID)
                 let query = CKQuery(recordType: "CD_ShieldState", predicate: predicate)
@@ -2132,6 +2165,10 @@ class CloudKitSyncService: ObservableObject {
                     }
                 }
             } catch {
+                // Cache the schema-miss so subsequent fetches in this session skip this zone.
+                if error.localizedDescription.contains("Did not find record type") {
+                    Self.recordSchemaMiss(zone: zone.zoneID.zoneName, recordType: "CD_ShieldState")
+                }
                 #if DEBUG
                 print("[CloudKitSyncService] ⚠️ Error querying zone \(zone.zoneID.zoneName): \(error.localizedDescription)")
                 #endif

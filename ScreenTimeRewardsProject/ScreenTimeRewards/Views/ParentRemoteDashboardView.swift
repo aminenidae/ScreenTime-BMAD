@@ -110,7 +110,9 @@ struct ParentRemoteDashboardView: View {
                                     .padding(.horizontal)
                             }
 
-                            // Multiple devices - show carousel
+                            // Devices present (from cache or fresh fetch) → show carousel.
+                            // First load hasn't completed AND we have no cached devices → loading skeleton.
+                            // First load completed AND list is empty → truthful "No Child Devices Linked".
                             if !viewModel.linkedChildDevices.isEmpty {
                                 VStack(spacing: 16) {
                                     Text("Family Devices")
@@ -121,8 +123,22 @@ struct ParentRemoteDashboardView: View {
                                     // 3D Card Carousel
                                     DeviceCardCarousel(devices: viewModel.linkedChildDevices)
                                 }
+                            } else if !viewModel.hasCompletedFirstLoad {
+                                // First CK fetch still in flight; don't lie about "No devices".
+                                VStack(spacing: 16) {
+                                    ProgressView()
+                                        .scaleEffect(1.2)
+                                        .padding(.top, 24)
+
+                                    Text("Loading your family…")
+                                        .font(.subheadline)
+                                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                                }
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 48)
+                                .padding(.horizontal)
                             } else {
-                                // No devices linked - empty state
+                                // Truthful empty state — CK fetch completed with zero paired children.
                                 VStack(spacing: 16) {
                                     Image(systemName: "iphone.and.arrow.forward")
                                         .font(.largeTitle)

@@ -285,6 +285,47 @@ struct DailySnapshotDTO: Identifiable {
         self.cumulativeAvailableMinutes = record["CD_cumulativeAvailableMinutes"] as? Int ?? 0
         self.syncTimestamp = record["CD_syncTimestamp"] as? Date
     }
+
+    /// Memberwise initializer for building from cached disk state (not CKRecord).
+    /// Used by the parent-side disk cache restore path.
+    init(
+        deviceID: String,
+        date: Date,
+        totalEarnedMinutes: Int,
+        totalLearningSeconds: Int,
+        totalRewardSeconds: Int,
+        cumulativeAvailableMinutes: Int,
+        syncTimestamp: Date?
+    ) {
+        self.deviceID = deviceID
+        self.date = date
+        self.totalEarnedMinutes = totalEarnedMinutes
+        self.totalLearningSeconds = totalLearningSeconds
+        self.totalRewardSeconds = totalRewardSeconds
+        self.cumulativeAvailableMinutes = cumulativeAvailableMinutes
+        self.syncTimestamp = syncTimestamp
+    }
+
+    /// Factory convenience for the disk cache path.
+    static func makeCached(
+        deviceID: String,
+        date: Date,
+        totalEarnedMinutes: Int,
+        totalLearningSeconds: Int,
+        totalRewardSeconds: Int,
+        cumulativeAvailableMinutes: Int,
+        syncTimestamp: Date?
+    ) -> DailySnapshotDTO {
+        return DailySnapshotDTO(
+            deviceID: deviceID,
+            date: date,
+            totalEarnedMinutes: totalEarnedMinutes,
+            totalLearningSeconds: totalLearningSeconds,
+            totalRewardSeconds: totalRewardSeconds,
+            cumulativeAvailableMinutes: cumulativeAvailableMinutes,
+            syncTimestamp: syncTimestamp
+        )
+    }
 }
 
 // MARK: - Streak Record DTO
@@ -406,6 +447,11 @@ class ParentRemoteViewModel: ObservableObject {
     // Computed property for UI loading indicator (backwards compatible)
     var isLoading: Bool { isLoadingDevices || isLoadingChildData }
     @Published var errorMessage: String?
+
+    // True once loadLinkedChildDevices has attempted at least one fetch (success or failure).
+    // View gates the "No Child Devices Linked" empty state on this to avoid rendering a
+    // falsehood during the initial CK fetch.
+    @Published var hasCompletedFirstLoad = false
 
     // Store summaries for each device (Multi-Child Device Support)
     @Published var deviceSummaries: [String: CategoryUsageSummary] = [:]
@@ -574,10 +620,145 @@ class ParentRemoteViewModel: ObservableObject {
     private var pendingConfigUpdates: [String: Date] = [:]
     private let pendingUpdateTimeout: TimeInterval = 60  // Protect edits for 60 seconds
 
+    // Coalesces concurrent callers of loadLinkedChildDevices() onto a single in-flight
+    // fetch. Without this, init + CloudKit-notification + device-click all kick off
+    // redundant 15-zone enumerations in parallel.
+    private var inFlightLoadTask: Task<Void, Never>?
+
     init() {
         setupCloudKitNotifications()
+        populateFromLocalCache()
         Task {
             await loadLinkedChildDevices()
+        }
+    }
+
+    /// Render from local Core Data + disk cache synchronously on init.
+    ///
+    /// This is the "cache-first" half of the launch strategy. RegisteredDevice rows are
+    /// already persisted locally via NSPersistentCloudKitContainer, so reading them
+    /// avoids the ~60s CK fan-out for device discovery. Per-child usage/config/snapshot
+    /// are restored from `ParentDeviceCacheService` disk JSON.
+    ///
+    /// The CK refresh kicked off by `loadLinkedChildDevices()` runs afterwards in the
+    /// background and overwrites the cached values when it lands.
+    private func populateFromLocalCache() {
+        let parentID = DeviceModeManager.shared.deviceID
+        guard !parentID.isEmpty else { return }
+
+        // 1. Load paired children from local Core Data (no CK round-trip).
+        let context = PersistenceController.shared.container.viewContext
+        let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentID)
+        let localDevices: [RegisteredDevice]
+        do {
+            localDevices = try context.fetch(req)
+        } catch {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Local Core Data fetch failed: \(error.localizedDescription)")
+            #endif
+            return
+        }
+
+        guard !localDevices.isEmpty else { return }
+
+        linkedChildDevices = localDevices
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] 🗂 Populated \(localDevices.count) children from local Core Data")
+        #endif
+
+        // 2. Load the disk cache (usage, configs, snapshot, history) for the device
+        //    we'll auto-select (the first one — matches what the post-fetch path does).
+        guard let firstDevice = localDevices.first,
+              let deviceID = firstDevice.deviceID,
+              let snapshot = ParentDeviceCacheService.shared.loadCachedState(parentID: parentID),
+              let cachedChild = snapshot.children.first(where: { $0.deviceID == deviceID }) else {
+            return
+        }
+
+        selectedChildDevice = firstDevice
+
+        // Restore daily snapshot
+        if let cs = cachedChild.dailySnapshot {
+            childDailySnapshot = DailySnapshotDTO.makeCached(
+                deviceID: cs.deviceID,
+                date: cs.date,
+                totalEarnedMinutes: cs.totalEarnedMinutes,
+                totalLearningSeconds: cs.totalLearningSeconds,
+                totalRewardSeconds: cs.totalRewardSeconds,
+                cumulativeAvailableMinutes: cs.cumulativeAvailableMinutes,
+                syncTimestamp: cs.recordedAt
+            )
+        }
+
+        // Restore daily usage history
+        if let history = cachedChild.dailyUsageHistory {
+            let dtos = history.map { h in
+                DailyUsageHistoryDTO(
+                    deviceID: h.deviceID,
+                    logicalID: h.logicalID,
+                    displayName: h.displayName,
+                    date: h.date,
+                    seconds: h.seconds,
+                    category: h.category,
+                    syncTimestamp: nil,
+                    hourlySeconds: h.hourlySeconds
+                )
+            }
+            childDailyUsageHistory = dtos
+            childDailyUsageByApp = Dictionary(grouping: dtos) { $0.logicalID }
+        }
+
+        #if DEBUG
+        print("[ParentRemoteViewModel] 🗂 Restored cached state for \(deviceID.prefix(8))… (savedAt=\(snapshot.savedAt))")
+        #endif
+    }
+
+    /// Persist a device's loaded state (usage history + daily snapshot) to disk.
+    /// Called after a successful CloudKit fetch so the next cold launch renders instantly.
+    ///
+    /// Writes are debounced inside `ParentDeviceCacheService`.
+    private func persistChildToCache(device: RegisteredDevice) {
+        let parentID = DeviceModeManager.shared.deviceID
+        guard !parentID.isEmpty, let deviceID = device.deviceID else { return }
+
+        let history: [CachedDailyUsageHistory] = childDailyUsageHistory
+            .filter { $0.deviceID == deviceID }
+            .map { h in
+                CachedDailyUsageHistory(
+                    deviceID: h.deviceID,
+                    logicalID: h.logicalID,
+                    displayName: h.displayName,
+                    date: h.date,
+                    seconds: h.seconds,
+                    category: h.category,
+                    hourlySeconds: h.hourlySeconds
+                )
+            }
+
+        let cachedSnapshot: CachedDailySnapshot? = childDailySnapshot.map { s in
+            CachedDailySnapshot(
+                deviceID: s.deviceID,
+                date: s.date,
+                totalEarnedMinutes: s.totalEarnedMinutes,
+                totalLearningSeconds: s.totalLearningSeconds,
+                totalRewardSeconds: s.totalRewardSeconds,
+                cumulativeAvailableMinutes: s.cumulativeAvailableMinutes,
+                recordedAt: Date()
+            )
+        }
+
+        ParentDeviceCacheService.shared.updateChild(
+            deviceID: deviceID,
+            parentID: parentID
+        ) { child in
+            child.displayName = device.deviceName ?? device.childName ?? child.displayName
+            child.sharedZoneID = device.sharedZoneID
+            child.sharedZoneOwner = device.sharedZoneOwner
+            child.lastSyncAt = Date()
+            child.dailySnapshot = cachedSnapshot
+            child.dailyUsageHistory = history
         }
     }
 
@@ -642,22 +823,46 @@ class ParentRemoteViewModel: ObservableObject {
             .store(in: &cancellables)
     }
     
-    /// Load all linked child devices for the parent
+    /// Load all linked child devices for the parent.
+    ///
+    /// Concurrent callers coalesce onto a single in-flight fetch via `inFlightLoadTask`:
+    /// if a load is already running, subsequent callers await its completion instead of
+    /// kicking off redundant 15-zone enumerations. At end, `hasCompletedFirstLoad` is
+    /// set so the empty state can gate on "attempted at least once" rather than
+    /// falsely rendering "No Child Devices Linked" during the first cold fetch.
     func loadLinkedChildDevices() async {
-        // Guard: Skip if already loading devices to prevent overlapping loads from CloudKit notifications
-        guard !isLoadingDevices else {
+        // If a load is already in flight, await it and return.
+        if let existing = inFlightLoadTask {
             #if DEBUG
-            print("[ParentRemoteViewModel] Skipping loadLinkedChildDevices - already loading")
+            print("[ParentRemoteViewModel] Awaiting in-flight loadLinkedChildDevices")
             #endif
+            await existing.value
             return
         }
 
+        let task = Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            await self.performLoadLinkedChildDevices()
+        }
+        inFlightLoadTask = task
+        await task.value
+        inFlightLoadTask = nil
+    }
+
+    /// Inner implementation — do not call directly, always go through
+    /// `loadLinkedChildDevices()` so the coalescing guard runs.
+    private func performLoadLinkedChildDevices() async {
         #if DEBUG
         print("[ParentRemoteViewModel] ===== Loading Linked Child Devices =====")
         #endif
 
         isLoadingDevices = true
         errorMessage = nil
+
+        defer {
+            isLoadingDevices = false
+            hasCompletedFirstLoad = true
+        }
 
         do {
             linkedChildDevices = try await cloudKitService.fetchLinkedChildDevices()
@@ -683,8 +888,6 @@ class ParentRemoteViewModel: ObservableObject {
             #endif
             handleCloudKitError(error)
         }
-
-        isLoadingDevices = false
     }
 
     /// Load linked child devices with retry logic for CloudKit sync delays
@@ -1104,6 +1307,10 @@ class ParentRemoteViewModel: ObservableObject {
                     print("[EarnedMinutesDebug] PARENT_VM: No snapshot received (nil)")
                 }
                 #endif
+
+                // Persist to disk cache so the next cold launch can render this child
+                // instantly instead of waiting on CK.
+                self.persistChildToCache(device: device)
             }
 
             #if DEBUG
@@ -1180,8 +1387,13 @@ class ParentRemoteViewModel: ObservableObject {
         #endif
 
         do {
-            // Query for the extension sync status record
-            let database = CKContainer(identifier: "iCloud.com.screentimerewards").sharedCloudDatabase
+            // Route to the correct DB: a zone owned by this parent lives in the private DB,
+            // all other zones (parent-shared child zones) live in the shared DB. Using the
+            // wrong DB yields CKError "Only shared zones can be accessed in the shared DB".
+            let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+            let myRecordName = try? await container.userRecordID().recordName
+            let isSelfOwned = (myRecordName.map { $0 == zoneOwner || zoneOwner == CKCurrentUserDefaultName } ?? false)
+            let database = isSelfOwned ? container.privateCloudDatabase : container.sharedCloudDatabase
             let recordZoneID = CKRecordZone.ID(zoneName: zoneID, ownerName: zoneOwner)
 
             // Use deterministic record ID matching the extension's format
