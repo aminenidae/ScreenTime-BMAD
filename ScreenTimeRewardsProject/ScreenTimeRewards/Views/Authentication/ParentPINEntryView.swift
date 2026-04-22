@@ -182,12 +182,16 @@ struct ParentPINEntryView: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) {
             isVerifying = false
 
-            if pin.count == 4 {
+            guard pin.count == 4 else { return }
+
+            if ParentPINService.shared.validatePIN(pin) {
+                attemptCount = 0
                 onPINVerified()
             } else {
                 attemptCount += 1
                 let remaining = max(0, 3 - attemptCount)
                 errorMessage = "Incorrect PIN. \(remaining) attempts remaining."
+                pin = ""
             }
         }
     }
