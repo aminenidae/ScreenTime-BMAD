@@ -7,7 +7,13 @@ final class ExtensionCloudKitSync {
     static let shared = ExtensionCloudKitSync()
 
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
-    private let container = CKContainer(identifier: "iCloud.com.i6dev.ScreenTimeRewards")
+    private let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+
+    private static let dayKeyFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyyMMdd"
+        return f
+    }()
 
     private init() {}
 
@@ -37,16 +43,27 @@ final class ExtensionCloudKitSync {
             return
         }
 
-        // Get child device ID from shared defaults
+        // Parent zone info is written to the App Group by
+        // DevicePairingService.syncParentZoneInfoToAppGroup() after pairing.
+        // Bail out cleanly if the main app hasn't migrated yet.
+        guard defaults.bool(forKey: "ext_parentSyncEnabled") else {
+            debugLog("CLOUDKIT_SYNC: Parent sync not enabled — skipping", defaults: defaults)
+            return
+        }
+        guard let zoneName = defaults.string(forKey: "ext_parentZoneID"),
+              let zoneOwner = defaults.string(forKey: "ext_parentZoneOwner"),
+              let rootName = defaults.string(forKey: "ext_parentRootRecordName"),
+              !zoneName.isEmpty, !zoneOwner.isEmpty, !rootName.isEmpty else {
+            debugLog("CLOUDKIT_SYNC: Parent zone info not yet synced — skipping", defaults: defaults)
+            return
+        }
+
+        // Child device ID still needed for CD_deviceID field + deterministic record naming.
         guard let childDeviceID = defaults.string(forKey: "ext_deviceID"),
               !childDeviceID.isEmpty else {
             debugLog("CLOUDKIT_SYNC: No child device ID found", defaults: defaults)
             return
         }
-
-        // Get zone name for this child
-        let zoneName = "ChildMonitoring_\(childDeviceID)"
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
 
         // Collect all app usage data from shared defaults
         let usageData = collectUsageData(defaults: defaults)
@@ -56,47 +73,57 @@ final class ExtensionCloudKitSync {
             return
         }
 
+        // Mirror the main-app path: shared DB, parent-owned zone, CD_UsageRecord schema,
+        // records parented to the shared root so they belong to the share.
+        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        let rootID = CKRecord.ID(recordName: rootName, zoneID: zoneID)
+        let database = container.sharedCloudDatabase
+
         debugLog("CLOUDKIT_SYNC: Syncing \(usageData.count) apps to zone \(zoneName)", defaults: defaults)
 
-        // Create/update UsageRecord records for each app
-        let database = container.privateCloudDatabase
+        let dayKey = Self.dayKeyFormatter.string(from: now)
+        let sessionStart = Calendar.current.startOfDay(for: now)
 
+        var recordsToSave: [CKRecord] = []
+        recordsToSave.reserveCapacity(usageData.count)
         for (appID, data) in usageData {
-            let recordID = CKRecord.ID(recordName: "Usage_\(appID)", zoneID: zoneID)
-            let record = CKRecord(recordType: "UsageRecord", recordID: recordID)
+            // Deterministic record name → per-slot saves upsert the same record via
+            // CKModifyRecordsOperation(.changedKeys). The main-app path uses an async
+            // query to dedupe; the extension must stay synchronous.
+            let recID = CKRecord.ID(recordName: "UR-\(childDeviceID)-\(appID)-\(dayKey)", zoneID: zoneID)
+            let rec = CKRecord(recordType: "CD_UsageRecord", recordID: recID)
+            rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
 
-            record["appLogicalID"] = appID
-            record["todaySeconds"] = data.todaySeconds
-            record["totalSeconds"] = data.totalSeconds
-            record["lastUpdated"] = Date()
-            record["childDeviceID"] = childDeviceID
+            rec["CD_deviceID"] = childDeviceID as CKRecordValue
+            rec["CD_logicalID"] = appID as CKRecordValue
+            rec["CD_displayName"] = appID as CKRecordValue
+            rec["CD_sessionStart"] = sessionStart as CKRecordValue
+            rec["CD_sessionEnd"] = now as CKRecordValue
+            rec["CD_totalSeconds"] = Int(data.todaySeconds) as CKRecordValue
+            rec["CD_earnedPoints"] = 0 as CKRecordValue
+            rec["CD_category"] = "" as CKRecordValue
+            rec["CD_syncTimestamp"] = now as CKRecordValue
 
-            // Add hourly data if available (as JSON string for CloudKit compatibility)
-            if let hourlyData = data.hourlyData,
-               let jsonData = try? JSONSerialization.data(withJSONObject: hourlyData),
-               let jsonString = String(data: jsonData, encoding: .utf8) {
-                record["hourlyData"] = jsonString
-            }
-
-            // Use save with ifServerRecordUnchanged policy for conflict resolution
-            let operation = CKModifyRecordsOperation(recordsToSave: [record], recordIDsToDelete: nil)
-            operation.savePolicy = .changedKeys
-            operation.qualityOfService = .utility
-
-            operation.modifyRecordsResultBlock = { [weak self] result in
-                switch result {
-                case .success:
-                    self?.debugLog("CLOUDKIT_SYNC: ✅ Synced \(appID.prefix(12))...", defaults: defaults)
-                case .failure(let error):
-                    self?.debugLog("CLOUDKIT_SYNC: ❌ Failed \(appID.prefix(12))... - \(error.localizedDescription)", defaults: defaults)
-                }
-            }
-
-            database.add(operation)
+            recordsToSave.append(rec)
         }
 
-        // Mark this slot as synced for today
-        defaults.set(currentSlotToken, forKey: "ext_cloudkit_last_slot_token")
+        let operation = CKModifyRecordsOperation(recordsToSave: recordsToSave, recordIDsToDelete: nil)
+        operation.savePolicy = .changedKeys
+        operation.qualityOfService = .utility
+
+        operation.modifyRecordsResultBlock = { [weak self] result in
+            switch result {
+            case .success:
+                // Only stamp the slot token AFTER a successful write so a failed write
+                // retries on the next RECORDED event in the same slot.
+                defaults.set(currentSlotToken, forKey: "ext_cloudkit_last_slot_token")
+                self?.debugLog("CLOUDKIT_SYNC: ✅ Synced \(recordsToSave.count) apps to slot \(currentSlotToken)", defaults: defaults)
+            case .failure(let error):
+                self?.debugLog("CLOUDKIT_SYNC: ❌ Slot \(currentSlotToken) failed — \(error.localizedDescription)", defaults: defaults)
+            }
+        }
+
+        database.add(operation)
     }
 
     /// Collect usage data from shared UserDefaults
