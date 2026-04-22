@@ -25,6 +25,12 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Register for remote notifications
         application.registerForRemoteNotifications()
         
+        // Enable extension-side CloudKit sync. Gated by a UserDefaults flag so the
+        // extension doesn't load CloudKit unnecessarily during development. With the
+        // 10-slot throttle in ExtensionCloudKitSync, memory pressure is negligible.
+        UserDefaults(suiteName: "group.com.screentimerewards.shared")?
+            .set(true, forKey: "ext_cloudkit_sync_enabled")
+
         // Register background tasks using our service
         ChildBackgroundSyncService.shared.registerBackgroundTasks()
 

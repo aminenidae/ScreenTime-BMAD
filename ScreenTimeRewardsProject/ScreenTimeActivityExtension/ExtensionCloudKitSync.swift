@@ -14,12 +14,26 @@ final class ExtensionCloudKitSync {
     /// Sync current usage data to CloudKit for parent device visibility
     /// Called from extension after each usage recording
     func syncUsageToParent(defaults: UserDefaults) {
-        // Throttle: only sync every 5 minutes to reduce extension CPU/memory pressure
-        // Main app already syncs on foreground activation, so extension provides periodic updates
-        let lastSync = defaults.double(forKey: "ext_cloudkit_last_sync")
-        let timeSinceSync = Date().timeIntervalSince1970 - lastSync
-        if timeSinceSync < 300 && lastSync > 0 {
-            debugLog("CLOUDKIT_SYNC: ⏩ Throttled (last sync \(Int(timeSinceSync))s ago, next in \(300 - Int(timeSinceSync))s)", defaults: defaults)
+        // 10-slot daily schedule: sync on first threshold event after each slot boundary.
+        // Slots: 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00, 23:59.
+        // Before 06:00 there is no current slot → skip (kids rarely use devices overnight).
+        let slotMinutes: [Int] = [360, 480, 600, 720, 840, 960, 1080, 1200, 1320, 1439]
+        let now = Date()
+        let cal = Calendar.current
+        let comps = cal.dateComponents([.year, .month, .day, .hour, .minute], from: now)
+        let minutesSinceMidnight = (comps.hour ?? 0) * 60 + (comps.minute ?? 0)
+
+        guard let currentSlotMin = slotMinutes.last(where: { $0 <= minutesSinceMidnight }) else {
+            debugLog("CLOUDKIT_SYNC: ⏩ Before first slot (06:00) — skipping", defaults: defaults)
+            return
+        }
+
+        let dateStr = String(format: "%04d-%02d-%02d", comps.year ?? 0, comps.month ?? 0, comps.day ?? 0)
+        let currentSlotToken = "\(dateStr):\(currentSlotMin)"
+        let lastSlotToken = defaults.string(forKey: "ext_cloudkit_last_slot_token") ?? ""
+
+        if lastSlotToken == currentSlotToken {
+            debugLog("CLOUDKIT_SYNC: ⏩ Slot \(currentSlotToken) already synced", defaults: defaults)
             return
         }
 
@@ -81,8 +95,8 @@ final class ExtensionCloudKitSync {
             database.add(operation)
         }
 
-        // Update last sync timestamp
-        defaults.set(Date().timeIntervalSince1970, forKey: "ext_cloudkit_last_sync")
+        // Mark this slot as synced for today
+        defaults.set(currentSlotToken, forKey: "ext_cloudkit_last_slot_token")
     }
 
     /// Collect usage data from shared UserDefaults
