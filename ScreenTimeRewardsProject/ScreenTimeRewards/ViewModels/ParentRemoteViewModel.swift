@@ -160,6 +160,92 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         self.unlockMode = unlockMode
         self.streakSettings = streakSettings
     }
+
+    /// Reconstruct a DTO from its disk-cache representation.
+    /// Decodes the JSON-encoded sub-structures the same way `init(from: CKRecord)` does.
+    static func fromCache(_ cached: CachedAppConfig) -> FullAppConfigDTO {
+        // Decode schedule config from JSON
+        var scheduleConfig: AppScheduleConfiguration?
+        if let json = cached.scheduleConfigJSON,
+           let data = json.data(using: .utf8) {
+            scheduleConfig = try? JSONDecoder().decode(AppScheduleConfiguration.self, from: data)
+        }
+
+        // Decode linked learning apps from JSON
+        var linkedLearningApps: [LinkedLearningApp] = []
+        if let json = cached.linkedAppsJSON,
+           let data = json.data(using: .utf8),
+           let apps = try? JSONDecoder().decode([LinkedLearningApp].self, from: data) {
+            linkedLearningApps = apps
+        }
+
+        // Decode streak settings from JSON
+        var streakSettings: AppStreakSettings?
+        if let json = cached.streakSettingsJSON,
+           let data = json.data(using: .utf8) {
+            streakSettings = try? JSONDecoder().decode(AppStreakSettings.self, from: data)
+        }
+
+        // Parse unlock mode
+        let unlockMode = cached.unlockModeRawValue
+            .flatMap { UnlockMode(rawValue: $0) } ?? .all
+
+        return FullAppConfigDTO(
+            logicalID: cached.logicalID,
+            deviceID: cached.deviceID,
+            displayName: cached.displayName,
+            category: cached.category,
+            pointsPerMinute: cached.pointsPerMinute,
+            isEnabled: cached.isEnabled,
+            blockingEnabled: cached.blockingEnabled,
+            tokenHash: cached.tokenHash,
+            lastModified: cached.lastModified,
+            iconURL: cached.iconURL,
+            scheduleConfig: scheduleConfig,
+            dailyLimitSummary: cached.dailyLimitSummary,
+            timeWindowSummary: cached.timeWindowSummary,
+            linkedLearningApps: linkedLearningApps,
+            unlockMode: unlockMode,
+            streakSettings: streakSettings
+        )
+    }
+
+    /// Flatten the DTO into its disk-cache representation.
+    /// Mirrors the CD_-prefixed CKRecord JSON blobs so round-tripping is lossless.
+    func toCache() -> CachedAppConfig {
+        let scheduleJSON = scheduleConfig.flatMap { cfg -> String? in
+            guard let data = try? JSONEncoder().encode(cfg) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+        let linkedJSON: String? = {
+            guard !linkedLearningApps.isEmpty,
+                  let data = try? JSONEncoder().encode(linkedLearningApps) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
+        let streakJSON = streakSettings.flatMap { s -> String? in
+            guard let data = try? JSONEncoder().encode(s) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }
+
+        return CachedAppConfig(
+            logicalID: logicalID,
+            deviceID: deviceID,
+            displayName: displayName,
+            category: category,
+            pointsPerMinute: pointsPerMinute,
+            isEnabled: isEnabled,
+            blockingEnabled: blockingEnabled,
+            tokenHash: tokenHash,
+            lastModified: lastModified,
+            iconURL: iconURL,
+            dailyLimitSummary: dailyLimitSummary,
+            timeWindowSummary: timeWindowSummary,
+            unlockModeRawValue: unlockMode.rawValue,
+            scheduleConfigJSON: scheduleJSON,
+            linkedAppsJSON: linkedJSON,
+            streakSettingsJSON: streakJSON
+        )
+    }
 }
 
 // MARK: - Shield State DTO
@@ -186,6 +272,25 @@ struct ShieldStateDTO: Identifiable {
         self.reason = record["CD_reason"] as? String ?? "unknown"
         self.syncTimestamp = record["CD_syncTimestamp"] as? Date
         self.rewardAppDisplayName = record["CD_rewardAppDisplayName"] as? String
+    }
+
+    /// Memberwise initializer for the disk-cache restore path.
+    init(
+        rewardAppLogicalID: String,
+        deviceID: String,
+        isUnlocked: Bool,
+        unlockedAt: Date?,
+        reason: String,
+        syncTimestamp: Date?,
+        rewardAppDisplayName: String?
+    ) {
+        self.rewardAppLogicalID = rewardAppLogicalID
+        self.deviceID = deviceID
+        self.isUnlocked = isUnlocked
+        self.unlockedAt = unlockedAt
+        self.reason = reason
+        self.syncTimestamp = syncTimestamp
+        self.rewardAppDisplayName = rewardAppDisplayName
     }
 
     /// Display string for current status
@@ -668,55 +773,21 @@ class ParentRemoteViewModel: ObservableObject {
         print("[ParentRemoteViewModel] 🗂 Populated \(localDevices.count) children from local Core Data")
         #endif
 
-        // 2. Load the disk cache (usage, configs, snapshot, history) for the device
-        //    we'll auto-select (the first one — matches what the post-fetch path does).
+        // 2. Auto-select the first device and restore its cached state
+        //    (usage history, configs, snapshot, shield states). Reuses the same
+        //    restore path that powers child-switch clicks, so both paths converge.
         guard let firstDevice = localDevices.first,
-              let deviceID = firstDevice.deviceID,
-              let snapshot = ParentDeviceCacheService.shared.loadCachedState(parentID: parentID),
-              let cachedChild = snapshot.children.first(where: { $0.deviceID == deviceID }) else {
+              let deviceID = firstDevice.deviceID else {
             return
         }
 
         selectedChildDevice = firstDevice
-
-        // Restore daily snapshot
-        if let cs = cachedChild.dailySnapshot {
-            childDailySnapshot = DailySnapshotDTO.makeCached(
-                deviceID: cs.deviceID,
-                date: cs.date,
-                totalEarnedMinutes: cs.totalEarnedMinutes,
-                totalLearningSeconds: cs.totalLearningSeconds,
-                totalRewardSeconds: cs.totalRewardSeconds,
-                cumulativeAvailableMinutes: cs.cumulativeAvailableMinutes,
-                syncTimestamp: cs.recordedAt
-            )
-        }
-
-        // Restore daily usage history
-        if let history = cachedChild.dailyUsageHistory {
-            let dtos = history.map { h in
-                DailyUsageHistoryDTO(
-                    deviceID: h.deviceID,
-                    logicalID: h.logicalID,
-                    displayName: h.displayName,
-                    date: h.date,
-                    seconds: h.seconds,
-                    category: h.category,
-                    syncTimestamp: nil,
-                    hourlySeconds: h.hourlySeconds
-                )
-            }
-            childDailyUsageHistory = dtos
-            childDailyUsageByApp = Dictionary(grouping: dtos) { $0.logicalID }
-        }
-
-        #if DEBUG
-        print("[ParentRemoteViewModel] 🗂 Restored cached state for \(deviceID.prefix(8))… (savedAt=\(snapshot.savedAt))")
-        #endif
+        restoreCachedChildState(deviceID: deviceID)
     }
 
-    /// Persist a device's loaded state (usage history + daily snapshot) to disk.
-    /// Called after a successful CloudKit fetch so the next cold launch renders instantly.
+    /// Persist a device's loaded state (configs + shield states + usage history +
+    /// daily snapshot) to disk. Called after a successful CloudKit fetch so the
+    /// next cold launch (or child switch) renders instantly from cache.
     ///
     /// Writes are debounced inside `ParentDeviceCacheService`.
     private func persistChildToCache(device: RegisteredDevice) {
@@ -749,6 +820,32 @@ class ParentRemoteViewModel: ObservableObject {
             )
         }
 
+        // Full configs (learning + reward) — flattened to cache DTO.
+        let learningCached = childLearningAppsFullConfig.map { $0.toCache() }
+        let rewardCached = childRewardAppsFullConfig.map { $0.toCache() }
+        let configsSnapshot: CachedConfigSnapshot? = (learningCached.isEmpty && rewardCached.isEmpty)
+            ? nil
+            : CachedConfigSnapshot(
+                learningConfigs: learningCached,
+                rewardConfigs: rewardCached,
+                recordedAt: Date()
+            )
+
+        // Shield states for reward apps.
+        let cachedShields: [CachedShieldState]? = childShieldStates.isEmpty
+            ? nil
+            : childShieldStates.values.map { s in
+                CachedShieldState(
+                    rewardAppLogicalID: s.rewardAppLogicalID,
+                    deviceID: s.deviceID,
+                    isUnlocked: s.isUnlocked,
+                    unlockedAt: s.unlockedAt,
+                    reason: s.reason,
+                    syncTimestamp: s.syncTimestamp,
+                    rewardAppDisplayName: s.rewardAppDisplayName
+                )
+            }
+
         ParentDeviceCacheService.shared.updateChild(
             deviceID: deviceID,
             parentID: parentID
@@ -759,7 +856,90 @@ class ParentRemoteViewModel: ObservableObject {
             child.lastSyncAt = Date()
             child.dailySnapshot = cachedSnapshot
             child.dailyUsageHistory = history
+            child.configs = configsSnapshot
+            child.shieldStates = cachedShields
         }
+    }
+
+    /// Restore a child's cached state (configs, snapshot, history, shield states)
+    /// into the ObservableObject's published properties. Called at the top of
+    /// `loadChildData` so the dashboard shows last-known data while the CK refresh
+    /// runs in the background, instead of flashing 0 until CK lands.
+    ///
+    /// Returns true if any cached data was applied — caller can use this to decide
+    /// whether the clear-and-fetch path needs to wipe state first.
+    @discardableResult
+    private func restoreCachedChildState(deviceID: String) -> Bool {
+        let parentID = DeviceModeManager.shared.deviceID
+        guard !parentID.isEmpty,
+              let snapshot = ParentDeviceCacheService.shared.loadCachedState(parentID: parentID),
+              let cached = snapshot.children.first(where: { $0.deviceID == deviceID }) else {
+            return false
+        }
+
+        var restored = false
+
+        if let cs = cached.dailySnapshot {
+            childDailySnapshot = DailySnapshotDTO.makeCached(
+                deviceID: cs.deviceID,
+                date: cs.date,
+                totalEarnedMinutes: cs.totalEarnedMinutes,
+                totalLearningSeconds: cs.totalLearningSeconds,
+                totalRewardSeconds: cs.totalRewardSeconds,
+                cumulativeAvailableMinutes: cs.cumulativeAvailableMinutes,
+                syncTimestamp: cs.recordedAt
+            )
+            restored = true
+        }
+
+        if let history = cached.dailyUsageHistory {
+            let dtos = history.map { h in
+                DailyUsageHistoryDTO(
+                    deviceID: h.deviceID,
+                    logicalID: h.logicalID,
+                    displayName: h.displayName,
+                    date: h.date,
+                    seconds: h.seconds,
+                    category: h.category,
+                    syncTimestamp: nil,
+                    hourlySeconds: h.hourlySeconds
+                )
+            }
+            childDailyUsageHistory = dtos
+            childDailyUsageByApp = Dictionary(grouping: dtos) { $0.logicalID }
+            restored = true
+        }
+
+        if let configs = cached.configs {
+            childLearningAppsFullConfig = configs.learningConfigs.map { FullAppConfigDTO.fromCache($0) }
+            childRewardAppsFullConfig = configs.rewardConfigs.map { FullAppConfigDTO.fromCache($0) }
+            restored = true
+        }
+
+        if let shields = cached.shieldStates {
+            var dict: [String: ShieldStateDTO] = [:]
+            for s in shields {
+                dict[s.rewardAppLogicalID] = ShieldStateDTO(
+                    rewardAppLogicalID: s.rewardAppLogicalID,
+                    deviceID: s.deviceID,
+                    isUnlocked: s.isUnlocked,
+                    unlockedAt: s.unlockedAt,
+                    reason: s.reason,
+                    syncTimestamp: s.syncTimestamp,
+                    rewardAppDisplayName: s.rewardAppDisplayName
+                )
+            }
+            childShieldStates = dict
+            restored = true
+        }
+
+        #if DEBUG
+        if restored {
+            print("[ParentRemoteViewModel] 🗂 Restored cached state for \(deviceID.prefix(8))… on child switch")
+        }
+        #endif
+
+        return restored
     }
 
     deinit {
@@ -1047,9 +1227,10 @@ class ParentRemoteViewModel: ObservableObject {
         isLoadingChildData = true
         errorMessage = nil
 
-        // ALWAYS clear all cached data when loading a device
-        // This guarantees no stale data from previous device, avoiding race conditions
-        // with the conditional check that was unreliable across device switches
+        // Clear state that's definitely device-specific before restoring cache. Cache restore
+        // below will repopulate what we have for the target device; anything it doesn't
+        // populate (streaks, usage records from previous 7 days, etc.) needs to stay empty
+        // until CK returns.
         pendingConfigUpdates.removeAll()
         childLearningAppsFullConfig = []
         childRewardAppsFullConfig = []
@@ -1068,6 +1249,17 @@ class ParentRemoteViewModel: ObservableObject {
         appConfigurations = []
 
         selectedChildDevice = device
+
+        // Cache-first restore. Populates childDailySnapshot, history, configs, and
+        // shield states for the target device so the dashboard shows last-known data
+        // while the CK refresh runs. Without this, every child click flashes 0 until
+        // the full fetch lands (multi-second lag reported in logs). Downstream
+        // computed properties (`todayTotals`, `aggregatedDailyTotals`, `fallbackEarnedMinutes`)
+        // all derive from `childDailyUsageHistory` + `childDailySnapshot`, which we
+        // just restored, so the dashboard renders correctly from cache.
+        if let deviceID = device.deviceID {
+            restoreCachedChildState(deviceID: deviceID)
+        }
         
         do {
             // Load usage records for the last 7 days

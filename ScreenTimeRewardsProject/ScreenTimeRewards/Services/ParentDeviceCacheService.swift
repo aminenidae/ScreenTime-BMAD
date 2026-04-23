@@ -203,6 +203,17 @@ struct CachedChild: Codable {
     var configs: CachedConfigSnapshot?
     var dailySnapshot: CachedDailySnapshot?
     var dailyUsageHistory: [CachedDailyUsageHistory]?
+    var shieldStates: [CachedShieldState]?
+}
+
+struct CachedShieldState: Codable {
+    let rewardAppLogicalID: String
+    let deviceID: String
+    let isUnlocked: Bool
+    let unlockedAt: Date?
+    let reason: String
+    let syncTimestamp: Date?
+    let rewardAppDisplayName: String?
 }
 
 struct CachedUsageSnapshot: Codable {
