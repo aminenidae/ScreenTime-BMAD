@@ -34,6 +34,11 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Register background tasks using our service
         ChildBackgroundSyncService.shared.registerBackgroundTasks()
 
+        // CK-resync BGTask: pure CloudKit child→parent sync, no monitoring touch.
+        // Register handler + bootstrap the chain on every cold launch.
+        ChildCKResyncService.shared.register()
+        ChildCKResyncService.shared.bootstrap()
+
         setupMidnightResetObserver()
         setupMemoryWarningObserver()
 

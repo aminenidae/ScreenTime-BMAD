@@ -20,6 +20,8 @@ final class ExtensionCloudKitSync {
     /// Sync current usage data to CloudKit for parent device visibility
     /// Called from extension after each usage recording
     func syncUsageToParent(defaults: UserDefaults) {
+        debugLog("CLOUDKIT_SYNC: → entry container=\(container.containerIdentifier ?? "nil")", defaults: defaults)
+
         // 10-slot daily schedule: sync on first threshold event after each slot boundary.
         // Slots: 06:00, 08:00, 10:00, 12:00, 14:00, 16:00, 18:00, 20:00, 22:00, 23:59.
         // Before 06:00 there is no current slot → skip (kids rarely use devices overnight).
@@ -38,6 +40,8 @@ final class ExtensionCloudKitSync {
         let currentSlotToken = "\(dateStr):\(currentSlotMin)"
         let lastSlotToken = defaults.string(forKey: "ext_cloudkit_last_slot_token") ?? ""
 
+        debugLog("CLOUDKIT_SYNC: slot decision min=\(minutesSinceMidnight) currentSlot=\(currentSlotMin) lastToken=\(lastSlotToken) currentToken=\(currentSlotToken)", defaults: defaults)
+
         if lastSlotToken == currentSlotToken {
             debugLog("CLOUDKIT_SYNC: ⏩ Slot \(currentSlotToken) already synced", defaults: defaults)
             return
@@ -46,21 +50,27 @@ final class ExtensionCloudKitSync {
         // Parent zone info is written to the App Group by
         // DevicePairingService.syncParentZoneInfoToAppGroup() after pairing.
         // Bail out cleanly if the main app hasn't migrated yet.
-        guard defaults.bool(forKey: "ext_parentSyncEnabled") else {
+        let enabled = defaults.bool(forKey: "ext_parentSyncEnabled")
+        let rawZone = defaults.string(forKey: "ext_parentZoneID")
+        let rawOwner = defaults.string(forKey: "ext_parentZoneOwner")
+        let rawRoot = defaults.string(forKey: "ext_parentRootRecordName")
+        let rawChild = defaults.string(forKey: "ext_deviceID")
+        debugLog("CLOUDKIT_SYNC: appgroup ext_parentSyncEnabled=\(enabled) zone=\(rawZone ?? "nil") owner=\(rawOwner ?? "nil") root=\(rawRoot ?? "nil") childID=\(rawChild ?? "nil")", defaults: defaults)
+
+        guard enabled else {
             debugLog("CLOUDKIT_SYNC: Parent sync not enabled — skipping", defaults: defaults)
             return
         }
-        guard let zoneName = defaults.string(forKey: "ext_parentZoneID"),
-              let zoneOwner = defaults.string(forKey: "ext_parentZoneOwner"),
-              let rootName = defaults.string(forKey: "ext_parentRootRecordName"),
+        guard let zoneName = rawZone,
+              let zoneOwner = rawOwner,
+              let rootName = rawRoot,
               !zoneName.isEmpty, !zoneOwner.isEmpty, !rootName.isEmpty else {
             debugLog("CLOUDKIT_SYNC: Parent zone info not yet synced — skipping", defaults: defaults)
             return
         }
 
         // Child device ID still needed for CD_deviceID field + deterministic record naming.
-        guard let childDeviceID = defaults.string(forKey: "ext_deviceID"),
-              !childDeviceID.isEmpty else {
+        guard let childDeviceID = rawChild, !childDeviceID.isEmpty else {
             debugLog("CLOUDKIT_SYNC: No child device ID found", defaults: defaults)
             return
         }
@@ -111,6 +121,15 @@ final class ExtensionCloudKitSync {
         operation.savePolicy = .changedKeys
         operation.qualityOfService = .utility
 
+        let dbScope: String
+        switch database.databaseScope {
+        case .public: dbScope = "public"
+        case .private: dbScope = "private"
+        case .shared: dbScope = "shared"
+        @unknown default: dbScope = "unknown"
+        }
+        debugLog("CLOUDKIT_SYNC: prepared \(recordsToSave.count) records → DB=\(dbScope) zone=\(zoneID.zoneName) owner=\(zoneID.ownerName) firstRecID=\(recordsToSave.first?.recordID.recordName ?? "nil")", defaults: defaults)
+
         operation.modifyRecordsResultBlock = { [weak self] result in
             switch result {
             case .success:
@@ -119,7 +138,8 @@ final class ExtensionCloudKitSync {
                 defaults.set(currentSlotToken, forKey: "ext_cloudkit_last_slot_token")
                 self?.debugLog("CLOUDKIT_SYNC: ✅ Synced \(recordsToSave.count) apps to slot \(currentSlotToken)", defaults: defaults)
             case .failure(let error):
-                self?.debugLog("CLOUDKIT_SYNC: ❌ Slot \(currentSlotToken) failed — \(error.localizedDescription)", defaults: defaults)
+                let nsErr = error as NSError
+                self?.debugLog("CLOUDKIT_SYNC: ❌ Slot \(currentSlotToken) failed code=\(nsErr.code) domain=\(nsErr.domain) desc=\(nsErr.localizedDescription) userInfoKeys=\(nsErr.userInfo.keys.sorted())", defaults: defaults)
             }
         }
 
