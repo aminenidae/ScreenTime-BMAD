@@ -127,6 +127,20 @@ struct ChildUsagePageView: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            // Indeterminate top progress bar while a CK refresh is in flight.
+            // Replaces the full-screen modal spinner that used to block interaction —
+            // now that cache-first populates the dashboard instantly, the UI is
+            // usable while the background refresh runs. Fades in only when the VM
+            // is actually loading; 0-height frame when idle so nothing shifts.
+            if viewModel.isLoading {
+                ProgressView()
+                    .progressViewStyle(.linear)
+                    .tint(AppTheme.vibrantTeal)
+                    .frame(maxWidth: .infinity)
+                    .frame(height: 2)
+                    .transition(.opacity)
+            }
+
             // Stale device warning banner
             if device.isStale {
                 StaleDeviceBanner(
@@ -172,18 +186,7 @@ struct ChildUsagePageView: View {
             }
             .tabViewStyle(.page(indexDisplayMode: .never))
         }
-        .overlay {
-            // Loading indicator when switching devices
-            if viewModel.isLoading {
-                ZStack {
-                    Color.black.opacity(0.3)
-                        .ignoresSafeArea()
-                    ProgressView()
-                        .scaleEffect(1.5)
-                        .tint(.white)
-                }
-            }
-        }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.isLoading)
         .refreshable {
             await viewModel.loadChildData(for: device)
         }
