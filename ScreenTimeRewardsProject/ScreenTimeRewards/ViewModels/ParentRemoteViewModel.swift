@@ -773,16 +773,17 @@ class ParentRemoteViewModel: ObservableObject {
         print("[ParentRemoteViewModel] 🗂 Populated \(localDevices.count) children from local Core Data")
         #endif
 
-        // 2. Auto-select the first device and restore its cached state
-        //    (usage history, configs, snapshot, shield states). Reuses the same
-        //    restore path that powers child-switch clicks, so both paths converge.
-        guard let firstDevice = localDevices.first,
-              let deviceID = firstDevice.deviceID else {
-            return
-        }
-
-        selectedChildDevice = firstDevice
-        restoreCachedChildState(deviceID: deviceID)
+        // Do NOT pre-restore child-specific state here. Each SwiftUI view (carousel,
+        // child dashboard) owns its own ViewModel instance via @StateObject. If we
+        // auto-restored the FIRST child's snapshot/configs/history into every new
+        // VM's init, a fresh ChildUsageDashboardView for Iness would briefly render
+        // Alex's numbers before its onAppear calls loadChildData(for: Iness). User
+        // reported seeing "the first child's dashboard" behind the spinner when
+        // switching children — that's this bug.
+        //
+        // The linkedChildDevices population above is enough to paint the carousel
+        // fast. Any view that needs child-specific state calls loadChildData(for:),
+        // which restores from cache for the correct device.
     }
 
     /// Persist a device's loaded state (configs + shield states + usage history +
