@@ -129,11 +129,6 @@ struct SettingsTabView: View {
                             aboutRow
                         }
 
-                        // Diagnostics Section — full daily log export (always available,
-                        // not just DEBUG, because we need it on real-device incidents).
-                        settingsSection(title: "DIAGNOSTICS") {
-                            extensionLogExportRow
-                        }
 
                         // Danger Zone Section
                         VStack(alignment: .leading, spacing: 8) {
@@ -148,9 +143,11 @@ struct SettingsTabView: View {
                                 .padding(.horizontal, 4)
                         }
 
-                        #if DEBUG
-                        // Diagnostics Section (Debug only)
+                        // Diagnostics Section — log export ships in Release;
+                        // legacy debug-only rows are gated behind #if DEBUG.
                         settingsSection(title: "DIAGNOSTICS") {
+                            extensionLogExportRow
+                            #if DEBUG
                             diagnosticMappingRow
                             cleanupMappingsRow
                             extensionLogsRow
@@ -158,8 +155,8 @@ struct SettingsTabView: View {
                             midnightDiagnosticLogRow
                             bgtaskLogRow
                             firebaseFamilySetupRow
+                            #endif
                         }
-                        #endif
 
                     }
                     .padding(.horizontal, 16)
