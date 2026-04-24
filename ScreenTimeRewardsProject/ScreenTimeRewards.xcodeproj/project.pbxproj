@@ -14,6 +14,8 @@
 		4399B1902F949CF8003A3769 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 4399B18F2F949CF8003A3769 /* FirebaseFunctions */; };
 		4399B1922F949CFF003A3769 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 4399B1912F949CFF003A3769 /* FirebaseFirestore */; };
 		43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */; };
+		43C5A1C201000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources (Extension) */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
+		43C5A1C202000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources (MainApp) */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
 		43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
 		43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
 		43E0F0082EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */; };
@@ -72,6 +74,7 @@
 		436830272E9F172B0058C9C1 /* ScreenTimeRewardsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreenTimeRewardsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		436830312E9F172B0058C9C1 /* ScreenTimeRewardsUITests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = ScreenTimeRewardsUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/ExtensionCloudKitSync.swift; sourceTree = SOURCE_ROOT; };
+		43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/ExtensionFileLogger.swift; sourceTree = SOURCE_ROOT; };
 		43DD71472E9F19B60066E06C /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		43DD71492E9F19C20066E06C /* FamilyControls.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FamilyControls.framework; path = System/Library/Frameworks/FamilyControls.framework; sourceTree = SDKROOT; };
 		43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeRewards/Shared/ScreenTimeNotifications.swift; sourceTree = SOURCE_ROOT; };
@@ -198,6 +201,7 @@
 			isa = PBXGroup;
 			children = (
 				43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */,
+				43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */,
 				43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */,
 				43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */,
 			);
@@ -463,6 +467,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43C5A1C202000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources (MainApp) */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -485,6 +490,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */,
+				43C5A1C201000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources (Extension) */,
 				43E0F0082EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift in Sources */,
 				43E0F0152EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift in Sources */,
 			);
