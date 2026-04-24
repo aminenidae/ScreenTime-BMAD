@@ -1,5 +1,4 @@
 import SwiftUI
-import UIKit
 
 /// Diagnostics screen reachable from the parent Settings tab.
 ///
@@ -102,7 +101,8 @@ struct DiagnosticsLogExportView: View {
                 Text("This cannot be undone. Future log lines will start a fresh file.")
             }
             .sheet(isPresented: $showingShareSheet) {
-                ShareSheet(activityItems: shareItems)
+                // Reuses the module-level ShareSheet defined in UsageAccuracyDiagnosticsView.swift.
+                ShareSheet(items: shareItems)
             }
         }
     }
@@ -150,16 +150,3 @@ struct DiagnosticsLogExportView: View {
     }
 }
 
-/// Thin SwiftUI wrapper around UIActivityViewController. Used by the
-/// Diagnostics screen's "Export all" button to share log file URLs via
-/// AirDrop, Files, Mail, Messages, etc. iOS handles multiple file URLs
-/// in a single activity item array natively (no zip needed).
-private struct ShareSheet: UIViewControllerRepresentable {
-    let activityItems: [Any]
-
-    func makeUIViewController(context: Context) -> UIActivityViewController {
-        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
-    }
-
-    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
-}
