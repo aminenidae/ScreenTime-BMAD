@@ -72,9 +72,36 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     /// O(1) append-only debug log — avoids catastrophic read-parse-rewrite cycle
     /// Only trims when buffer exceeds size threshold
+    /// Format the most recently persisted battery snapshot from the App Group as a
+    /// short context string like "bat=charging:42% age=12s". The main app writes these
+    /// values via AppDelegate.persistBatterySnapshot() because UIDevice.batteryState
+    /// returns .unknown from the extension's sandbox. Returns "bat=unavailable" if no
+    /// snapshot has ever been written.
+    private nonisolated func batteryContextString(defaults: UserDefaults) -> String {
+        let ts = defaults.double(forKey: "battery_state_timestamp")
+        guard ts > 0 else { return "bat=unavailable" }
+        let stateInt = defaults.integer(forKey: "last_known_battery_state")
+        let level = defaults.double(forKey: "last_known_battery_level")  // 0.0–1.0, or -1.0 if unknown
+        let stateStr: String
+        switch stateInt {
+        case 1: stateStr = "unplugged"
+        case 2: stateStr = "charging"
+        case 3: stateStr = "full"
+        default: stateStr = "unknown"
+        }
+        let pct = (level >= 0) ? "\(Int(level * 100))%" : "?"
+        let ageSec = max(0, Int(Date().timeIntervalSince1970 - ts))
+        return "bat=\(stateStr):\(pct) age=\(ageSec)s"
+    }
+
     private nonisolated func debugLog(_ message: String, defaults: UserDefaults) {
         let timestamp = Self.logDateFormatter.string(from: Date())
         let entry = "[\(timestamp)][\(Self.sessionID)] \(message)\n"
+
+        // Rotating file logger captures the FULL day with no size cap, so
+        // post-incident debugging has the complete record (the legacy
+        // UserDefaults log below truncates to ~50 KB / 200 lines).
+        ExtensionFileLogger.shared.appendLine(entry)
 
         var log = defaults.string(forKey: "extension_debug_log") ?? ""
         log.append(entry)
@@ -94,6 +121,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let timestamp = Self.lifecycleDateFormatter.string(from: Date())
         let entry = "[\(timestamp)] \(message)\n"
 
+        // Mirror to rotating file so the full lifecycle history (across sessions
+        // and days) is preserved beyond the 100 KB / 400-line size-trim below.
+        ExtensionFileLogger.shared.appendLine("[LIFECYCLE] " + entry)
+
         var log = defaults.string(forKey: "monitoring_lifecycle_log") ?? ""
         log.append(entry)
 
@@ -111,6 +142,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func midnightDiagnosticLog(_ message: String, defaults: UserDefaults) {
         let timestamp = Self.logDateFormatter.string(from: Date())
         let entry = "[\(timestamp)][\(Self.sessionID)] \(message)\n"
+
+        // Mirror to rotating file (tagged) so the daily file shows midnight events
+        // in their proper chronological place alongside everything else.
+        ExtensionFileLogger.shared.appendLine("[MIDNIGHT] " + entry)
 
         var log = defaults.string(forKey: "midnight_diagnostic_log") ?? ""
         log.append(entry)
@@ -135,11 +170,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             if !Self.hasLoggedSession {
                 Self.hasLoggedSession = true
                 let lastSessionID = defaults.string(forKey: "ext_last_session_id")
+                let batCtx = batteryContextString(defaults: defaults)
                 if let lastSessionID = lastSessionID, lastSessionID != Self.sessionID {
-                    lifecycleLog("EXTENSION_KILLED — new session detected (was: \(lastSessionID), now: \(Self.sessionID))", defaults: defaults)
+                    lifecycleLog("EXTENSION_KILLED — new session detected (was: \(lastSessionID), now: \(Self.sessionID)) \(batCtx)", defaults: defaults)
                 }
                 defaults.set(Self.sessionID, forKey: "ext_last_session_id")
-                lifecycleLog("EXTENSION_INIT session=\(Self.sessionID)", defaults: defaults)
+                lifecycleLog("EXTENSION_INIT session=\(Self.sessionID) \(batCtx)", defaults: defaults)
             }
         }
     }
@@ -175,8 +211,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 midnightDiagnosticLog("RESTART_INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
             }
 
-            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
-            lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue))", defaults: defaults)
+            debugLog("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID) \(batteryContextString(defaults: defaults))", defaults: defaults)
+            lifecycleLog("INTERVAL_START — iOS daily restart (activity=\(activity.rawValue)) \(batteryContextString(defaults: defaults))", defaults: defaults)
             Self.logger.notice("INTERVAL_START activity=\(activity.rawValue) session=\(Self.sessionID)")
 
             let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
@@ -239,8 +275,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
     override nonisolated func intervalDidEnd(for activity: DeviceActivityName) {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID)", defaults: defaults)
-            lifecycleLog("INTERVAL_END — iOS daily cycle (activity=\(activity.rawValue))", defaults: defaults)
+            debugLog("INTERVAL_END activity=\(activity.rawValue) session=\(Self.sessionID) \(batteryContextString(defaults: defaults))", defaults: defaults)
+            lifecycleLog("INTERVAL_END — iOS daily cycle (activity=\(activity.rawValue)) \(batteryContextString(defaults: defaults))", defaults: defaults)
         }
     }
 
@@ -527,8 +563,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // otherwise fall back to safe +60 to prevent phantom threshold amplification.
         // lastThreshold > 0 means it was set by a previous recording in this session.
         // lastThreshold = 0 means daily reset or post-restart — can't trust delta.
+        //
+        // Wall-clock cap: a credited minute requires a real minute of elapsed time.
+        // Anchor: ext_usage_<appID>_timestamp (written below on every recording;
+        // cleared at midnight by resetAllDailyCounters). On day-1 (timestamp absent)
+        // fall back to startOfToday so a flush burst at 00:00:01 still gets capped
+        // against ~1s of elapsed wall-clock instead of crediting the full threshold.
         let currentToday = defaults.integer(forKey: todayKey)
-        let delta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
+        let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
+        let wallClockBaseline: TimeInterval = (lastEventTime > 0) ? lastEventTime : startOfToday
+        let wallClockElapsed = max(0, Int(nowTimestamp - wallClockBaseline))
+        let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
+        let delta = max(0, min(rawDelta, wallClockElapsed))
+        if delta < rawDelta {
+            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
+        }
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
         if midnightDiagActive { midnightDiagnosticLog("DIAG_INCREMENT appID=\(appID.prefix(8))... old=\(currentToday)s +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s", defaults: defaults) }

@@ -9,6 +9,8 @@ import FirebaseCore
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var midnightResetObserver: NSObjectProtocol?
     private var midnightCheckTimer: Timer?
+    private var batteryStateObserver: NSObjectProtocol?
+    private var batteryLevelObserver: NSObjectProtocol?
 
     func application(
         _ application: UIApplication,
@@ -41,6 +43,7 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
 
         setupMidnightResetObserver()
         setupMemoryWarningObserver()
+        setupBatteryStateMonitoring()
 
         // FIX: Also check for day change on app launch
         // The .NSCalendarDayChanged notification only fires if the app is running at midnight
@@ -215,6 +218,50 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         #endif
     }
 
+    /// Persist current battery state + level to the App Group so the
+    /// DeviceActivityMonitor extension (which sees `.unknown` for `UIDevice.batteryState`
+    /// in its sandbox) can correlate threshold-event bursts with charge-state transitions.
+    /// Refreshed on every charge/level change AND on app foreground (via scenePhase observer).
+    private func setupBatteryStateMonitoring() {
+        UIDevice.current.isBatteryMonitoringEnabled = true
+        Self.persistBatterySnapshot()
+
+        batteryStateObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.batteryStateDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Self.persistBatterySnapshot()
+        }
+
+        batteryLevelObserver = NotificationCenter.default.addObserver(
+            forName: UIDevice.batteryLevelDidChangeNotification,
+            object: nil,
+            queue: .main
+        ) { _ in
+            Self.persistBatterySnapshot()
+        }
+    }
+
+    /// Snapshot UIDevice battery state into the App Group. Safe to call from anywhere
+    /// on the main app side; no-op in extension. Keys are read by the extension's
+    /// batteryContextString() helper.
+    static func persistBatterySnapshot() {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+        let device = UIDevice.current
+        let state: Int
+        switch device.batteryState {
+        case .unknown:   state = 0
+        case .unplugged: state = 1
+        case .charging:  state = 2
+        case .full:      state = 3
+        @unknown default: state = 0
+        }
+        defaults.set(state, forKey: "last_known_battery_state")
+        defaults.set(device.batteryLevel, forKey: "last_known_battery_level")
+        defaults.set(Date().timeIntervalSince1970, forKey: "battery_state_timestamp")
+    }
+
     /// Release in-memory caches when iOS signals memory pressure
     private func setupMemoryWarningObserver() {
         NotificationCenter.default.addObserver(
@@ -232,6 +279,12 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     deinit {
         if let midnightResetObserver {
             NotificationCenter.default.removeObserver(midnightResetObserver)
+        }
+        if let batteryStateObserver {
+            NotificationCenter.default.removeObserver(batteryStateObserver)
+        }
+        if let batteryLevelObserver {
+            NotificationCenter.default.removeObserver(batteryLevelObserver)
         }
         midnightCheckTimer?.invalidate()
     }

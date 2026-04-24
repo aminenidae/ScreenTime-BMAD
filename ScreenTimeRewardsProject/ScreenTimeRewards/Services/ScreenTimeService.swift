@@ -70,11 +70,39 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         return f
     }()
 
-    /// Write to the dedicated monitoring lifecycle log (shared with extension via app group)
+    /// Format the persisted battery snapshot from the App Group (written by
+    /// AppDelegate.persistBatterySnapshot) as "bat=charging:42% age=12s". Used to
+    /// correlate every MONITORING_* lifecycle event with the device's charge state.
+    private func batteryContextString(defaults: UserDefaults) -> String {
+        let ts = defaults.double(forKey: "battery_state_timestamp")
+        guard ts > 0 else { return "bat=unavailable" }
+        let stateInt = defaults.integer(forKey: "last_known_battery_state")
+        let level = defaults.double(forKey: "last_known_battery_level")
+        let stateStr: String
+        switch stateInt {
+        case 1: stateStr = "unplugged"
+        case 2: stateStr = "charging"
+        case 3: stateStr = "full"
+        default: stateStr = "unknown"
+        }
+        let pct = (level >= 0) ? "\(Int(level * 100))%" : "?"
+        let ageSec = max(0, Int(Date().timeIntervalSince1970 - ts))
+        return "bat=\(stateStr):\(pct) age=\(ageSec)s"
+    }
+
+    /// Write to the dedicated monitoring lifecycle log (shared with extension via app group).
+    /// Battery context is appended to every line so MONITORING_RESTART, MONITORING_DEAD,
+    /// MONITORING_ALIVE, MONITORING_START events can be correlated with charge-state
+    /// transitions (which trigger iOS deferred-event flushes that historically caused
+    /// catch-up storms — see WALL_CLOCK_CAP defense in the extension).
     private func lifecycleLog(_ message: String) {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         let timestamp = Self.lifecycleDateFormatter.string(from: Date())
-        let entry = "[\(timestamp)] \(message)\n"
+        let entry = "[\(timestamp)] \(message) \(batteryContextString(defaults: defaults))\n"
+
+        // Mirror to rotating file logger (lives in extension target; main app
+        // writes via the same App Group container path so the file is shared).
+        ExtensionFileLogger.shared.appendLine("[LIFECYCLE/SERVICE] " + entry)
 
         var log = defaults.string(forKey: "monitoring_lifecycle_log") ?? ""
         log.append(entry)

@@ -54,6 +54,10 @@ struct ScreenTimeRewardsApp: App {
                 // Refresh usage data from extension when app becomes active
                 print("[ScreenTimeRewardsApp] 🔄 App became active - refreshing extension data")
 
+                // Refresh battery snapshot in App Group so the extension's next log
+                // line correlates threshold-events with current charge state.
+                AppDelegate.persistBatterySnapshot()
+
                 // MONITORING RECOVERY: If monitoring should be active but isn't registered
                 // with iOS, restart it. Smart threshold filtering in scheduleActivity()
                 // prevents catch-up floods, making this safe to call on every foreground.
