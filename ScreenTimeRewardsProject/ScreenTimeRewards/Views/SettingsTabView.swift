@@ -30,6 +30,7 @@ struct SettingsTabView: View {
     @State private var showingTrialResetConfirmation = false
     @State private var showingDiagnosticReport = false
     @State private var diagnosticReportText = ""
+    @State private var showingLogExport = false
 
     @State private var firebaseFamilyResult: String = ""
     @State private var isCreatingFirebaseFamily = false
@@ -128,6 +129,12 @@ struct SettingsTabView: View {
                             aboutRow
                         }
 
+                        // Diagnostics Section — full daily log export (always available,
+                        // not just DEBUG, because we need it on real-device incidents).
+                        settingsSection(title: "DIAGNOSTICS") {
+                            extensionLogExportRow
+                        }
+
                         // Danger Zone Section
                         VStack(alignment: .leading, spacing: 8) {
                             settingsSection(title: "DANGER ZONE") {
@@ -202,6 +209,10 @@ struct SettingsTabView: View {
 
         .sheet(isPresented: $showingAbout) {
             AboutView()
+        }
+
+        .sheet(isPresented: $showingLogExport) {
+            DiagnosticsLogExportView()
         }
 
         .onAppear {
@@ -946,6 +957,50 @@ private extension SettingsTabView {
             Text("This will reset your trial to 14 days. Force quit and relaunch the app after resetting.")
         }
         #endif
+    }
+
+    var extensionLogExportRow: some View {
+        Button(action: {
+            showingLogExport = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "doc.text.magnifyingglass")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Export Extension Logs")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Full daily logs (battery + thresholds)")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
     }
 
     var diagnosticMappingRow: some View {

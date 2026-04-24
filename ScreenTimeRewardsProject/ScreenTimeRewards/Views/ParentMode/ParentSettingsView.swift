@@ -18,7 +18,6 @@ struct ParentSettingsView: View {
     @State private var showingNotificationSettings = false
     @State private var showingAbout = false
     @State private var showingChangePIN = false
-    @State private var showingDiagnostics = false
 
     var body: some View {
         NavigationView {
@@ -38,9 +37,6 @@ struct ParentSettingsView: View {
 
                     // About Section
                     aboutSection
-
-                    // Diagnostics Section
-                    diagnosticsSection
                 }
                 .padding()
             }
@@ -62,9 +58,6 @@ struct ParentSettingsView: View {
         }
         .sheet(isPresented: $showingAbout) {
             AboutView()
-        }
-        .sheet(isPresented: $showingDiagnostics) {
-            DiagnosticsLogExportView()
         }
         .fullScreenCover(isPresented: $showingChangePIN) {
             ChangePINView(onSuccess: {
@@ -178,23 +171,6 @@ struct ParentSettingsView: View {
                 iconColor: .gray
             ) {
                 showingAbout = true
-            }
-        }
-    }
-
-    // MARK: - Diagnostics Section
-
-    private var diagnosticsSection: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            sectionHeader("Diagnostics")
-
-            settingsButton(
-                icon: "doc.text.magnifyingglass",
-                title: "Extension Logs",
-                subtitle: "Export full daily logs (battery + threshold events)",
-                iconColor: .teal
-            ) {
-                showingDiagnostics = true
             }
         }
     }
