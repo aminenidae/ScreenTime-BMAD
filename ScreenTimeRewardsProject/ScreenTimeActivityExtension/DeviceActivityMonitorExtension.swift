@@ -564,19 +564,37 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // lastThreshold > 0 means it was set by a previous recording in this session.
         // lastThreshold = 0 means daily reset or post-restart — can't trust delta.
         //
-        // Wall-clock cap: a credited minute requires a real minute of elapsed time.
+        // Two-layer cap: a credited minute requires a real minute of elapsed time.
+        //
+        // Layer 1 — wall-clock cap.
         // Anchor: ext_usage_<appID>_timestamp (written below on every recording;
         // cleared at midnight by resetAllDailyCounters). On day-1 (timestamp absent)
         // fall back to startOfToday so a flush burst at 00:00:01 still gets capped
         // against ~1s of elapsed wall-clock instead of crediting the full threshold.
+        // Catches in-burst events: once the first event for an app records,
+        // ext_usage_*_timestamp updates to nowTimestamp and subsequent events in the
+        // same burst see wallClockElapsed ≈ 0.
+        //
+        // Layer 2 — per-event hard cap (60 s).
+        // Each threshold event represents the cumulative crossing exactly one minute
+        // mark, so by definition at most 60 s of real progression has occurred since
+        // the previous threshold for this app. Without this layer, the FIRST event of
+        // a burst (when the timestamp anchor is hours stale) would credit the full
+        // raw delta — exactly the failure mode observed Apr 23 23:38:22 where four
+        // first-events of an iOS catch-up storm credited +3420 / +2280 / +540 / +420
+        // seconds (111 min total fake credit) before the in-burst cap could kick in.
+        // Trade-off: if iOS skips intermediate thresholds (rare — we register all 60
+        // 1-min thresholds in the sliding window), we under-credit by ≤60 s per
+        // skipped threshold. Asymmetric vs. unbounded over-credit; ship.
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
         let wallClockBaseline: TimeInterval = (lastEventTime > 0) ? lastEventTime : startOfToday
         let wallClockElapsed = max(0, Int(nowTimestamp - wallClockBaseline))
         let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
-        let delta = max(0, min(rawDelta, wallClockElapsed))
+        let perEventCap = 60
+        let delta = max(0, min(rawDelta, wallClockElapsed, perEventCap))
         if delta < rawDelta {
-            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
+            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s perEvent=\(perEventCap)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
         }
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)

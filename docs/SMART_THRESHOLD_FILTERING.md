@@ -1530,3 +1530,43 @@ Behaviour:
 - Recovery of the Apr 23 corrupted totals (cleared at midnight per locked decision).
 - Charge-state-aware throttling / debouncing of the recording path (the wall-clock cap supersedes the need for this).
 - Investigation of *which* earlier burst on Apr 23 first poisoned `lastThreshold` for the four desynced apps — out of reach without the full-retention logger that was just shipped. Future incidents will be debuggable from the daily file alone.
+
+#### Per-Event 60s Hard Cap (Apr 23, 2026 — same-day follow-up)
+
+**First-event-after-gap hole exposed by the rotating logger.** Within hours of the wall-clock cap shipping, the new full-retention log captured a fresh incident triggered NOT by charging but by a **mid-day app set change** (user deleted one learning app and added another at 23:37:59, triggering `MONITORING_RELOAD` → `MONITORING_START` with `includesPastActivity:true`). iOS catch-up storm at 23:38:22 — same mechanism as the Apr 21 mid-day app-add documented above.
+
+The wall-clock cap fired correctly on 14+ events in the burst (capped to 0–4 s). But four events sneaked through *before* any cap fired, in 0.249 s:
+
+```
+23:38:22.000  E8B1C8C6  +3420s  (57 min credited)
+23:38:22.068  BB131A01  +2280s  (38 min credited)
+23:38:22.170  C6DA269B  +420s   (7 min credited)
+23:38:22.249  C0827256  +540s   (9 min credited)
+```
+
+**Net damage: +111 minutes of fake credit in 0.249 seconds.**
+
+**Why those four bypassed the cap.** The wall-clock cap reads `ext_usage_<appID>_timestamp` for its baseline. For each of those four apps, that timestamp was last written at the prior burst around 21:38 (~2 hours stale). So `wallClockElapsed ≈ 7000 s`, `rawDelta = 3420 s` (E8B1C8C6 case), and `delta = min(3420, 7000) = 3420`. The cap allowed the full delta because, mathematically, two hours of wall-clock had genuinely elapsed since the last event for that app — it just couldn't tell that those two hours weren't all the kid actively using Instagram.
+
+Once the first event for each app fired, `ext_usage_*_timestamp` updated to `nowTimestamp` and subsequent events in the same burst correctly saw `wallClockElapsed ≈ 0` and got capped. **The wall-clock cap is an in-burst defense; it does not defend against the FIRST event of a burst when the timestamp anchor is stale.**
+
+**Fix — second cap layer.** Added a per-event hard cap of 60 s on top of the wall-clock cap:
+
+```swift
+let perEventCap = 60
+let delta = max(0, min(rawDelta, wallClockElapsed, perEventCap))
+```
+
+Justification: a single threshold event represents the cumulative crossing exactly one 1-minute mark, so by construction at most 60 s of real-time progression can have occurred between consecutive events for the same app. Applied to the 23:38:22 incident: each of the four bypass events would have credited 60 s instead of 3420/2280/540/420 s. Total damage drops from 111 min to 4 min — **96 % reduction**.
+
+**Trade-off (asymmetric, accepted).** If iOS legitimately skips intermediate thresholds (e.g., kid uses an app for 5 real min during a BGTask gap and iOS only delivers `min.5` without `min.1-4`), we credit only 60 s instead of 300 s — bounded ≤ 60 s per skipped threshold. We register all 60 1-min thresholds in the sliding window so iOS shouldn't skip in steady state. Bounded undercount is far preferable to unbounded overcount.
+
+**Logging change.** The `WALL_CLOCK_CAP` line now also reports `perEvent=60s` so future log analysis can disambiguate which layer actually clamped a given event:
+
+```
+WALL_CLOCK_CAP appID=E8B1C8C6... raw=3420s capped=60s wallClock=7000s perEvent=60s sinceLastEvent=yes bat=charging:42% age=12s
+```
+
+**Validation.** Same end-of-day comparison as the parent fix. Specifically watch for: any new `WALL_CLOCK_CAP` line where `capped == 60s AND wallClock > 60s AND raw > 60s` — that's the second-layer kicking in (which means it's catching a first-event-after-gap burst that the wall-clock cap alone would have missed). Zero such lines on a healthy day with no app-set changes is the success criterion.
+
+**Meta-observation: the rotating logger paid for itself in 12 hours.** Without the full-retention `ext-log-2026-04-23.log` the 23:38:22 incident would have been size-trimmed away just like the earlier-in-day bursts that originally poisoned the `lastThreshold` state. Instead we got the exact 0.249-second sequence with all four sneaking events visible AND the 14+ subsequent caps proving the wall-clock layer works in-burst. Diagnosis was a 5-minute log read instead of speculation.
