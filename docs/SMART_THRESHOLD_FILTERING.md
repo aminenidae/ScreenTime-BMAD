@@ -1456,3 +1456,77 @@ If reproduction confirms real fabrication of usage (not just partial prior-day r
 3. **Debounce `MONITORING_RELOAD`** in `ScreenTimeService` to coalesce rapid selection edits into a single `startMonitoring()` call.
 
 **Do not act without a fresh reproduction** — this could be user ground-truth error, a one-off from the stuck-pending-flag edge case, or a real regression in the mid-day-add path. The Apr 14 characterization was explicitly "no code change planned" on the same mechanism; we need stronger evidence before flipping that.
+
+### Charging-Flush Overcounting + Wall-Clock Cap (Apr 23, 2026)
+
+**Status:** SHIPPED — branch `fix/wall-clock-cap-and-full-logging`. Wall-clock cap is preventive only (today's already-corrupted totals were left to clear at midnight per locked decision). Real-device validation pending the next charging-flush incident.
+
+**Incident.** Three Goal Complete notifications (60 / 120 / 136 min reward) fired at the lock screen within the same minute at 21:38 immediately after the user plugged the charger into a low-battery iPhone. User-reported real vs. saved totals at 21:52:
+
+| App (logical) | Real today | Saved (`ext_usage_*_today`) | Overcount |
+|---|---|---|---|
+| Facebook (BB131A01) | 15 min | 60 min | +45 |
+| Instagram (E8B1C8C6) | 5 min | 60 min | +55 |
+| YouTube (C6DA269B) | 11 min | 59 min | +48 |
+| X (DADD46EB) | 0 min | 12 min | +12 |
+| Reward apps (51E884C1 / C0827256 / 739C4A42) | 0 / 0 / 0 | 30 / 13 / 8 | +51 total |
+
+**Log evidence (extension session `D5B8ADF0`, 2026-04-23 21:38:20 → 21:38:22).** ~80 `THRESHOLD_CALL` events for 7 apps fired within ~2 seconds — including `min.60` for apps whose actual cumulative was 8–15 min. `SKIP_REGRESSION` blocked nearly all of them; only one `+60s` increment slipped through (`C0827256`). The visible 21:38 storm was therefore *not* what created the corruption — `lastThreshold` was already at 3540s/3600s for several apps when the storm began. The corruption was inflicted by **one or more earlier flush bursts on the same day** that no longer existed in the size-trimmed UserDefaults log.
+
+**Mechanism (charge-state hypothesis).** iOS DeviceActivityMonitor defers extension threshold callbacks when the device is in low-power / idle / low-battery state. Plugging in the charger (or any state transition that wakes the extension) flushes the deferred queue all at once. Inside the queue, `eventDidReachThreshold` callbacks arrive non-sequentially (the Apr 12 out-of-order catch-up phenomenon), but more importantly they arrive *compressed in time* — `min.5`, `min.30`, `min.45`, `min.60` for the same app can land in the same 100 ms window. The pre-cap recording path used `delta = max(60, thresholdSeconds - lastThreshold)`, which credited the full delta regardless of whether real wall-clock time had elapsed.
+
+**Fix — wall-clock cap on the recording path.** `setUsageToThreshold()` in `DeviceActivityMonitorExtension.swift` (same-day branch, line ~530) now bounds the credited delta by elapsed wall-clock seconds since the per-app last-event timestamp:
+
+```swift
+let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
+let wallClockBaseline: TimeInterval = (lastEventTime > 0) ? lastEventTime : startOfToday
+let wallClockElapsed = max(0, Int(nowTimestamp - wallClockBaseline))
+let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
+let delta = max(0, min(rawDelta, wallClockElapsed))
+if delta < rawDelta {
+    debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s ...")
+}
+```
+
+Anchors:
+- `ext_usage_<appID>_timestamp` is already written line-by-line on every recording (existing key, no migration).
+- Cleared at midnight by `resetAllDailyCounters()` — the day-1 fallback to `startOfToday` keeps the cap biting on a flush burst that lands at 00:00:01 (otherwise `wallClockElapsed` would be `nowTimestamp` since 1970 and the cap would never trigger).
+
+Behaviour:
+- **Normal real-time use:** `wallClockElapsed ≈ 60s`, cap doesn't bite, +60s credit per minute. Healthy days produce zero `WALL_CLOCK_CAP` lines.
+- **Flush burst:** `wallClockElapsed ≈ 0`, capped delta = 0. `lastThreshold` still advances (line 537 unchanged) so `SKIP_REGRESSION` semantics are preserved. The grand total of all events in the burst is bounded by elapsed wall-clock seconds across the whole burst, not by the sum of per-event deltas.
+- **Edge case (acknowledged):** if iOS deferred events while the kid was *actively* using the app, those legitimate events would be under-credited. Accepted tradeoff because iOS only defers when idle / low-power; active foreground use fires events in real time.
+
+**Scope decision (locked with user).** Prevention only. Today's already-corrupted totals (Facebook 60 / Instagram 60 / YouTube 59 / X 12 / reward 8/13/30) were left to clear at midnight via the existing `resetAllDailyCounters()` path. No recovery patch — the cap is forward-looking.
+
+**Why "guess from fragments" was the meta-problem.** The Apr 23 root cause could not be confirmed because the 21:38 log was the only window we had — earlier-in-day bursts that actually wrote the corruption had been size-trimmed out of `extension_debug_log` (50 KB ring, 200 lines). User pushback: "we're making fixes based on the best understanding or guess. a full log would be closer to the reality than the guesses." Full-retention logging shipped in the same branch:
+
+- **`ExtensionFileLogger.swift` (new, both targets).** Append-only `FileHandle` writer to `Logs/ext-log-YYYY-MM-DD.log` under the App Group container. **No size cap per day** (user decision — capture everything). 7-day rolling retention, auto-prune on first write of each new day. Memory-safe (no in-memory buffer, atomic small-write semantics for POSIX `O_APPEND` with no read-then-rewrite). Failure is silent so logging cannot break the recording path. The legacy size-trimmed UserDefaults `extension_debug_log` is preserved as a fallback.
+- **All three extension loggers mirror to the rotating file:** `debugLog`, `lifecycleLog`, `midnightDiagnosticLog` each call `ExtensionFileLogger.shared.appendLine()` after their existing UserDefaults write. Lines from `lifecycleLog` are tagged `[LIFECYCLE]`, midnight `[MIDNIGHT]`, main-app `lifecycleLog` `[LIFECYCLE/SERVICE]`.
+- **Battery context plumbing.** `AppDelegate.setupBatteryStateMonitoring()` enables `UIDevice.isBatteryMonitoringEnabled = true` and persists `last_known_battery_state` (Int 0/1/2/3 = unknown/unplugged/charging/full), `last_known_battery_level` (Float), `battery_state_timestamp` (TimeInterval) to the App Group on every state/level change AND on every scenePhase `.active`. The extension cannot read `UIDevice.batteryState` directly (sandbox returns `.unknown`), so it reads the persisted snapshot via a new `batteryContextString(defaults:)` helper that formats `bat=charging:42% age=12s`. Appended to: `EXTENSION_INIT`, `EXTENSION_KILLED`, `INTERVAL_START`, `INTERVAL_END`, the new `WALL_CLOCK_CAP` line, and every line written by `ScreenTimeService.lifecycleLog` (which covers `MONITORING_RESTART/DEAD/ALIVE/START`).
+- **Diagnostics export UI** (new `DiagnosticsLogExportView.swift`). Reachable on the **child device** at Settings → DIAGNOSTICS → Export Extension Logs. Lists every retained `ext-log-*.log` file with size, shows the last battery snapshot, and offers Export-all (UIActivityViewController, native multi-file share — no zip dep) and Clear-logs (with confirmation). Reuses the existing module-level `ShareSheet` from `UsageAccuracyDiagnosticsView.swift` to avoid duplication. The row is *not* gated behind `#if DEBUG` because real-device incidents are exactly when this is needed.
+- **Note on placement.** First implementation attempt put the export row on `ParentSettingsView` (parent dashboard). Wrong target — the extension only runs on the child device, so the rotating files only exist in the child's App Group container. Moved to `SettingsTabView` (child Settings tab, bottom DIAGNOSTICS section).
+
+**Files modified / added.**
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — wall-clock cap (lines ~530–545), `batteryContextString()` helper, battery context appended to `INTERVAL_START/END` and `EXTENSION_INIT/KILLED` lines, all three loggers mirror to `ExtensionFileLogger.shared`.
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/ExtensionFileLogger.swift` — **new**, rotating-file logger.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/AppDelegate.swift` — battery monitoring observers + `static persistBatterySnapshot()`.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/ScreenTimeRewardsApp.swift` — `AppDelegate.persistBatterySnapshot()` on every scenePhase `.active`.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` — `batteryContextString(defaults:)` helper; `lifecycleLog` auto-appends battery context to every line and mirrors to `ExtensionFileLogger.shared`.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/SettingsTabView.swift` — `extensionLogExportRow` added at the top of the existing DIAGNOSTICS section (un-gated by `#if DEBUG`).
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/Settings/DiagnosticsLogExportView.swift` — **new**, sheet UI.
+- `ScreenTimeRewardsProject/ScreenTimeRewards.xcodeproj/project.pbxproj` — added `ExtensionFileLogger.swift` to both targets (extension uses explicit Sources phase; main app uses synchronized folder but the file lives outside it, so explicit `PBXBuildFile` entries were needed for both).
+
+**Validation plan.**
+
+1. **First-day smoke check (any time after install):** Settings → DIAGNOSTICS → Export Extension Logs. Confirm `ext-log-2026-04-23.log` exists, opens, contains `[LIFECYCLE/SERVICE] MONITORING_ALIVE … bat=charging:N% age=Xs` lines from main-app foregrounds. Plug/unplug the charger and re-export to confirm `bat=` flips. (Confirmed working 2026-04-23 23:27.)
+2. **Charging-flush incident watch:** on the next real flush burst (charge plug-in after a low-battery period, or any BGTask wake after a long gap), expect a cluster of `WALL_CLOCK_CAP` lines and `RECORDED` deltas that stay tiny (≤ wall-clock).
+3. **End-of-day comparison:** `ext_usage_<app>_today` totals at ~23:00 vs iOS Settings → Screen Time per app. Tolerance ±2 min/app. If they match across a charging cycle, the cap held under real conditions.
+4. **Regression watch:** zero `WALL_CLOCK_CAP` lines during normal foreground use (e.g., kid actively in a learning app for 5 consecutive minutes). If the cap bites on legitimate usage, `nowTimestamp` and the persisted timestamp are using inconsistent time bases — investigate before relying on the fix.
+
+**Out of scope (deliberately deferred).**
+
+- Recovery of the Apr 23 corrupted totals (cleared at midnight per locked decision).
+- Charge-state-aware throttling / debouncing of the recording path (the wall-clock cap supersedes the need for this).
+- Investigation of *which* earlier burst on Apr 23 first poisoned `lastThreshold` for the four desynced apps — out of reach without the full-retention logger that was just shipped. Future incidents will be debuggable from the daily file alone.
