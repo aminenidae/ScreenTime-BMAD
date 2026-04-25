@@ -209,13 +209,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         var threshold: DateComponents  // Mutable for re-arm mechanism
         let applications: [MonitoredApplication]
 
-        func deviceActivityEvent() -> DeviceActivityEvent {
+        /// Build the iOS DeviceActivityEvent. `includesPastActivity` defaults to `true`
+        /// so iOS replays cumulative usage for already-tracked apps after a monitoring
+        /// reload — that's what lets us recover usage that occurred while the extension
+        /// was offline (BGTask gaps, cross-midnight). For apps newly added to the
+        /// tracked set today, the caller should pass `false` so iOS does NOT replay
+        /// historical cumulative for that Application token. See Apr 21 / Apr 24
+        /// incidents in SMART_THRESHOLD_FILTERING.md (newly-added app got +60s of
+        /// false credit because iOS replayed prior-session activity into the fresh
+        /// sliding window).
+        func deviceActivityEvent(includesPastActivity: Bool = true) -> DeviceActivityEvent {
             let tokens = applications.map { $0.token }
             if #available(iOS 17.4, *) {
                 return DeviceActivityEvent(
                     applications: Set(tokens),
                     threshold: threshold,
-                    includesPastActivity: true
+                    includesPastActivity: includesPastActivity
                 )
             } else {
                 return DeviceActivityEvent(
@@ -2260,6 +2269,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     }
 
     private func scheduleActivity() throws {
+        // Capture the previously-tracked app set BEFORE we overwrite `tracked_app_ids`
+        // below. Apps in the new set but NOT in the previous set are "newly added today"
+        // — for those, we register their threshold events with includesPastActivity:false
+        // so iOS does NOT replay historical cumulative for the Application token (which
+        // caused the Apr 14 / Apr 21 / Apr 24 incidents where freshly-added apps recorded
+        // bogus usage from prior-session iOS data within seconds of being added).
+        // First-ever launch: previously-tracked is empty → every app is treated as "new"
+        // → clean slate, no historical replay (correct for fresh install).
+        let previouslyTrackedIDs: Set<String> = {
+            guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else { return [] }
+            return Set(sharedDefaults.stringArray(forKey: "tracked_app_ids") ?? [])
+        }()
+
         let schedule = DeviceActivitySchedule(
             intervalStart: DateComponents(hour: 0, minute: 0),
             intervalEnd: DateComponents(hour: 23, minute: 59),
@@ -2346,14 +2368,26 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
-        // Register all events (all are above current usage — no filtering needed)
+        // Register all events. For newly-added apps (not in the previously-tracked
+        // set), use includesPastActivity:false so iOS doesn't replay historical
+        // cumulative for the Application token. Existing apps keep includesPastActivity:true
+        // so cross-midnight + BGTask-gap recovery still works.
+        let newlyAddedIDs: Set<String> = Set(appTemplates.keys).subtracting(previouslyTrackedIDs)
         let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
-            result[entry.key] = entry.value.deviceActivityEvent()
+            let logicalID = entry.value.applications.first?.logicalID ?? ""
+            let isNewlyAdded = newlyAddedIDs.contains(logicalID)
+            result[entry.key] = entry.value.deviceActivityEvent(includesPastActivity: !isNewlyAdded)
+        }
+
+        if !newlyAddedIDs.isEmpty {
+            let prefixes = newlyAddedIDs.map { String($0.prefix(8)) }.sorted().joined(separator: ",")
+            lifecycleLog("NEW_APPS_PINNED count=\(newlyAddedIDs.count) ids=\(prefixes) — registered with includesPastActivity:false")
         }
 
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
-            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds) windowTop=\(mins + 60)")
+            let pinnedTag = newlyAddedIDs.contains(logicalID) ? " [PINNED:noPastActivity]" : ""
+            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds) windowTop=\(mins + 60)\(pinnedTag)")
             midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
         }
 
