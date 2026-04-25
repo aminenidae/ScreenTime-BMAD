@@ -502,6 +502,19 @@ final class SubscriptionManager: NSObject, ObservableObject {
         currentStatus.isAccessGranted
     }
 
+    /// Effective access on THIS device, including paired-parent entitlement on child devices.
+    /// Child devices never own a RevenueCat entitlement — access flows from the paired parent
+    /// via ChildBackgroundSyncService.hasFullAccess. Use this anywhere a shield-clearing or
+    /// monitoring-stop decision is being made; using bare `hasAccess` on a child device wipes
+    /// shields at launch before the parent-subscription CloudKit fetch resolves.
+    var effectiveHasAccess: Bool {
+        if hasAccess { return true }
+        if deviceManager.currentMode == .childDevice {
+            return ChildBackgroundSyncService.shared.hasFullAccess
+        }
+        return false
+    }
+
     /// Whether the user can create challenges
     var canCreateChallenge: Bool {
         hasAccess

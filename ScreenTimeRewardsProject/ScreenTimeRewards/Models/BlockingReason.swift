@@ -33,6 +33,12 @@ struct AppBlockingInfo: Codable {
     var dailyLimitMinutes: Int?
     var usedMinutes: Int?
 
+    /// Human-readable description of the next day this app is allowed.
+    /// "tomorrow" if next non-zero day is the immediate next day, otherwise
+    /// the weekday name (e.g. "Monday"). nil when every day in the week is 0.
+    /// Lets the shield render "Try again on Monday" instead of "0 minutes today".
+    var nextAllowedDayName: String?
+
     // Downtime context (when reasonType == .downtime)
     // Full allowed time window for display
     var downtimeWindowStartHour: Int?
@@ -70,14 +76,16 @@ struct AppBlockingInfo: Codable {
     static func dailyLimit(
         tokenHash: String,
         limitMinutes: Int,
-        usedMinutes: Int
+        usedMinutes: Int,
+        nextAllowedDayName: String? = nil
     ) -> AppBlockingInfo {
         AppBlockingInfo(
             tokenHash: tokenHash,
             reasonType: .dailyLimitReached,
             updatedAt: Date(),
             dailyLimitMinutes: limitMinutes,
-            usedMinutes: usedMinutes
+            usedMinutes: usedMinutes,
+            nextAllowedDayName: nextAllowedDayName
         )
     }
 

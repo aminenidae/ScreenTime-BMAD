@@ -35,6 +35,10 @@ private struct AppBlockingInfo: Codable {
     var dailyLimitMinutes: Int?
     var usedMinutes: Int?
 
+    /// Pre-formatted "tomorrow" or weekday name (e.g. "Monday") of the next day this app
+    /// is allowed. nil when every day in the week is 0. Persisted by main app and extension.
+    var nextAllowedDayName: String?
+
     // Downtime context - full allowed time window
     var downtimeWindowStartHour: Int?
     var downtimeWindowStartMinute: Int?
@@ -137,6 +141,19 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         )
     }
 
+    /// Special variant for apps configured with dailyLimit=0 ("blocked all day today").
+    /// Friendly "taking a break" framing — neutral, doesn't blame the parent. Matching
+    /// subtitle in generateDailyLimitMessage surfaces the next allowed day when known.
+    private var notAllowedTodayTheme: ShieldTheme {
+        ShieldTheme(
+            backgroundColor: coralRed.withAlphaComponent(0.95),
+            iconName: "moon.zzz.fill",
+            title: "Not Available Today",
+            primaryButtonLabel: "OK",
+            primaryButtonColor: .systemOrange
+        )
+    }
+
     private var downtimeTheme: ShieldTheme {
         ShieldTheme(
             backgroundColor: nightPurple.withAlphaComponent(0.95),
@@ -203,12 +220,15 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     // MARK: - Theme Selection
 
-    /// Get the appropriate theme for a blocking reason
-    private func getTheme(for reasonType: BlockingReasonType?) -> ShieldTheme {
+    /// Get the appropriate theme for a blocking reason.
+    /// `info` is consulted for the dailyLimit=0 ("blocked all day") special-case so the
+    /// title doesn't read as "Daily Limit Reached" when the limit was zero to begin with.
+    private func getTheme(for reasonType: BlockingReasonType?, info: AppBlockingInfo? = nil) -> ShieldTheme {
         switch reasonType {
         case .downtime:
             return downtimeTheme
         case .dailyLimitReached:
+            if info?.dailyLimitMinutes == 0 { return notAllowedTodayTheme }
             return dailyLimitTheme
         case .rewardTimeExpired:
             return rewardExpiredTheme
@@ -249,11 +269,37 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
 
     /// Generate message for daily limit reached
     private func generateDailyLimitMessage(info: AppBlockingInfo) -> String {
-        guard let limit = info.dailyLimitMinutes else {
-            return "You've reached your daily limit. Try again tomorrow!"
+        // dailyLimit=0 means "blocked entire day" — phrasing it as "you used 0 minutes"
+        // is nonsense to the kid. Frame it neutrally and surface the next allowed day
+        // when known. Avoid "your parent" copy so the parent isn't cast as the bad guy.
+        if info.dailyLimitMinutes == 0 {
+            if let nextDay = info.nextAllowedDayName {
+                return "This app is taking a break today. Come back \(formattedNextDayPhrase(nextDay))!"
+            }
+            return "This app is taking a break today."
         }
 
+        guard let limit = info.dailyLimitMinutes else {
+            return generateGenericLimitMessage(info: info)
+        }
+
+        if let nextDay = info.nextAllowedDayName {
+            return "You used your \(limit) minutes for today. Come back \(formattedNextDayPhrase(nextDay))!"
+        }
         return "You used your \(limit) minutes for today. Come back tomorrow!"
+    }
+
+    /// Fallback when dailyLimitMinutes wasn't persisted (older extension writes).
+    private func generateGenericLimitMessage(info: AppBlockingInfo) -> String {
+        if let nextDay = info.nextAllowedDayName {
+            return "You've reached your daily limit. Come back \(formattedNextDayPhrase(nextDay))!"
+        }
+        return "You've reached your daily limit. Try again tomorrow!"
+    }
+
+    /// "tomorrow" → "tomorrow"; "Monday" → "on Monday". Lets call sites build natural copy.
+    private func formattedNextDayPhrase(_ nextDay: String) -> String {
+        nextDay.lowercased() == "tomorrow" ? "tomorrow" : "on \(nextDay)"
     }
 
     /// Generate message for downtime blocking
@@ -347,7 +393,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     override func configuration(shielding application: Application) -> ShieldConfiguration {
         // Look up THIS SPECIFIC app's blocking info
         let blockingInfo = getBlockingInfo(for: application)
-        let theme = getTheme(for: blockingInfo?.reasonType)
+        let theme = getTheme(for: blockingInfo?.reasonType, info: blockingInfo)
         let subtitle = generateMessage(for: blockingInfo, context: "app")
 
         return buildConfiguration(theme: theme, subtitle: subtitle)
@@ -356,7 +402,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     override func configuration(shielding application: Application, in category: ActivityCategory) -> ShieldConfiguration {
         // Look up THIS SPECIFIC app's blocking info
         let blockingInfo = getBlockingInfo(for: application)
-        let theme = getTheme(for: blockingInfo?.reasonType)
+        let theme = getTheme(for: blockingInfo?.reasonType, info: blockingInfo)
         let subtitle = generateMessage(for: blockingInfo, context: "category")
 
         return buildConfiguration(theme: theme, subtitle: subtitle)

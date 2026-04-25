@@ -254,6 +254,27 @@ struct DailyLimits: Codable, Equatable, Hashable {
         return limit(for: weekday)
     }
 
+    /// Description of the next day when this app is allowed (limit > 0).
+    /// Returns "tomorrow" if tomorrow's limit is non-zero, otherwise the weekday name
+    /// (e.g. "Monday") of the next non-zero day within the next 6 days.
+    /// Returns nil if every day in the week has a 0 limit (app is permanently off).
+    /// Used by the shield to render "Try again on Monday!" instead of "0 minutes today".
+    func nextAllowedDayDescription(from referenceDate: Date = Date()) -> String? {
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = "EEEE"
+
+        for offset in 1...7 {
+            guard let candidate = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { continue }
+            let weekday = calendar.component(.weekday, from: candidate)
+            if limit(for: weekday) > 0 {
+                return offset == 1 ? "tomorrow" : formatter.string(from: candidate)
+            }
+        }
+        return nil
+    }
+
     /// Check if all weekdays have the same limit
     var weekdayLimit: Int {
         monday

@@ -2862,8 +2862,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     /// Block reward apps (shield them)
     func blockRewardApps(tokens: Set<ApplicationToken>) {
-        // If subscription expired, don't apply any new shields
-        guard SubscriptionManager.shared.hasAccess else {
+        // If subscription expired, don't apply any new shields (includes parent-paired access on child devices)
+        guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
             print("[ScreenTimeService] ⏭️ Subscription expired - not applying new shields")
             #endif
@@ -2897,8 +2897,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// IMPORTANT: This REPLACES all shields with only the current reward tokens
     /// This ensures removed apps get unshielded even after app restart
     func syncRewardAppShields(currentRewardTokens: Set<ApplicationToken>) {
-        // If subscription expired, clear all shields instead of applying
-        guard SubscriptionManager.shared.hasAccess else {
+        // If subscription expired, clear all shields instead of applying (includes parent-paired access on child devices)
+        guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
             print("[ScreenTimeService] ⏭️ Subscription expired - clearing all shields")
             #endif

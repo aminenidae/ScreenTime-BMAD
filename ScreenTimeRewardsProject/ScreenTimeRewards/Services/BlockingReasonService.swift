@@ -48,13 +48,15 @@ class BlockingReasonService {
     func setDailyLimitBlocking(
         token: ApplicationToken,
         limitMinutes: Int,
-        usedMinutes: Int
+        usedMinutes: Int,
+        nextAllowedDayName: String? = nil
     ) {
         let hash = tokenHash(for: token)
         let info = AppBlockingInfo.dailyLimit(
             tokenHash: hash,
             limitMinutes: limitMinutes,
-            usedMinutes: usedMinutes
+            usedMinutes: usedMinutes,
+            nextAllowedDayName: nextAllowedDayName
         )
         saveBlockingInfo(info, forHash: hash)
     }

@@ -205,8 +205,8 @@ class ChildBackgroundSyncService: ObservableObject {
             // is throttled to zero on this device — this is the primary monitoring refresh path.
             await self.performMonitoringMaintenanceIfNeeded()
 
-            // Skip upload if subscription expired
-            guard SubscriptionManager.shared.hasAccess else {
+            // Skip upload if subscription expired (effectiveHasAccess covers paired-parent entitlement on child devices)
+            guard SubscriptionManager.shared.effectiveHasAccess else {
                 #if DEBUG
                 print("[ChildBackgroundSyncService] ⏭️ Skipping upload - subscription expired")
                 #endif
@@ -291,8 +291,8 @@ class ChildBackgroundSyncService: ObservableObject {
         #endif
         bgtaskLog("CONFIG_CHECK — task started")
 
-        // Skip if subscription expired
-        guard SubscriptionManager.shared.hasAccess else {
+        // Skip if subscription expired (effectiveHasAccess covers paired-parent entitlement on child devices)
+        guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
             print("[ChildBackgroundSyncService] ⏭️ Skipping config check - subscription expired")
             #endif
@@ -742,6 +742,7 @@ class ChildBackgroundSyncService: ObservableObject {
         // Verify with Firebase
         do {
             let isValid = try await FirebaseValidationService.shared.verifyFamilySubscription()
+            let previousHadAccess = hasFullAccess
 
             if isValid {
                 parentSubscriptionStatus = .active
@@ -752,6 +753,13 @@ class ChildBackgroundSyncService: ObservableObject {
                 #if DEBUG
                 print("[ChildBackgroundSyncService] ✅ Parent subscription is active")
                 #endif
+
+                // If access just flipped from false → true, notify so any listeners
+                // (e.g. BlockingCoordinator) can rebuild shields that were cleared at launch
+                // by the bare-hasAccess race before this verification resolved.
+                if !previousHadAccess {
+                    NotificationCenter.default.post(name: .parentSubscriptionRestored, object: nil)
+                }
             } else {
                 parentSubscriptionStatus = .expired
                 hasFullAccess = false
@@ -990,6 +998,7 @@ class ChildBackgroundSyncService: ObservableObject {
 
 extension Notification.Name {
     static let parentSubscriptionExpired = Notification.Name("parentSubscriptionExpired")
+    static let parentSubscriptionRestored = Notification.Name("parentSubscriptionRestored")
     static let trialExpired = Notification.Name("trialExpired")
     // dailyUsageReset is defined in ScreenTimeNotifications.swift
 }

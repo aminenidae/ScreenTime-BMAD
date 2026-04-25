@@ -452,6 +452,22 @@ class AppUsageViewModel: ObservableObject {
 
         loadData()
 
+        // Reconcile reward-app shields on launch.
+        // When monitoring is already active at OS level, ScreenTimeService skips restartMonitoring(),
+        // so neither intervalDidStart() nor scheduleActivity() runs to re-evaluate shields. If shields
+        // were wiped by a prior session (e.g. the pre-fix child-device hasAccess race), they stay
+        // missing until the next 60s periodic-refresh tick AND only then if updateTrackedTokens has
+        // already been called. Reconciling here makes launch idempotent: shields already correct
+        // stay correct, missing ones get re-applied immediately.
+        let bootRewardTokens = currentRewardTokens
+        if !bootRewardTokens.isEmpty {
+            #if DEBUG
+            print("[AppUsageViewModel] 🛡️ Boot-time shield reconcile for \(bootRewardTokens.count) reward apps")
+            #endif
+            BlockingCoordinator.shared.updateTrackedTokens(bootRewardTokens)
+            BlockingCoordinator.shared.syncAllRewardApps(tokens: bootRewardTokens)
+        }
+
         // BF-1 FIX: Add observer for reward app usage notifications
         setupRewardAppUsageObserver()
 

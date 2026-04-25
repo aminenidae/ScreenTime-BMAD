@@ -20,6 +20,7 @@ struct BlockingDecision {
     // Daily limit
     var dailyLimitMinutes: Int?
     var usedMinutes: Int?
+    var nextAllowedDayName: String?
 
     // Learning goal
     var learningTargetMinutes: Int?
@@ -63,7 +64,30 @@ class BlockingCoordinator: ObservableObject {
 
     // MARK: - Initialization
 
-    private init() {}
+    private init() {
+        // Recover when paired-parent subscription verifies AFTER the launch-time gating
+        // already wiped shields. ChildBackgroundSyncService.verifyParentSubscription posts
+        // this when hasFullAccess flips false → true.
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleParentSubscriptionRestored),
+            name: .parentSubscriptionRestored,
+            object: nil
+        )
+    }
+
+    @objc private func handleParentSubscriptionRestored() {
+        Task { @MainActor [weak self] in
+            guard let self = self else { return }
+            #if DEBUG
+            print("[BlockingCoordinator] 🔔 Parent subscription restored - rebuilding shields")
+            #endif
+            self.startPeriodicRefresh()
+            if !self.currentRewardTokens.isEmpty {
+                ScreenTimeService.shared.syncRewardAppShields(currentRewardTokens: self.currentRewardTokens)
+            }
+        }
+    }
 
     /// Set the screen time service (call this from ScreenTimeService.init)
     func setScreenTimeService(_ service: ScreenTimeService) {
@@ -100,7 +124,8 @@ class BlockingCoordinator: ObservableObject {
                 primaryReason: .dailyLimitReached,
                 allActiveReasons: [.dailyLimitReached],
                 dailyLimitMinutes: 0,
-                usedMinutes: 0
+                usedMinutes: 0,
+                nextAllowedDayName: config.dailyLimits.nextAllowedDayDescription()
             )
         }
 
@@ -125,6 +150,11 @@ class BlockingCoordinator: ObservableObject {
             activeReasons.insert(.dailyLimitReached)
             decision.dailyLimitMinutes = limitCheck.limitMinutes
             decision.usedMinutes = limitCheck.usedMinutes
+            // If today's quota is exhausted, surface the next allowed day so the shield
+            // can render "Try again on Monday" / "Try again tomorrow" copy.
+            if let config = scheduleService.getSchedule(for: logicalID) {
+                decision.nextAllowedDayName = config.dailyLimits.nextAllowedDayDescription()
+            }
         }
 
         // 3. Check Learning Goal (Priority 3)
@@ -172,6 +202,7 @@ class BlockingCoordinator: ObservableObject {
             downtimeSummaryMessage: decision.downtimeSummaryMessage,
             dailyLimitMinutes: decision.dailyLimitMinutes,
             usedMinutes: decision.usedMinutes,
+            nextAllowedDayName: decision.nextAllowedDayName,
             learningTargetMinutes: decision.learningTargetMinutes,
             learningCurrentMinutes: decision.learningCurrentMinutes
         )
@@ -1166,7 +1197,8 @@ class BlockingCoordinator: ObservableObject {
                 blockingReasonService.setDailyLimitBlocking(
                     token: token,
                     limitMinutes: limitMinutes,
-                    usedMinutes: usedMinutes
+                    usedMinutes: usedMinutes,
+                    nextAllowedDayName: decision.nextAllowedDayName
                 )
             }
 
@@ -1199,8 +1231,10 @@ class BlockingCoordinator: ObservableObject {
     func startPeriodicRefresh() {
         stopPeriodicRefresh()
 
-        // Don't start monitoring if subscription expired
-        guard SubscriptionManager.shared.hasAccess else {
+        // Don't start monitoring if subscription expired.
+        // effectiveHasAccess: on child devices, includes parent-paired entitlement so we don't
+        // wipe shields at launch before CloudKit confirms the parent subscription.
+        guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
             print("[BlockingCoordinator] Subscription expired - not starting periodic refresh")
             #endif
@@ -1232,8 +1266,8 @@ class BlockingCoordinator: ObservableObject {
 
     /// Refresh all blocking states for currently tracked reward apps
     func refreshAllBlockingStates() {
-        // Stop monitoring if subscription expired
-        guard SubscriptionManager.shared.hasAccess else {
+        // Stop monitoring if subscription expired (includes parent-paired access on child devices)
+        guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
             print("[BlockingCoordinator] Subscription expired - clearing all shields")
             #endif

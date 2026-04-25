@@ -1208,7 +1208,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         tokenHash: goalConfig.rewardAppLogicalID,
                         reasonType: "dailyLimitReached",
                         usedMinutes: usageMinutes,
-                        defaults: defaults
+                        defaults: defaults,
+                        dailyLimitMinutes: 0,
+                        nextAllowedDayName: goalConfig.nextAllowedDayDescription()
                     )
 
                     debugLog("DAILY_ZERO_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... dailyLimit=0 — app blocked entire day", defaults: defaults)
@@ -1267,7 +1269,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         tokenHash: goalConfig.rewardAppLogicalID,
                         reasonType: "dailyLimitReached",
                         usedMinutes: usageMinutes,
-                        defaults: defaults
+                        defaults: defaults,
+                        dailyLimitMinutes: dailyLimit,
+                        nextAllowedDayName: goalConfig.nextAllowedDayDescription()
                     )
 
                     debugLog("DAILY_LIMIT_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... used=\(usageMinutes)min >= limit=\(dailyLimit)min", defaults: defaults)
@@ -1382,20 +1386,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    /// Persist blocking reason for ShieldConfigurationExtension to display correct message
+    /// Persist blocking reason for ShieldConfigurationExtension to display correct message.
+    /// `dailyLimitMinutes` and `nextAllowedDayName` are written when known so the shield
+    /// can render "Try again on Monday" / "off-limits today" copy without falling back
+    /// to the generic message.
     private nonisolated func persistBlockingReason(
         tokenHash: String,
         reasonType: String,
         usedMinutes: Int,
-        defaults: UserDefaults
+        defaults: UserDefaults,
+        dailyLimitMinutes: Int? = nil,
+        nextAllowedDayName: String? = nil
     ) {
         let key = "appBlocking_\(tokenHash)"
-        let blockingInfo: [String: Any] = [
+        var blockingInfo: [String: Any] = [
             "tokenHash": tokenHash,
             "reasonType": reasonType,
             "updatedAt": Date().timeIntervalSince1970,
             "rewardUsedMinutes": usedMinutes
         ]
+        if let dailyLimitMinutes { blockingInfo["dailyLimitMinutes"] = dailyLimitMinutes }
+        if let nextAllowedDayName { blockingInfo["nextAllowedDayName"] = nextAllowedDayName }
         defaults.set(blockingInfo, forKey: key)
     }
 
@@ -1469,6 +1480,26 @@ private struct ExtensionGoalConfigMinimal: Codable {
             return (w.startHour, w.startMinute, w.endHour, w.endMinute, w.isFullDay)
         }
         return (allowedStartHour, allowedStartMinute, allowedEndHour, allowedEndMinute, isFullDayAllowed)
+    }
+
+    /// Mirror of DailyLimits.nextAllowedDayDescription on the extension side, so
+    /// DAILY_ZERO_BLOCK / DAILY_LIMIT_BLOCK can persist a "Try again on Monday"-style
+    /// hint without round-tripping through the main app.
+    func nextAllowedDayDescription(from referenceDate: Date = Date()) -> String? {
+        guard let perDay = dailyLimitsPerDay, perDay.count == 7 else { return nil }
+        let calendar = Calendar.current
+        let formatter = DateFormatter()
+        formatter.locale = .current
+        formatter.dateFormat = "EEEE"
+
+        for offset in 1...7 {
+            guard let candidate = calendar.date(byAdding: .day, value: offset, to: referenceDate) else { continue }
+            let weekday = calendar.component(.weekday, from: candidate)
+            if perDay[weekday - 1] > 0 {
+                return offset == 1 ? "tomorrow" : formatter.string(from: candidate)
+            }
+        }
+        return nil
     }
 }
 
