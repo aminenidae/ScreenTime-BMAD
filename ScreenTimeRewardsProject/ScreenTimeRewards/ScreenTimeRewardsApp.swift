@@ -253,6 +253,11 @@ struct RootView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
     @StateObject private var sessionManager = SessionManager.shared
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    /// Observe paired-parent verification state so the launch gate re-renders when
+    /// hasFullAccess flips after CloudKit/Firebase confirms the parent's subscription.
+    /// Without this, effectiveHasAccess wouldn't trigger a SwiftUI update when only
+    /// the syncService side of the OR changes.
+    @ObservedObject private var syncService = ChildBackgroundSyncService.shared
     @AppStorage("hasCompletedParentOnboarding") private var parentComplete = false
     @AppStorage("hasCompletedChildOnboarding") private var childComplete = false
 
@@ -266,7 +271,12 @@ struct RootView: View {
                 OnboardingFlowView()
             } else if modeManager.needsDeviceSelection {
                 DeviceSelectionView()
-            } else if modeManager.isChildDevice && !subscriptionManager.hasAccess {
+            } else if modeManager.isChildDevice && !subscriptionManager.effectiveHasAccess {
+                // effectiveHasAccess includes ChildBackgroundSyncService.hasFullAccess,
+                // which is restored from cache on launch. Prevents the "Subscription
+                // Required" flash a child device used to show in the gap between
+                // RevenueCat reporting no entitlement and the paired-parent CloudKit
+                // verification resolving.
                 SubscriptionLockoutView()
             } else if modeManager.isParentDevice {
                 ParentDeviceAuthView()  // Requires PIN authentication before showing dashboard
