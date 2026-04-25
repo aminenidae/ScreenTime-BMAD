@@ -1570,3 +1570,72 @@ WALL_CLOCK_CAP appID=E8B1C8C6... raw=3420s capped=60s wallClock=7000s perEvent=6
 **Validation.** Same end-of-day comparison as the parent fix. Specifically watch for: any new `WALL_CLOCK_CAP` line where `capped == 60s AND wallClock > 60s AND raw > 60s` — that's the second-layer kicking in (which means it's catching a first-event-after-gap burst that the wall-clock cap alone would have missed). Zero such lines on a healthy day with no app-set changes is the success criterion.
 
 **Meta-observation: the rotating logger paid for itself in 12 hours.** Without the full-retention `ext-log-2026-04-23.log` the 23:38:22 incident would have been size-trimmed away just like the earlier-in-day bursts that originally poisoned the `lastThreshold` state. Instead we got the exact 0.249-second sequence with all four sneaking events visible AND the 14+ subsequent caps proving the wall-clock layer works in-burst. Diagnosis was a 5-minute log read instead of speculation.
+
+### Apr 24, 2026 — Validation + Two More Bugs Exposed → New Branch
+
+**Status:** SHIPPED on branch `fix/shield-race-and-newapp-pinning`. Two independent fixes; one commit each.
+
+#### Wall-clock + per-event cap end-to-end validation
+
+User intentionally reproduced yesterday's preconditions: drained iPhone to 4%, plugged in charger, opened main app shortly after. iOS DID flush a deferred catch-up burst at 16:33:59–16:34:18 against extension session `474803A7`. The two-layer cap engaged exactly as designed:
+
+```
+16:33:59.745  BB131A01  raw=780s   capped=60s  wallClock=25268s  perEvent=60s
+16:34:00.512  C6DA269B  raw=1860s  capped=60s  wallClock=14808s  perEvent=60s
+16:34:01.125  E8B1C8C6  raw=1140s  capped=60s  wallClock=9861s   perEvent=60s
+```
+
+These three events are the **target fingerprint** of the per-event cap — `raw>60s AND wallClock>60s AND capped=60s` — proof the second layer is the binding constraint. Without it: 13 + 31 + 19 = **63 min of fake credit**. With it: 3 min credited (legitimate 1-min minute-mark crossings that had genuinely accumulated during the deferral window). End-of-day Brain Coinz totals matched iOS Settings → Screen Time within ±1 min across all three apps.
+
+Validation table:
+| App | iOS Settings | Brain Coinz | Delta |
+|---|---|---|---|
+| Facebook | 36 min | 35 min | −1 |
+| YouTube | 28 min | 28 min | 0 |
+| Instagram | 5 min | 5 min | 0 |
+
+The "111 min vs 3 min" damage-reduction framing from the parent section is now confirmed end-to-end under real failure conditions. Wall-clock cap = production-ready.
+
+#### Bug 1: SKIP_SHIELDED race exposed at 16:34:22
+
+The same charging-flush log captured a previously-unseen failure: reward app `51E884C1` was tracked all day with shield UP and `SKIP_SHIELDED` blocking 59 of its threshold events. **One event slipped past:**
+
+```
+16:34:22.196  SKIP_SHIELDED 51E884C1 min.44 (blocked) ✅
+16:34:22.457  SKIP_SHIELDED 51E884C1 min.13 (blocked) ✅
+16:34:22.692  EVENT 51E884C1 min.3 — NO SKIP_SHIELDED line
+16:34:22.757  RECORDED 51E884C1 +60 ❌
+16:34:22.870  GOAL_CHECK ... 51E884C1 goal NOT met → LEARNING_GOAL_BLOCK re-applies shield
+```
+
+Between `.471` and `.692` (~220 ms), `managedSettingsStore.shield.applications` did NOT contain 51E884C1's token. SHIELD_CHECK was rebuilding the shield set. The threshold filter reads the live store; during this narrow window it sees "not shielded" and falls through to the next filter, which records +60s.
+
+**Fix (commit 2 on branch):** safety-net backstop in Filter 2. Keep the existing live-store check unchanged. After it returns "not in shield set", cross-check via `checkGoalMet()` — if the goal is NOT met, the shield SHOULD be up regardless of what the store says, so block anyway. New log line: `SKIP_SHIELDED_RACE`. Purely additive blocking — only over-blocks during the race window. Goal-met case still falls through (kid is in earned-reward-time use, recording is correct).
+
+Why not "rewrite the filter to use only goal-config evaluation": that path would risk regressions in the reward-time-exhausted case (where goal IS met but shield is re-applied). Keeping the live store as primary and adding the goal-config as backstop is purely additive and matches the locked principle "fail closed, only over-block".
+
+#### Bug 2: Newly-added app records bogus usage (third reproduction)
+
+`BED599FB` was added at 12:46:02 with `current=0min range=1-60`. User confirms zero real usage all day. At 16:33:59 — 3.5 hours later, during the same charging-flush burst — iOS fired `min.45` (2700s) for it; the `NEW_DAY` path credited `+60s` (the floor for the first event of the day). +60s of false credit on an unused app.
+
+This is the **third reproduction** of the pattern Apr 21's "candidate remediation 1" was written for: iOS replays historical cumulative for the Application token into the fresh sliding window because we register events with `includesPastActivity:true`. The Apr 14 entry deferred fixing it ("partial prior-day recovery"), Apr 21 deferred again pending fresh repro, Apr 24 cleared the gate.
+
+**Fix (commit 1 on branch):** in `scheduleActivity()`, capture the previously-tracked app set BEFORE overwriting `tracked_app_ids`. Compute `newlyAddedIDs = newSet − previousSet`. For those apps, register their `DeviceActivityEvent` with `includesPastActivity:false` so iOS only fires events for usage occurring AFTER registration. Existing apps keep `includesPastActivity:true` so cross-midnight + BGTask-gap recovery is unchanged. Per-app, not all-or-nothing.
+
+`MonitoredEvent.deviceActivityEvent()` was extended to take a `includesPastActivity: Bool = true` parameter (default preserves prior behavior).
+
+New log lines:
+- `NEW_APPS_PINNED count=1 ids=BED599FB — registered with includesPastActivity:false`
+- Existing `SLIDING_WINDOW` lines now suffix `[PINNED:noPastActivity]` for newly-added apps.
+
+First-ever launch (previously-tracked is empty) treats every app as newly-added → clean slate, no historical replay. Correct for fresh install. App removed-then-re-added on the same day will be flagged as new and lose its prior in-day tracking — accepted tradeoff per Apr 14.
+
+#### Branch hygiene
+
+Two-branch model intentional: `fix/wall-clock-cap-and-full-logging` is the validated baseline (yesterday + today's morning evidence), `fix/shield-race-and-newapp-pinning` adds the two new fixes on top. If a regression appears tomorrow, `git log --oneline` cleanly bisects which fix introduced it. Honoring the principle established in the Apr 16 ground-truth entry: validate each change end-to-end before stacking the next.
+
+#### Out of scope (deliberately deferred again)
+
+- iOS-side root cause: why `includesPastActivity:true` causes iOS to replay potentially-cross-day cumulative is not investigated. We don't control iOS — we adapt around it.
+- The "reward-time-exhausted" race (goal met but shield being re-applied due to exhaustion) is structurally unaddressed by Fix 1; a future commit can add a parallel backstop reading `usage_<rewardAppID>_today` ≥ earned reward minutes if it's ever observed in practice.
+- Debouncing rapid `MONITORING_RELOAD` calls (Apr 21 doc remediation #3) — the cap+pin combo makes this less urgent. Defer until evidence justifies.

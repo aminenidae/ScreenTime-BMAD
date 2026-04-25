@@ -470,6 +470,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
                         return false
                     }
+                    // SAFETY NET (Apr 24): the live `managedSettingsStore.shield.applications`
+                    // can briefly NOT contain a reward app's token while a SHIELD_CHECK
+                    // is mid-rebuild (LEARNING_GOAL_BLOCK was observed re-applying the
+                    // shield ~220ms after the threshold event slipped past, allowing one
+                    // false +60s credit on shielded reward app 51E884C1). Cross-check
+                    // against goal-met status: if the goal is NOT met, the shield SHOULD
+                    // be up regardless of what the live store says — block anyway.
+                    // Purely additive: only over-blocks during the race window. Goal-met
+                    // case still allows recording (kid is in earned-reward-time use).
+                    if !checkGoalMet(goalConfig: goalConfig, defaults: defaults) {
+                        debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met but shield store missing token — blocking (race-window backstop)", defaults: defaults)
+                        return false
+                    }
                 }
                 break
             }
