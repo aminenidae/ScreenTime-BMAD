@@ -730,6 +730,14 @@ class ParentRemoteViewModel: ObservableObject {
     // redundant 15-zone enumerations in parallel.
     private var inFlightLoadTask: Task<Void, Never>?
 
+    // Tracks the most-recently-requested device while a loadChildData is in flight.
+    // When the in-flight load finishes, if pendingChildLoad points at a different
+    // device, that load runs next — so a fast swipe (Alex → Iness → Sami) doesn't
+    // strand the user on Iness's data while showing Sami's page. Without this,
+    // the second swipe's loadChildData was silently dropped by the
+    // isLoadingChildData guard.
+    private var pendingChildLoad: RegisteredDevice?
+
     init() {
         setupCloudKitNotifications()
         populateFromLocalCache()
@@ -988,17 +996,18 @@ class ParentRemoteViewModel: ObservableObject {
             .sink { [weak self] _ in
                 guard let self = self else { return }
                 #if DEBUG
-                print("[ParentRemoteViewModel] CloudKit import settled - refreshing child devices")
+                print("[ParentRemoteViewModel] CloudKit import settled - refreshing child device list")
                 #endif
                 Task { @MainActor in
+                    // Refresh the device list only. Do NOT auto-refetch the currently
+                    // selected child's data here: the user's own pull-to-refresh and the
+                    // page-switch onChange are the source of truth for per-child loads.
+                    // Auto-firing loadChildData on every CK import (a) competed with
+                    // user-driven pulls for the isLoadingChildData lock, silently
+                    // skipping the user's pull, and (b) re-loaded data for whatever
+                    // child happened to be in selectedChildDevice even when the user
+                    // had moved on to a different view.
                     await self.loadLinkedChildDevices()
-                    // Also refresh the currently selected device's data
-                    if let selectedDevice = self.selectedChildDevice {
-                        #if DEBUG
-                        print("[ParentRemoteViewModel] Auto-refreshing selected device data")
-                        #endif
-                        await self.loadChildData(for: selectedDevice)
-                    }
                 }
             }
             .store(in: &cancellables)
@@ -1217,15 +1226,23 @@ class ParentRemoteViewModel: ObservableObject {
 
     /// Load usage data and configurations for a specific child device
     func loadChildData(for device: RegisteredDevice) async {
-        // Guard: Skip if already loading child data to prevent overlapping loads from CloudKit notifications
-        guard !isLoadingChildData else {
-            #if DEBUG
-            print("[ParentRemoteViewModel] Skipping loadChildData - already loading")
-            #endif
+        // Latest-request-wins: if a load is already in flight, record this request
+        // as pending instead of dropping it. The in-flight load will pick it up at
+        // the end (see tail of this function). Avoid overwriting pending with the
+        // SAME device — that's just a redundant request for the active load.
+        if isLoadingChildData {
+            if pendingChildLoad?.deviceID != device.deviceID,
+               selectedChildDevice?.deviceID != device.deviceID {
+                pendingChildLoad = device
+                #if DEBUG
+                print("[ParentRemoteViewModel] Queued pendingChildLoad for \(device.deviceID ?? "?") while load in flight")
+                #endif
+            }
             return
         }
 
         isLoadingChildData = true
+        pendingChildLoad = nil
         errorMessage = nil
 
         // Clear state that's definitely device-specific before restoring cache. Cache restore
@@ -1283,18 +1300,18 @@ class ParentRemoteViewModel: ObservableObject {
                 self.categorySummaries = aggregateByCategory(self.usageRecords)
             }
             
-            // Load daily summaries for the last 7 days
-            dailySummaries = []
-            for i in 0..<7 {
-                if let date = calendar.date(byAdding: .day, value: -i, to: endDate) {
-                    if let summary = try await cloudKitService.fetchChildDailySummary(
-                        deviceID: device.deviceID ?? "",
-                        date: date
-                    ) {
-                        dailySummaries.append(summary)
-                    }
-                }
-            }
+            // Load daily summaries for the last 7 days in a single ranged Core Data fetch
+            // (replaces the prior 7-iteration loop that issued 7 separate NSFetchRequests)
+            let summariesContext = PersistenceController.shared.container.viewContext
+            let summariesRequest: NSFetchRequest<DailySummary> = DailySummary.fetchRequest()
+            let rangeStart = calendar.startOfDay(for: calendar.date(byAdding: .day, value: -6, to: endDate)!)
+            let rangeEnd = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: endDate))!
+            summariesRequest.predicate = NSPredicate(
+                format: "deviceID == %@ AND date >= %@ AND date < %@",
+                device.deviceID ?? "", rangeStart as NSDate, rangeEnd as NSDate
+            )
+            summariesRequest.sortDescriptors = [NSSortDescriptor(key: "date", ascending: false)]
+            dailySummaries = (try? summariesContext.fetch(summariesRequest)) ?? []
             
             // Load app configurations for the selected child device
             let context = PersistenceController.shared.container.viewContext
@@ -1317,6 +1334,19 @@ class ParentRemoteViewModel: ObservableObject {
         }
 
         isLoadingChildData = false
+
+        // Latest-request-wins: if the user swiped to a different child while we
+        // were loading, run that load now. Compare against the just-loaded device
+        // to avoid an infinite loop on identical pending requests.
+        if let pending = pendingChildLoad, pending.deviceID != device.deviceID {
+            pendingChildLoad = nil
+            #if DEBUG
+            print("[ParentRemoteViewModel] Running queued pendingChildLoad for \(pending.deviceID ?? "?")")
+            #endif
+            await loadChildData(for: pending)
+        } else {
+            pendingChildLoad = nil
+        }
     }
 
     /// Load child's app configurations from CloudKit (all configured apps, even with 0 usage)

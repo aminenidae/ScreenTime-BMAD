@@ -3,7 +3,7 @@ import Combine
 
 struct ParentRemoteDashboardView: View {
     @StateObject private var modeManager = DeviceModeManager.shared
-    @StateObject private var viewModel = ParentRemoteViewModel()
+    @EnvironmentObject var viewModel: ParentRemoteViewModel
     @State private var showingRefreshIndicator = false
     @State private var showingPairingView = false
     @State private var showingSettings = false
@@ -460,5 +460,6 @@ private struct SyncingOverlayView: View {
 struct ParentRemoteDashboardView_Previews: PreviewProvider {
     static var previews: some View {
         ParentRemoteDashboardView()
+            .environmentObject(ParentRemoteViewModel())
     }
 }

@@ -7,7 +7,7 @@ struct ChildUsageDashboardView: View {
     let devices: [RegisteredDevice]
     let selectedDeviceID: String?
 
-    @StateObject private var viewModel = ParentRemoteViewModel()
+    @EnvironmentObject var viewModel: ParentRemoteViewModel
     @State private var currentIndex: Int = 0
     @State private var hasLoadedInitialData = false
     @Environment(\.colorScheme) var colorScheme
@@ -105,13 +105,18 @@ struct ChildUsageDashboardView: View {
             guard !hasLoadedInitialData else { return }
             hasLoadedInitialData = true
             Task {
-                await loadAllDeviceData()
+                await viewModel.loadLinkedChildDevices()
+                // Drive the initial child load for the page the user landed on.
+                // Per-page ChildUsagePageView.onAppear used to do this, but with a
+                // single shared VM the paged TabView mounts all pages at once; their
+                // concurrent loadChildData calls collided on isLoadingChildData and
+                // only the first (always page 0) ran — leaving the user's actually-
+                // selected child silently un-loaded.
+                if let device = currentDevice {
+                    await viewModel.loadChildData(for: device)
+                }
             }
         }
-    }
-
-    private func loadAllDeviceData() async {
-        await viewModel.loadLinkedChildDevices()
     }
 }
 
@@ -124,6 +129,16 @@ struct ChildUsagePageView: View {
     @State private var hasLoadedInitialData = false
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
+
+    /// Shared-VM gate: every paged ChildUsagePageView reads from the same VM,
+    /// so during a swipe transition the destination page can momentarily render
+    /// with the previous child's data. Only show this page's tab content when
+    /// the VM's selectedChildDevice matches this page's device. Otherwise the
+    /// tabs would surface stale/0-state values until loadChildData wipes and
+    /// restores for the new device.
+    private var isVMShowingThisDevice: Bool {
+        viewModel.selectedChildDevice?.deviceID == device.deviceID
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -152,52 +167,76 @@ struct ChildUsagePageView: View {
             // Tab Selector
             ChildTabSelector(selectedTab: $selectedTab)
 
-            // Tab Content
-            TabView(selection: $selectedTab) {
-                // Home Tab - Overview
-                ChildHomeTabView(viewModel: viewModel, device: device)
+            // Tab Content. Wrapped in a ZStack so we can mask it with a centered
+            // ProgressView while the VM's currently-displayed child doesn't match
+            // this page's device — prevents the brief flash of the previous
+            // child's data on the swipe destination page.
+            ZStack {
+                TabView(selection: $selectedTab) {
+                    // Home Tab - Overview. Pass empty data when VM is showing
+                    // another child so the section cards don't render the wrong
+                    // child's numbers behind the loading mask.
+                    ChildHomeTabView(
+                        viewModel: viewModel,
+                        device: device,
+                        onRefresh: { await viewModel.loadChildData(for: device) }
+                    )
                     .tag(0)
 
-                // Learning Tab - All learning apps with full config
-                ChildLearningTabView(
-                    apps: viewModel.childLearningApps,
-                    fullConfigs: viewModel.childLearningAppsFullConfig,
-                    usageRecords: viewModel.usageRecords,
-                    historyByApp: viewModel.childDailyUsageByApp,
-                    onConfigUpdated: { viewModel.updateAppConfig($0) }
-                )
-                .tag(1)
+                    // Learning Tab
+                    ChildLearningTabView(
+                        apps: isVMShowingThisDevice ? viewModel.childLearningApps : [],
+                        fullConfigs: isVMShowingThisDevice ? viewModel.childLearningAppsFullConfig : [],
+                        usageRecords: isVMShowingThisDevice ? viewModel.usageRecords : [],
+                        historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
+                        onConfigUpdated: { viewModel.updateAppConfig($0) },
+                        onRefresh: { await viewModel.loadChildData(for: device) }
+                    )
+                    .tag(1)
 
-                // Rewards Tab - All reward apps with full config and shield states
-                ChildRewardsTabView(
-                    apps: viewModel.childRewardApps,
-                    fullConfigs: viewModel.childRewardAppsFullConfig,
-                    usageRecords: viewModel.usageRecords,
-                    shieldStates: viewModel.childShieldStates,
-                    historyByApp: viewModel.childDailyUsageByApp,
-                    childLearningApps: viewModel.childLearningAppsFullConfig,
-                    onConfigUpdated: { viewModel.updateAppConfig($0) }
-                )
-                .tag(2)
+                    // Rewards Tab
+                    ChildRewardsTabView(
+                        apps: isVMShowingThisDevice ? viewModel.childRewardApps : [],
+                        fullConfigs: isVMShowingThisDevice ? viewModel.childRewardAppsFullConfig : [],
+                        usageRecords: isVMShowingThisDevice ? viewModel.usageRecords : [],
+                        shieldStates: isVMShowingThisDevice ? viewModel.childShieldStates : [:],
+                        historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
+                        childLearningApps: isVMShowingThisDevice ? viewModel.childLearningAppsFullConfig : [],
+                        onConfigUpdated: { viewModel.updateAppConfig($0) },
+                        onRefresh: { await viewModel.loadChildData(for: device) }
+                    )
+                    .tag(2)
 
-                // Settings Tab - Parent device settings
-                ParentDeviceSettingsTabView()
-                    .tag(3)
+                    // Settings Tab - Parent device settings
+                    ParentDeviceSettingsTabView()
+                        .tag(3)
+                }
+                .tabViewStyle(.page(indexDisplayMode: .never))
+
+                if !isVMShowingThisDevice {
+                    VStack(spacing: 12) {
+                        ProgressView()
+                            .scaleEffect(1.2)
+                        Text("Loading \(device.deviceName ?? "device")…")
+                            .font(.subheadline)
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(AppTheme.background(for: colorScheme))
+                }
             }
-            .tabViewStyle(.page(indexDisplayMode: .never))
         }
         .animation(.easeInOut(duration: 0.2), value: viewModel.isLoading)
-        .refreshable {
-            await viewModel.loadChildData(for: device)
-        }
-        .onAppear {
-            // Only load data on first appearance, not when navigating back from detail views
-            guard !hasLoadedInitialData else { return }
-            hasLoadedInitialData = true
-            Task {
-                await viewModel.loadChildData(for: device)
-            }
-        }
+        // .refreshable lives inside each tab's ScrollView (see ChildHomeTabView /
+        // ChildLearningTabView / ChildRewardsTabView). Attaching it here on the
+        // outer VStack didn't reliably reach the inner tab's scrollables — the
+        // paged TabView intercepted the gesture, so pull-to-refresh sometimes
+        // produced no effect.
+        // No per-page .onAppear loadChildData here. SwiftUI's paged TabView
+        // mounts every ChildUsagePageView at once, so per-page initial loads
+        // race on the shared VM's isLoadingChildData lock and only page 0 wins.
+        // Initial load is driven by ChildUsageDashboardView.onAppear (current page)
+        // and onChange(of: currentIndex) (swipe).
         .alert("Remove Device?", isPresented: $showRemoveConfirmation) {
             Button("Cancel", role: .cancel) { }
             Button("Remove", role: .destructive) {
@@ -323,12 +362,14 @@ private struct ChildTabButton: View {
 private struct ChildHomeTabView: View {
     @ObservedObject var viewModel: ParentRemoteViewModel
     let device: RegisteredDevice
+    var onRefresh: (() async -> Void)? = nil
     @StateObject private var dataAdapter: RemoteDashboardDataAdapter
     @Environment(\.colorScheme) var colorScheme
 
-    init(viewModel: ParentRemoteViewModel, device: RegisteredDevice) {
+    init(viewModel: ParentRemoteViewModel, device: RegisteredDevice, onRefresh: (() async -> Void)? = nil) {
         self.viewModel = viewModel
         self.device = device
+        self.onRefresh = onRefresh
         _dataAdapter = StateObject(wrappedValue: RemoteDashboardDataAdapter(viewModel: viewModel))
     }
 
@@ -355,6 +396,9 @@ private struct ChildHomeTabView: View {
             }
             .padding(.horizontal, 16)
             .padding(.top, 16)
+        }
+        .refreshable {
+            await onRefresh?()
         }
         .onAppear {
             tryFirePromptForCurrentState()
@@ -738,6 +782,7 @@ private struct ChildLearningTabView: View {
     let usageRecords: [UsageRecord]
     let historyByApp: [String: [DailyUsageHistoryDTO]]
     var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
+    var onRefresh: (() async -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
@@ -854,6 +899,9 @@ private struct ChildLearningTabView: View {
                         Spacer(minLength: 40)
                     }
                 }
+                .refreshable {
+                    await onRefresh?()
+                }
             }
         }
     }
@@ -915,6 +963,7 @@ private struct ChildRewardsTabView: View {
     let historyByApp: [String: [DailyUsageHistoryDTO]]
     let childLearningApps: [FullAppConfigDTO]  // For linked apps in edit sheet
     var onConfigUpdated: ((FullAppConfigDTO) -> Void)?
+    var onRefresh: (() async -> Void)? = nil
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.horizontalSizeClass) var horizontalSizeClass
 
@@ -1045,6 +1094,9 @@ private struct ChildRewardsTabView: View {
 
                         Spacer(minLength: 40)
                     }
+                }
+                .refreshable {
+                    await onRefresh?()
                 }
             }
         }

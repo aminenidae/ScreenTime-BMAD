@@ -232,10 +232,15 @@ class CloudKitSyncService: ObservableObject {
 
     /// Check if a specific zone exists and is accessible
     /// Used to validate if a child's pairing is still valid
+    /// Compares by zoneName only: within a single user's private database, zone
+    /// names are unique. Owner-name equality fails when the saved owner is the
+    /// `__defaultOwner__` sentinel but `allRecordZones()` returns the resolved
+    /// account record name (or vice versa) — that mismatch caused valid
+    /// children to be flagged "Device Disconnected".
     func zoneExists(_ zoneID: CKRecordZone.ID) async -> Bool {
         do {
             let zones = try await container.privateCloudDatabase.allRecordZones()
-            return zones.contains { $0.zoneID == zoneID }
+            return zones.contains { $0.zoneID.zoneName == zoneID.zoneName }
         } catch {
             #if DEBUG
             print("[CloudKitSyncService] Error checking zone existence: \(error)")
