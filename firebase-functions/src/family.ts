@@ -109,3 +109,62 @@ export const updateFamilySubscription = functions.https.onCall(
     return { success: true };
   }
 );
+
+interface RemoveChildData {
+  childDeviceId: string;
+  // Optional. If supplied, used directly. Otherwise we look it up from the
+  // device's `families/*/children` membership via the device record.
+  familyId?: string;
+}
+
+/**
+ * Remove a child device from its family. Idempotent: succeeds even if the
+ * child is already absent (so retries from either parent-side or child-side
+ * unpair flows are safe).
+ *
+ * Deletes:
+ *   - families/{familyId}/children/{childDeviceId}  (decrements the device count)
+ *   - devices/{childDeviceId}                       (top-level device record)
+ *
+ * Either the parent OR the child device may invoke this:
+ *   - On parent-side unpair: parent calls with its own familyId.
+ *   - On child-side unpair: child calls with childDeviceId; we resolve the
+ *     family from the devices/{childDeviceId} record.
+ */
+export const removeChildFromFamily = functions.https.onCall(
+  async (data: RemoveChildData, context) => {
+    const { childDeviceId } = data;
+    let { familyId } = data;
+
+    if (!childDeviceId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing childDeviceId');
+    }
+
+    // Resolve familyId from the child's device record if not supplied.
+    if (!familyId) {
+      const deviceDoc = await db.collection('devices').doc(childDeviceId).get();
+      if (!deviceDoc.exists) {
+        // Already absent — treat as success for idempotency.
+        console.log(`removeChildFromFamily: device ${childDeviceId} not found, treating as already removed`);
+        return { success: true, alreadyRemoved: true };
+      }
+      familyId = deviceDoc.data()?.familyId;
+      if (!familyId) {
+        console.log(`removeChildFromFamily: device ${childDeviceId} has no familyId, treating as already removed`);
+        return { success: true, alreadyRemoved: true };
+      }
+    }
+
+    const childRef = db.collection(`families/${familyId}/children`).doc(childDeviceId);
+    const deviceRef = db.collection('devices').doc(childDeviceId);
+
+    const batch = db.batch();
+    batch.delete(childRef);
+    batch.delete(deviceRef);
+    await batch.commit();
+
+    console.log(`Removed child ${childDeviceId} from family ${familyId}`);
+
+    return { success: true, familyId };
+  }
+);

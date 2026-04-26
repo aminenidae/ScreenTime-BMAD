@@ -9,7 +9,7 @@ import * as admin from 'firebase-admin';
 admin.initializeApp();
 
 // Export all functions
-export { createFamily, updateFamilySubscription } from './family';
+export { createFamily, updateFamilySubscription, removeChildFromFamily } from './family';
 export { createPairingToken, validateChildPairing, validateCoParentJoin } from './pairing';
 export { verifyFamilySubscription, updateSubscriptionStatus, checkParentSubscription, markFamilyExpired } from './subscription';
 export { revenueCatWebhook } from './webhooks';
