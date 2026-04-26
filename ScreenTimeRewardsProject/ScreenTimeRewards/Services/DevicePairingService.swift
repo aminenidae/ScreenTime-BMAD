@@ -746,29 +746,38 @@ class DevicePairingService: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: "Failed to generate sharing URL."]))
         }
 
-        // Generate Firebase-validated QR data with single-use token
+        // Create the parent commands zone FIRST so its share URL is available
+        // to embed in the QR payload below. Without this, the v2 (secure)
+        // pairing flow only delivers the monitoring share URL to the child —
+        // the child never gets an invite to the parent commands zone, and
+        // parent→child config commands never reach a paired participant.
+        var commandsShareURL: String? = nil
+        do {
+            let (_, commandsShare) = try await createParentCommandsZone()
+            commandsShareURL = commandsShare.url?.absoluteString
+            #if DEBUG
+            print("[DevicePairingService] Commands Share URL: \(commandsShareURL ?? "nil")")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
+            #endif
+        }
+
+        // Generate Firebase-validated QR data with single-use token,
+        // including the commands share URL so the child can accept it.
         let qrData: String
         do {
             qrData = try await FirebaseValidationService.shared.generateChildPairingQRData(
                 familyId: familyId,
-                cloudKitShareURL: shareURL
+                cloudKitShareURL: shareURL,
+                commandsShareURL: commandsShareURL
             )
         } catch let error as FirebaseValidationError {
             throw PairingError.firebaseValidationFailed(error)
         }
 
         let sessionID = UUID().uuidString
-
-        // Also create parent commands zone for remote control
-        var commandsShareURL: String? = nil
-        do {
-            let (_, commandsShare) = try await createParentCommandsZone()
-            commandsShareURL = commandsShare.url?.absoluteString
-        } catch {
-            #if DEBUG
-            print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
-            #endif
-        }
 
         // Store session locally
         let sessionData: [String: Any] = [
@@ -872,8 +881,49 @@ class DevicePairingService: ObservableObject {
             throw PairingError.sameAccountPairing
         }
 
-        // Accept the share
+        // Accept the monitoring share
         try await container.accept(metadata)
+
+        // Also accept the parent commands share (so parent→child config
+        // commands can reach this device). The legacy v1 flow did this; the
+        // v2 flow originally omitted it, breaking parent→child sync entirely.
+        var commandsZoneIDName: String? = nil
+        if let commandsShareURLString = payload.commandsShareURL,
+           let commandsShareURL = URL(string: commandsShareURLString) {
+            #if DEBUG
+            print("[DevicePairingService] 🔵 Also accepting parent commands share...")
+            #endif
+            do {
+                let commandsMetadata = try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<CKShare.Metadata, Error>) in
+                    container.fetchShareMetadata(with: commandsShareURL) { metadata, error in
+                        if let error = error {
+                            continuation.resume(throwing: error)
+                        } else if let metadata = metadata {
+                            continuation.resume(returning: metadata)
+                        } else {
+                            continuation.resume(throwing: NSError(domain: "PairingError", code: -1,
+                                userInfo: [NSLocalizedDescriptionKey: "Unable to fetch commands share metadata."]))
+                        }
+                    }
+                }
+                try await container.accept(commandsMetadata)
+                commandsZoneIDName = commandsMetadata.rootRecordID.zoneID.zoneName
+                UserDefaults.standard.set(commandsZoneIDName, forKey: "parentCommandsZoneID")
+                #if DEBUG
+                print("[DevicePairingService] ✅ Parent commands share accepted: \(commandsZoneIDName ?? "?")")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Failed to accept commands share (non-critical): \(error.localizedDescription)")
+                #endif
+                // Non-critical for monitoring path; commands will be unreachable
+                // until the next pairing attempt resolves the share.
+            }
+        } else {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ No commandsShareURL in payload — parent→child commands won't reach this device")
+            #endif
+        }
 
         // Store parent info
         let zoneID = metadata.rootRecordID.zoneID
@@ -885,7 +935,7 @@ class DevicePairingService: ObservableObject {
             sharedZoneID: zoneID.zoneName,
             sharedZoneOwner: zoneID.ownerName,
             rootRecordName: rootID.recordName,
-            commandsZoneID: nil,
+            commandsZoneID: commandsZoneIDName,
             pairedDate: Date()
         )
 
@@ -1127,12 +1177,30 @@ class DevicePairingService: ObservableObject {
             // Continue with local removal even if CloudKit fails
         }
 
-        // 2. Remove from local storage
+        // 2. Decrement Firebase's child count for the parent's family.
+        // The function looks up the family from this child's device record
+        // since we don't store the parent's familyId in PairedParentInfo.
+        // Without this, the parent will hit "Device limit reached" on next
+        // re-pair even though CloudKit-side seats are open.
+        do {
+            try await FirebaseValidationService.shared.removeChildFromFamily(
+                childDeviceId: DeviceModeManager.shared.deviceID,
+                familyId: nil
+            )
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ Firebase child removal failed (non-critical): \(error.localizedDescription)")
+            #endif
+            // Non-critical — the local unpair still completes. The orphan
+            // Firebase entry can be reaped on a future call (idempotent).
+        }
+
+        // 3. Remove from local storage
         var parents = getPairedParents()
         parents.removeAll { $0.id == parent.id }
         savePairedParents(parents)
 
-        // 3. Re-sync App Group with remaining parents (or clear if none)
+        // 4. Re-sync App Group with remaining parents (or clear if none)
         syncParentZoneInfoToAppGroup()
 
         #if DEBUG

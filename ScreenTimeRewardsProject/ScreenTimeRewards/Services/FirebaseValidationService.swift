@@ -59,8 +59,12 @@ struct SecureChildPairingPayload: Codable {
     let parentDeviceID: String
     let familyId: String
     let expiresAt: Date
+    /// URL of the parent's ParentCommands zone share. Optional for backward
+    /// compatibility with old QR codes that omitted it (those pairings have
+    /// no parent→child command channel at all).
+    let commandsShareURL: String?
 
-    init(tokenId: String, validationToken: String, shareURL: String, parentDeviceID: String, familyId: String, expiresAt: Date) {
+    init(tokenId: String, validationToken: String, shareURL: String, parentDeviceID: String, familyId: String, expiresAt: Date, commandsShareURL: String? = nil) {
         self.version = 2
         self.tokenId = tokenId
         self.validationToken = validationToken
@@ -68,6 +72,7 @@ struct SecureChildPairingPayload: Codable {
         self.parentDeviceID = parentDeviceID
         self.familyId = familyId
         self.expiresAt = expiresAt
+        self.commandsShareURL = commandsShareURL
     }
 
     /// Check if the payload is expired
@@ -270,6 +275,38 @@ final class FirebaseValidationService: ObservableObject {
 
             #if DEBUG
             print("[FirebaseValidation] Updated family subscription: \(subscriptionTier.rawValue), maxChildren: \(subscriptionTier.childDeviceLimit)")
+            #endif
+        } catch {
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        throw FirebaseValidationError.notConfigured
+        #endif
+    }
+
+    /// Remove a child device from its family. Idempotent: succeeds even if
+    /// the child is already absent. Decrements the children-subcollection
+    /// count used by Firebase's pairing limit check, so a unpair → re-pair
+    /// flow won't trip "Device limit reached".
+    ///
+    /// `familyId` is optional — if omitted, the function looks it up from the
+    /// device's `devices/{childDeviceId}` record. Pass it when known
+    /// (parent-side path) to skip a lookup.
+    func removeChildFromFamily(childDeviceId: String, familyId: String? = nil) async throws {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+
+        var data: [String: Any] = ["childDeviceId": childDeviceId]
+        if let familyId = familyId {
+            data["familyId"] = familyId
+        }
+
+        do {
+            _ = try await functions.httpsCallable("removeChildFromFamily").call(data)
+            #if DEBUG
+            print("[FirebaseValidation] Removed child \(childDeviceId) from family \(familyId ?? "<resolved server-side>")")
             #endif
         } catch {
             throw FirebaseValidationError.networkError(error)
@@ -570,7 +607,8 @@ final class FirebaseValidationService: ObservableObject {
     /// Generate QR code JSON for child pairing
     func generateChildPairingQRData(
         familyId: String,
-        cloudKitShareURL: String
+        cloudKitShareURL: String,
+        commandsShareURL: String? = nil
     ) async throws -> String {
         let (tokenId, validationToken, expiresAt) = try await createPairingToken(
             familyId: familyId,
@@ -584,7 +622,8 @@ final class FirebaseValidationService: ObservableObject {
             shareURL: cloudKitShareURL,
             parentDeviceID: deviceManager.deviceID,
             familyId: familyId,
-            expiresAt: expiresAt
+            expiresAt: expiresAt,
+            commandsShareURL: commandsShareURL
         )
 
         let encoder = JSONEncoder()

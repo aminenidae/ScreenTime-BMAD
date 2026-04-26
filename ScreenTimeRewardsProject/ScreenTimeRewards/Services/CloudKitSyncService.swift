@@ -364,6 +364,26 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
+        // 2. Decrement Firebase's child count so the slot is freed up.
+        // Without this, Firebase's pairing limit check still counts the
+        // unpaired child and rejects the next pair attempt with
+        // "Device limit reached" — even though CloudKit shows the seat is open.
+        if let childDeviceID = childDevice.deviceID {
+            do {
+                try await FirebaseValidationService.shared.removeChildFromFamily(
+                    childDeviceId: childDeviceID,
+                    familyId: FirebaseValidationService.shared.currentFamilyId
+                )
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Firebase child removal failed (non-critical): \(error.localizedDescription)")
+                #endif
+                // Non-critical for the local unpair flow; CloudKit cleanup is
+                // already done. The orphan Firebase entry can be reaped by a
+                // future call (function is idempotent).
+            }
+        }
+
         #if DEBUG
         print("[CloudKitSyncService] ✅ Child device unpaired successfully")
         #endif
@@ -740,16 +760,137 @@ class CloudKitSyncService: ObservableObject {
         }
     }
 
+    /// UserDefaults key persisting the parent's chosen ParentCommands zone name.
+    /// Survives `DeviceModeManager.deviceID` rotation across reinstalls so we
+    /// keep writing to whichever zone was originally shared with paired children.
+    /// Bumped to _v2 on the participant-acceptance-aware detection upgrade so
+    /// any cached _v1 value (which may have persisted a zone with no accepted
+    /// participants) is ignored and a fresh scan runs.
+    private static let primaryParentCommandsZoneKey = "primaryParentCommandsZoneName_v3"
+
+    /// Result tuple from active-share discovery: the zone to write to AND the
+    /// root record ID that records should use as their `parent` reference.
+    /// We can't derive the root recordName from the zone name alone — historic
+    /// zones may have root records named differently (or deleted), but as long
+    /// as ANY record in the zone carries a non-nil `.share` with accepted
+    /// participants, we use that record as the parent.
+    typealias ActiveSharedZone = (zoneID: CKRecordZone.ID, rootRecordID: CKRecord.ID)
+
+    /// Enumerate a zone's records via CKFetchRecordZoneChangesOperation and
+    /// return the FIRST record found that has a `.share` attached. Bounded by
+    /// a 10s timeout so a hung fetch doesn't block the scan.
+    private func findSharedRootRecord(in zoneID: CKRecordZone.ID, db: CKDatabase) async -> CKRecord? {
+        var sharedRoot: CKRecord?
+        let fetchConfig = CKFetchRecordZoneChangesOperation.ZoneConfiguration()
+        fetchConfig.previousServerChangeToken = nil
+        let op = CKFetchRecordZoneChangesOperation(
+            recordZoneIDs: [zoneID],
+            configurationsByRecordZoneID: [zoneID: fetchConfig])
+        op.qualityOfService = .userInitiated
+
+        actor RootResumeGuard { var done = false; func tryResume() -> Bool { if done { return false }; done = true; return true } }
+        let resumeGuard = RootResumeGuard()
+
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            op.recordWasChangedBlock = { _, result in
+                if case .success(let record) = result, record.share != nil, sharedRoot == nil {
+                    sharedRoot = record
+                }
+            }
+            op.fetchRecordZoneChangesResultBlock = { _ in
+                Task { if await resumeGuard.tryResume() { continuation.resume() } }
+            }
+            db.add(op)
+            Task {
+                try? await Task.sleep(nanoseconds: 10_000_000_000)
+                if await resumeGuard.tryResume() {
+                    op.cancel()
+                    continuation.resume()
+                }
+            }
+        }
+        return sharedRoot
+    }
+
+    /// Find an existing ParentCommands-* zone whose CKShare has at least one
+    /// participant who has accepted the invitation. Discovery walks each zone's
+    /// records to find the root (rather than guessing its recordName from the
+    /// deviceID — historic zones may have root records named differently or
+    /// missing entirely).
+    ///
+    /// Returns nil if no zone with accepted participants exists.
+    private func findActiveSharedParentCommandsZone(in zones: [CKRecordZone], db: CKDatabase) async -> ActiveSharedZone? {
+        let candidates = zones.filter { $0.zoneID.zoneName.hasPrefix(Self.parentCommandsZonePrefix) }
+        #if DEBUG
+        print("[CloudKitSyncService] 🔍 Scanning \(candidates.count) ParentCommands-* zones for active shares...")
+        #endif
+        for zone in candidates {
+            // Walk the zone's records to discover the actual shared root record.
+            // We don't assume a specific recordName — historic zones may have
+            // roots named differently, or no root at all.
+            guard let rootRecord = await findSharedRootRecord(in: zone.zoneID, db: db) else {
+                #if DEBUG
+                print("[CloudKitSyncService]   • \(zone.zoneID.zoneName): no shared root record found in zone")
+                #endif
+                continue
+            }
+            guard let shareRef = rootRecord.share else { continue }
+            do {
+                guard let share = try await db.record(for: shareRef.recordID) as? CKShare else {
+                    #if DEBUG
+                    print("[CloudKitSyncService]   • \(zone.zoneID.zoneName): share record fetched but not a CKShare")
+                    #endif
+                    continue
+                }
+                // Owner is always a participant; we want at least one OTHER
+                // participant who has accepted the invitation.
+                let activeParticipants = share.participants.filter { participant in
+                    participant.role != .owner && participant.acceptanceStatus == .accepted
+                }
+                if !activeParticipants.isEmpty {
+                    #if DEBUG
+                    print("[CloudKitSyncService] 🔍 Found actively-shared parent commands zone: \(zone.zoneID.zoneName) (root=\(rootRecord.recordID.recordName), \(activeParticipants.count) accepted participant(s))")
+                    #endif
+                    return (zoneID: zone.zoneID, rootRecordID: rootRecord.recordID)
+                } else {
+                    #if DEBUG
+                    let participantSummary = share.participants.map { p -> String in
+                        let role: String
+                        switch p.role { case .owner: role = "owner"; case .privateUser: role = "private"; case .publicUser: role = "public"; case .unknown: role = "unknown"; @unknown default: role = "?" }
+                        let status: String
+                        switch p.acceptanceStatus { case .pending: status = "pending"; case .accepted: status = "accepted"; case .removed: status = "removed"; case .unknown: status = "unknown"; @unknown default: status = "?" }
+                        return "\(role)=\(status)"
+                    }.joined(separator: ", ")
+                    print("[CloudKitSyncService]   • \(zone.zoneID.zoneName): share exists (root=\(rootRecord.recordID.recordName)) but no accepted child participants — [\(participantSummary)]")
+                    #endif
+                }
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService]   • \(zone.zoneID.zoneName): share fetch failed: \(error.localizedDescription)")
+                #endif
+                continue
+            }
+        }
+        return nil
+    }
+
     /// Get or create the parent's command zone
-    /// This zone is owned by the parent and shared with child devices
-    private func getOrCreateParentCommandsZone() async throws -> CKRecordZone.ID {
+    /// This zone is owned by the parent and shared with child devices.
+    /// Survives DeviceModeManager.deviceID rotation by preferring an existing
+    /// shared zone (i.e., the zone that paired children already accept invites
+    /// for) over creating a fresh zone bound to the current deviceID.
+    /// Returns the zone to write commands to AND the root recordID to use as
+    /// each command's `parent` reference. The root recordID is discovered from
+    /// the zone (not derived from the current deviceID) so it always matches
+    /// the actual shared root, even after deviceID rotation.
+    private func getOrCreateParentCommandsZone() async throws -> ActiveSharedZone {
         let db = container.privateCloudDatabase
         let parentDeviceID = DeviceModeManager.shared.deviceID
-        let zoneName = Self.parentCommandsZonePrefix + parentDeviceID
+        let preferredZoneName = Self.parentCommandsZonePrefix + parentDeviceID
 
         #if DEBUG
         print("[CloudKitSyncService] ===== Zone Creation Diagnostics =====")
-        print("[CloudKitSyncService] Looking for parent commands zone: \(zoneName)")
+        print("[CloudKitSyncService] Preferred zone name (current deviceID): \(preferredZoneName)")
         print("[CloudKitSyncService] Container ID: \(container.containerIdentifier ?? "nil")")
         #endif
 
@@ -776,19 +917,48 @@ class CloudKitSyncService: ObservableObject {
         }
         #endif
 
-        if let existing = existingZones.first(where: { $0.zoneID.zoneName == zoneName }) {
+        // Selection priority:
+        //   1. Persisted choice from UserDefaults — survives deviceID rotation.
+        //      Validate it still exists in private DB.
+        //   2. Any ParentCommands-* zone with a CKShare attached — i.e. one that
+        //      paired children already accept. Persist this choice.
+        //   3. Zone matching the current deviceID — for fresh installs only.
+        //   4. Fall through and create a new zone using the current deviceID.
+
+        // Always run the active-share scan first. It both diagnoses each
+        // zone's acceptance state in the log AND yields the discovered root
+        // recordID — which is what we MUST use as the parent reference for
+        // command records (otherwise the share doesn't include them).
+        if let acceptedShared = await findActiveSharedParentCommandsZone(in: existingZones, db: db) {
+            UserDefaults.standard.set(acceptedShared.zoneID.zoneName, forKey: Self.primaryParentCommandsZoneKey)
             #if DEBUG
-            print("[CloudKitSyncService] ✅ Found existing parent commands zone")
+            print("[CloudKitSyncService] ✅ Adopted active shared zone (deviceID likely rotated): \(acceptedShared.zoneID.zoneName)")
             #endif
-            return existing.zoneID
+            return acceptedShared
+        }
+
+        // Fall through: no zone has accepted participants. We will use the
+        // current-deviceID zone (creating it if needed) with the deviceID-derived
+        // root record name. This zone has no accepted children yet, so the
+        // command won't actually reach anyone — but we don't persist the choice
+        // and will keep re-scanning on every save in case a child accepts later.
+        let fallbackRootID = CKRecord.ID(
+            recordName: "CommandsRoot-\(parentDeviceID)",
+            zoneID: CKRecordZone.ID(zoneName: preferredZoneName, ownerName: CKCurrentUserDefaultName))
+        if let existing = existingZones.first(where: { $0.zoneID.zoneName == preferredZoneName }) {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ No accepted-share zone found — falling back to current-deviceID zone (NOT persisted): \(preferredZoneName)")
+            print("[CloudKitSyncService] ⚠️ This command will NOT reach any child until a fresh pairing is performed.")
+            #endif
+            return (zoneID: existing.zoneID, rootRecordID: fallbackRootID)
         }
 
         // Create new zone using explicit CKModifyRecordZonesOperation for better control
         #if DEBUG
-        print("[CloudKitSyncService] 🔨 Creating new parent commands zone...")
+        print("[CloudKitSyncService] 🔨 Creating new parent commands zone: \(preferredZoneName)")
         #endif
 
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: CKCurrentUserDefaultName)
+        let zoneID = CKRecordZone.ID(zoneName: preferredZoneName, ownerName: CKCurrentUserDefaultName)
         let zone = CKRecordZone(zoneID: zoneID)
 
         // Use CKModifyRecordZonesOperation for explicit server sync with high QoS
@@ -834,7 +1004,7 @@ class CloudKitSyncService: ObservableObject {
         try await Task.sleep(nanoseconds: 500_000_000) // 0.5 seconds
 
         let verifyZones = try await db.allRecordZones()
-        let verified = verifyZones.contains(where: { $0.zoneID.zoneName == zoneName })
+        let verified = verifyZones.contains(where: { $0.zoneID.zoneName == preferredZoneName })
 
         #if DEBUG
         if verified {
@@ -846,22 +1016,31 @@ class CloudKitSyncService: ObservableObject {
         }
         #endif
 
-        return savedZoneID
+        // Do NOT persist the just-created zone name. The zone has no accepted
+        // child participants yet — persisting now would cache a dead zone and
+        // suppress future scans. The persisted name is only set inside the
+        // accepted-share branch of getOrCreateParentCommandsZone, after a child
+        // joins the share.
+
+        let newRootID = CKRecord.ID(
+            recordName: "CommandsRoot-\(parentDeviceID)",
+            zoneID: savedZoneID)
+        return (zoneID: savedZoneID, rootRecordID: newRootID)
     }
 
     /// Share the parent commands zone with a specific child device
     /// Call this after pairing to ensure child can read commands
     func shareParentCommandsZoneWithChild(childShareURL: URL) async throws {
         let db = container.privateCloudDatabase
-        let zoneID = try await getOrCreateParentCommandsZone()
+        let resolved = try await getOrCreateParentCommandsZone()
+        let zoneID = resolved.zoneID
+        let rootRecordID = resolved.rootRecordID
 
         #if DEBUG
         print("[CloudKitSyncService] Sharing parent commands zone with child...")
         print("[CloudKitSyncService] Zone: \(zoneID.zoneName)")
+        print("[CloudKitSyncService] Root: \(rootRecordID.recordName)")
         #endif
-
-        // Create a root record for sharing (required by CKShare)
-        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(DeviceModeManager.shared.deviceID)", zoneID: zoneID)
 
         // Check if root record already exists
         do {
@@ -923,9 +1102,11 @@ class CloudKitSyncService: ObservableObject {
             throw CloudKitSyncError.zoneNotFound(deviceID: deviceID)
         }
 
-        // Get or create the parent's command zone
+        // Get or create the parent's command zone (and discovered root record).
         let db = container.privateCloudDatabase
-        let zoneID = try await getOrCreateParentCommandsZone()
+        let resolved = try await getOrCreateParentCommandsZone()
+        let zoneID = resolved.zoneID
+        let rootRecordID = resolved.rootRecordID
 
         #if DEBUG
         print("[CloudKitSyncService] Using zone: \(zoneID.zoneName)")
@@ -935,10 +1116,11 @@ class CloudKitSyncService: ObservableObject {
         let recordID = CKRecord.ID(recordName: "ConfigCmd-\(payload.commandID)", zoneID: zoneID)
         let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
 
-        // CRITICAL: Link record to the share's root record so it's visible to child
-        // Without this parent reference, the record won't be shared with the child device!
-        let parentDeviceID = DeviceModeManager.shared.deviceID
-        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: zoneID)
+        // Link record to the share's root record so it's visible to child.
+        // The root recordID came from getOrCreateParentCommandsZone, which
+        // discovered it by enumerating the zone (not by guessing from the
+        // current deviceID). This works even when historic root records use
+        // a different naming scheme than CommandsRoot-{currentDeviceID}.
         record.parent = CKRecord.Reference(recordID: rootRecordID, action: .none)
 
         #if DEBUG
@@ -1091,7 +1273,9 @@ class CloudKitSyncService: ObservableObject {
 
         // Get or create the parent's command zone
         let db = container.privateCloudDatabase
-        let zoneID = try await getOrCreateParentCommandsZone()
+        let resolved = try await getOrCreateParentCommandsZone()
+        let zoneID = resolved.zoneID
+        let rootRecordID = resolved.rootRecordID
 
         #if DEBUG
         print("[CloudKitSyncService] Using zone: \(zoneID.zoneName)")
@@ -1101,9 +1285,7 @@ class CloudKitSyncService: ObservableObject {
         let recordID = CKRecord.ID(recordName: "WebCmd-\(payload.commandID)", zoneID: zoneID)
         let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
 
-        // Link record to the share's root record so it's visible to child
-        let parentDeviceID = DeviceModeManager.shared.deviceID
-        let rootRecordID = CKRecord.ID(recordName: "CommandsRoot-\(parentDeviceID)", zoneID: zoneID)
+        // Link record to the share's discovered root record so it's visible to child.
         record.parent = CKRecord.Reference(recordID: rootRecordID, action: .none)
 
         #if DEBUG
