@@ -134,6 +134,8 @@ struct RewardsTabView: View {
                         try? scheduleService.saveSchedule(savedConfig)
                         viewModel.blockRewardApps()
                         configSheetData = nil
+                        // Push the local schedule edit up to the parent device.
+                        propagateLocalScheduleEditToParent()
                         // After save, advance to final settings step
                         if tutorialManager.currentStep == .tapSaveReward {
                             tutorialManager.advanceStep()
@@ -162,6 +164,7 @@ struct RewardsTabView: View {
                         try? scheduleService.saveSchedule(savedConfig)
                         viewModel.blockRewardApps()
                         configSheetData = nil
+                        propagateLocalScheduleEditToParent()
                     },
                     onCancel: {
                         configSheetData = nil
@@ -260,6 +263,28 @@ struct RewardsTabView: View {
         } else {
             // Open config sheet directly
             openConfigSheet(for: snapshot)
+        }
+    }
+
+    /// After a local schedule edit on the child's parent-mode, push the new
+    /// state to CloudKit so the parent device sees the change. Backfill mirrors
+    /// the latest persisted apps into Core Data, then upload pushes the full
+    /// AppConfiguration record set (including scheduleConfigJSON, linkedAppsJSON,
+    /// streakSettingsJSON) to the parent's shared zone. No-op when the device
+    /// isn't paired.
+    private func propagateLocalScheduleEditToParent() {
+        guard DeviceModeManager.shared.isChildDevice,
+              !DevicePairingService.shared.getPairedParents().isEmpty else { return }
+        Task {
+            await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
+            do {
+                try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                #if DEBUG
+                print("[RewardsTabView] ✅ Pushed local schedule edit to parent")
+                #endif
+            } catch {
+                print("[RewardsTabView] ⚠️ Failed to push local schedule edit to parent: \(error.localizedDescription)")
+            }
         }
     }
 }

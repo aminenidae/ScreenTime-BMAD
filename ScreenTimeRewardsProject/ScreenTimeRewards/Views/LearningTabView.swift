@@ -146,6 +146,11 @@ struct LearningTabView: View {
                         try? scheduleService.saveSchedule(savedConfig)
                         viewModel.blockRewardApps()
                         configSheetData = nil
+                        // Push the local schedule edit up to the parent device.
+                        // Without this, schedule changes (daily limit, time window,
+                        // linked apps, unlock mode, streaks) made on the child's
+                        // parent-mode never reach the parent dashboard.
+                        propagateLocalScheduleEditToParent()
                         // After save, advance to next major step (tapRewardsTab)
                         if tutorialManager.currentStep == .tapSaveLearning {
                             tutorialManager.advanceStep()
@@ -173,6 +178,7 @@ struct LearningTabView: View {
                         try? scheduleService.saveSchedule(savedConfig)
                         viewModel.blockRewardApps()
                         configSheetData = nil
+                        propagateLocalScheduleEditToParent()
                     },
                     onCancel: {
                         configSheetData = nil
@@ -213,6 +219,28 @@ struct LearningTabView: View {
         } else {
             // Open config sheet directly
             openConfigSheet(for: snapshot)
+        }
+    }
+
+    /// After a local schedule edit on the child's parent-mode, push the new
+    /// state to CloudKit so the parent device sees the change. Backfill mirrors
+    /// the latest persisted apps into Core Data, then upload pushes the full
+    /// AppConfiguration record set (including scheduleConfigJSON, linkedAppsJSON,
+    /// streakSettingsJSON) to the parent's shared zone. No-op when the device
+    /// isn't paired.
+    private func propagateLocalScheduleEditToParent() {
+        guard DeviceModeManager.shared.isChildDevice,
+              !DevicePairingService.shared.getPairedParents().isEmpty else { return }
+        Task {
+            await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
+            do {
+                try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                #if DEBUG
+                print("[LearningTabView] ✅ Pushed local schedule edit to parent")
+                #endif
+            } catch {
+                print("[LearningTabView] ⚠️ Failed to push local schedule edit to parent: \(error.localizedDescription)")
+            }
         }
     }
 

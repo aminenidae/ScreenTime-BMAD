@@ -105,6 +105,7 @@ struct LearningAppDetailView: View {
                     try? scheduleService.saveSchedule(savedConfig)
                     BlockingCoordinator.shared.refreshAllBlockingStates()
                     configSheetData = nil
+                    propagateLocalScheduleEditToParent()
                 },
                 onCancel: {
                     configSheetData = nil
@@ -225,6 +226,25 @@ struct LearningAppDetailView: View {
             history = persistedUsage?.dailyHistory ?? []
         }
     }
+
+    /// After a local schedule edit on the child's parent-mode, push the new
+    /// state to CloudKit so the parent device sees the change. No-op when
+    /// the device isn't paired.
+    private func propagateLocalScheduleEditToParent() {
+        guard DeviceModeManager.shared.isChildDevice,
+              !DevicePairingService.shared.getPairedParents().isEmpty else { return }
+        Task {
+            await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
+            do {
+                try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                #if DEBUG
+                print("[LearningAppDetailView] ✅ Pushed local schedule edit to parent")
+                #endif
+            } catch {
+                print("[LearningAppDetailView] ⚠️ Failed to push local schedule edit to parent: \(error.localizedDescription)")
+            }
+        }
+    }
 }
 
 // Combined struct to prevent race condition in sheet presentation
@@ -341,6 +361,7 @@ struct RewardAppDetailView: View {
                     try? scheduleService.saveSchedule(savedConfig)
                     viewModel.blockRewardApps()
                     configSheetData = nil
+                    propagateLocalScheduleEditToParent()
                 },
                 onCancel: {
                     configSheetData = nil
@@ -552,6 +573,25 @@ struct RewardAppDetailView: View {
         if let logicalID = service.usagePersistence.logicalID(for: tokenHash) {
             persistedUsage = service.usagePersistence.app(for: logicalID)
             history = persistedUsage?.dailyHistory ?? []
+        }
+    }
+
+    /// After a local schedule edit on the child's parent-mode, push the new
+    /// state to CloudKit so the parent device sees the change. No-op when
+    /// the device isn't paired.
+    private func propagateLocalScheduleEditToParent() {
+        guard DeviceModeManager.shared.isChildDevice,
+              !DevicePairingService.shared.getPairedParents().isEmpty else { return }
+        Task {
+            await ScreenTimeService.shared.backfillAppConfigurationsForCloudKit()
+            do {
+                try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                #if DEBUG
+                print("[RewardAppDetailView] ✅ Pushed local schedule edit to parent")
+                #endif
+            } catch {
+                print("[RewardAppDetailView] ⚠️ Failed to push local schedule edit to parent: \(error.localizedDescription)")
+            }
         }
     }
 }

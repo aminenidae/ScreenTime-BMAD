@@ -1,6 +1,7 @@
 import Foundation
 import CoreData
 import CloudKit
+import FamilyControls
 import ManagedSettings
 
 /// Processes configuration commands sent from parent device.
@@ -363,12 +364,60 @@ class ChildConfigCommandProcessor {
         // 2. Update Core Data AppConfiguration
         try await updateAppConfiguration(payload)
 
+        // 2b. Mirror the change into UsagePersistence (App Group). Without this,
+        // the next backfillAppConfigurationsForCloudKit call will read the
+        // (still-stale) persistedApp.category and overwrite Core Data with the
+        // OLD value — which then gets uploaded to CK, wiping the parent's edit.
+        // restoreFamilySelection on next launch also rebuilds categoryAssignments
+        // from persistedApp, so the dashboard would show the old grouping until
+        // we update it here.
+        applyToUsagePersistence(payload)
+
         // 3. Sync goal configs to extension for shield control
         ScreenTimeService.shared.syncGoalConfigsToExtension()
 
         #if DEBUG
         print("[ChildConfigCommandProcessor] Configuration applied successfully")
         #endif
+    }
+
+    /// Mirror the payload's mutable fields into UsagePersistence so the App
+    /// Group's persistedApp record stays in sync with Core Data.
+    /// Also updates the live in-memory categoryAssignments so the dashboard
+    /// reflects the change without requiring an app relaunch.
+    private func applyToUsagePersistence(_ payload: FullConfigUpdatePayload) {
+        let service = ScreenTimeService.shared
+        let persistence = service.usagePersistence
+        guard var persistedApp = persistence.app(for: payload.logicalID) else {
+            #if DEBUG
+            print("[ChildConfigCommandProcessor] No persisted app for \(payload.logicalID) — skipping persistence mirror")
+            #endif
+            return
+        }
+        // Canonicalize via parser so legacy lowercase payloads land as
+        // "Learning"/"Reward" in App Group.
+        let parsedCategory = AppUsage.AppCategory.parse(payload.category) ?? .learning
+        persistedApp.category = parsedCategory.rawValue
+        persistedApp.rewardPoints = payload.pointsPerMinute
+        persistedApp.lastUpdated = Date()
+        persistence.saveApp(persistedApp)
+        #if DEBUG
+        print("[ChildConfigCommandProcessor] ✅ Mirrored to UsagePersistence: \(persistedApp.displayName) → \(parsedCategory.rawValue), \(payload.pointsPerMinute)pts/min")
+        #endif
+
+        // Update the live in-memory categoryAssignments so the dashboard
+        // reflects the change immediately. Without this, the user would see
+        // the old grouping until the next cold launch rebuilt categoryAssignments
+        // from persistedApp via restoreFamilySelection.
+        for application in service.familySelection.applications {
+            guard let token = application.token,
+                  service.getLogicalID(for: token) == payload.logicalID else {
+                continue
+            }
+            service.assignCategory(parsedCategory, to: token)
+            service.assignRewardPoints(payload.pointsPerMinute, to: token)
+            break
+        }
     }
 
     private func updateAppConfiguration(_ payload: FullConfigUpdatePayload) async throws {
