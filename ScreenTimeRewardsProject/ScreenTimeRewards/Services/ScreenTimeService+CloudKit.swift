@@ -105,14 +105,14 @@ extension ScreenTimeService {
         #endif
         
         // Apply category assignment
-        if let categoryString = config.category,
-           let category = AppUsage.AppCategory(rawValue: categoryString) {
+        // Use case-insensitive parse to recover legacy lowercase records from older writers.
+        if let category = AppUsage.AppCategory.parse(config.category) {
             // Update the service's category assignments
             self.assignCategory(category, to: token)
         }
-        
+
         // Apply reward points
-        if config.category == "reward" {
+        if AppUsage.AppCategory.parse(config.category) == .reward {
             let points = Int(config.pointsPerMinute)
             // Update the service's reward points assignments
             self.assignRewardPoints(points, to: token)
@@ -133,10 +133,14 @@ extension ScreenTimeService {
             // Get existing persisted app or create new one
             let existingApp = usagePersistence.app(for: logicalID)
 
+            // Normalize category to canonical capitalized form so the App Group
+            // never carries a lowercase string forward to subsequent reads.
+            let canonicalCategory = (AppUsage.AppCategory.parse(config.category) ?? .learning).rawValue
+
             let updatedApp = UsagePersistence.PersistedApp(
                 logicalID: logicalID,
                 displayName: displayName,
-                category: config.category ?? "learning",
+                category: canonicalCategory,
                 rewardPoints: existingApp?.rewardPoints ?? Int(config.pointsPerMinute),
                 totalSeconds: existingApp?.totalSeconds ?? 0,
                 earnedPoints: existingApp?.earnedPoints ?? 0,

@@ -601,14 +601,18 @@ class ParentRemoteViewModel: ObservableObject {
             }
         }
 
-        // Aggregate actual data
+        // Aggregate actual data. Use case-insensitive parse so legacy lowercase
+        // category records (from older child uploads) still aggregate correctly.
         for record in childDailyUsageHistory {
             let dayStart = calendar.startOfDay(for: record.date)
             var current = totals[dayStart] ?? (learning: 0, reward: 0)
-            if record.category == "Learning" {
+            switch AppUsage.AppCategory.parse(record.category) {
+            case .learning:
                 current.learning += record.seconds
-            } else if record.category == "Reward" {
+            case .reward:
                 current.reward += record.seconds
+            case .none:
+                break
             }
             totals[dayStart] = current
         }
@@ -627,10 +631,13 @@ class ParentRemoteViewModel: ObservableObject {
 
         for record in childDailyUsageHistory {
             if calendar.isDate(record.date, inSameDayAs: today) {
-                if record.category == "Learning" {
+                switch AppUsage.AppCategory.parse(record.category) {
+                case .learning:
                     learning += record.seconds
-                } else if record.category == "Reward" {
+                case .reward:
                     reward += record.seconds
+                case .none:
+                    break
                 }
             }
         }
@@ -681,7 +688,7 @@ class ParentRemoteViewModel: ObservableObject {
         var usagePerApp: [String: Int] = [:]
         for record in childDailyUsageHistory {
             guard calendar.isDate(record.date, inSameDayAs: today),
-                  record.category == "Learning",
+                  AppUsage.AppCategory.parse(record.category) == .learning,
                   lowestThresholdPerLearningApp[record.logicalID] != nil else {
                 continue
             }
@@ -967,7 +974,7 @@ class ParentRemoteViewModel: ObservableObject {
         print("[ParentRemoteViewModel] Marked \(config.displayName) as pending (protected from CloudKit overwrite)")
         #endif
 
-        if config.category == "Learning" {
+        if AppUsage.AppCategory.parse(config.category) == .learning {
             if let index = childLearningAppsFullConfig.firstIndex(where: { $0.logicalID == config.logicalID }) {
                 childLearningAppsFullConfig[index] = config
                 #if DEBUG
@@ -1375,9 +1382,10 @@ class ParentRemoteViewModel: ObservableObject {
             print("[ParentRemoteViewModel] Fetched \(configs.count) app configurations from CloudKit")
             #endif
 
-            // Filter into learning and reward categories
-            let learning = configs.filter { $0.category == "Learning" && $0.isEnabled }
-            let reward = configs.filter { $0.category == "Reward" && $0.isEnabled }
+            // Filter into learning and reward categories.
+            // Case-insensitive parse so legacy lowercase records still partition correctly.
+            let learning = configs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
+            let reward = configs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
 
             // Also fetch full DTOs with schedule/goals/streaks
             // Use zone-specific query if zone info available (optimization)
@@ -1402,9 +1410,10 @@ class ParentRemoteViewModel: ObservableObject {
             }
             #endif
 
-            // Filter full DTOs into learning and reward categories
-            let learningFull = fullConfigs.filter { $0.category == "Learning" && $0.isEnabled }
-            let rewardFull = fullConfigs.filter { $0.category == "Reward" && $0.isEnabled }
+            // Filter full DTOs into learning and reward categories.
+            // Case-insensitive parse so legacy lowercase records still partition correctly.
+            let learningFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
+            let rewardFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
 
             // Fetch shield states for reward apps
             // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)

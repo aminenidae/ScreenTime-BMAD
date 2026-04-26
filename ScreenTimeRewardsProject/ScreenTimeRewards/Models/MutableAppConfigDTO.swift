@@ -151,12 +151,12 @@ struct MutableAppConfigDTO: Identifiable {
 
     /// Whether this is a learning app
     var isLearningApp: Bool {
-        category == "Learning"
+        AppUsage.AppCategory.parse(category) == .learning
     }
 
     /// Whether this is a reward app
     var isRewardApp: Bool {
-        category == "Reward"
+        AppUsage.AppCategory.parse(category) == .reward
     }
 
     /// Check if any field has been modified

@@ -45,9 +45,10 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     var learningAppDetails: [AppUsageDetail] {
         let calendar = Calendar.current
 
-        // Get today's usage grouped by logicalID
+        // Get today's usage grouped by logicalID.
+        // Case-insensitive parse so legacy lowercase records still match.
         let todayRecords = viewModel.childDailyUsageHistory.filter {
-            $0.category == "Learning" && calendar.isDateInToday($0.date)
+            AppUsage.AppCategory.parse($0.category) == .learning && calendar.isDateInToday($0.date)
         }
         let usageByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
 
@@ -71,9 +72,10 @@ final class RemoteDashboardDataAdapter: DashboardDataProvider {
     var rewardAppDetails: [AppUsageDetail] {
         let calendar = Calendar.current
 
-        // Get today's usage grouped by logicalID
+        // Get today's usage grouped by logicalID.
+        // Case-insensitive parse so legacy lowercase records still match.
         let todayRecords = viewModel.childDailyUsageHistory.filter {
-            $0.category == "Reward" && calendar.isDateInToday($0.date)
+            AppUsage.AppCategory.parse($0.category) == .reward && calendar.isDateInToday($0.date)
         }
         let usageByApp = Dictionary(grouping: todayRecords) { $0.logicalID }
 

@@ -1033,7 +1033,23 @@ class AppUsageViewModel: ObservableObject {
             // Refresh the ViewModel data to update the UI
             self.refreshData()
         }
-        
+
+        // Push the new selection to the parent device. configureMonitoring() above
+        // wrote the new persisted apps to App Group; backfill mirrors them into
+        // Core Data, then upload pushes the full set to CloudKit. Without this,
+        // adds-only picker saves were silent on parent (gate-on-removals only).
+        Task {
+            await service.backfillAppConfigurationsForCloudKit()
+            do {
+                try await CloudKitSyncService.shared.uploadAppConfigurationsToParent()
+                #if DEBUG
+                print("[AppUsageViewModel] ✅ CloudKit sync completed after category assignment save")
+                #endif
+            } catch {
+                print("[AppUsageViewModel] Error syncing AppConfigurations after category save: \(error)")
+            }
+        }
+
         #if DEBUG
         print("[AppUsageViewModel] 🔄 ON CATEGORY ASSIGNMENT SAVE COMPLETED")
         #endif

@@ -837,14 +837,14 @@ struct PairingConfigView: View {
                 config = AppConfiguration(context: context)
                 config.logicalID = app.logicalID
                 config.tokenHash = app.tokenHash
-                config.category = "learning"
+                config.category = AppUsage.AppCategory.learning.rawValue
                 config.deviceID = deviceID
                 config.pointsPerMinute = Int16(app.pointsPerMinute)
                 config.isEnabled = true
                 config.blockingEnabled = false
                 config.dateAdded = Date()
             }
-            
+
             config.displayName = newName
             config.iconURL = editedIconURLs[app.logicalID]
             config.lastModified = Date()
@@ -869,14 +869,14 @@ struct PairingConfigView: View {
                 config = AppConfiguration(context: context)
                 config.logicalID = app.logicalID
                 config.tokenHash = app.tokenHash
-                config.category = "reward"
+                config.category = AppUsage.AppCategory.reward.rawValue
                 config.deviceID = deviceID
                 config.pointsPerMinute = Int16(app.pointsPerMinute)
                 config.isEnabled = true
                 config.blockingEnabled = false
                 config.dateAdded = Date()
             }
-            
+
             config.displayName = newName
             config.iconURL = editedIconURLs[app.logicalID]
             config.lastModified = Date()

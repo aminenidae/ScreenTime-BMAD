@@ -316,11 +316,13 @@ class ChildConfigCommandProcessor {
             print("[ChildConfigCommandProcessor] Using existing schedule config")
             #endif
         } else {
-            // Create a new schedule config from payload
+            // Create a new schedule config from payload. Parse case-insensitively
+            // so legacy lowercase payloads still pick the correct branch.
+            let isReward = AppUsage.AppCategory.parse(payload.category) == .reward
             scheduleConfig = AppScheduleConfiguration(
                 logicalID: payload.logicalID,
                 allowedTimeWindow: .fullDay,
-                dailyLimits: payload.category == "Reward" ? .defaultReward : .unlimited,
+                dailyLimits: isReward ? .defaultReward : .unlimited,
                 isEnabled: payload.isEnabled
             )
             #if DEBUG

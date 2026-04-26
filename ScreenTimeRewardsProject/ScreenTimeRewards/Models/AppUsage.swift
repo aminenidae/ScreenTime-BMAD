@@ -105,6 +105,19 @@ struct AppUsage: Codable, Identifiable {
     enum AppCategory: String, Codable, CaseIterable {
         case learning = "Learning"
         case reward = "Reward"
+
+        /// Case-insensitive parser. Some legacy writers (e.g. PairingConfigView,
+        /// CloudKit records from older builds) stored "learning"/"reward" lowercase.
+        /// init?(rawValue:) is strict — use this when reading from persistence/CK
+        /// to recover those records instead of silently dropping to .learning default.
+        static func parse(_ raw: String?) -> AppCategory? {
+            guard let raw = raw else { return nil }
+            switch raw.lowercased() {
+            case "learning": return .learning
+            case "reward": return .reward
+            default: return nil
+            }
+        }
     }
     
     struct UsageSession: Codable, Identifiable {

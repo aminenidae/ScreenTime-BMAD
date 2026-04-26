@@ -1673,7 +1673,18 @@ class CloudKitSyncService: ObservableObject {
         fetchConfig.previousServerChangeToken = nil // Fetch all records from the beginning
 
         let fetchOperation = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: fetchConfig])
+        // Default QoS is .background — iOS throttles it heavily, especially when
+        // attached to Xcode debugger. The result block can fail to fire entirely.
+        // .userInitiated keeps the operation prioritized.
+        fetchOperation.qualityOfService = .userInitiated
 
+        // Wrap the fetch in a 15s timeout. Use an actor-isolated flag so the
+        // timeout race never resumes the continuation twice. If the operation
+        // hangs (e.g. iOS throttled the result block under load), we proceed
+        // with whatever records were collected; missed records may produce
+        // duplicate writes but nothing is lost.
+        actor ResumeGuard { var done = false; func tryResume() -> Bool { if done { return false }; done = true; return true } }
+        let guardActor = ResumeGuard()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             fetchOperation.recordWasChangedBlock = { recordID, result in
                 if case .success(let record) = result,
@@ -1681,10 +1692,23 @@ class CloudKitSyncService: ObservableObject {
                     allRecords.append(record)
                 }
             }
-            fetchOperation.fetchRecordZoneChangesResultBlock = { result in
-                continuation.resume()
+            fetchOperation.fetchRecordZoneChangesResultBlock = { _ in
+                Task {
+                    if await guardActor.tryResume() { continuation.resume() }
+                }
             }
             sharedDB.add(fetchOperation)
+
+            Task {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)  // 15s
+                if await guardActor.tryResume() {
+                    fetchOperation.cancel()
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⏱ AppConfiguration dedup fetch hit 15s timeout — proceeding with \(allRecords.count) records collected so far")
+                    #endif
+                    continuation.resume()
+                }
+            }
         }
 
         #if DEBUG
@@ -1788,7 +1812,12 @@ class CloudKitSyncService: ObservableObject {
                 alreadyAddedRecordIDs.insert(existing.recordID)
                 updatedCount += 1
             } else {
-                let recID = CKRecord.ID(recordName: "AC-\(UUID().uuidString)", zoneID: zoneID)
+                // Use a deterministic recordName so the create-new path is a true
+                // upsert. Without this, a hung dedup fetch (existingByLogicalID
+                // empty) would generate a fresh UUID every run and accumulate
+                // duplicate CK records for the same logical app.
+                let logicalID = config.logicalID ?? UUID().uuidString
+                let recID = CKRecord.ID(recordName: "AC-\(deviceID)-\(logicalID)", zoneID: zoneID)
                 rec = CKRecord(recordType: "CD_AppConfiguration", recordID: recID)
                 rec.parent = CKRecord.Reference(recordID: rootID, action: .none)
                 createdCount += 1
@@ -2864,7 +2893,13 @@ class CloudKitSyncService: ObservableObject {
         fetchConfig.previousServerChangeToken = nil // Fetch all records
 
         let fetchOperation = CKFetchRecordZoneChangesOperation(recordZoneIDs: [zoneID], configurationsByRecordZoneID: [zoneID: fetchConfig])
+        // Default QoS is .background — iOS throttles it heavily under load and
+        // the result block can fail to fire entirely, hanging the upload chain.
+        fetchOperation.qualityOfService = .userInitiated
 
+        // 15s timeout guard so a stuck fetch doesn't block subsequent uploads.
+        actor HistoryResumeGuard { var done = false; func tryResume() -> Bool { if done { return false }; done = true; return true } }
+        let historyGuard = HistoryResumeGuard()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             fetchOperation.recordWasChangedBlock = { recordID, result in
                 if case .success(let record) = result,
@@ -2873,9 +2908,22 @@ class CloudKitSyncService: ObservableObject {
                 }
             }
             fetchOperation.fetchRecordZoneChangesResultBlock = { _ in
-                continuation.resume()
+                Task {
+                    if await historyGuard.tryResume() { continuation.resume() }
+                }
             }
             sharedDB.add(fetchOperation)
+
+            Task {
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                if await historyGuard.tryResume() {
+                    fetchOperation.cancel()
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⏱ DailyUsageHistory dedup fetch hit 15s timeout — proceeding with \(allExistingRecords.count) records collected so far")
+                    #endif
+                    continuation.resume()
+                }
+            }
         }
 
         #if DEBUG
@@ -2977,8 +3025,12 @@ class CloudKitSyncService: ObservableObject {
         var createdCount = 0
 
         for (logicalID, app) in allApps {
-            // Skip uncategorized apps
-            guard app.category == "Learning" || app.category == "Reward" else { continue }
+            // Skip uncategorized apps. Use case-insensitive parse so legacy
+            // lowercase records ("learning"/"reward") are still uploaded.
+            guard let parsedCategory = AppUsage.AppCategory.parse(app.category) else { continue }
+            // Always upload canonical capitalized form so the parent never sees
+            // a lowercase category in CK records.
+            let canonicalCategory = parsedCategory.rawValue
 
             // Upload historical days from dailyHistory
             for summary in app.dailyHistory where summary.date >= cutoffDate {
@@ -3006,7 +3058,7 @@ class CloudKitSyncService: ObservableObject {
                 rec["CD_displayName"] = app.displayName as CKRecordValue
                 rec["CD_date"] = summary.date as CKRecordValue
                 rec["CD_seconds"] = summary.seconds as CKRecordValue
-                rec["CD_category"] = app.category as CKRecordValue
+                rec["CD_category"] = canonicalCategory as CKRecordValue
                 if let hourlyData = summary.hourlySeconds {
                     rec["CD_hourlySeconds"] = hourlyData as CKRecordValue
                 }
@@ -3040,7 +3092,7 @@ class CloudKitSyncService: ObservableObject {
                 rec["CD_displayName"] = app.displayName as CKRecordValue
                 rec["CD_date"] = today as CKRecordValue
                 rec["CD_seconds"] = app.todaySeconds as CKRecordValue
-                rec["CD_category"] = app.category as CKRecordValue
+                rec["CD_category"] = canonicalCategory as CKRecordValue
                 // Read hourly breakdown directly from extension's UserDefaults (source of truth)
                 // This bypasses potentially stale persistence data
                 if let extDefaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
@@ -3119,11 +3171,15 @@ class CloudKitSyncService: ObservableObject {
         var rewardLogicalIDs: [String] = []
 
         for (logicalID, app) in allApps {
-            if app.category == "Learning" {
+            // Case-insensitive parse so legacy lowercase records still aggregate.
+            switch AppUsage.AppCategory.parse(app.category) {
+            case .learning:
                 totalLearningSeconds += app.todaySeconds
-            } else if app.category == "Reward" {
+            case .reward:
                 totalRewardSeconds += app.todaySeconds
                 rewardLogicalIDs.append(logicalID)
+            case .none:
+                break
             }
         }
 
@@ -3145,9 +3201,10 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Apply threshold gate logic: only count if usage >= lowestThreshold
+        // Apply threshold gate logic: only count if usage >= lowestThreshold.
+        // Case-insensitive parse so legacy lowercase records still aggregate.
         var totalEarnedMinutes = 0
-        for (logicalID, app) in allApps where app.category == "Learning" {
+        for (logicalID, app) in allApps where AppUsage.AppCategory.parse(app.category) == .learning {
             guard let lowestThreshold = lowestThresholdPerLearningApp[logicalID] else {
                 continue // Not linked to any reward app
             }
@@ -3163,7 +3220,7 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         // Calculate cumulative available minutes (rollover + today's remaining)
-        let learningLogicalIDs = allApps.filter { $0.value.category == "Learning" }.map { $0.key }
+        let learningLogicalIDs = allApps.filter { AppUsage.AppCategory.parse($0.value.category) == .learning }.map { $0.key }
         let historicalRemaining = ScreenTimeService.shared.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningLogicalIDs,
             rewardIDs: rewardLogicalIDs

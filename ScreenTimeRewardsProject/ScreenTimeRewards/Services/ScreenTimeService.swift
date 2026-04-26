@@ -470,10 +470,24 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 let logicalID = mapping.logicalID
 
                 // Restore assignments from persisted app data (category & points now in PersistedApp!)
+                // Use case-insensitive parse to recover legacy lowercase records.
                 if let persistedApp = persistedApps[logicalID],
-                   let category = AppUsage.AppCategory(rawValue: persistedApp.category) {
+                   let category = AppUsage.AppCategory.parse(persistedApp.category) {
                     categoryAssignments[token] = category
                     rewardPointsAssignments[token] = persistedApp.rewardPoints
+
+                    // One-time heal: if the stored category string is non-canonical
+                    // (e.g. "learning"/"reward" lowercase from older builds or older
+                    // parent-push paths), rewrite it to the canonical capitalized form
+                    // so subsequent strict comparators and CK uploads accept it.
+                    if persistedApp.category != category.rawValue {
+                        var healed = persistedApp
+                        healed.category = category.rawValue
+                        usagePersistence.saveApp(healed)
+                        #if DEBUG
+                        print("[ScreenTimeService]   🩹 Healed legacy category '\(persistedApp.category)' → '\(category.rawValue)' for \(persistedApp.displayName)")
+                        #endif
+                    }
 
                     #if DEBUG
                     print("[ScreenTimeService]   ✅ Restored \(persistedApp.displayName): \(category.rawValue), \(persistedApp.rewardPoints)pts")
@@ -4332,8 +4346,9 @@ extension ScreenTimeService {
             var updatedCount = 0
 
             for (logicalID, persistedApp) in persistedApps {
-                // Skip uncategorized apps
-                guard persistedApp.category == "Learning" || persistedApp.category == "Reward" else {
+                // Skip uncategorized apps. Use case-insensitive parse so legacy
+                // lowercase records still backfill instead of being dropped.
+                guard let parsedCategory = AppUsage.AppCategory.parse(persistedApp.category) else {
                     continue
                 }
 
@@ -4353,8 +4368,8 @@ extension ScreenTimeService {
                     createdCount += 1
                 }
 
-                // Update fields from persisted app
-                config.category = persistedApp.category
+                // Update fields from persisted app, normalizing category to canonical form.
+                config.category = parsedCategory.rawValue
                 config.displayName = persistedApp.displayName
                 config.pointsPerMinute = Int16(persistedApp.rewardPoints)
                 config.isEnabled = true
@@ -4551,7 +4566,7 @@ extension ScreenTimeService {
             record.sessionEnd = Date().addingTimeInterval(Double(-3600 * i + 300))  // 5 min sessions
             record.totalSeconds = 300
             record.earnedPoints = Int32(10 * (i + 1))  // 10, 20, 30 points
-            record.category = i % 2 == 0 ? "learning" : "reward"
+            record.category = i % 2 == 0 ? AppUsage.AppCategory.learning.rawValue : AppUsage.AppCategory.reward.rawValue
             record.isSynced = false  // CRITICAL: Mark as unsynced
             record.syncTimestamp = nil
 
