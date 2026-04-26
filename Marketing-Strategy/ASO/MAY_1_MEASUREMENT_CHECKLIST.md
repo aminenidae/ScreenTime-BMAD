@@ -59,10 +59,10 @@ All items must be ✅ before clicking Submit. Goal: 1.0.4 in Apple's review queu
 
 ### A2. Screenshots (EN_US primary set)
 - [x] 10 screenshots uploaded to EN_US at 1290×2796
-- [ ] **Clone same 10 images in same order to EN_CA**
-- [ ] **Clone same 10 images in same order to EN_GB**
-- [ ] **Clone same 10 images in same order to EN_AU**
-- [ ] **Clone same 10 images in same order to ES_MX**
+- [x] **Clone same 10 images in same order to EN_CA**
+- [x] **Clone same 10 images in same order to EN_GB**
+- [x] **Clone same 10 images in same order to EN_AU**
+- [x] **Clone same 10 images in same order to ES_MX**
 
 ### A3. Binary
 - [ ] 1.0.4 binary archived in Xcode
