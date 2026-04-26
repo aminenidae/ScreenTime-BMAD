@@ -1639,3 +1639,74 @@ Two-branch model intentional: `fix/wall-clock-cap-and-full-logging` is the valid
 - iOS-side root cause: why `includesPastActivity:true` causes iOS to replay potentially-cross-day cumulative is not investigated. We don't control iOS — we adapt around it.
 - The "reward-time-exhausted" race (goal met but shield being re-applied due to exhaustion) is structurally unaddressed by Fix 1; a future commit can add a parallel backstop reading `usage_<rewardAppID>_today` ≥ earned reward minutes if it's ever observed in practice.
 - Debouncing rapid `MONITORING_RELOAD` calls (Apr 21 doc remediation #3) — the cap+pin combo makes this less urgent. Defer until evidence justifies.
+
+### Apr 25, 2026 — Pin Fix Reproduction → Two Layers Added
+
+**Status:** SHIPPED on branch `fix/shield-race-and-newapp-pinning`. One commit on top of the Apr 24 pin fix. **Device-validated 2026-04-26**: user added apps mid-day with pre-existing cumulative for the Application token; zero bogus +60s credit observed (vs. three reproductions on Apr 14/21/24/25 prior to this fix).
+
+**Symptom.** Newly-added apps still recording bogus +60s the same day (third reproduction *after* the Apr 24 single-layer fix). User report: "happened for some additions today. not all." Log: `Build Reports/ext-log-2026-04-25.log`.
+
+**Two distinct failure modes, both from the same log.**
+
+#### Mode 1: Pin lost across reloads — `642B7130`
+
+| time | event | pin state |
+|---|---|---|
+| 18:28:13 | `NEW_APPS_PINNED count=1 ids=642B7130` | pinned (`includesPastActivity:false`) |
+| 18:28 → 19:24 | (no threshold events) | pin holds, iOS quiet |
+| 19:24:15 | `scheduleActivity()` re-runs (no app added) | **pin LOST** — re-registered with `includesPastActivity:true` |
+| 19:24:27 | `scheduleActivity()` re-runs (E54C1C9E added) | still un-pinned for 642B7130 |
+| 19:24:32 | `NEW_DAY` thresh=2160s → +60s; +1s; +4s = **65s bogus credit** | `lastThreshold=3540s` poisoned |
+
+**Root cause.** The Apr 24 diff `newlyAddedIDs = newSet − previouslyTrackedIDs` is computed against `tracked_app_ids`, which we *just wrote* on the previous call. So an app added on call N is not in `newlyAddedIDs` on call N+1. The pin only survives the very first reload after registration.
+
+#### Mode 2: `includesPastActivity:false` is unreliable — `E54C1C9E`
+
+| time | event |
+|---|---|
+| 19:24:27 | `NEW_APPS_PINNED count=1 ids=E54C1C9E — registered with includesPastActivity:false` |
+| 19:24:49 | (just **22 seconds later**) `NEW_DAY` thresh=1440s → +60s; thresh=3060s → +0s = **60s bogus credit**, `lastThreshold=3060s` poisoned |
+
+E54C1C9E was *correctly* pinned with `includesPastActivity:false`. No intervening reload. iOS still fired backed-up threshold events for cumulative usage that occurred BEFORE registration but WITHIN the active monitoring interval (which started at 00:01:09 today).
+
+**Conclusion: `includesPastActivity:false` only suppresses cross-INTERVAL boundaries (midnight rollovers), not within-interval pre-registration cumulative for the Application token.** The Apple-flag defense is structurally insufficient on its own. The Apr 24 end-to-end validation (Facebook/YouTube/Instagram) didn't cover the "add an app mid-day with significant prior cumulative" case.
+
+**Secondary damage from both modes.** The first non-blocked event sets `lastThreshold` to a high value (3060–3540s). Subsequent same-day SKIP_REGRESSION then blocks REAL future usage events until cumulative crosses that ceiling — silently undercounting for the rest of the day.
+
+#### Fix (two-layer)
+
+**Layer 1 — Persistent pin set (`ScreenTimeService.swift`).** Replace the per-call diff with a sticky daily set:
+- Read `pinned_apps_today` (date-stamped) from UserDefaults at the start of `scheduleActivity()`.
+- Union in any first-call newly-added IDs; restrict to currently-tracked apps.
+- Write back. Register with `includesPastActivity:false` for everything in the union.
+- Set `app_first_seen_today_<id>` only on first appearance today; never overwrite on subsequent reloads (so the timestamp is stable across the day).
+- `resetAllDailyCounters()` clears `pinned_apps_today`, `pinned_apps_today_date`, and `app_first_seen_today_<id>` for every tracked app at midnight.
+
+This holds the pin for 642B7130 across all today's reloads (Mode 1).
+
+**Layer 2 — `SKIP_PIN_REPLAY` filter (`DeviceActivityMonitorExtension.swift`).** Inserted between Filter 2 (SHIELDED) and Filter 3 (REGRESSION). Since the Apple flag can't be trusted (Mode 2), anchor each pinned app at registration time and reject events claiming impossible cumulative:
+
+```swift
+let firstSeenAt = defaults.double(forKey: "app_first_seen_today_\(appID)")
+if firstSeenAt >= startOfToday {
+    let wallClockSincePin = nowTimestamp - firstSeenAt
+    let allowedCeiling = wallClockSincePin + 60   // +60s buffer for the legit first event
+    if Double(thresholdSeconds) > allowedCeiling {
+        return false  // SKIP_PIN_REPLAY
+    }
+}
+```
+
+**Walk-through.**
+- E54C1C9E: pinned 19:24:27, event 19:24:49 thresh=1440s → wallClock=22s, ceiling=82s, **1440 > 82 → DROP** ✓. `lastThreshold` not poisoned. Future real usage tracked normally.
+- 642B7130 with persistent pin: pin holds through the 19:24:15 reload, so iOS may not fire historical replays at all. If iOS does fire post-reload (Apple flag unreliable), wallClock=3380s, ceiling=3440s, min.36 (2160s) → 2160 < 3440 → PASS. Indistinguishable from real 36-min usage during the 56-min window.
+- Real first usage: kid uses freshly-pinned app for 1 min → min.1 thresh=60s arrives at wallClock≥60s → 60 ≤ 120 → PASS ✓.
+
+**Trade-off.** A burst of legitimately-skipped thresholds (e.g., 5 min of usage during a BGTask gap, iOS only delivers `min.5`) accruing within 60s of pin would be over-blocked. Bounded undercount on the rare pin-burst overlap is far preferable to unbounded overcount + lastThreshold poisoning. Same asymmetric trade-off as the per-event 60s wall-clock cap.
+
+**Validation.** Same end-of-day comparison: add an app mid-day to a device with significant prior cumulative for that Application token. Expect zero bogus credit at registration, real usage post-pin tracked correctly. Watch for `SKIP_PIN_REPLAY` log lines with `thresh > wallClock+60` ratios — those are the events that previously poisoned `lastThreshold`.
+
+#### Out of scope
+
+- We do not block events with `thresh ≤ wallClock+60` after a long quiet period (642B7130 case 56 min in). Without per-app cumulative-at-pin-time tracking we can't distinguish replay from real. Accepted: the existing per-event 60s wall-clock cap bounds damage to ≤60s in this ambiguous case.
+- App removed-and-re-added the same day: the first-seen anchor stays at the original add time (we never overwrite). Prior recorded usage is preserved per the user's invariant; new usage continues from where it was.

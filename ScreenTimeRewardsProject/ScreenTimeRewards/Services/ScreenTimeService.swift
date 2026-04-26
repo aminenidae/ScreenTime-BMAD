@@ -2382,25 +2382,65 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
-        // Register all events. For newly-added apps (not in the previously-tracked
-        // set), use includesPastActivity:false so iOS doesn't replay historical
-        // cumulative for the Application token. Existing apps keep includesPastActivity:true
-        // so cross-midnight + BGTask-gap recovery still works.
-        let newlyAddedIDs: Set<String> = Set(appTemplates.keys).subtracting(previouslyTrackedIDs)
-        let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
-            let logicalID = entry.value.applications.first?.logicalID ?? ""
-            let isNewlyAdded = newlyAddedIDs.contains(logicalID)
-            result[entry.key] = entry.value.deviceActivityEvent(includesPastActivity: !isNewlyAdded)
+        // Newly-added pin set persists across all scheduleActivity() calls in the same day.
+        // Apr 25 evidence (642B7130, ext-log-2026-04-25.log): the per-call diff against
+        // `tracked_app_ids` un-pinned an app on the next reload — `includesPastActivity` flipped
+        // back to true and iOS replayed history. Compute against a sticky `pinned_apps_today`
+        // set instead. The set is union-only today and cleared at midnight by the extension.
+        // Each pinned app also gets `app_first_seen_today_<id>` set on first appearance —
+        // the extension reads this for SKIP_PIN_REPLAY (the actual defense, since Apr 25
+        // evidence (E54C1C9E) showed `includesPastActivity:false` does NOT suppress
+        // within-interval pre-registration cumulative for the Application token).
+        let nowEpoch = Date().timeIntervalSince1970
+        let startOfTodayEpoch = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let firstCallNewlyAdded: Set<String> = Set(appTemplates.keys).subtracting(previouslyTrackedIDs)
+
+        var pinnedAppsToday: Set<String> = {
+            guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+                  sharedDefaults.double(forKey: "pinned_apps_today_date") >= startOfTodayEpoch else {
+                return []
+            }
+            return Set(sharedDefaults.stringArray(forKey: "pinned_apps_today") ?? [])
+        }()
+
+        let freshlyPinned = firstCallNewlyAdded.subtracting(pinnedAppsToday)
+        pinnedAppsToday.formUnion(firstCallNewlyAdded)
+        // Restrict to apps still being tracked (drop anything removed today)
+        pinnedAppsToday = pinnedAppsToday.intersection(appTemplates.keys)
+
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            sharedDefaults.set(Array(pinnedAppsToday), forKey: "pinned_apps_today")
+            sharedDefaults.set(startOfTodayEpoch, forKey: "pinned_apps_today_date")
+
+            // First-seen anchor: only set on the app's first appearance today; never overwrite
+            // (so the pin time stays stable across reloads). Cleared in resetAllDailyCounters().
+            for logicalID in freshlyPinned {
+                let firstSeenKey = "app_first_seen_today_\(logicalID)"
+                let existing = sharedDefaults.double(forKey: firstSeenKey)
+                if existing < startOfTodayEpoch {
+                    sharedDefaults.set(nowEpoch, forKey: firstSeenKey)
+                }
+            }
         }
 
-        if !newlyAddedIDs.isEmpty {
-            let prefixes = newlyAddedIDs.map { String($0.prefix(8)) }.sorted().joined(separator: ",")
-            lifecycleLog("NEW_APPS_PINNED count=\(newlyAddedIDs.count) ids=\(prefixes) — registered with includesPastActivity:false")
+        let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
+            let logicalID = entry.value.applications.first?.logicalID ?? ""
+            let isPinned = pinnedAppsToday.contains(logicalID)
+            result[entry.key] = entry.value.deviceActivityEvent(includesPastActivity: !isPinned)
+        }
+
+        if !freshlyPinned.isEmpty {
+            let prefixes = freshlyPinned.map { String($0.prefix(8)) }.sorted().joined(separator: ",")
+            lifecycleLog("NEW_APPS_PINNED count=\(freshlyPinned.count) ids=\(prefixes) — registered with includesPastActivity:false + first-seen anchor")
+        }
+        if !pinnedAppsToday.isEmpty {
+            let stickyPrefixes = pinnedAppsToday.map { String($0.prefix(8)) }.sorted().joined(separator: ",")
+            lifecycleLog("PINNED_APPS_TODAY count=\(pinnedAppsToday.count) ids=\(stickyPrefixes)")
         }
 
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
-            let pinnedTag = newlyAddedIDs.contains(logicalID) ? " [PINNED:noPastActivity]" : ""
+            let pinnedTag = pinnedAppsToday.contains(logicalID) ? " [PINNED:noPastActivity]" : ""
             lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds) windowTop=\(mins + 60)\(pinnedTag)")
             midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
         }

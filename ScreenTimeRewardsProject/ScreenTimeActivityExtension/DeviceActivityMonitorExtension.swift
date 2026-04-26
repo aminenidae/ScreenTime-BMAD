@@ -488,6 +488,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
+        // Filter 2.5: SKIP_PIN_REPLAY — wall-clock anchor for newly-added apps.
+        // Apr 25 evidence (E54C1C9E, ext-log-2026-04-25.log): iOS fires backed-up threshold
+        // events for cumulative usage that occurred BEFORE registration, even when the app
+        // was registered with `includesPastActivity:false`. The Apple flag only suppresses
+        // cross-INTERVAL boundaries (midnight), not within-interval pre-registration usage.
+        // Defense: anchor each newly-pinned app at its first-seen timestamp; reject any
+        // threshold event claiming more cumulative seconds than (now - firstSeen + 60s buffer).
+        // The +60s buffer lets the first legitimate min.1 event after pinning slip through.
+        let firstSeenAt = defaults.double(forKey: "app_first_seen_today_\(appID)")
+        if firstSeenAt >= startOfToday {
+            let wallClockSincePin = nowTimestamp - firstSeenAt
+            let allowedCeiling = wallClockSincePin + 60
+            if Double(thresholdSeconds) > allowedCeiling {
+                debugLog("SKIP_PIN_REPLAY appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(Int(wallClockSincePin))s allowed=\(Int(allowedCeiling))s — historical replay since pin", defaults: defaults)
+                if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_PIN_REPLAY appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(Int(wallClockSincePin))s", defaults: defaults) }
+                Self.logger.notice("SKIP_PIN_REPLAY app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(Int(wallClockSincePin))s")
+                return false
+            }
+        }
+
         // Filter 3: Threshold progression
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
@@ -964,8 +984,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
                 }
                 defaults.removeObject(forKey: "ext_usage_\(appID)_hourly_date")
+
+                // Clear newly-added pin anchor at midnight: a "newly added" app from
+                // yesterday is treated as already-known today (cumulative=0 anyway).
+                defaults.removeObject(forKey: "app_first_seen_today_\(appID)")
             }
         }
+
+        // Clear yesterday's pinned-apps set so today starts fresh
+        defaults.removeObject(forKey: "pinned_apps_today")
+        defaults.removeObject(forKey: "pinned_apps_today_date")
 
         // Clear shield check flag so it re-evaluates after next restart
         defaults.removeObject(forKey: "ext_shield_check_after_restart")
