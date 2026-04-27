@@ -621,13 +621,28 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // skipped threshold. Asymmetric vs. unbounded over-credit; ship.
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
-        let wallClockBaseline: TimeInterval = (lastEventTime > 0) ? lastEventTime : startOfToday
+        // Anchor cap on the latest of: last event for this app, last unlock for this app
+        // (Apr 26–27 fix), or start-of-today (midnight fallback). Using max() means a
+        // legitimate post-unlock catch-up burst can credit up to elapsed-since-unlock
+        // on its FIRST event — subsequent in-burst events naturally fall back to 60s
+        // because lastEventTime advances. Without this, the per-event 60s cap discards
+        // multi-minute legitimate use that accumulated between unshield and first event.
+        let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
+        let wallClockBaseline: TimeInterval = max(lastEventTime, unlockTime, startOfToday)
         let wallClockElapsed = max(0, Int(nowTimestamp - wallClockBaseline))
         let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
-        let perEventCap = 60
+
+        // First event after an unlock relaxes the per-event cap to elapsed-since-unlock
+        // (bounded by rawDelta and wallClockElapsed). Subsequent events have
+        // lastEventTime > unlockTime, so isFirstEventAfterUnlock=false and cap=60s.
+        let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
+        let perEventCap = isFirstEventAfterUnlock
+            ? max(60, Int(nowTimestamp - unlockTime))
+            : 60
         let delta = max(0, min(rawDelta, wallClockElapsed, perEventCap))
         if delta < rawDelta {
-            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s perEvent=\(perEventCap)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
+            let unlockAge = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
+            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
         }
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
@@ -1025,8 +1040,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     // These methods allow the extension to directly control shields when learning goals are met,
     // without requiring the main app to be running
 
-    /// Check all reward app goals and update shields accordingly
-    /// Called after each usage recording to immediately unblock reward apps when goals are met
+    /// Check all reward app goals and update shields accordingly.
+    /// Called after each usage recording. Gates on POOLED Time Bank balance, not on
+    /// today's per-goal threshold — so a child with carry-forward credit can spend it
+    /// even on a day where they haven't crossed today's threshold (Device B fix), and
+    /// a child who has spent their balance stays shielded even if the threshold is met
+    /// (Device A fix). Per-app gates (downtime / dailyLimit) still override.
     private nonisolated func checkAndUpdateShields(configs: ExtensionShieldConfigsMinimal?, defaults: UserDefaults) {
         debugLog("SHIELD_CHECK: Starting shield update check", defaults: defaults)
 
@@ -1035,43 +1054,53 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
-        debugLog("SHIELD_CHECK: Found \(configs.goalConfigs.count) goal configs to evaluate", defaults: defaults)
+        let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
+        debugLog("SHIELD_CHECK: pool=\(pool)min across \(configs.goalConfigs.count) goal configs", defaults: defaults)
+
+        // Pool empty → nothing to unshield this pass. checkAndBlockIfRewardTimeExhausted
+        // will (re-)apply shields if needed.
+        guard pool > 0 else {
+            debugLog("SHIELD_CHECK: pool empty, no unshield", defaults: defaults)
+            return
+        }
 
         for goalConfig in configs.goalConfigs {
-            let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
             let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
-            debugLog("SHIELD_CHECK: \(shortID)... goalMet=\(isGoalMet)", defaults: defaults)
 
-            if isGoalMet {
-                // Don't unlock if today's daily limit is 0 (app blocked for entire day)
-                let todayLimit = goalConfig.todayDailyLimit()
-                if todayLimit == 0 {
-                    debugLog("SHIELD_CHECK: \(shortID) goal met but dailyLimit=0 today — keeping shield", defaults: defaults)
-                    continue
-                }
+            // Per-app overrides — pool > 0 is necessary but not sufficient.
+            let dailyLimit = goalConfig.todayDailyLimit()
+            if dailyLimit == 0 {
+                debugLog("SHIELD_CHECK: \(shortID) dailyLimit=0 today — keeping shield", defaults: defaults)
+                continue
+            }
+            if !isCurrentTimeInAllowedWindow(goalConfig) {
+                debugLog("SHIELD_CHECK: \(shortID) outside allowed time window — keeping shield", defaults: defaults)
+                continue
+            }
+            let usageMinutes = defaults.integer(
+                forKey: "usage_\(goalConfig.rewardAppLogicalID)_today") / 60
+            if dailyLimit < 1440 && usageMinutes >= dailyLimit {
+                debugLog("SHIELD_CHECK: \(shortID) per-app daily limit reached (used=\(usageMinutes) >= \(dailyLimit)) — keeping shield", defaults: defaults)
+                continue
+            }
 
-                guard let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
-                    debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
-                    continue
-                }
+            guard let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
+                debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
+                continue
+            }
 
-                var currentShields = managedSettingsStore.shield.applications ?? Set()
-                let shieldCount = currentShields.count
-                let containsToken = currentShields.contains(token)
-                debugLog("SHIELD_CHECK: \(shortID) currentShields=\(shieldCount), containsToken=\(containsToken)", defaults: defaults)
+            var currentShields = managedSettingsStore.shield.applications ?? Set()
+            let containsToken = currentShields.contains(token)
 
-                if containsToken {
-                    currentShields.remove(token)
-                    managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
-                    recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
-                    debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID)", defaults: defaults)
+            if containsToken {
+                currentShields.remove(token)
+                managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
+                recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (pool=\(pool)min)", defaults: defaults)
 
-                    // Calculate earned minutes for notification
-                    let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
-                    scheduleGoalCompletedNotification(rewardMinutes: earnedMinutes, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
-                } else {
-                    debugLog("SHIELD_CHECK: ℹ️ \(shortID) goal met but not currently shielded", defaults: defaults)
-                }
+                scheduleGoalCompletedNotification(rewardMinutes: pool, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
+            } else {
+                debugLog("SHIELD_CHECK: ℹ️ \(shortID) pool>0 but not currently shielded", defaults: defaults)
             }
         }
         debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
@@ -1198,13 +1227,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return currentTotalMinutes >= startTotal && currentTotalMinutes < endTotal
     }
 
-    /// Check if any reward app should be blocked due to downtime, daily limit, or exhausted earned time
-    /// Priority: Downtime (highest) > Daily limit > Reward time expired (lowest)
-    /// This uses the same data source (extensionShieldConfigs) as the unlock logic
+    /// Check if any reward app should be blocked due to downtime, daily limit, or exhausted Time Bank pool.
+    /// Priority: dailyLimit==0 > Downtime > Daily limit exceeded > Pool empty.
+    /// Pool replaces the old per-config Check 2 (learning-goal-not-met) and Check 3 (earned-time-exhausted) —
+    /// see `docs/SMART_THRESHOLD_FILTERING.md` "Apr 26–27, 2026 — Pooled Time Bank Shield Gate".
     private nonisolated func checkAndBlockIfRewardTimeExhausted(configs: ExtensionShieldConfigsMinimal?, defaults: UserDefaults) {
         guard let configs = configs else {
             return
         }
+
+        // Pool is the same across all reward apps in this child's config — compute once.
+        let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
 
         for goalConfig in configs.goalConfigs {
             // Get reward app usage (today)
@@ -1307,11 +1340,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 continue  // Skip reward time check - daily limit takes priority
             }
 
-            // Check 2: Learning goal not yet met — re-block at start of new day
-            // Covers the case where yesterday's shield was lifted (goal was met) but today's
-            // goal hasn't been started yet. earnedMinutes would be 0, so Check 3 never fires.
-            let isGoalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
-            if !isGoalMet {
+            // Check 2 (replaces old learning-goal + reward-time-expired checks):
+            // Pool empty → re-apply shield. The pool already accounts for both
+            // "today's threshold not crossed AND no carry-forward credit" and
+            // "earned credit fully consumed by today's reward usage."
+            if pool <= 0 {
                 guard let token = try? PropertyListDecoder().decode(
                     ApplicationToken.self,
                     from: goalConfig.rewardAppTokenData
@@ -1324,45 +1357,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                     recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
 
-                    persistBlockingReason(
-                        tokenHash: goalConfig.rewardAppLogicalID,
-                        reasonType: "learningGoal",
-                        usedMinutes: usageMinutes,
-                        defaults: defaults
-                    )
-
-                    debugLog("LEARNING_GOAL_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... goal not met — re-applying shield", defaults: defaults)
-                }
-                continue  // Skip reward time check — only relevant once goal is met
-            }
-
-            // Check 3: Reward time exhausted (lower priority)
-            // Calculate total earned minutes from met learning goals
-            let earnedMinutes = calculateEarnedMinutes(goalConfig: goalConfig, defaults: defaults)
-
-            // If usage >= earned AND earned > 0, re-apply shield
-            // (earned > 0 means goals were met at some point today)
-            if earnedMinutes > 0 && usageMinutes >= earnedMinutes {
-                guard let token = try? PropertyListDecoder().decode(
-                    ApplicationToken.self,
-                    from: goalConfig.rewardAppTokenData
-                ) else { continue }
-
-                var currentShields = managedSettingsStore.shield.applications ?? Set()
-                if !currentShields.contains(token) {
-                    currentShields.insert(token)
-                    managedSettingsStore.shield.applications = currentShields
-
-                    // Record block state for main app to sync
-                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
-
-                    // Persist blocking reason for ShieldConfigurationExtension
                     persistBlockingReason(
                         tokenHash: goalConfig.rewardAppLogicalID,
                         reasonType: "rewardTimeExpired",
                         usedMinutes: usageMinutes,
                         defaults: defaults
                     )
+
+                    debugLog("POOL_EMPTY_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... pool=\(pool)min — re-applying shield", defaults: defaults)
                 }
             }
         }
@@ -1412,6 +1414,59 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         default:
             return 0
         }
+    }
+
+    /// Pool balance the child has available to spend on ANY reward app right now.
+    /// Mirrors `AppUsageViewModel.cumulativeAvailableMinutes` (line 210) — the
+    /// historical component is read from the App Group key the main app writes,
+    /// the today-component is computed live by the extension.
+    ///
+    /// SOURCE-OF-TRUTH INVARIANT: if the main app's bank formula changes, this
+    /// helper MUST be updated in the same commit. See
+    /// `docs/SMART_THRESHOLD_FILTERING.md` "Apr 26–27, 2026 — Pooled Time Bank Shield Gate".
+    private nonisolated func computeEffectivePoolBalance(
+        configs: ExtensionShieldConfigsMinimal,
+        defaults: UserDefaults
+    ) -> Int {
+        let historical = defaults.integer(forKey: "bank_historical_remaining_minutes")
+
+        // Today's earned: iterate UNIQUE learning apps across all goal configs.
+        // A learning app may link to multiple reward apps with different
+        // thresholds/ratios — match `AppUsageViewModel.totalEarnedMinutes` (line 156):
+        // use the LOWEST threshold across all goals, and the FIRST-matching ratio.
+        var seenLearningIDs = Set<String>()
+        var todayEarned = 0
+        for goalConfig in configs.goalConfigs {
+            for linked in goalConfig.linkedLearningApps {
+                guard !seenLearningIDs.contains(linked.learningAppLogicalID) else { continue }
+                seenLearningIDs.insert(linked.learningAppLogicalID)
+
+                // Lowest threshold this learning app must clear (across all goals it feeds).
+                let lowestThreshold = configs.goalConfigs
+                    .flatMap { $0.linkedLearningApps }
+                    .filter  { $0.learningAppLogicalID == linked.learningAppLogicalID }
+                    .map     { $0.minutesRequired }
+                    .min() ?? linked.minutesRequired
+
+                let usageSeconds = defaults.integer(
+                    forKey: "usage_\(linked.learningAppLogicalID)_today")
+                let usageMinutes = usageSeconds / 60
+                guard usageMinutes >= lowestThreshold else { continue }
+
+                let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
+                todayEarned += Int(Double(usageMinutes) * ratio)
+            }
+        }
+
+        // Today's used: sum across all reward apps in the pool.
+        var todayUsed = 0
+        for goalConfig in configs.goalConfigs {
+            let usageSeconds = defaults.integer(
+                forKey: "usage_\(goalConfig.rewardAppLogicalID)_today")
+            todayUsed += usageSeconds / 60
+        }
+
+        return max(0, historical + todayEarned - todayUsed)
     }
 
     /// Persist blocking reason for ShieldConfigurationExtension to display correct message.

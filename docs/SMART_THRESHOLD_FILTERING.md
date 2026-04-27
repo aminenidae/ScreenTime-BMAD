@@ -1710,3 +1710,128 @@ if firstSeenAt >= startOfToday {
 
 - We do not block events with `thresh ≤ wallClock+60` after a long quiet period (642B7130 case 56 min in). Without per-app cumulative-at-pin-time tracking we can't distinguish replay from real. Accepted: the existing per-event 60s wall-clock cap bounds damage to ≤60s in this ambiguous case.
 - App removed-and-re-added the same day: the first-seen anchor stays at the original add time (we never overwrite). Prior recorded usage is preserved per the user's invariant; new usage continues from where it was.
+
+### Apr 26–27, 2026 — Pooled Time Bank Shield Gate (Devices A + B)
+
+**Status:** SHIPPED on branch `fix/shield-race-and-newapp-pinning` as a follow-up to the Apr 24/25 work. Validation pending end-of-day device check on 2026-04-27.
+
+**Two same-day device incidents from 2026-04-26 surfaced the same defect, in opposite polarities.** Both devices proved that the extension's shield gate was threshold-aware (today's per-goal `minutesRequired` met?) but **not pool-aware** (does the child have any carry-forward Time Bank credit?). The fix routes the main app's pre-existing `cumulativeAvailableMinutes` formula to the extension via App Group UserDefaults, so the extension can gate shield decisions on the same pooled balance the Dashboard renders.
+
+#### Device A — Over-spend (`ext-log-2026-04-26 2.log`)
+
+**Symptom (user-reported).** Reward app `06909776` used 84 min vs 64 min earned. +20 min over-spend.
+
+**Log evidence.**
+- iOS internal counter (visible via threshold value): ~99 min cumulative on `06909776`
+- Extension recorded: `newToday=4022s ≈ 67 min`
+- Final-state delta: 32 min iOS-vs-recorded gap = 28 min that fired during SHIELDED period (events 09:26→10:28 with `min=1` → `min=29`, all `SKIP_SHIELDED`) + ~4 min lost to per-event 60s cap during catch-up bursts
+- Repeated unshield/reshield ping-pong all day for `06909776`: `REMOVED shield` at 10:51, 10:56, 11:00, 11:31, 11:47, 12:31, 12:31:57, 13:06, 13:46…
+
+**Root cause (two compounding).**
+1. **No reward-balance gate on shield removal.** `checkAndUpdateShields()` (`DeviceActivityMonitorExtension.swift:1030`) removed the shield as soon as `goalMet=true`. Once today's learning crossed the per-goal threshold, the unlock pass kept stripping the shield even after the child had used all earned reward time. The companion `checkAndBlockIfRewardTimeExhausted()` Check 3 (line 1339–1367) *would* re-shield, but uses the extension's tracked `usage_<id>_today` which is silently low (under-counted by Apr-23 wall-clock cap during post-unlock catch-up bursts).
+2. **Per-event 60s cap discards legitimate post-unlock catch-up.** When the shield lifts at T₀ and the child plays for 9 min until T₁ (first event fires), iOS fires queued thresholds 1→9 in rapid succession. The first event credits 60s; subsequent in-burst events see `wallClockElapsed≈0` and credit 0. ~9 min real usage → 1 min recorded.
+
+#### Device B — Under-spend (`ext-log-2026-04-26 3.log`)
+
+**Symptom (user-reported).** Time Bank shows `41 MIN AVAILABLE`. All 12 reward apps stayed shielded all day. Child blocked from spending legitimate credit.
+
+**Log evidence.**
+- Today: 7 min learning on `50AB3A4D`, ratio 1:4, no goal threshold (15 / 30 min) crossed
+- 194× `goalMet=false`, 0× `goalMet=true` all day
+- 175 `SKIP_SHIELDED` + 92 `SKIP_SHIELDED_RACE`, all reward apps
+- Zero `RECORDED appID=<reward>` lines — extension correctly tracked zero reward usage
+- 0 `REMOVED shield` lines all day
+
+**User-confirmed math for the 41.**
+```
+historical = (lifetime_learning − today_learning) × ratio − lifetime_used
+           = (26 − 7) × 4 − 35
+           = 41
+```
+Time Bank is correctly computed by `AppUsageViewModel.cumulativeAvailableMinutes` (`AppUsageViewModel.swift:210`). It IS legitimate available credit — 41 min the child has earned through past learning that they can spend any day, regardless of whether today's threshold is crossed.
+
+**Root cause.** The extension's shield gate uses today's `checkGoalMet()` exclusively. It has no awareness that `historicalRemaining` exists. So even with a healthy 41-min pool, the gate kept the shield up because "today's 15-min threshold isn't met."
+
+#### Bridge contract
+
+```
+Pool balance =
+    main_app_written: bank_historical_remaining_minutes
+  + extension_computed: sum over UNIQUE learning apps of
+        (today_usage >= lowestThreshold for that app)
+        ? round(today_usage_minutes * first_matching_ratio)
+        : 0
+  − extension_computed: sum over reward apps of
+        usage_<rewardID>_today / 60
+
+Shield-on conditions for a reward app (any one is sufficient):
+  - downtime window
+  - dailyLimit == 0
+  - usage_<rewardID>_today >= dailyLimit (and dailyLimit < 1440)
+  - pool <= 0
+
+Otherwise: shield off.
+```
+
+**Source-of-truth invariant.** If the main app's `AppUsageViewModel.cumulativeAvailableMinutes` formula (line 210) ever changes, the extension's `computeEffectivePoolBalance()` MUST be updated in the same commit. Both must produce identical numbers for any given state.
+
+#### Three-layer fix
+
+**Layer 0 — Main app writes slow-moving historical baseline to App Group.**
+
+New keys (single child, pooled):
+```
+bank_historical_remaining_minutes        Int — pool baseline (slow-moving)
+bank_historical_remaining_lastUpdated    TimeInterval — staleness guard
+```
+
+Written by main app at three sites:
+1. End of `syncGoalConfigsToExtension()` (`ScreenTimeService.swift:4123`) — alongside `extensionShieldConfigs` write
+2. End of `handleMidnightTransition()` (`ScreenTimeService.swift:1909`) — after daily reset folds today's earnings into history
+3. On scenePhase `.active` (new hook in `ScreenTimeRewardsApp.swift`) — catches foreground-triggered recomputes
+
+Value: `UsagePersistence.getHistoricalRemainingMinutes(learningIDs:rewardIDs:learningRatios:)` (`UsagePersistence.swift:270`) — already exists, exact formula the bank uses for its historical component.
+
+**Why historical only (not the full bank value).** The today-component changes minute-by-minute as learning accrues; user confirmed main app is backgrounded during learning. The extension already has ratio + threshold from `extensionShieldConfigs` and raw seconds from its own `usage_<id>_today` writes — it can compute today's earned/used itself. Slow-moving baseline + extension-live decrement = correct effective balance with no main-app wake-up needed.
+
+**Layer 1 — Extension uses pooled balance as shield gate.**
+
+New helper `computeEffectivePoolBalance(configs:defaults:) -> Int` placed after `calculateEarnedMinutes()` (line 1415). Implements the bridge contract above. Uses UNIQUE learning apps, lowest threshold, first-matching ratio — byte-identical to `AppUsageViewModel.totalEarnedMinutes` (line 156).
+
+Rewrites:
+- `checkAndUpdateShields()` (line 1030–1078): removes per-config `isGoalMet` check; replaces with single pool-balance check. Per-app gates (downtime / dailyLimit==0 / dailyLimit-exceeded) preserved as overrides.
+- `checkAndBlockIfRewardTimeExhausted()` Check 2 + Check 3 (line 1310–1367): collapsed to single `pool <= 0` re-shield. Check -1 (dailyLimit==0), Check 0 (downtime), Check 1 (dailyLimit-exceeded) preserved unchanged.
+
+New log lines:
+- `SHIELD_CHECK: pool=Nmin` — replaces per-config goalMet logging
+- `POOL_EMPTY_BLOCK: <id>... pool=Nmin` — replaces `LEARNING_GOAL_BLOCK` and the old `rewardTimeExpired` block
+
+**Layer 2 — Wall-clock cap relaxation for first event after unlock (carries Device A's compound cause).**
+
+`setUsageToThreshold()` cap block (line 622–628) extended to anchor on `ext_unlock_<appID>_timestamp` (already written by `recordUnlockState()` at line 1066, currently read by no one). For the FIRST event after an unlock (when `unlockTime > lastEventTime`), `perEventCap` is raised to `max(60, now - unlockTime)`. Subsequent in-burst events see `lastEventTime≈now` and fall back to 60s — burst still bounded by `(T₁ − T₀)`.
+
+Cap-line debug extended with `unlockAge=Ns perEventCap=Ns` for forensic disambiguation.
+
+#### Symptom alignment after fix
+
+| Device | Pool | Per-app limits OK? | Result |
+|---|---|---|---|
+| A (after spend) | ≤ 0 | yes | All reward apps stay shielded; no more unshield/reshield ping-pong |
+| B (today) | 41 > 0 | yes | All reward apps unshield on next event; child can spend the 41 min |
+
+#### Validation
+
+1. **Device B reproduction:** ratio 1:4, manipulate state so `bank_historical_remaining_minutes > 0` and today's learning < threshold. Open reward app. Expect: shield lifts on first event. Log shows `SHIELD_CHECK: pool=Nmin` then `✅ REMOVED shield` even with no `goalMet=true` line.
+2. **Device A reproduction:** small earned (5 min), cross threshold, use reward app for >5 min. Expect: shield re-applies once pool hits 0, log shows `POOL_EMPTY_BLOCK`, no unshield/reshield ping-pong.
+3. **Pool de-dup:** two reward apps linked to the same learning app with different thresholds (15 / 30). Do 20 min learning. Expect: today_earned credits 20 × ratio ONCE (using 15-min threshold), not twice. Extension's `pool=Nmin` matches Dashboard `MIN AVAILABLE`.
+4. **Layer 2 catch-up:** earn ≥10 min, wait for unshield, idle 5 min, then use reward 4 min. Expect: first `RECORDED` after gap credits ~4 min in one event. New log line `WALL_CLOCK_CAP ... unlockAge=540s perEventCap=540s` for first event, `perEventCap=60s` thereafter.
+5. **End-of-day ground-truth:** at ~23:00 compare `usage_<id>_today` to iOS Settings → Screen Time (±2 min/app). Compare extension's `pool=Nmin` to Dashboard `MIN AVAILABLE` (must be identical).
+
+#### Out of scope (deferred)
+
+- Per-reward-app pool partitioning (user confirmed pooled is correct).
+- Manual parent grants — no UI surface today.
+- Recovering Device A's already-over-spent minutes — forward-looking only.
+- CloudKit-synced cross-device pool — `bank_historical_remaining_minutes` is App-Group local per device.
+- Live-update of pool during background ratio changes — main app must foreground for new ratio to reach extension.
+- Pre-unshield iOS-counted minutes (Device A's 28-min mystery cumulative on a "shielded" app): pool gate makes the question moot for spending decisions.

@@ -1908,6 +1908,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     func handleMidnightTransition() {
         usagePersistence.resetDailyCounters()
         reloadAppUsagesFromPersistence()
+        // Today's earnings just folded into history — refresh the extension's pool baseline.
+        syncBankHistoricalBaselineToExtension()
         notifyUsageChange()
     }
 
@@ -4121,6 +4123,55 @@ func configureWithTestApplications() {
             print("[ScreenTimeService] ❌ Failed to encode shield configs")
             #endif
         }
+
+        // Mirror the slow-moving Time Bank historical baseline to the extension.
+        // Pairs with computeEffectivePoolBalance() in DeviceActivityMonitorExtension.
+        // See docs/SMART_THRESHOLD_FILTERING.md "Apr 26–27, 2026 — Pooled Time Bank Shield Gate".
+        syncBankHistoricalBaselineToExtension()
+    }
+
+    /// Write the slow-moving Time Bank historical baseline to App Group UserDefaults so
+    /// the extension can compute the effective pool balance for shield decisions while
+    /// the main app is backgrounded. Mirrors the historical input to
+    /// `AppUsageViewModel.cumulativeAvailableMinutes` (line 210) — the today-component
+    /// is computed live by the extension from `usage_<id>_today` + ratios + thresholds.
+    func syncBankHistoricalBaselineToExtension() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        // Enumerate learning + reward logical IDs from category assignments.
+        // (UsagePersistence.LogicalAppID is a String typealias — pass [String] directly.)
+        var learningIDs: [String] = []
+        var rewardIDs: [String] = []
+        for (token, category) in categoryAssignments {
+            guard let logicalID = getLogicalID(for: token) else { continue }
+            switch category {
+            case .learning: learningIDs.append(logicalID)
+            case .reward:   rewardIDs.append(logicalID)
+            default: continue
+            }
+        }
+
+        // Build learning ratios map identical to AppUsageViewModel.buildLearningRatioMap()
+        var learningRatios: [String: Double] = [:]
+        for learningID in learningIDs {
+            if let schedule = AppScheduleService.shared.getSchedule(for: learningID) {
+                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
+                learningRatios[learningID] = ratio
+            }
+        }
+
+        let historicalRemaining = usagePersistence.getHistoricalRemainingMinutes(
+            learningIDs: learningIDs,
+            rewardIDs: rewardIDs,
+            learningRatios: learningRatios
+        )
+
+        defaults.set(historicalRemaining, forKey: "bank_historical_remaining_minutes")
+        defaults.set(Date().timeIntervalSince1970, forKey: "bank_historical_remaining_lastUpdated")
+
+        #if DEBUG
+        print("[ScreenTimeService] 🏦 Wrote bank_historical_remaining_minutes=\(historicalRemaining) (learning=\(learningIDs.count), reward=\(rewardIDs.count))")
+        #endif
     }
 
     // MARK: - Master Selection Seeding Methods
