@@ -157,19 +157,22 @@ class BlockingCoordinator: ObservableObject {
             }
         }
 
-        // 3. Check Learning Goal (Priority 3)
+        // 3-4. Pool-aware reward gate. Mirrors the extension's POOL_EMPTY_BLOCK rule from
+        // commit 172f72a (computeEffectivePoolBalance + checkAndUpdateShields): the kid may
+        // spend Time Bank carry-forward even when today's per-config learning goal is not yet
+        // met. Only block when pool ≤ 0 (no carry-forward AND nothing earned today).
+        // Source-of-truth invariant: keep aligned with
+        // DeviceActivityMonitorExtension.checkAndUpdateShields().
         let learningCheck = checkLearningGoal(logicalID: logicalID)
-        if !learningCheck.isGoalMet {
-            activeReasons.insert(.learningGoal)
-            decision.learningTargetMinutes = learningCheck.targetMinutes
-            decision.learningCurrentMinutes = learningCheck.currentMinutes
-        }
-
-        // 4. Check Available Minutes (Priority 4 - block if no time in bank)
-        // Only relevant if learning goal IS met (otherwise learning goal is the blocking reason)
-        if learningCheck.isGoalMet {
-            let availableCheck = checkAvailableMinutes()
-            if availableCheck.hasNoTimeAvailable {
+        let availableCheck = checkAvailableMinutes()
+        if availableCheck.hasNoTimeAvailable {
+            if !learningCheck.isGoalMet {
+                // Pool empty AND today's goal not met → surface learning-goal copy on the shield.
+                activeReasons.insert(.learningGoal)
+                decision.learningTargetMinutes = learningCheck.targetMinutes
+                decision.learningCurrentMinutes = learningCheck.currentMinutes
+            } else {
+                // Pool empty but today's goal met → reward time spent for the day.
                 activeReasons.insert(.rewardTimeExpired)
             }
         }
