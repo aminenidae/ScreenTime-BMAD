@@ -15,6 +15,16 @@ final class NotificationService: ObservableObject {
     private let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared")
     private let settingsManager = NotificationSettingsManager.shared
 
+    /// Format a duration in minutes for user-facing notification copy. <60 stays as "X min";
+    /// ≥60 collapses to "Xh" or "Xh YYm". Mirror in DeviceActivityMonitorExtension.swift.
+    fileprivate static func formatRewardDuration(_ minutes: Int) -> String {
+        let m = max(0, minutes)
+        if m < 60 { return "\(m) min" }
+        let h = m / 60
+        let rem = m % 60
+        return rem == 0 ? "\(h)h" : "\(h)h \(rem)m"
+    }
+
     // MARK: - Notification Tracking Keys
 
     private let sentNotificationsKey = "NotificationService_SentIdentifiers"
@@ -313,7 +323,7 @@ final class NotificationService: ObservableObject {
 
         let content = UNMutableNotificationContent()
         content.title = "Goal Complete!"
-        content.body = "You've earned \(earnedMinutes) minutes of reward time. Enjoy your games!"
+        content.body = "You've earned \(Self.formatRewardDuration(earnedMinutes)) of reward time. Enjoy your games!"
         content.sound = .default
         content.categoryIdentifier = Category.learningGoal.rawValue
         content.userInfo = [
@@ -364,7 +374,7 @@ final class NotificationService: ObservableObject {
 
         let content = UNMutableNotificationContent()
         content.title = "Approaching Limit"
-        content.body = "\(appName): \(remaining) minutes remaining today"
+        content.body = "\(appName): \(Self.formatRewardDuration(remaining)) remaining today"
         content.sound = .default
         content.categoryIdentifier = Category.dailyLimit.rawValue
         content.userInfo = [
@@ -779,7 +789,7 @@ final class NotificationService: ObservableObject {
             childDeviceName: DeviceModeManager.shared.deviceName,
             notificationType: .learningGoalCompleted,
             title: "Learning Goal Complete!",
-            body: "\(DeviceModeManager.shared.deviceName) completed their learning goal and earned \(earnedMinutes) minutes",
+            body: "\(DeviceModeManager.shared.deviceName) completed their learning goal and earned \(Self.formatRewardDuration(earnedMinutes))",
             timestamp: Date(),
             metadata: [
                 "earnedMinutes": String(earnedMinutes)

@@ -1098,7 +1098,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
                 debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (pool=\(pool)min)", defaults: defaults)
 
-                scheduleGoalCompletedNotification(rewardMinutes: pool, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                // Only fire "Goal Complete!" when today's per-goal earning is actually > 0.
+                // Pool-driven unshields after midnight (carry-forward Time Bank) must stay
+                // silent — the kid earned nothing today, so the celebration message is wrong.
+                // Mirrors main-app gate at BlockingCoordinator.swift (earnedMinutes > 0).
+                let todayEarned = computeTodayEarnedForGoal(goalConfig, defaults: defaults)
+                if todayEarned > 0 {
+                    scheduleGoalCompletedNotification(rewardMinutes: todayEarned, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                } else {
+                    debugLog("SHIELD_CHECK: ℹ️ \(shortID) silent unshield (pool-only, todayEarned=0)", defaults: defaults)
+                }
             } else {
                 debugLog("SHIELD_CHECK: ℹ️ \(shortID) pool>0 but not currently shielded", defaults: defaults)
             }
@@ -1180,7 +1189,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         let content = UNMutableNotificationContent()
         content.title = "Goal Complete!"
-        content.body = "You've earned \(rewardMinutes) minutes of reward time. Enjoy your games!"
+        content.body = "You've earned \(Self.formatRewardDuration(rewardMinutes)) of reward time. Enjoy your games!"
         content.sound = .default
         content.categoryIdentifier = "learningGoal"
 
@@ -1467,6 +1476,35 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         return max(0, historical + todayEarned - todayUsed)
+    }
+
+    /// Today's earned reward minutes for ONE goal config (no cross-goal dedupe).
+    /// Used to decide whether a "Goal Complete!" notification should fire — pool-driven
+    /// unshields where this goal earned nothing today must stay silent.
+    private nonisolated func computeTodayEarnedForGoal(
+        _ goalConfig: ExtensionGoalConfigMinimal,
+        defaults: UserDefaults
+    ) -> Int {
+        var earned = 0
+        for linked in goalConfig.linkedLearningApps {
+            let usageSeconds = defaults.integer(
+                forKey: "usage_\(linked.learningAppLogicalID)_today")
+            let usageMinutes = usageSeconds / 60
+            guard usageMinutes >= linked.minutesRequired else { continue }
+            let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
+            earned += Int(Double(usageMinutes) * ratio)
+        }
+        return earned
+    }
+
+    /// Format a duration in minutes for user-facing copy. <60 stays as "X min";
+    /// ≥60 collapses to "Xh" or "Xh YYm". Mirror in NotificationService.swift.
+    static fileprivate func formatRewardDuration(_ minutes: Int) -> String {
+        let m = max(0, minutes)
+        if m < 60 { return "\(m) min" }
+        let h = m / 60
+        let rem = m % 60
+        return rem == 0 ? "\(h)h" : "\(h)h \(rem)m"
     }
 
     /// Persist blocking reason for ShieldConfigurationExtension to display correct message.
