@@ -649,7 +649,29 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if midnightDiagActive { midnightDiagnosticLog("DIAG_INCREMENT appID=\(appID.prefix(8))... old=\(currentToday)s +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s", defaults: defaults) }
         Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s")
         defaults.set(newToday, forKey: todayKey)
-        defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+        // Apr 30 fix — out-of-order stale catch-up `lastThreshold` poisoning.
+        // When the wall-clock / per-event cap clamps `rawDelta` (delta < rawDelta) the
+        // incoming `thresholdSeconds` reflects iOS's stale catch-up cumulative, not real
+        // progression. Advancing `lastThreshold` to that stale value pegs it at the high
+        // end of the sliding window and `SKIP_REGRESSION` blocks every subsequent
+        // legitimate threshold for the rest of the day. The Apr 29 incident
+        // (`ext-log-2026-04-29.log`) recorded a 9.4-hour blackout across all 8 tracked
+        // apps after one 14:35:14 flood walked `lastThreshold` to 3600s in <14 seconds.
+        //
+        // Hold `lastThreshold` at its prior value on stale catch-ups. The credited delta
+        // is already small (≤60 s — the per-event cap), so SKIP_REGRESSION semantics
+        // remain sound: future legitimate thresholds with real elapsed wall-clock will
+        // pass the regression check against the unchanged prior `lastThreshold`.
+        //
+        // Exception — `isFirstEventAfterUnlock`: a legitimate post-unlock catch-up
+        // (perEventCap relaxed to elapsed-since-unlock) reflects real iOS cumulative,
+        // so its threshold value is trusted and `lastThreshold` advances normally.
+        let wasStaleCatchup = (delta < rawDelta) && !isFirstEventAfterUnlock
+        if wasStaleCatchup {
+            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (delta=\(delta)s < raw=\(rawDelta)s)", defaults: defaults)
+        } else {
+            defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+        }
 
         // Update total
         let currentTotal = defaults.integer(forKey: totalKey)

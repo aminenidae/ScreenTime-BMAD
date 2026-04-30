@@ -939,7 +939,7 @@ In this case, behavior is identical to the previous implementation — events bl
 
 ### Out-of-Order Catch-Up Events (Apr 12, 2026)
 
-**Status:** DISCOVERED — NOT YET FIXED
+**Status:** DISCOVERED Apr 12 — **CLOSED Apr 30, 2026** by `lastThreshold` hold-on-clamp. See §"Apr 30, 2026 — Stale Catch-Up `lastThreshold` Poisoning" at the end of this doc for the fix and the Apr 29 incident that finally exposed the no-restart variant.
 
 **Discovery:** After `startMonitoring()` with `includesPastActivity: true`, iOS fires catch-up events for all thresholds below the current cumulative usage. These events arrive **OUT OF ORDER** — iOS does not guarantee sequential delivery.
 
@@ -1835,3 +1835,91 @@ Cap-line debug extended with `unlockAge=Ns perEventCap=Ns` for forensic disambig
 - CloudKit-synced cross-device pool — `bank_historical_remaining_minutes` is App-Group local per device.
 - Live-update of pool during background ratio changes — main app must foreground for new ratio to reach extension.
 - Pre-unshield iOS-counted minutes (Device A's 28-min mystery cumulative on a "shielded" app): pool gate makes the question moot for spending decisions.
+
+### Apr 30, 2026 — Stale Catch-Up `lastThreshold` Poisoning (the Apr 12 bug, now closed)
+
+**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. Resolves the §"Out-of-Order Catch-Up Events (Apr 12, 2026)" item that had been sitting at *DISCOVERED — NOT YET FIXED* since Apr 12. Validation pending end-of-day device check.
+
+#### Apr 29 incident — full-day blackout, all 8 apps
+
+**Source:** `ext-log-2026-04-29.log` (full-retention rotating logger from the Apr 23 ship).
+
+**Symptom.** Last `RECORDED` event of the day: `14:35:28`. From 14:35:28 → 23:59:59 (≈ 9.4 hours), every threshold call rejected as `SKIP_REGRESSION`. Every tracked app's persisted `ext_usage_*_today` froze at its 14:35 value. iOS Screen Time captured the real afternoon usage; our extension recorded zero of it.
+
+**Trigger sequence.**
+1. **00:00 → 14:35** — recording works normally. Session `F33523A9` runs continuously (no `MONITORING_RESTART` in this window — the last one was 00:09:26).
+2. **~14:18 → 14:35** — iOS deferred all DeviceActivity callbacks for ~16 min. Device on battery 25 %, idle. Same `age=996s` since previous event for every app in the eventual flood.
+3. **14:35:14.271 → 14:35:28.708** — iOS flushed the deferred queue **out of monotonic order**. For each app, the highest-numbered threshold arrived first:
+
+   | App | First event of flood | wallClock age | currentToday before | rawDelta | Cap clamped to |
+   |---|---|---|---|---|---|
+   | E54C1C9E | `min.55` (thresh=3300s) | 9 623 s (2.7 h) | 1 109 s | 2 160 s | 60 s |
+   | FAE1D45B | `min.35` (thresh=2100s) | 27 060 s (7.5 h) | 1 455 s | 600 s | 60 s |
+   | BB131A01 | `min.18` (thresh=1080s) | 456 s | 444 s | 600 s | 60 s |
+
+4. **Apr 23 wall-clock + per-event 60s cap held perfectly** — every per-event credit was clamped from raw 600 / 2160 / 2820 s down to 60 s. **No fake hours.** The `RECORDED` lines show `oldToday → newToday` deltas of 60 s, then 1 s / 3 s / 5 s for in-burst events as `wallClockElapsed` collapsed to ~0. Total today-credit damage across 8 apps: ≈ 1 minute of fake credit.
+5. **But `lastThreshold` was unconditionally written to `thresholdSeconds` on every successful record** (`DeviceActivityMonitorExtension.swift:652`, pre-fix). Within 14 seconds the highest-numbered events walked `lastThreshold` to **3600 s** (60 min — the top of the registered 1–60 sliding window) on every app:
+   ```
+   14:35:14.594  E54C1C9E  thresh=3300s   ← lastThresh: 1140 → 3300
+   14:35:18.712  BB131A01  thresh=3600s   ← lastThresh: ... → 3600
+   14:35:21.058  739C4A42  thresh=3600s
+   14:35:23.245  E54C1C9E  thresh=3600s
+   14:35:28.708  FAE1D45B  thresh=3600s
+   ```
+6. **14:35:18 — `EXT_REBUILD` registered fresh sliding windows** anchored on real cumulative (`E54C1C9E current=19min → window 20-79`, `FAE1D45B current=25min → window 26-85`, `BB131A01 current=8min → window 9-68`). Top of each new window covers thresholds up to 3 660 / 5 100 / 4 080 s. Almost every threshold inside the new windows is ≤ 3 600 s.
+7. **14:35:28 onward — `SKIP_REGRESSION` rejects everything.** Real-time threshold events from the rebuilt windows fired correctly (`min.7, min.8, …, min.41` for various apps over the next 6 hours of log) but every one hit `threshold ≤ lastThreshold=3600 (same day)` and was discarded.
+
+**Recovery.** None mid-day. Auto-recovery at 00:00:02 next day via `intervalDidStart()` → `MIDNIGHT_RESET_COMPLETE — lastThreshold reset for 8 apps`.
+
+#### Why this had stayed open since Apr 12
+
+The Apr 12 §"Out-of-Order Catch-Up Events" entry described the same mechanism but scoped it to *intraday restarts only*: `WINDOW_TOP_HIT` rebuilds, manual restarts, `scheduleActivity()` restarts. Apr 29 disproves that scope. **The same failure fires after an iOS deferred-batch flush with no restart at all** — no `MONITORING_RESTART` between 00:09 and the 14:35 flood, session `F33523A9` unchanged across the boundary. The trigger condition reduces to: *iOS held a backlog of threshold callbacks long enough that the eventual flush is out-of-order*. Idle device + low battery is sufficient.
+
+The Apr 23 ship intentionally preserved `lastThreshold` advancement on the recording path (line 1497 of this doc): *"`lastThreshold` still advances (line 537 unchanged) so `SKIP_REGRESSION` semantics are preserved."* That decision was correct for bounding overcounting damage but knowingly left this undercounting half open. Apr 29 is the cost of that tradeoff finally cashing.
+
+#### Fix — `lastThreshold` hold-on-clamp (Option A)
+
+Two new lines around the existing `defaults.set(thresholdSeconds, forKey: lastThresholdKey)` write in `setUsageToThreshold()` (now at line ~669):
+
+```swift
+let wasStaleCatchup = (delta < rawDelta) && !isFirstEventAfterUnlock
+if wasStaleCatchup {
+    debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (delta=\(delta)s < raw=\(rawDelta)s)", defaults: defaults)
+} else {
+    defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+}
+```
+
+**Invariant.** `lastThreshold` advances **only** when the per-event credit reflects real-time progression. Operationally: when neither `wallClockElapsed` nor `perEventCap` (= 60s by default) needed to clamp `rawDelta`. The `WALL_CLOCK_CAP` line that already exists at line ~645 is the in-band signal that today's recording was a stale catch-up — re-using it as the gate avoids any new state.
+
+**Exception preserved.** `isFirstEventAfterUnlock` (Apr 26–27 layer 2) intentionally relaxes `perEventCap` to elapsed-since-unlock and credits multi-minute deltas. Those deltas reflect real iOS cumulative across a legitimate post-unlock window, so the threshold value is trusted and `lastThreshold` advances normally. The condition `!isFirstEventAfterUnlock` carves this case out.
+
+**Why holding instead of advancing-to-`newToday`.** Either choice would unblock subsequent thresholds — `lastThreshold = max(prior, newToday)` is equivalent in effect because `newToday = currentToday + delta` and `delta ≤ 60s`, so the high-water mark moves by at most 60s either way. Holding is the simpler, more conservative invariant: *we only ever attribute `lastThreshold` to a threshold value we believe.*
+
+#### What today's log would have looked like with the fix
+
+Apply the rule to the 14:35:14 flood for E54C1C9E:
+
+| Event | thresh | lastThresh before | delta credited | lastThresh after (pre-fix) | lastThresh after (post-fix) |
+|---|---|---|---|---|---|
+| min.55 (stale) | 3300 s | 1140 s | 60 s | **3300 s** | 1140 s (held) |
+| min.30 (stale) | 1800 s | 3300 s → REJECT | — | 3300 s | 1140 s → ACCEPT, credit 0–1 s, hold |
+| min.31 (stale) | 1860 s | … | — | 3300 s | 1140 s → ACCEPT, credit 0 s, hold |
+| (real-time event 14:50, after flood) | 1200 s | 3300 s → REJECT | — | 3600 s | 1140 s → ACCEPT, advance |
+
+Net behaviour: post-fix, the in-burst stale events still get rejected on per-event cap (delta=0) so they don't corrupt today's count, **and** real thresholds firing later in the day pass `SKIP_REGRESSION` against the unchanged `lastThreshold=1140 s` and resume normal recording.
+
+#### Validation
+
+1. **Healthy-day regression check.** First validation day with the fix in production: zero `LASTTHRESH_HOLD` lines during normal foreground use (kid actively in an app for 5 consecutive minutes). If `LASTTHRESH_HOLD` fires on legitimate real-time events, the cap conditions are wrong and `lastThreshold` will stop advancing entirely — investigate before relying on the fix. Cross-check with `WALL_CLOCK_CAP`: the two lines should always co-occur (or not).
+2. **Charging-flush burst.** Plug charger after low-battery period, or background the device for 15+ min. Expect: cluster of `WALL_CLOCK_CAP` + `LASTTHRESH_HOLD` pairs. *Subsequent* real-time events (next foreground use of the same app) should record normally — i.e., **no `SKIP_REGRESSION` rejections of thresholds within the post-burst sliding window for the rest of the day.**
+3. **Apr 29 replay.** Reproduce by leaving device idle on battery for ~16 min mid-day, then resume. Expect the recording path to quickly self-heal: a few `LASTTHRESH_HOLD` lines during the flush, then normal `RECORDED` resumes within one threshold interval (~60 s) of the kid actually using a tracked app again.
+4. **End-of-day ground truth.** `ext_usage_<id>_today` at ~23:00 vs iOS Settings → Screen Time per app, ±2 min/app, across a full day that includes at least one charging-flush event. Apr 29 was the negative baseline — real usage hours that vanished. Post-fix should track within tolerance.
+5. **Pool integrity follow-through.** Because the Apr 26–27 pool-aware shield gate reads `usage_<id>_today` for both reward consumption and pool draining, frozen usage caused under-blocking on Apr 29 (pool stayed artificially full → reward apps stayed unlocked past earned time). Validate post-fix by confirming `pool=Nmin` lines decrement smoothly across a flush burst day.
+
+#### Out of scope (deliberately deferred)
+
+- **Recovery of Apr 29's lost 9.4 hours.** Forward-looking only. iOS Screen Time has the ground truth but the extension cannot read it back; the lost minutes are unrecoverable.
+- **Restart-time `lastThreshold` reset.** Apr 12 documented that `intervalDidStart()` MUST reset `lastThreshold` at midnight (already shipped) and MUST NOT reset it on intraday restarts (Apr 13 revert — re-introducing it caused phantom inflation). Today's fix is orthogonal to that decision and does not change either rule.
+- **Sorting iOS catch-up batches before processing.** iOS does not surface batch boundaries to the extension; sorting is not implementable from the callback API. The hold-on-clamp rule sidesteps the ordering problem entirely by treating the unreliable `thresholdSeconds` value as advisory rather than authoritative when the cap fires.
+- **Bug A (Apr 12 §"Out-of-Order Catch-Up Events") variant during legitimate intraday restart.** The original Apr 12 entry's restart scenario also produces stale catch-ups, and on a restart the highest-numbered event can fire BEFORE `WALL_CLOCK_CAP` would clamp it (because `lastEventTime` may be hours stale → `wallClockElapsed` huge → first event credits its full rawDelta unclamped). Apr 23's per-event 60s cap handles this in steady state, but restarts that coincide with a legitimate catch-up (e.g., kid actively using app at the moment of restart) will still under-credit by ≤60 s per skipped threshold. Bounded undercount, accepted as the documented Apr 23 tradeoff.
