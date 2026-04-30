@@ -18,12 +18,16 @@ struct SubscriptionPaywallView: View {
     @State private var isLoadingProducts = false
     @State private var showError = false
     @State private var errorMessage = ""
+    @State private var paywallAppearedAt: Date?
+    @State private var hasInteractedWithSelection = false
     var isOnboarding: Bool = false
     var onComplete: (() -> Void)? = nil
+    var analyticsSource: String
 
-    init(initialTier: SubscriptionTier = .individual, isOnboarding: Bool = false, onComplete: (() -> Void)? = nil) {
+    init(initialTier: SubscriptionTier = .individual, isOnboarding: Bool = false, analyticsSource: String? = nil, onComplete: (() -> Void)? = nil) {
         self._selectedTier = State(initialValue: initialTier)
         self.isOnboarding = isOnboarding
+        self.analyticsSource = analyticsSource ?? (isOnboarding ? "onboarding" : "subscription_paywall")
         self.onComplete = onComplete
     }
 
@@ -93,6 +97,38 @@ struct SubscriptionPaywallView: View {
             Button("OK", role: .cancel) {}
         } message: {
             Text(errorMessage)
+        }
+        .onAppear {
+            paywallAppearedAt = Date()
+            AppAnalytics.shared.track(.paywallViewed, parameters: [
+                "source": analyticsSource,
+                "tier_default": selectedTier.rawValue,
+                "billing_default": selectedBillingPeriod.rawValue.lowercased()
+            ])
+        }
+        .onDisappear {
+            let seconds = paywallAppearedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+            AppAnalytics.shared.track(.paywallDismissed, parameters: [
+                "source": analyticsSource,
+                "seconds_on_screen": seconds,
+                "had_selection": hasInteractedWithSelection
+            ])
+        }
+        .onChange(of: selectedTier) { newValue in
+            hasInteractedWithSelection = true
+            AppAnalytics.shared.track(.paywallPlanSelected, parameters: [
+                "source": analyticsSource,
+                "tier": newValue.rawValue,
+                "period": selectedBillingPeriod.rawValue.lowercased()
+            ])
+        }
+        .onChange(of: selectedBillingPeriod) { newValue in
+            hasInteractedWithSelection = true
+            AppAnalytics.shared.track(.paywallPlanSelected, parameters: [
+                "source": analyticsSource,
+                "tier": selectedTier.rawValue,
+                "period": newValue.rawValue.lowercased()
+            ])
         }
     }
 
@@ -462,6 +498,17 @@ private extension SubscriptionPaywallView {
         isPurchasing = true
         defer { isPurchasing = false }
 
+        let productID = selectedPackage?.storeProduct.productIdentifier
+            ?? selectedStoreKitProduct?.id
+            ?? "unknown"
+        let period = selectedBillingPeriod.rawValue.lowercased()
+        AppAnalytics.shared.track(.paywallPurchaseStarted, parameters: [
+            "source": analyticsSource,
+            "product_id": productID,
+            "tier": selectedTier.rawValue,
+            "period": period
+        ])
+
         do {
             if let package = selectedPackage {
                 try await subscriptionManager.purchase(package)
@@ -470,33 +517,73 @@ private extension SubscriptionPaywallView {
             } else {
                 errorMessage = "No subscription package available"
                 showError = true
+                AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                    "source": analyticsSource,
+                    "product_id": productID,
+                    "error_code": "no_package",
+                    "is_user_cancelled": false
+                ])
                 return
             }
             await MainActor.run {
                 if subscriptionManager.hasAccess {
+                    AppAnalytics.shared.track(.paywallPurchaseCompleted, parameters: [
+                        "source": analyticsSource,
+                        "product_id": productID,
+                        "tier": selectedTier.rawValue,
+                        "period": period,
+                        "is_trial": subscriptionManager.isInTrial
+                    ])
                     finishFlow()
                 } else {
                     errorMessage = "Purchase recorded but activation is pending. Please tap 'Restore Purchases' or restart the app."
                     showError = true
+                    AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                        "source": analyticsSource,
+                        "product_id": productID,
+                        "error_code": "activation_pending",
+                        "is_user_cancelled": false
+                    ])
                 }
             }
+        } catch SubscriptionError.userCancelled {
+            AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                "source": analyticsSource,
+                "product_id": productID,
+                "error_code": "user_cancelled",
+                "is_user_cancelled": true
+            ])
         } catch {
             errorMessage = error.localizedDescription
             showError = true
+            AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                "source": analyticsSource,
+                "product_id": productID,
+                "error_code": String(describing: error),
+                "is_user_cancelled": false
+            ])
         }
     }
 
     func restore() async {
+        AppAnalytics.shared.track(.paywallRestoreTapped, parameters: ["source": analyticsSource])
         do {
             try await subscriptionManager.restorePurchases()
             if subscriptionManager.hasAccess {
+                AppAnalytics.shared.track(.paywallRestoreSucceeded, parameters: [
+                    "source": analyticsSource,
+                    "tier": subscriptionManager.currentTier.rawValue
+                ])
                 await MainActor.run {
                     finishFlow()
                 }
+            } else {
+                AppAnalytics.shared.track(.paywallRestoreNoPurchases, parameters: ["source": analyticsSource])
             }
         } catch {
             errorMessage = error.localizedDescription
             showError = true
+            AppAnalytics.shared.trackError(.errorStoreKitFailed, code: String(describing: error), context: "restore")
         }
     }
 

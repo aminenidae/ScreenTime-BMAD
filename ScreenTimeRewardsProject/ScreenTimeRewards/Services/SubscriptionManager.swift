@@ -967,6 +967,95 @@ final class SubscriptionManager: NSObject, ObservableObject {
         print("[SubscriptionManager] 🔓 FULL trial reset - all storage layers cleared")
     }
 
+    // MARK: - Analytics Lifecycle
+
+    /// Emit subscription_* analytics events based on the transition between the
+    /// pre-update and post-update (tier, status). Called from the RevenueCat
+    /// delegate so every entitlement change is captured exactly once, including
+    /// renewals, cancellations, and grace transitions detected by the SDK.
+    fileprivate func emitSubscriptionLifecycleEvents(
+        previousTier: SubscriptionTier,
+        previousStatus: SubscriptionStatus,
+        customerInfo: CustomerInfo
+    ) {
+        let newTier = currentTier
+        let newStatus = currentStatus
+        let activeEntitlement = activeEntitlementForCurrentTier(customerInfo)
+
+        // 1. Trial → paid OR expired → paid → subscription_started
+        let wasPaid = previousStatus == .active || previousStatus == .grace
+        let isPaid = newStatus == .active || newStatus == .grace
+        let wentFromUnpaidToPaid = !wasPaid && isPaid && newTier != .trial
+
+        if wentFromUnpaidToPaid {
+            let isTrial = activeEntitlement?.periodType == .trial
+            AppAnalytics.shared.track(.subscriptionStarted, parameters: [
+                "tier": newTier.rawValue,
+                "product_id": activeEntitlement?.productIdentifier ?? "unknown",
+                "is_trial": isTrial
+            ])
+        }
+
+        // 2. Paid → paid different tier → subscription_tier_changed
+        if wasPaid && isPaid && previousTier != newTier && newTier != .trial && previousTier != .trial {
+            AppAnalytics.shared.track(.subscriptionTierChanged, parameters: [
+                "from_tier": previousTier.rawValue,
+                "to_tier": newTier.rawValue
+            ])
+        }
+
+        // 3. Active → grace
+        if previousStatus == .active && newStatus == .grace {
+            AppAnalytics.shared.track(.subscriptionEnteredGrace, parameters: [
+                "tier": newTier.rawValue,
+                "expiry_date": activeEntitlement?.expirationDate?.timeIntervalSince1970 as Any
+            ])
+        }
+
+        // 4. Was paid → now expired
+        if wasPaid && newStatus == .expired {
+            AppAnalytics.shared.track(.subscriptionExpired, parameters: [
+                "tier": previousTier.rawValue
+            ])
+        }
+
+        // 5. Cancellation detection — entitlement still active but won't renew.
+        // Fires once per transition into willRenew=false on an active entitlement.
+        if let ent = activeEntitlement,
+           ent.isActive,
+           !ent.willRenew,
+           previousStatus == .active {
+            AppAnalytics.shared.track(.subscriptionCancelled, parameters: [
+                "tier": newTier.rawValue,
+                "expires_at": ent.expirationDate?.timeIntervalSince1970 as Any
+            ])
+        }
+
+        // 6. Renewal detection — same tier, expirationDate moved forward.
+        if previousStatus == .active && newStatus == .active && previousTier == newTier,
+           let oldExpiry = customerInfo.entitlements.all
+            .first(where: { $0.value.productIdentifier == activeEntitlement?.productIdentifier })?
+            .value.expirationDate,
+           let newExpiry = activeEntitlement?.expirationDate,
+           newExpiry > oldExpiry.addingTimeInterval(1) {
+            AppAnalytics.shared.track(.subscriptionRenewed, parameters: [
+                "tier": newTier.rawValue
+            ])
+        }
+    }
+
+    /// Pick the entitlement that matches the currentTier (post-update) so the
+    /// lifecycle events carry product_id / expirationDate / willRenew from the
+    /// right one — RevenueCat exposes multiple entitlements per customer.
+    private func activeEntitlementForCurrentTier(_ info: CustomerInfo) -> EntitlementInfo? {
+        switch currentTier {
+        case .family:     return info.entitlements[RevenueCatConfig.Entitlement.premiumFamily]
+        case .individual: return info.entitlements[RevenueCatConfig.Entitlement.premiumIndividual]
+        case .solo:       return info.entitlements[RevenueCatConfig.Entitlement.premiumSolo]
+        case .trial:      return nil
+        }
+    }
+
     // MARK: - Service Restart (Subscription Reactivation)
 
     /// Restart monitoring services after subscription becomes active (from expired state)
@@ -1007,6 +1096,7 @@ extension SubscriptionManager: PurchasesDelegate {
     nonisolated func purchases(_ purchases: Purchases, receivedUpdated customerInfo: CustomerInfo) {
         Task { @MainActor in
             let previousTier = self.currentTier
+            let previousStatus = self.currentStatus
             let previousHadAccess = self.hasAccess
 
             self.customerInfo = customerInfo
@@ -1016,6 +1106,16 @@ extension SubscriptionManager: PurchasesDelegate {
             if !previousHadAccess && self.hasAccess {
                 await self.restartMonitoringServices()
             }
+
+            // Analytics — emit subscription lifecycle events for the (tier, status)
+            // transition we just observed. Centralized here so RevenueCat is the
+            // single source of truth, regardless of which paywall triggered it.
+            self.emitSubscriptionLifecycleEvents(
+                previousTier: previousTier,
+                previousStatus: previousStatus,
+                customerInfo: customerInfo
+            )
+            AppAnalytics.shared.refreshSubscriptionUserProperties()
 
             // Sync to CloudKit when subscription status changes
             await self.syncSubscriptionToCloudKit()

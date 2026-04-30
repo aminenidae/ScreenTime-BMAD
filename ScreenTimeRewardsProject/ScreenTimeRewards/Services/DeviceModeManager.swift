@@ -108,6 +108,12 @@ class DeviceModeManager: ObservableObject {
         self.currentMode = mode
         userDefaults.set(mode.rawValue, forKey: deviceModeKey)
 
+        // Analytics — keep device_mode user property in sync so all subsequent
+        // events are correctly segmented by mode.
+        Task { @MainActor in
+            AppAnalytics.shared.refreshDeviceModeUserProperty()
+        }
+
         // PHASE 3: Manage Keychain based on mode
         if mode == .childDevice {
             // Child: Save deviceID to Keychain (persist across reinstall)
@@ -140,6 +146,10 @@ class DeviceModeManager: ObservableObject {
     func resetDeviceMode() {
         currentMode = nil
         userDefaults.removeObject(forKey: deviceModeKey)
+
+        Task { @MainActor in
+            AppAnalytics.shared.refreshDeviceModeUserProperty()
+        }
 
         #if DEBUG
         print("[DeviceModeManager] Mode reset - will show device selection on next launch")

@@ -1158,6 +1158,15 @@ class DevicePairingService: ObservableObject {
         // Sync zone info to App Group for extension CloudKit access
         syncParentZoneInfoToAppGroup()
 
+        // Analytics — only fire on first-time pair, not iCloud-swap refresh.
+        if !isReplacement {
+            AppAnalytics.shared.track(.pairingCompleted, parameters: [
+                "role": "child",
+                "paired_parent_count": parents.count
+            ])
+            AppAnalytics.shared.refreshPairedStatusUserProperty()
+        }
+
         #if DEBUG
         let verb = isReplacement ? "🔁 Refreshed" : "✅ Added"
         print("[DevicePairingService] \(verb) parent: \(parent.deviceName) (\(parent.id))")
@@ -1202,6 +1211,13 @@ class DevicePairingService: ObservableObject {
 
         // 4. Re-sync App Group with remaining parents (or clear if none)
         syncParentZoneInfoToAppGroup()
+
+        AppAnalytics.shared.track(.pairingUnpaired, parameters: [
+            "role": "child",
+            "remaining_paired_count": parents.count,
+            "initiated_by": "child"
+        ])
+        AppAnalytics.shared.refreshPairedStatusUserProperty()
 
         #if DEBUG
         print("[DevicePairingService] ✅ Removed parent: \(parent.deviceName) (\(parent.id))")

@@ -41,6 +41,10 @@ class PairingCodeService: ObservableObject {
 
         currentPairingCode = code
 
+        AppAnalytics.shared.track(.pairingCodeGenerated, parameters: [
+            "tier": SubscriptionManager.shared.currentTier.rawValue
+        ])
+
         return code
     }
 
@@ -66,6 +70,8 @@ class PairingCodeService: ObservableObject {
 
     /// Validate and use a pairing code
     func validateAndUsePairingCode(_ code: String) async throws -> String {
+        AppAnalytics.shared.track(.pairingCodeEntered, parameters: [:])
+
         let context = PersistenceController.shared.container.viewContext
 
         // Fetch the pairing code
@@ -75,17 +81,20 @@ class PairingCodeService: ObservableObject {
         let results = try context.fetch(fetchRequest)
 
         guard let pairingCodeObject = results.first else {
+            AppAnalytics.shared.track(.pairingFailed, parameters: ["role": "child", "reason": "code_invalid"])
             throw PairingCodeError.invalidCode
         }
 
         // Check if already used
         if let isUsed = pairingCodeObject.value(forKey: "isUsed") as? Bool, isUsed {
+            AppAnalytics.shared.track(.pairingFailed, parameters: ["role": "child", "reason": "code_already_used"])
             throw PairingCodeError.codeAlreadyUsed
         }
 
         // Check if expired
         if let expiresAt = pairingCodeObject.value(forKey: "expiresAt") as? Date,
            expiresAt < Date() {
+            AppAnalytics.shared.track(.pairingFailed, parameters: ["role": "child", "reason": "code_expired"])
             throw PairingCodeError.codeExpired
         }
 

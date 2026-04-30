@@ -132,6 +132,10 @@ struct Screen4_AuthorizationView: View {
                     isRequesting = false
                     errorMessage = error.localizedDescription
                     showError = true
+                    AppAnalytics.shared.track(.errorFamilyControlsDenied, parameters: [
+                        "context": "onboarding",
+                        "error_code": String(describing: error)
+                    ])
                 }
             }
         }

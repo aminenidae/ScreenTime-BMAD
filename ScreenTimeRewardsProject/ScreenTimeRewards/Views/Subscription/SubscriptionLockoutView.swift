@@ -75,7 +75,7 @@ struct SubscriptionLockoutView: View {
                     .environmentObject(subscriptionManager)
             } else {
                 // Parent device: Individual + Family plans
-                SubscriptionPaywallView()
+                SubscriptionPaywallView(analyticsSource: "lockout")
                     .environmentObject(subscriptionManager)
             }
         }

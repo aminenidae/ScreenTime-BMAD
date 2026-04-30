@@ -62,6 +62,10 @@ class BlockingCoordinator: ObservableObject {
     private var refreshTimer: Timer?
     private(set) var currentRewardTokens: Set<ApplicationToken> = []
 
+    /// Tokens that were shielded on the previous syncAllRewardApps pass.
+    /// Used to compute block↔unblock transitions for analytics.
+    private var previouslyShieldedTokens: Set<ApplicationToken> = []
+
     // MARK: - Initialization
 
     private init() {
@@ -1056,6 +1060,12 @@ class BlockingCoordinator: ObservableObject {
         print("[BlockingCoordinator] Sync result: \(tokensToBlock.count) to block, \(tokensToUnblock.count) to unblock")
         #endif
 
+        // Analytics — compute transitions vs the previous sync pass so we only
+        // emit reward_unlocked / reward_app_blocked_again on actual edge changes,
+        // not on every periodic refresh that re-decides the same state.
+        let newlyUnshielded = previouslyShieldedTokens.intersection(tokensToUnblock)
+        let newlyShielded = tokensToBlock.subtracting(previouslyShieldedTokens)
+
         // Apply shields
         if !tokensToBlock.isEmpty {
             service.blockRewardApps(tokens: tokensToBlock)
@@ -1065,6 +1075,12 @@ class BlockingCoordinator: ObservableObject {
 
             // Learning goal completed - notify child and parent
             let earnedMinutes = getTotalEarnedRewardMinutes(for: tokensToUnblock)
+            if !newlyUnshielded.isEmpty {
+                AppAnalytics.shared.track(.rewardUnlocked, parameters: [
+                    "app_count": newlyUnshielded.count,
+                    "earned_minutes_total": earnedMinutes
+                ])
+            }
             if earnedMinutes > 0 {
                 NotificationService.shared.scheduleLearningGoalCompletedNotification(earnedMinutes: earnedMinutes)
 
@@ -1080,6 +1096,16 @@ class BlockingCoordinator: ObservableObject {
                 }
             }
         }
+
+        // Analytics — block transition (was unblocked, now blocked again).
+        // Likely time exhausted or parent revoked; we can't distinguish at this
+        // layer without the BlockingDecision reason, so we tag a generic event.
+        if !newlyShielded.isEmpty {
+            AppAnalytics.shared.track(.rewardAppBlockedAgain, parameters: [
+                "app_count": newlyShielded.count
+            ])
+        }
+        previouslyShieldedTokens = tokensToBlock
 
         // Check Streak
         checkAndUpdateStreak()

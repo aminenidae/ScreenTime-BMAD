@@ -21,6 +21,13 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         FirebaseApp.configure()
         #endif
 
+        // Bootstrap analytics user properties (device_mode, subscription_tier,
+        // paired_status, app_version, cohort_install_week) so every event from
+        // this launch is segmented correctly.
+        Task { @MainActor in
+            AppAnalytics.shared.bootstrapUserProperties()
+        }
+
         // Set up notification center delegate
         UNUserNotificationCenter.current().delegate = self
         

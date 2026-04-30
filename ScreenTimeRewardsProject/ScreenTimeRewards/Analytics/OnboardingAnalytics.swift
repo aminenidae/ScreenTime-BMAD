@@ -38,17 +38,17 @@ class OnboardingAnalytics {
 
     private init() {}
 
-    /// Track an onboarding event
+    /// Track an onboarding event. Routes through AppAnalytics so user properties
+    /// (device_mode, subscription_tier, etc.) and DEBUG logging stay consistent
+    /// with the rest of the app.
     func track(_ event: OnboardingEvent, parameters: [String: Any] = [:]) {
+        let cleaned = parameters
         #if canImport(FirebaseAnalytics)
-        // Send to Firebase Analytics
-        Analytics.logEvent(event.rawValue, parameters: parameters)
+        Analytics.logEvent(event.rawValue, parameters: cleaned.isEmpty ? nil : cleaned)
         #endif
 
         #if DEBUG
-        // In debug mode, also log to console
-        print("📊 Analytics: \(event.rawValue) | \(parameters)")
-        logEvent(event, parameters: parameters)
+        print("📊 [OnboardingAnalytics] \(event.rawValue) \(cleaned)")
         #endif
     }
 
@@ -75,16 +75,26 @@ class OnboardingAnalytics {
         track(.demoInteracted, parameters: ["timestamp": Date().timeIntervalSince1970])
     }
 
-    /// Track app selection
+    /// Track app selection. Also writes the count to AppAnalytics user properties
+    /// so all subsequent events are segmented by selection size.
     func trackAppSelection(type: String, count: Int) {
         let event: OnboardingEvent = type == "learning" ? .learningAppsSelected : .rewardAppsSelected
         track(event, parameters: [
             "app_count": count,
             "app_type": type
         ])
+
+        Task { @MainActor in
+            if type == "learning" {
+                AppAnalytics.shared.setUserProperty(.learningAppsCount, value: String(count))
+            } else {
+                AppAnalytics.shared.setUserProperty(.rewardAppsCount, value: String(count))
+            }
+        }
     }
 
-    /// Track completion
+    /// Track completion. Refreshes app-count user properties on the way out so
+    /// post-onboarding events carry the final selection counts.
     func trackCompletion(learningApps: Int, rewardApps: Int, totalTime: TimeInterval) {
         track(.onboardingCompleted, parameters: [
             "learning_apps_count": learningApps,
@@ -92,6 +102,10 @@ class OnboardingAnalytics {
             "total_time_seconds": totalTime,
             "completion_date": Date().timeIntervalSince1970
         ])
+
+        Task { @MainActor in
+            AppAnalytics.shared.refreshAppCountUserProperties(learning: learningApps, reward: rewardApps)
+        }
     }
 
     // MARK: - Private Helpers

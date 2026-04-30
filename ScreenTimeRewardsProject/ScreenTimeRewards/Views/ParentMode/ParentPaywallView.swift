@@ -20,9 +20,13 @@ struct ParentPaywallView: View {
     @State private var isPurchasing = false
     @State private var purchaseError: String?
     @State private var showRestoreSuccess = false
+    @State private var paywallAppearedAt: Date?
+    @State private var hasInteractedWithSelection = false
 
     let onSubscribed: () -> Void
     var onSkip: (() -> Void)?
+    /// Analytics tag — where the user came from (`settings`, `pairing_gate`, `excess_children`, etc.).
+    var analyticsSource: String = "parent_paywall"
 
     enum BillingPeriod {
         case monthly
@@ -107,6 +111,38 @@ struct ParentPaywallView: View {
             Text(subscriptionManager.hasAccess
                  ? "Your subscription has been restored."
                  : "No previous purchases found.")
+        }
+        .onAppear {
+            paywallAppearedAt = Date()
+            AppAnalytics.shared.track(.paywallViewed, parameters: [
+                "source": analyticsSource,
+                "tier_default": selectedTier.rawValue,
+                "billing_default": selectedBilling == .annual ? "annual" : "monthly"
+            ])
+        }
+        .onDisappear {
+            let seconds = paywallAppearedAt.map { Int(Date().timeIntervalSince($0)) } ?? 0
+            AppAnalytics.shared.track(.paywallDismissed, parameters: [
+                "source": analyticsSource,
+                "seconds_on_screen": seconds,
+                "had_selection": hasInteractedWithSelection
+            ])
+        }
+        .onChange(of: selectedTier) { newValue in
+            hasInteractedWithSelection = true
+            AppAnalytics.shared.track(.paywallPlanSelected, parameters: [
+                "source": analyticsSource,
+                "tier": newValue.rawValue,
+                "period": selectedBilling == .annual ? "annual" : "monthly"
+            ])
+        }
+        .onChange(of: selectedBilling) { newValue in
+            hasInteractedWithSelection = true
+            AppAnalytics.shared.track(.paywallPlanSelected, parameters: [
+                "source": analyticsSource,
+                "tier": selectedTier.rawValue,
+                "period": newValue == .annual ? "annual" : "monthly"
+            ])
         }
     }
 
@@ -416,6 +452,15 @@ struct ParentPaywallView: View {
         isPurchasing = true
         purchaseError = nil
 
+        let productID = package.storeProduct.productIdentifier
+        let period = selectedBilling == .annual ? "annual" : "monthly"
+        AppAnalytics.shared.track(.paywallPurchaseStarted, parameters: [
+            "source": analyticsSource,
+            "product_id": productID,
+            "tier": selectedTier.rawValue,
+            "period": period
+        ])
+
         Task {
             do {
                 try await subscriptionManager.purchase(package)
@@ -423,11 +468,30 @@ struct ParentPaywallView: View {
                 // Create Firebase family for pairing
                 await subscriptionManager.createFirebaseFamilyIfNeeded()
 
+                AppAnalytics.shared.track(.paywallPurchaseCompleted, parameters: [
+                    "source": analyticsSource,
+                    "product_id": productID,
+                    "tier": selectedTier.rawValue,
+                    "period": period,
+                    "is_trial": subscriptionManager.isInTrial
+                ])
+
                 onSubscribed()
             } catch SubscriptionError.userCancelled {
-                // User cancelled - no error
+                AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                    "source": analyticsSource,
+                    "product_id": productID,
+                    "is_user_cancelled": true,
+                    "error_code": "user_cancelled"
+                ])
             } catch {
                 purchaseError = error.localizedDescription
+                AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                    "source": analyticsSource,
+                    "product_id": productID,
+                    "is_user_cancelled": false,
+                    "error_code": String(describing: error)
+                ])
             }
             isPurchasing = false
         }
@@ -436,13 +500,23 @@ struct ParentPaywallView: View {
     private func restore() {
         isPurchasing = true
         purchaseError = nil
+        AppAnalytics.shared.track(.paywallRestoreTapped, parameters: ["source": analyticsSource])
 
         Task {
             do {
                 try await subscriptionManager.restorePurchases()
+                if subscriptionManager.hasAccess {
+                    AppAnalytics.shared.track(.paywallRestoreSucceeded, parameters: [
+                        "source": analyticsSource,
+                        "tier": subscriptionManager.currentTier.rawValue
+                    ])
+                } else {
+                    AppAnalytics.shared.track(.paywallRestoreNoPurchases, parameters: ["source": analyticsSource])
+                }
                 showRestoreSuccess = true
             } catch {
                 purchaseError = error.localizedDescription
+                AppAnalytics.shared.trackError(.errorStoreKitFailed, code: String(describing: error), context: "restore")
             }
             isPurchasing = false
         }

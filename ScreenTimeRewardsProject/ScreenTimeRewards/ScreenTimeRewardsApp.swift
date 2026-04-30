@@ -98,6 +98,29 @@ struct ScreenTimeRewardsApp: App {
                     ScreenTimeService.shared.refreshFromExtension()
                 }
 
+                // Analytics — once-per-day heartbeat. Idempotent, keyed off
+                // calendar date in UserDefaults. Refreshes user-properties first
+                // so tier / paired_status are current on the event.
+                Task { @MainActor in
+                    AppAnalytics.shared.refreshDeviceModeUserProperty()
+                    AppAnalytics.shared.refreshSubscriptionUserProperties()
+                    AppAnalytics.shared.refreshPairedStatusUserProperty()
+
+                    let learningCount = viewModel.appUsages.filter { $0.category == .learning }.count
+                    let rewardCount = viewModel.appUsages.filter { $0.category == .reward }.count
+                    AppAnalytics.shared.refreshAppCountUserProperties(
+                        learning: learningCount,
+                        reward: rewardCount
+                    )
+
+                    AppAnalytics.shared.trackDailyActiveIfNeeded(
+                        learningMinutesToday: 0,
+                        rewardMinutesToday: 0,
+                        learningAppsCount: learningCount,
+                        rewardAppsCount: rewardCount
+                    )
+                }
+
                 // Ensure extension has latest goal configs (critical for shield unlock to work)
                 Task { @MainActor in
                     ScreenTimeService.shared.syncGoalConfigsToExtension()
