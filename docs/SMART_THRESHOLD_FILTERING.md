@@ -1838,7 +1838,7 @@ Cap-line debug extended with `unlockAge=Ns perEventCap=Ns` for forensic disambig
 
 ### Apr 30, 2026 — Stale Catch-Up `lastThreshold` Poisoning (the Apr 12 bug, now closed)
 
-**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. Resolves the §"Out-of-Order Catch-Up Events (Apr 12, 2026)" item that had been sitting at *DISCOVERED — NOT YET FIXED* since Apr 12. Validation pending end-of-day device check.
+**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. v1 (`delta < rawDelta` gate) shipped, validated wrong same day (123 false positives, `SKIP_REGRESSION` disabled). v2 (`rawDelta > perEventCap` gate) shipped same day. Resolves the §"Out-of-Order Catch-Up Events (Apr 12, 2026)" item open since Apr 12. Validation of v2 pending next charging-flush incident.
 
 #### Apr 29 incident — full-day blackout, all 8 apps
 
@@ -1879,22 +1879,24 @@ The Apr 23 ship intentionally preserved `lastThreshold` advancement on the recor
 
 #### Fix — `lastThreshold` hold-on-clamp (Option A)
 
-Two new lines around the existing `defaults.set(thresholdSeconds, forKey: lastThresholdKey)` write in `setUsageToThreshold()` (now at line ~669):
+Single-line gate around the existing `defaults.set(thresholdSeconds, forKey: lastThresholdKey)` write in `setUsageToThreshold()` (line ~669):
 
 ```swift
-let wasStaleCatchup = (delta < rawDelta) && !isFirstEventAfterUnlock
+let wasStaleCatchup = rawDelta > perEventCap
 if wasStaleCatchup {
-    debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (delta=\(delta)s < raw=\(rawDelta)s)", defaults: defaults)
+    debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
 } else {
     defaults.set(thresholdSeconds, forKey: lastThresholdKey)
 }
 ```
 
-**Invariant.** `lastThreshold` advances **only** when the per-event credit reflects real-time progression. Operationally: when neither `wallClockElapsed` nor `perEventCap` (= 60s by default) needed to clamp `rawDelta`. The `WALL_CLOCK_CAP` line that already exists at line ~645 is the in-band signal that today's recording was a stale catch-up — re-using it as the gate avoids any new state.
+**Invariant.** `lastThreshold` advances unless the threshold gap (`rawDelta = max(60, thresholdSeconds - lastThreshold)`) exceeds the maximum real time one event can legitimately represent (`perEventCap`). When `rawDelta > perEventCap` the threshold has jumped further than real time could justify — by definition iOS skipped intermediate minutes, i.e. a catch-up. Apr 29 examples: `rawDelta = 2160s` for E54C1C9E `min.55` against prior `lastThresh=1140s`; `rawDelta = 600s` for FAE1D45B `min.35` against prior `lastThresh=1500s`. Both ≫ 60 s.
 
-**Exception preserved.** `isFirstEventAfterUnlock` (Apr 26–27 layer 2) intentionally relaxes `perEventCap` to elapsed-since-unlock and credits multi-minute deltas. Those deltas reflect real iOS cumulative across a legitimate post-unlock window, so the threshold value is trusted and `lastThreshold` advances normally. The condition `!isFirstEventAfterUnlock` carves this case out.
+**Why `rawDelta > perEventCap` and not `delta < rawDelta` (v1 mistake).** The very first cut of this fix used `delta < rawDelta` (i.e. *the wall-clock cap fired*) as the trigger. Validated wrong on Apr 30 day 1: iOS does not fire `eventDidReachThreshold` callbacks on exact 60-s boundaries — natural jitter of ~1 s between successive minute thresholds means `wallClockElapsed = 59 s` on healthy real-time events, so the wall-clock cap clamps `delta` from 60 → 59 even when nothing is stale. Result: 123 false-positive `LASTTHRESH_HOLD` lines across a normal day, `lastThreshold` pegged at 60 s for every app for the whole day, `SKIP_REGRESSION` effectively disabled. Counting still came out correct because the wall-clock cap independently bounded credit, but the safety net was gone. Switched to `rawDelta > perEventCap` — which keys off the *threshold gap* (intrinsic to the event), not the *clamp outcome* (sensitive to sub-second timing). Healthy real-time has `rawDelta = 60 = perEventCap` always; only iOS-skipped-minutes catch-ups produce `rawDelta > 60`.
 
-**Why holding instead of advancing-to-`newToday`.** Either choice would unblock subsequent thresholds — `lastThreshold = max(prior, newToday)` is equivalent in effect because `newToday = currentToday + delta` and `delta ≤ 60s`, so the high-water mark moves by at most 60s either way. Holding is the simpler, more conservative invariant: *we only ever attribute `lastThreshold` to a threshold value we believe.*
+**Post-unlock case is implicit.** `perEventCap` is already inflated to elapsed-since-unlock for the first event after an unlock (Apr 26–27 layer 2). A legitimate post-unlock catch-up has `rawDelta ≤ perEventCap` and naturally falls under the gate. No `!isFirstEventAfterUnlock` exception is needed; the inflated cap handles it.
+
+**Why holding instead of advancing-to-`newToday`.** Either choice would unblock subsequent thresholds — `lastThreshold = max(prior, newToday)` is equivalent in effect because `newToday = currentToday + delta` and `delta ≤ perEventCap` per event, so the high-water mark moves by at most one minute either way. Holding is the simpler, more conservative invariant: *we only ever attribute `lastThreshold` to a threshold value we believe.*
 
 #### What today's log would have looked like with the fix
 
@@ -1911,7 +1913,7 @@ Net behaviour: post-fix, the in-burst stale events still get rejected on per-eve
 
 #### Validation
 
-1. **Healthy-day regression check.** First validation day with the fix in production: zero `LASTTHRESH_HOLD` lines during normal foreground use (kid actively in an app for 5 consecutive minutes). If `LASTTHRESH_HOLD` fires on legitimate real-time events, the cap conditions are wrong and `lastThreshold` will stop advancing entirely — investigate before relying on the fix. Cross-check with `WALL_CLOCK_CAP`: the two lines should always co-occur (or not).
+1. **Healthy-day regression check.** First validation day with the fix in production: zero `LASTTHRESH_HOLD` lines during normal foreground use (kid actively in an app for 5 consecutive minutes). If `LASTTHRESH_HOLD` fires on legitimate real-time events, the gate condition is wrong and `lastThreshold` will stop advancing entirely — investigate before relying on the fix. **Apr 30 v1 failed this check** (123 false positives in one day with the `delta < rawDelta` trigger) and was patched to `rawDelta > perEventCap` the same day. Note: `WALL_CLOCK_CAP` and `LASTTHRESH_HOLD` are NOT expected to co-occur 1:1 — `WALL_CLOCK_CAP` fires routinely on ~1 s timing jitter; `LASTTHRESH_HOLD` should fire only on real catch-ups.
 2. **Charging-flush burst.** Plug charger after low-battery period, or background the device for 15+ min. Expect: cluster of `WALL_CLOCK_CAP` + `LASTTHRESH_HOLD` pairs. *Subsequent* real-time events (next foreground use of the same app) should record normally — i.e., **no `SKIP_REGRESSION` rejections of thresholds within the post-burst sliding window for the rest of the day.**
 3. **Apr 29 replay.** Reproduce by leaving device idle on battery for ~16 min mid-day, then resume. Expect the recording path to quickly self-heal: a few `LASTTHRESH_HOLD` lines during the flush, then normal `RECORDED` resumes within one threshold interval (~60 s) of the kid actually using a tracked app again.
 4. **End-of-day ground truth.** `ext_usage_<id>_today` at ~23:00 vs iOS Settings → Screen Time per app, ±2 min/app, across a full day that includes at least one charging-flush event. Apr 29 was the negative baseline — real usage hours that vanished. Post-fix should track within tolerance.

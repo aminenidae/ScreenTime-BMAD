@@ -650,25 +650,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s")
         defaults.set(newToday, forKey: todayKey)
         // Apr 30 fix — out-of-order stale catch-up `lastThreshold` poisoning.
-        // When the wall-clock / per-event cap clamps `rawDelta` (delta < rawDelta) the
-        // incoming `thresholdSeconds` reflects iOS's stale catch-up cumulative, not real
-        // progression. Advancing `lastThreshold` to that stale value pegs it at the high
-        // end of the sliding window and `SKIP_REGRESSION` blocks every subsequent
-        // legitimate threshold for the rest of the day. The Apr 29 incident
-        // (`ext-log-2026-04-29.log`) recorded a 9.4-hour blackout across all 8 tracked
-        // apps after one 14:35:14 flood walked `lastThreshold` to 3600s in <14 seconds.
+        // When iOS delivers a stale catch-up event, `thresholdSeconds` reflects iOS's
+        // backlogged cumulative — not real progression. Advancing `lastThreshold` to
+        // that stale value pegs it at the high end of the sliding window and
+        // `SKIP_REGRESSION` blocks every subsequent legitimate threshold for the rest
+        // of the day. The Apr 29 incident (`ext-log-2026-04-29.log`) recorded a
+        // 9.4-hour blackout across all 8 apps after one 14:35:14 flood walked
+        // `lastThreshold` to 3600s in <14 seconds.
         //
-        // Hold `lastThreshold` at its prior value on stale catch-ups. The credited delta
-        // is already small (≤60 s — the per-event cap), so SKIP_REGRESSION semantics
-        // remain sound: future legitimate thresholds with real elapsed wall-clock will
-        // pass the regression check against the unchanged prior `lastThreshold`.
+        // Stale-catch-up signature: `rawDelta > perEventCap`. `rawDelta` is the gap
+        // between the incoming threshold and the prior `lastThreshold`; `perEventCap`
+        // is the maximum real time that one event can legitimately represent (60 s by
+        // default, relaxed to elapsed-since-unlock for the first event after unlock).
+        // When `rawDelta > perEventCap` the threshold has jumped further than real
+        // time could justify — by definition a catch-up. Apr 29 examples: rawDelta=
+        // 2160 (E54C1C9E min.55 with prior lastThresh=1140), 600 (FAE1D45B min.35
+        // with prior lastThresh=1500). All ≫ 60s.
         //
-        // Exception — `isFirstEventAfterUnlock`: a legitimate post-unlock catch-up
-        // (perEventCap relaxed to elapsed-since-unlock) reflects real iOS cumulative,
-        // so its threshold value is trusted and `lastThreshold` advances normally.
-        let wasStaleCatchup = (delta < rawDelta) && !isFirstEventAfterUnlock
+        // Critical: do NOT use `delta < rawDelta` as the trigger. iOS does not fire
+        // on exact 60 s boundaries — natural jitter (~1 s) makes the wall-clock cap
+        // clamp every normal event by a second, and that would hold `lastThreshold`
+        // on every healthy minute (Apr 30 v1 test: 123 false positives in one day,
+        // `lastThreshold` pegged at 60 s all day, SKIP_REGRESSION effectively
+        // disabled).
+        //
+        // On stale catch-up: hold `lastThreshold` at its prior value. The credited
+        // delta is already bounded by `perEventCap`, so SKIP_REGRESSION remains
+        // sound: subsequent real-time thresholds will pass against the unchanged
+        // prior `lastThreshold`. Post-unlock catch-ups have inflated `perEventCap`,
+        // so legitimate ones naturally fall under the gate without a special case.
+        let wasStaleCatchup = rawDelta > perEventCap
         if wasStaleCatchup {
-            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (delta=\(delta)s < raw=\(rawDelta)s)", defaults: defaults)
+            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
         } else {
             defaults.set(thresholdSeconds, forKey: lastThresholdKey)
         }
