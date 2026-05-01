@@ -1120,24 +1120,46 @@ extension SubscriptionManager: PurchasesDelegate {
             // Sync to CloudKit when subscription status changes
             await self.syncSubscriptionToCloudKit()
 
-            // Update Firebase family if tier changed and this is a parent device
-            // Important: Update for ALL tier changes, including downgrades to Solo/Trial
+            // Update Firebase family if tier changed and this is a parent device.
+            //
+            // CRITICAL: `currentTier == .trial` is overloaded — it covers active
+            // free trial, grace period AND genuinely expired (see
+            // updateTierFromCustomerInfo lines 232-240). The earlier code
+            // checked `currentTier.requiresParentDevice`, which routes ALL
+            // .trial transitions through `markFamilyExpired` even when the user
+            // still has trial/grace access. That's how a parent with 3 days of
+            // trial remaining ends up with a Firestore family record marked
+            // `status: expired`, after which `createPairingToken` server-side
+            // rejects with PERMISSION_DENIED ("Subscription expired") even
+            // though RevenueCat agrees the trial is active. (Apr 30 repro.)
+            //
+            // Use `currentStatus.isAccessGranted` (trial/active/grace = true)
+            // as the gate. Only mark expired when the user has actually lost
+            // access, OR when they genuinely downgraded to Solo (which has no
+            // family/parent-device support at all).
             if previousTier != self.currentTier,
                self.deviceManager.currentMode == .parentDevice,
                let familyId = FirebaseValidationService.shared.currentFamilyId {
                 do {
-                    if self.currentTier.requiresParentDevice {
-                        // Upgrading or staying on pairing tier - update subscription
+                    let shouldMarkExpired: Bool = {
+                        if !self.currentStatus.isAccessGranted { return true }   // expired/cancelled
+                        if self.currentTier == .solo { return true }             // genuine downgrade out of pairing
+                        return false                                              // active paid OR trial/grace — keep family
+                    }()
+
+                    if shouldMarkExpired {
+                        try await FirebaseValidationService.shared.markFamilyExpired(familyId: familyId)
+                    } else if self.currentTier.requiresParentDevice {
+                        // family / individual: still paying, push current tier.
                         try await FirebaseValidationService.shared.updateFamilySubscription(
                             familyId: familyId,
                             subscriptionTier: self.currentTier
                         )
-                    } else {
-                        // Downgrading to Solo or expired - mark family as expired
-                        try await FirebaseValidationService.shared.markFamilyExpired(familyId: familyId)
                     }
+                    // else: trial/grace with access — leave Firestore alone so
+                    // the family stays valid through the grace window.
                     #if DEBUG
-                    print("[SubscriptionManager] Updated Firebase family for tier change: \(previousTier.rawValue) → \(self.currentTier.rawValue)")
+                    print("[SubscriptionManager] Updated Firebase family for tier change: \(previousTier.rawValue) → \(self.currentTier.rawValue) (status=\(self.currentStatus.rawValue), markExpired=\(shouldMarkExpired))")
                     #endif
 
                     // Check for excess children after downgrade
