@@ -381,6 +381,19 @@ final class FirebaseValidationService: ObservableObject {
 
             return (tokenId, validationToken, expiresAt)
         } catch {
+            // Cloud Function-side rejections (e.g. PERMISSION_DENIED for an
+            // expired trial) arrive here as `FunctionsError` with a real
+            // status code. Wrapping them blindly as `.networkError` produces
+            // misleading "Network error: Subscription expired" UX. Reuse the
+            // existing `mapFunctionsError` switch so the caller can show the
+            // right copy and the QR view can branch on subscription state.
+            // The "Functions" code path uses `(error as NSError).code`; the
+            // domain is `FIRFunctionsErrorDomain`. Other errors (offline,
+            // SSL, etc.) still fall through to .networkError.
+            let nsError = error as NSError
+            if nsError.domain == "FIRFunctionsErrorDomain" {
+                throw mapFunctionsError(code: nsError.code, message: nsError.localizedDescription)
+            }
             throw FirebaseValidationError.networkError(error)
         }
         #else

@@ -741,64 +741,102 @@ class DevicePairingService: ObservableObject {
         // Create CloudKit share first
         let (zoneID, share) = try await createMonitoringZoneForChild()
 
-        guard let shareURL = share.url?.absoluteString else {
-            throw PairingError.networkError(NSError(domain: "PairingError", code: -1,
-                userInfo: [NSLocalizedDescriptionKey: "Failed to generate sharing URL."]))
-        }
+        // ROLLBACK GUARD: every step below this point can fail (URL extraction,
+        // Firebase token, etc.). Without rollback, every failed QR attempt
+        // leaks a `ChildMonitoring-…` shared zone in the parent's private DB.
+        // The Apr 30 repro saw the zone count climb 26 → 30 across 4 failed
+        // QR attempts (one per attempt, never reclaimed). Track which zones
+        // we created so the catch block can delete them on any throw.
+        var createdZonesToCleanup: [CKRecordZone.ID] = [zoneID]
 
-        // Create the parent commands zone FIRST so its share URL is available
-        // to embed in the QR payload below. Without this, the v2 (secure)
-        // pairing flow only delivers the monitoring share URL to the child —
-        // the child never gets an invite to the parent commands zone, and
-        // parent→child config commands never reach a paired participant.
-        var commandsShareURL: String? = nil
         do {
-            let (_, commandsShare) = try await createParentCommandsZone()
-            commandsShareURL = commandsShare.url?.absoluteString
+            guard let shareURL = share.url?.absoluteString else {
+                throw PairingError.networkError(NSError(domain: "PairingError", code: -1,
+                    userInfo: [NSLocalizedDescriptionKey: "Failed to generate sharing URL."]))
+            }
+
+            // Create the parent commands zone FIRST so its share URL is available
+            // to embed in the QR payload below. Without this, the v2 (secure)
+            // pairing flow only delivers the monitoring share URL to the child —
+            // the child never gets an invite to the parent commands zone, and
+            // parent→child config commands never reach a paired participant.
+            var commandsShareURL: String? = nil
+            do {
+                let (commandsZoneID, commandsShare) = try await createParentCommandsZone()
+                commandsShareURL = commandsShare.url?.absoluteString
+                createdZonesToCleanup.append(commandsZoneID)
+                #if DEBUG
+                print("[DevicePairingService] Commands Share URL: \(commandsShareURL ?? "nil")")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
+                #endif
+            }
+
+            // Generate Firebase-validated QR data with single-use token,
+            // including the commands share URL so the child can accept it.
+            let qrData: String
+            do {
+                qrData = try await FirebaseValidationService.shared.generateChildPairingQRData(
+                    familyId: familyId,
+                    cloudKitShareURL: shareURL,
+                    commandsShareURL: commandsShareURL
+                )
+            } catch let error as FirebaseValidationError {
+                throw PairingError.firebaseValidationFailed(error)
+            }
+
+            let sessionID = UUID().uuidString
+
+            // Store session locally
+            let sessionData: [String: Any] = [
+                "sessionID": sessionID,
+                "parentDeviceID": DeviceModeManager.shared.deviceID,
+                "parentDeviceName": DeviceModeManager.shared.deviceName,
+                "sharedZoneID": zoneID.zoneName,
+                "shareURL": shareURL,
+                "commandsShareURL": commandsShareURL ?? "",
+                "createdAt": Date(),
+                "expiresAt": Date().addingTimeInterval(600), // 10 minutes
+                "isSecure": true
+            ]
+
+            UserDefaults.standard.set(sessionData, forKey: "pairingSession_\(sessionID)")
+
             #if DEBUG
-            print("[DevicePairingService] Commands Share URL: \(commandsShareURL ?? "nil")")
+            print("[DevicePairingService] ✅ Secure pairing session created with Firebase token")
             #endif
+
+            return (sessionID, qrData, share, zoneID)
         } catch {
-            #if DEBUG
-            print("[DevicePairingService] ⚠️ Failed to create ParentCommands zone (non-critical): \(error)")
-            #endif
+            // Pairing failed downstream of zone creation — best-effort cleanup
+            // of every zone we just created so we don't leak orphans on every
+            // failed attempt. Cleanup errors are non-fatal: if the delete itself
+            // fails (offline, etc.), we still surface the original pairing error.
+            await rollbackOrphanZones(createdZonesToCleanup, originalError: error)
+            throw error
         }
+    }
 
-        // Generate Firebase-validated QR data with single-use token,
-        // including the commands share URL so the child can accept it.
-        let qrData: String
-        do {
-            qrData = try await FirebaseValidationService.shared.generateChildPairingQRData(
-                familyId: familyId,
-                cloudKitShareURL: shareURL,
-                commandsShareURL: commandsShareURL
-            )
-        } catch let error as FirebaseValidationError {
-            throw PairingError.firebaseValidationFailed(error)
+    /// Best-effort cleanup of zones created during a failed pairing session.
+    /// Called from `createSecurePairingSession`'s rollback path. Logs but does
+    /// not propagate cleanup errors — the caller wants the *original* pairing
+    /// error surfaced to the UI, not the cleanup failure.
+    private func rollbackOrphanZones(_ zoneIDs: [CKRecordZone.ID], originalError: Error) async {
+        let privateDB = container.privateCloudDatabase
+        for zoneID in zoneIDs {
+            do {
+                try await privateDB.deleteRecordZone(withID: zoneID)
+                #if DEBUG
+                print("[DevicePairingService] 🧹 Rolled back orphan zone \(zoneID.zoneName) after pairing error: \(originalError.localizedDescription)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Failed to roll back zone \(zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
         }
-
-        let sessionID = UUID().uuidString
-
-        // Store session locally
-        let sessionData: [String: Any] = [
-            "sessionID": sessionID,
-            "parentDeviceID": DeviceModeManager.shared.deviceID,
-            "parentDeviceName": DeviceModeManager.shared.deviceName,
-            "sharedZoneID": zoneID.zoneName,
-            "shareURL": shareURL,
-            "commandsShareURL": commandsShareURL ?? "",
-            "createdAt": Date(),
-            "expiresAt": Date().addingTimeInterval(600), // 10 minutes
-            "isSecure": true
-        ]
-
-        UserDefaults.standard.set(sessionData, forKey: "pairingSession_\(sessionID)")
-
-        #if DEBUG
-        print("[DevicePairingService] ✅ Secure pairing session created with Firebase token")
-        #endif
-
-        return (sessionID, qrData, share, zoneID)
     }
 
     /// Accept secure pairing from parent with Firebase validation
@@ -1225,33 +1263,94 @@ class DevicePairingService: ObservableObject {
         #endif
     }
 
-    /// Unregister child device from parent's shared zone
+    /// Unregister child device from parent's shared zone.
+    ///
+    /// Self-heals against stale `sharedZoneID`: a parent device that re-creates its
+    /// shared zone (or the child holds a stale reference from an earlier pair cycle)
+    /// would otherwise leave the unpair-delete pointed at a defunct zone. CloudKit
+    /// returns `Zone does not exist` and the orphan record lives forever in the
+    /// real zone, where the parent's `fetchLinkedChildDevices` keeps finding it.
+    /// See "Apr 30 2026 — Alex stuck-paired" repro: child held E2DB7A60 reference
+    /// while real record lived in D5F3A34C.
+    ///
+    /// Strategy: try the stored zone first. On any failure (zone gone, network,
+    /// not-found), fall back to scanning every zone in the shared database for a
+    /// record named `device-<childID>` whose `CD_parentDeviceID` matches the
+    /// parent we're unpairing from, and delete from there.
     private func unregisterFromParentZone(parent: PairedParentInfo) async throws {
-        guard let zoneName = parent.sharedZoneID,
-              let zoneOwner = parent.sharedZoneOwner else {
+        let sharedDatabase = container.sharedCloudDatabase
+        let childDeviceID = DeviceModeManager.shared.deviceID
+        let recordName = "device-\(childDeviceID)"
+
+        // Attempt 1: stored zone, if any.
+        if let zoneName = parent.sharedZoneID,
+           let zoneOwner = parent.sharedZoneOwner {
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+            let deviceRecordID = CKRecord.ID(recordName: recordName, zoneID: zoneID)
+
             #if DEBUG
-            print("[DevicePairingService] ⚠️ No zone info for parent, skipping CloudKit cleanup")
+            print("[DevicePairingService] 🗑️ Deleting device record from stored zone: \(zoneName)")
             #endif
-            return
+
+            do {
+                try await sharedDatabase.deleteRecord(withID: deviceRecordID)
+                #if DEBUG
+                print("[DevicePairingService] ✅ Deleted device record from stored zone")
+                #endif
+                return
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Stored-zone delete failed (\(error.localizedDescription)) — falling back to all-zone scan")
+                #endif
+                // Fall through to fallback scan.
+            }
+        } else {
+            #if DEBUG
+            print("[DevicePairingService] ⚠️ No stored zone info — falling back to all-zone scan")
+            #endif
         }
 
-        let sharedDatabase = container.sharedCloudDatabase
-        let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+        // Attempt 2: enumerate all zones in the shared database. If we find a
+        // matching CD_RegisteredDevice owned by this parent, delete it.
+        let zones: [CKRecordZone]
+        do {
+            zones = try await sharedDatabase.allRecordZones()
+        } catch {
+            #if DEBUG
+            print("[DevicePairingService] ❌ Could not enumerate shared zones: \(error.localizedDescription)")
+            #endif
+            throw error
+        }
 
-        // Same record ID pattern used during registration
-        let deviceRecordID = CKRecord.ID(
-            recordName: "device-\(DeviceModeManager.shared.deviceID)",
-            zoneID: zoneID
-        )
+        var deletedCount = 0
+        for zone in zones where zone.zoneID.zoneName.hasPrefix("ChildMonitoring-") {
+            let candidateID = CKRecord.ID(recordName: recordName, zoneID: zone.zoneID)
+            do {
+                let record = try await sharedDatabase.record(for: candidateID)
+                // Only delete if this record really points at the parent we're unpairing.
+                if (record["CD_parentDeviceID"] as? String) == parent.id {
+                    try await sharedDatabase.deleteRecord(withID: candidateID)
+                    deletedCount += 1
+                    #if DEBUG
+                    print("[DevicePairingService] ✅ Deleted orphan record from \(zone.zoneID.zoneName)")
+                    #endif
+                }
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                continue   // Record absent from this zone — expected for most.
+            } catch {
+                #if DEBUG
+                print("[DevicePairingService] ⚠️ Scan: skipping \(zone.zoneID.zoneName) — \(error.localizedDescription)")
+                #endif
+                continue
+            }
+        }
 
         #if DEBUG
-        print("[DevicePairingService] 🗑️ Deleting device record from parent's zone: \(zoneName)")
-        #endif
-
-        try await sharedDatabase.deleteRecord(withID: deviceRecordID)
-
-        #if DEBUG
-        print("[DevicePairingService] ✅ Deleted device record from parent's zone")
+        if deletedCount == 0 {
+            print("[DevicePairingService] ℹ️ All-zone scan found no record to delete (already gone or never existed)")
+        } else {
+            print("[DevicePairingService] ✅ All-zone scan deleted \(deletedCount) record(s)")
+        }
         #endif
     }
 

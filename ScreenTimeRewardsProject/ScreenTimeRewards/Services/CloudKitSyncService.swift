@@ -3365,9 +3365,17 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Calculate earned minutes using threshold gate logic (matches AppUsageViewModel.totalEarnedMinutes)
-        // A learning app only contributes to earned time if its usage meets the LOWEST minutesRequired
-        // threshold among all reward apps that link to it.
+        // SOURCE-OF-TRUTH INVARIANT: this block must mirror
+        // `AppUsageViewModel.totalEarnedMinutes` (line 156) and
+        // `AppUsageViewModel.cumulativeAvailableMinutes` (line 210), which are also
+        // mirrored byte-for-byte by `computeEffectivePoolBalance` in
+        // DeviceActivityMonitorExtension.swift (the extension's shield gate). When
+        // the bank formula changes, ALL FOUR sites update in the same commit.
+        // See docs/SMART_THRESHOLD_FILTERING.md "Apr 26–27, 2026 — Pooled Time Bank
+        // Shield Gate (Devices A + B)".
+        //
+        // Build threshold map: learningAppID → lowest minutesRequired across all
+        // reward apps that link to it.
         var lowestThresholdPerLearningApp: [String: Int] = [:]
         for (logicalID, _) in allApps {
             if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
@@ -3383,8 +3391,19 @@ class CloudKitSyncService: ObservableObject {
             }
         }
 
-        // Apply threshold gate logic: only count if usage >= lowestThreshold.
-        // Case-insensitive parse so legacy lowercase records still aggregate.
+        // Build learning ratios map identical to `AppUsageViewModel.buildLearningRatioMap()`.
+        // Ratio comes from each learning app's OWN schedule (rewardMinutesEarned /
+        // ratioLearningMinutes). Defaults to 1.0 if no schedule.
+        var learningRatios: [String: Double] = [:]
+        for (logicalID, app) in allApps where AppUsage.AppCategory.parse(app.category) == .learning {
+            if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
+                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
+                learningRatios[logicalID] = ratio
+            }
+        }
+
+        // Apply threshold gate + ratio: only count if usage >= lowestThreshold,
+        // then multiply by ratio. Mirrors AppUsageViewModel.totalEarnedMinutes.
         var totalEarnedMinutes = 0
         for (logicalID, app) in allApps where AppUsage.AppCategory.parse(app.category) == .learning {
             guard let lowestThreshold = lowestThresholdPerLearningApp[logicalID] else {
@@ -3392,20 +3411,25 @@ class CloudKitSyncService: ObservableObject {
             }
             let usageMinutes = app.todaySeconds / 60
             if usageMinutes >= lowestThreshold {
-                totalEarnedMinutes += usageMinutes
+                let ratio = learningRatios[logicalID] ?? 1.0
+                totalEarnedMinutes += Int(Double(usageMinutes) * ratio)
             }
             // else: earned 0 for this app (threshold not met)
         }
 
         #if DEBUG
-        print("[EarnedMinutesDebug] UPLOAD: Calculated totalEarnedMinutes = \(totalEarnedMinutes) from \(lowestThresholdPerLearningApp.count) linked learning apps (threshold gate applied)")
+        print("[EarnedMinutesDebug] UPLOAD: Calculated totalEarnedMinutes = \(totalEarnedMinutes) from \(lowestThresholdPerLearningApp.count) linked learning apps (threshold gate + ratios applied)")
         #endif
 
-        // Calculate cumulative available minutes (rollover + today's remaining)
+        // Calculate cumulative available minutes (rollover + today's remaining).
+        // Pass `learningRatios` so historical earned is ratio-adjusted — matches
+        // AppUsageViewModel.cumulativeAvailableMinutes (line 210) and
+        // ScreenTimeService.syncBankHistoricalBaselineToExtension (line 4138).
         let learningLogicalIDs = allApps.filter { AppUsage.AppCategory.parse($0.value.category) == .learning }.map { $0.key }
         let historicalRemaining = ScreenTimeService.shared.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningLogicalIDs,
-            rewardIDs: rewardLogicalIDs
+            rewardIDs: rewardLogicalIDs,
+            learningRatios: learningRatios
         )
         let todayRemaining = totalEarnedMinutes - (totalRewardSeconds / 60)
         let cumulativeAvailableMinutes = max(0, historicalRemaining + todayRemaining)
