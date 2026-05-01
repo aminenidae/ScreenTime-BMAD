@@ -7,9 +7,20 @@
 
 import SwiftUI
 
-/// View for managing linked child devices
+/// View for managing linked child devices.
+///
+/// IMPORTANT: This view shares `ParentRemoteViewModel` with the parent dashboard
+/// via `@EnvironmentObject` instead of owning a private `@StateObject`. Without
+/// the shared instance, an unpair from the dashboard's carousel mutated only the
+/// dashboard VM's `linkedChildDevices` array, while LinkedDevicesView's separate
+/// VM rendered stale rows from `populateFromLocalCache` (Core Data still held the
+/// row because NSPersistentCloudKitContainer hadn't reconciled the deleted zone
+/// yet). User-facing symptom (Apr 30): dashboard shows 4 children, Settings →
+/// Linked Devices keeps showing 5. Callers (ParentSettingsView sheet,
+/// SubscriptionManagementView NavigationLink) must forward the parent's
+/// `ParentRemoteViewModel` via `.environmentObject(...)`.
 struct LinkedDevicesView: View {
-    @StateObject private var viewModel = ParentRemoteViewModel()
+    @EnvironmentObject var viewModel: ParentRemoteViewModel
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) var colorScheme
 
@@ -203,4 +214,5 @@ struct LinkedDevicesView: View {
 
 #Preview("Linked Devices View") {
     LinkedDevicesView()
+        .environmentObject(ParentRemoteViewModel())
 }

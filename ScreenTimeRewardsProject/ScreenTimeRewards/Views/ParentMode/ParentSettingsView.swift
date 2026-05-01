@@ -10,6 +10,12 @@ import SwiftUI
 /// Settings view for parent device mode (used in ParentTabView)
 struct ParentSettingsView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+    // Same `ParentRemoteViewModel` instance the dashboard uses (forwarded from
+    // ParentTabView via `.environmentObject(viewModel)`). We re-forward it
+    // into the LinkedDevicesView sheet so an unpair from there mutates the
+    // shared list, not a private copy. SwiftUI sheets do not inherit env
+    // objects automatically.
+    @EnvironmentObject var viewModel: ParentRemoteViewModel
     @Environment(\.colorScheme) var colorScheme
 
     @State private var showingSubscriptionManagement = false
@@ -48,7 +54,11 @@ struct ParentSettingsView: View {
             SubscriptionManagementView()
         }
         .sheet(isPresented: $showingLinkedDevices) {
+            // Forward the shared ParentRemoteViewModel so unpair/state changes
+            // stay consistent with the dashboard. The sheet doesn't inherit
+            // env objects automatically.
             LinkedDevicesView()
+                .environmentObject(viewModel)
         }
         .sheet(isPresented: $showingWebRestrictions) {
             WebsiteBlockingView()

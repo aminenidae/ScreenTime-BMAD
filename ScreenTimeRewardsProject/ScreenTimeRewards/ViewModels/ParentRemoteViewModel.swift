@@ -782,10 +782,26 @@ class ParentRemoteViewModel: ObservableObject {
 
         guard !localDevices.isEmpty else { return }
 
-        linkedChildDevices = localDevices
+        // Dedupe by deviceID. NSPersistentCloudKitContainer can mirror the
+        // same RegisteredDevice CK record into multiple Core Data rows after
+        // pair/unpair/repair cycles. Without dedupe, SwiftUI's `ForEach(id:
+        // \.deviceID)` warns "ID occurs multiple times" and the children
+        // carousel/Linked Devices list shows phantom duplicates.
+        var seenIDs = Set<String>()
+        let deduped = localDevices.filter { device in
+            guard let id = device.deviceID else { return false }
+            return seenIDs.insert(id).inserted
+        }
+
+        linkedChildDevices = deduped
 
         #if DEBUG
-        print("[ParentRemoteViewModel] 🗂 Populated \(localDevices.count) children from local Core Data")
+        let dropped = localDevices.count - deduped.count
+        if dropped > 0 {
+            print("[ParentRemoteViewModel] 🗂 Populated \(deduped.count) children from local Core Data (deduped \(dropped) row(s))")
+        } else {
+            print("[ParentRemoteViewModel] 🗂 Populated \(deduped.count) children from local Core Data")
+        }
         #endif
 
         // Do NOT pre-restore child-specific state here. Each SwiftUI view (carousel,
@@ -799,6 +815,65 @@ class ParentRemoteViewModel: ObservableObject {
         // The linkedChildDevices population above is enough to paint the carousel
         // fast. Any view that needs child-specific state calls loadChildData(for:),
         // which restores from cache for the correct device.
+    }
+
+    /// Delete local Core Data `RegisteredDevice` rows whose deviceID is not in
+    /// the canonical CK fetch result. Pairs with `populateFromLocalCache` to
+    /// keep the local mirror from re-surfacing recently-unpaired children
+    /// during the NSPersistentCloudKitContainer ZoneDeleted-recovery window.
+    /// Also kills duplicate rows that NSPersistentCloudKitContainer can
+    /// accumulate over pair/unpair/repair cycles. Best-effort: errors logged,
+    /// not propagated.
+    private func pruneStaleLocalChildDevices(keeping fresh: [RegisteredDevice]) {
+        let parentID = DeviceModeManager.shared.deviceID
+        guard !parentID.isEmpty else { return }
+
+        let validIDs = Set(fresh.compactMap { $0.deviceID })
+        let context = PersistenceController.shared.container.viewContext
+        let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentID)
+
+        do {
+            let localRows = try context.fetch(req)
+            var rowsByID: [String: [RegisteredDevice]] = [:]
+            var toDelete: [RegisteredDevice] = []
+
+            for row in localRows {
+                guard let id = row.deviceID else {
+                    toDelete.append(row)   // Orphan row with nil deviceID — never useful.
+                    continue
+                }
+                if !validIDs.contains(id) {
+                    toDelete.append(row)   // Not in CK truth set anymore.
+                } else {
+                    rowsByID[id, default: []].append(row)
+                }
+            }
+
+            // Collapse duplicates within a single deviceID — keep the row
+            // most recently synced (highest lastSyncDate), delete the rest.
+            for (_, dupes) in rowsByID where dupes.count > 1 {
+                let sorted = dupes.sorted { (l, r) in
+                    (l.lastSyncDate ?? .distantPast) > (r.lastSyncDate ?? .distantPast)
+                }
+                toDelete.append(contentsOf: sorted.dropFirst())
+            }
+
+            guard !toDelete.isEmpty else { return }
+
+            for row in toDelete {
+                context.delete(row)
+            }
+            try context.save()
+
+            #if DEBUG
+            print("[ParentRemoteViewModel] 🧹 Pruned \(toDelete.count) stale/duplicate RegisteredDevice row(s) from Core Data")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[ParentRemoteViewModel] ⚠️ Local prune failed: \(error.localizedDescription)")
+            #endif
+        }
     }
 
     /// Persist a device's loaded state (configs + shield states + usage history +
@@ -1067,6 +1142,17 @@ class ParentRemoteViewModel: ObservableObject {
             #if DEBUG
             print("[ParentRemoteViewModel] Loaded \(linkedChildDevices.count) child devices")
             #endif
+
+            // Prune local Core Data rows that aren't in the CK truth set.
+            // After an unpair, the parent's CK zone is deleted but
+            // NSPersistentCloudKitContainer can take several "ZoneDeleted"
+            // recovery cycles to remove the corresponding RegisteredDevice
+            // row from local Core Data. Until then, `populateFromLocalCache`
+            // (called from a fresh VM init, e.g. when a sheet opens
+            // LinkedDevicesView) re-resurrects the unpaired child. Forcing
+            // the local table to converge with what CK just returned closes
+            // that window.
+            pruneStaleLocalChildDevices(keeping: linkedChildDevices)
 
             // Validate that each child's zone still exists
             await validateChildPairings()
