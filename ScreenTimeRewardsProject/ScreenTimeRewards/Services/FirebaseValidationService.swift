@@ -382,16 +382,21 @@ final class FirebaseValidationService: ObservableObject {
             return (tokenId, validationToken, expiresAt)
         } catch {
             // Cloud Function-side rejections (e.g. PERMISSION_DENIED for an
-            // expired trial) arrive here as `FunctionsError` with a real
-            // status code. Wrapping them blindly as `.networkError` produces
-            // misleading "Network error: Subscription expired" UX. Reuse the
-            // existing `mapFunctionsError` switch so the caller can show the
-            // right copy and the QR view can branch on subscription state.
-            // The "Functions" code path uses `(error as NSError).code`; the
-            // domain is `FIRFunctionsErrorDomain`. Other errors (offline,
+            // expired trial) arrive here as a `FunctionsError`. Wrapping them
+            // blindly as `.networkError` produces misleading "Network error:
+            // Subscription expired" UX. Reuse the existing `mapFunctionsError`
+            // switch so the caller can show the right copy and the QR view
+            // can branch on subscription state.
+            //
+            // The error domain has changed across Firebase iOS SDK versions:
+            //   • SDK 11+ Swift: `com.firebase.functions`
+            //   • Older Obj-C bridge: `FIRFunctionsErrorDomain`
+            //   • Some intermediate releases: `FunctionsErrorDomain`
+            // Match anything containing "functions" (case-insensitive) so we
+            // don't regress when the SDK is upgraded. Other errors (offline,
             // SSL, etc.) still fall through to .networkError.
             let nsError = error as NSError
-            if nsError.domain == "FIRFunctionsErrorDomain" {
+            if nsError.domain.range(of: "functions", options: .caseInsensitive) != nil {
                 throw mapFunctionsError(code: nsError.code, message: nsError.localizedDescription)
             }
             throw FirebaseValidationError.networkError(error)

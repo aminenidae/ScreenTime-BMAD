@@ -760,11 +760,19 @@ class DevicePairingService: ObservableObject {
             // pairing flow only delivers the monitoring share URL to the child —
             // the child never gets an invite to the parent commands zone, and
             // parent→child config commands never reach a paired participant.
+            //
+            // CRITICAL: Do NOT add the ParentCommands zone to `createdZonesToCleanup`.
+            // Unlike `ChildMonitoring-<UUID>` (per-session), `ParentCommands-<parentDeviceID>`
+            // is a deterministic, parent-wide zone shared across ALL children
+            // (createParentCommandsZone short-circuits and returns the existing zone
+            // when one already exists). Rolling it back on a failed QR attempt
+            // would delete the active commands zone for every previously-paired
+            // child and break parent→child config sync. Only the per-session
+            // monitoring zone is eligible for rollback.
             var commandsShareURL: String? = nil
             do {
-                let (commandsZoneID, commandsShare) = try await createParentCommandsZone()
+                let (_, commandsShare) = try await createParentCommandsZone()
                 commandsShareURL = commandsShare.url?.absoluteString
-                createdZonesToCleanup.append(commandsZoneID)
                 #if DEBUG
                 print("[DevicePairingService] Commands Share URL: \(commandsShareURL ?? "nil")")
                 #endif
