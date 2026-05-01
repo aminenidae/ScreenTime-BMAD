@@ -745,6 +745,17 @@ class ParentRemoteViewModel: ObservableObject {
     // isLoadingChildData guard.
     private var pendingChildLoad: RegisteredDevice?
 
+    /// Min interval between auto-fetches triggered by NSPersistentCloudKitContainer
+    /// import events. The observer in `setupCloudKitNotifications` exists to pick
+    /// up genuine remote changes (e.g. a co-parent paired a new child); when
+    /// Apple's mirror is stuck in a retry-recover loop on a deleted zone — which
+    /// we can't directly fix — it would otherwise re-enumerate every
+    /// `ChildMonitoring-*` zone every ~30s for the entire session. User-driven
+    /// pull-to-refresh, page swipes, and explicit `loadLinkedChildDevices`
+    /// calls bypass this throttle (they don't go through the observer).
+    private static let observerRefetchMinInterval: TimeInterval = 60
+    private var lastObserverTriggeredFetchAt: Date?
+
     init() {
         setupCloudKitNotifications()
         populateFromLocalCache()
@@ -1077,6 +1088,27 @@ class ParentRemoteViewModel: ObservableObject {
             .debounce(for: .seconds(2), scheduler: DispatchQueue.main)  // Wait 2 seconds for sync to settle
             .sink { [weak self] _ in
                 guard let self = self else { return }
+
+                // Throttle: ignore observer-triggered re-fetches that arrive
+                // sooner than `observerRefetchMinInterval` after the previous
+                // one. Apple's NSPersistentCloudKitContainer can sit in a slow
+                // retry loop when it can't drop deleted zones from its tracker
+                // (Apr 30 unpair leaves D5F3A34C / FC9CF48C in import requests
+                // forever, each cycle eventually firing a successful import
+                // event for the OTHER zones). Without this throttle, every
+                // such cycle re-enumerated all 21 ChildMonitoring zones,
+                // which user-side reads as "fetching non-stop". This observer
+                // is a hint, not a critical signal — once-per-minute is plenty.
+                let now = Date()
+                if let last = self.lastObserverTriggeredFetchAt,
+                   now.timeIntervalSince(last) < Self.observerRefetchMinInterval {
+                    #if DEBUG
+                    print("[ParentRemoteViewModel] CloudKit import settled - throttled (last fetch \(Int(now.timeIntervalSince(last)))s ago, min \(Int(Self.observerRefetchMinInterval))s)")
+                    #endif
+                    return
+                }
+                self.lastObserverTriggeredFetchAt = now
+
                 #if DEBUG
                 print("[ParentRemoteViewModel] CloudKit import settled - refreshing child device list")
                 #endif
