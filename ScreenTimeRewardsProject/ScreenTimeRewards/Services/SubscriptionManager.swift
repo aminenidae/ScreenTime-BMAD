@@ -63,6 +63,14 @@ final class SubscriptionManager: NSObject, ObservableObject {
     private let persistenceController = PersistenceController.shared
     private let deviceManager = DeviceModeManager.shared
 
+    /// Once-per-launch guard for the Firestore family re-hydration call below.
+    /// We push `updateFamilySubscription` once per app session even when the
+    /// tier didn't change, to repair Firestore records that were wrongly
+    /// stamped `subscription.status = expired` by the pre-58ee9f8 trial-tier
+    /// bug. Without the guard, every RevenueCat customer-info update would
+    /// trigger a redundant network round-trip.
+    private var didRehydrateFamilyThisLaunch: Bool = false
+
     // MARK: - Initialization
 
     private override init() {
@@ -1167,6 +1175,44 @@ extension SubscriptionManager: PurchasesDelegate {
                 } catch {
                     print("[SubscriptionManager] Failed to update Firebase family: \(error)")
                 }
+            }
+
+            // SELF-HEAL: re-hydrate Firestore family record once per app launch.
+            //
+            // Users who hit the pre-58ee9f8 .trial bug have a Firestore family
+            // permanently stamped `subscription.status = expired`, even though
+            // RevenueCat reports an active trial. Pushing the current tier via
+            // `updateFamilySubscription` flips the server-side status back to
+            // active. Runs at most once per launch (didRehydrateFamilyThisLaunch
+            // flag), and only when the user actually has access AND owns a
+            // tier the Firestore schema accepts (family/individual). Trial-only
+            // users (no paid family) typically don't have a `currentFamilyId`,
+            // so the gate rules them out naturally.
+            //
+            // Note: when the tier-change branch above already pushed
+            // `updateFamilySubscription`, this self-heal becomes a near-duplicate
+            // no-op call. We accept that one extra round-trip per launch in
+            // exchange for self-healing affected users without manual Firebase
+            // Console intervention.
+            if !self.didRehydrateFamilyThisLaunch,
+               self.deviceManager.currentMode == .parentDevice,
+               let familyId = FirebaseValidationService.shared.currentFamilyId,
+               self.currentStatus.isAccessGranted,
+               self.currentTier.requiresParentDevice {
+                do {
+                    try await FirebaseValidationService.shared.updateFamilySubscription(
+                        familyId: familyId,
+                        subscriptionTier: self.currentTier
+                    )
+                    #if DEBUG
+                    print("[SubscriptionManager] 🔄 Re-hydrated Firebase family for active subscription (tier=\(self.currentTier.rawValue), status=\(self.currentStatus.rawValue))")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[SubscriptionManager] ⚠️ Family re-hydration failed (will retry next launch): \(error.localizedDescription)")
+                    #endif
+                }
+                self.didRehydrateFamilyThisLaunch = true
             }
 
             #if DEBUG
