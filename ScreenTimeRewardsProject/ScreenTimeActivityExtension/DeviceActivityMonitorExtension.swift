@@ -679,9 +679,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // sound: subsequent real-time thresholds will pass against the unchanged
         // prior `lastThreshold`. Post-unlock catch-ups have inflated `perEventCap`,
         // so legitimate ones naturally fall under the gate without a special case.
+        // v3 (May 1) — on stale catch-up, advance `lastThreshold` to the actual
+        // credited high-water mark (`max(prior, newToday)`) rather than holding it
+        // indefinitely at the pre-flood value. The v2 "hold" worked operationally
+        // (no rest-of-day blackouts) but pegged `lastThreshold` permanently after
+        // the first held event of the day for an app, classifying every subsequent
+        // legitimate real-time event as "stale catch-up" because their `rawDelta`
+        // grew unboundedly against the frozen baseline. Counting still came out
+        // right (wall-clock cap independently bounded delta), but `SKIP_REGRESSION`
+        // was effectively disabled for that app for the rest of the day, and the
+        // log misleadingly tagged real-time events as "stale". Anchoring to
+        // `newToday` keeps `lastThreshold` truthful as "highest credited progression"
+        // and re-arms `SKIP_REGRESSION` against any *new* stale flood.
         let wasStaleCatchup = rawDelta > perEventCap
         if wasStaleCatchup {
-            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(lastThreshold)s — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
+            let newLastThreshold = max(lastThreshold, newToday)
+            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(newLastThreshold)s (was \(lastThreshold)s) — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
+            defaults.set(newLastThreshold, forKey: lastThresholdKey)
         } else {
             defaults.set(thresholdSeconds, forKey: lastThresholdKey)
         }

@@ -1838,7 +1838,7 @@ Cap-line debug extended with `unlockAge=Ns perEventCap=Ns` for forensic disambig
 
 ### Apr 30, 2026 — Stale Catch-Up `lastThreshold` Poisoning (the Apr 12 bug, now closed)
 
-**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. v1 (`delta < rawDelta` gate) shipped, validated wrong same day (123 false positives, `SKIP_REGRESSION` disabled). v2 (`rawDelta > perEventCap` gate) shipped same day. Resolves the §"Out-of-Order Catch-Up Events (Apr 12, 2026)" item open since Apr 12. Validation of v2 pending next charging-flush incident.
+**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. v1 (`delta < rawDelta` gate, Apr 30) shipped, validated wrong same day (123 false positives, `SKIP_REGRESSION` disabled). v2 (`rawDelta > perEventCap` gate, Apr 30) shipped same day, validated correct on May 1 against a real iOS-restart catch-up flood at 13:37:58 — gate fired only on real catch-ups, no rest-of-day blackout. v3 (`max(prior, newToday)` on hold instead of pure-hold, May 1) addresses the v2 quirk where `lastThreshold` stayed frozen post-flood and disabled `SKIP_REGRESSION` for the rest of the day. Resolves the §"Out-of-Order Catch-Up Events (Apr 12, 2026)" item open since Apr 12.
 
 #### Apr 29 incident — full-day blackout, all 8 apps
 
@@ -1896,7 +1896,7 @@ if wasStaleCatchup {
 
 **Post-unlock case is implicit.** `perEventCap` is already inflated to elapsed-since-unlock for the first event after an unlock (Apr 26–27 layer 2). A legitimate post-unlock catch-up has `rawDelta ≤ perEventCap` and naturally falls under the gate. No `!isFirstEventAfterUnlock` exception is needed; the inflated cap handles it.
 
-**Why holding instead of advancing-to-`newToday`.** Either choice would unblock subsequent thresholds — `lastThreshold = max(prior, newToday)` is equivalent in effect because `newToday = currentToday + delta` and `delta ≤ perEventCap` per event, so the high-water mark moves by at most one minute either way. Holding is the simpler, more conservative invariant: *we only ever attribute `lastThreshold` to a threshold value we believe.*
+**Why advancing to `max(prior, newToday)` instead of pure-hold (v3 May 1).** v2 used pure-hold (`lastThreshold` stays at its pre-flood value). Validated on May 1's log: works for the primary bug (no rest-of-day blackouts) but introduces a quirk — once held, `lastThreshold` never advances even on subsequent legitimate real-time events, because their `rawDelta` against the frozen baseline grows past `perEventCap`, and the gate keeps classifying them as "stale." Counting stays correct (wall-clock cap bounds `delta`), but `SKIP_REGRESSION` is effectively disabled for that app for the rest of the day, and the log misleadingly tags real-time events as stale. v3 advances `lastThreshold` to `max(prior, newToday)` on hold — `newToday` never lies (it's the credited high-water mark), so it's a safe lower bound. Future real-time events have `rawDelta = max(60, threshold − newToday) ≈ 60 = perEventCap` → not stale → advance normally. Re-arms the safety net.
 
 #### What today's log would have looked like with the fix
 
