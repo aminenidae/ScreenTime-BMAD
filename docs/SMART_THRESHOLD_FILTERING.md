@@ -2054,3 +2054,136 @@ May 1's pool went from 1 224 min at midnight to 1 323 min at 19:53 — a +99 min
 - Branch: `fix/stale-catchup-lastthreshold-poisoning` — three commits: `4d4a681` (v1, broken), `da61c65` (v2), `ddcb2c5` (v3).
 - Apr 12 §"Out-of-Order Catch-Up Events" status header updated to **CLOSED Apr 30, 2026** (v2 is the close; v3 is a refinement; phantom replay is a separate, unrelated finding).
 - Phantom-threshold replay is a NEW open issue — distinct from the Apr 12 / Apr 29 bug. Do not conflate.
+
+---
+
+### May 2, 2026 — Pool-Aware `SKIP_SHIELDED_RACE` (carry-forward Time Bank credit)
+
+**Status:** SHIPPED on branch `fix/stale-catchup-lastthreshold-poisoning`. Device-validated end-to-end on a fresh-today reward app — 3 min real use → 3 min recorded → pool decremented 72 → 69 in lockstep.
+
+**Incident.** User report: two child devices showing 0 min recorded reward usage despite multiple hours of actual reward-app play. Time Bank was NOT decrementing — kids were spending carry-forward credit invisibly.
+
+**Root cause.** The Apr 24 `SKIP_SHIELDED_RACE` safety-net backstop (`DeviceActivityMonitorExtension.swift:482` pre-fix) gated on **today's** `checkGoalMet()` only:
+
+```swift
+// pre-fix
+if !checkGoalMet(goalConfig: goalConfig, defaults: defaults) {
+    debugLog("SKIP_SHIELDED_RACE ... goal NOT met but shield store missing token — blocking")
+    return false
+}
+```
+
+This was correct in the Apr 24 reward-time-exhaustion race window (~220 ms while `SHIELD_CHECK` was rebuilding the shield set after a goal-met event). But it was **incorrect** for legitimate pool-only unshields:
+
+- Midnight silent unshield path (`SHIELD_CHECK: ✅ REMOVED shield ... pool=Nmin` + `silent unshield (pool-only, todayEarned=0)`) leaves the reward app legitimately unshielded based on carry-forward Time Bank credit.
+- Today's per-goal threshold isn't crossed (no learning today, or below `minutesRequired`) → `checkGoalMet()` returns false.
+- Old `SKIP_SHIELDED_RACE` then blocked every threshold event for the day, even though the shield was correctly down and the kid was spending real bank credit.
+
+The Apr 26–27 §"Pooled Time Bank Shield Gate" had already made the shield-placement decision pool-aware (`checkAndUpdateShields` line 1126: `guard pool > 0 else { return }`). But the Apr 24 backstop in Filter 2 was never updated to match — it still gated on the today-only goal check, creating an inconsistency between *whether the shield is up* (pool-aware, correct) and *whether to record events when the shield is down* (today-only, wrong).
+
+#### Symptom evidence (May 2 ext-log-2026-05-02.log)
+
+Device 1 (8 hours of rejected events for app `0454A303`):
+```
+08:53:28  GOAL_CHECK: ❌ C9DD7583-B26 goal NOT met (all mode) - 50AB3A4D-2AD below target (11min/15min)
+08:53:28  SKIP_SHIELDED_RACE appID=C9DD7583... goal NOT met but shield store missing token — blocking
+... repeats every minute of reward-app foreground use ...
+14:13:12  EVENT appID=0454A303... min=60 currentToday=0s lastThresh=0s
+14:13:12  SKIP_SHIELDED_RACE appID=0454A303... blocking
+```
+60 minutes of iOS-counted cumulative reward usage on `0454A303`, recorded `usage_today=0s` all day. `SHIELD_CHECK: ✅ REMOVED shield for 0454A303-53F (pool=72min)` confirms the shield was correctly down via pool-only unshield.
+
+#### Fix
+
+Surgical change at `DeviceActivityMonitorExtension.swift:482`:
+
+```swift
+// post-fix
+if !goalMet {
+    let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
+    if pool <= 0 {
+        debugLog("SKIP_SHIELDED_RACE appID=... goal NOT met AND pool=\(pool)min — blocking (race-window backstop)")
+        return false
+    }
+    debugLog("SHIELDED_RACE_BYPASS appID=... goal NOT met but pool=\(pool)min — Time Bank carry-forward unshield, recording usage")
+}
+```
+
+Reuses the existing `computeEffectivePoolBalance(configs:defaults:)` (already wired for Apr 26–27 shield gate). The Apr 24 reward-time-exhaustion race is still protected: in that scenario `pool ≤ 0` is the very condition that triggered `LEARNING_GOAL_BLOCK` to re-apply the shield, so the backstop still fires. Only adds a passthrough for the legitimate "Time Bank carry-forward unshield, today's goal not yet met" case.
+
+**Source-of-truth invariant restated.** Filter 2's `SKIP_SHIELDED_RACE` backstop and `checkAndUpdateShields`/`checkAndBlockIfRewardTimeExhausted` MUST share the same pool-aware logic. If `computeEffectivePoolBalance()` changes, the backstop's `pool <= 0` condition stays valid; it gates on the same primitive.
+
+**Observability added in same commit.** Five new `Self.logger.notice/error` calls in Filter 2 (visible in Console.app under subsystem `i6dev.ScreenTimeRewards.extension`):
+
+| Log line | When |
+|---|---|
+| `FILTER2_ENTRY app=... category=... thresh=Ns` | Every threshold event arriving at Filter 2 — confirms new-binary load |
+| `SKIP_SHIELDED_FALLBACK app=... configs=nil` | shieldConfigs nil — fail-closed block |
+| `SHIELD_STATE app=... shieldHasToken=BOOL shieldCount=N` | Live shield-store state at decision time |
+| `SHIELD_RACE_GATE app=... goalMet=BOOL pool=Nmin` | Decision inputs for the pool-aware gate |
+| `SHIELDED_RACE_BYPASS app=... pool=Nmin — RECORDING` / `SKIP_SHIELDED_RACE ... pool=N — BLOCKING` | Final decision |
+
+The file-log (`ExtensionFileLogger.shared.appendLine` via `debugLog`) line for `SKIP_SHIELDED_RACE` was also updated from `goal NOT met but shield store missing token — blocking (race-window backstop)` to `goal NOT met AND pool=Nmin — blocking (race-window backstop)`. The `pool=Nmin` suffix lets future log analysis disambiguate "blocked because legit reward-time-exhausted race" from "blocked because no carry-forward credit."
+
+#### Device validation (May 2 17:03–17:05)
+
+Fresh-today reward app `47BC75D2` (cumulative=0 at unshield time, no morning rejections):
+
+```
+17:03:20  EVENT  appID=47BC75D2... min=1 currentToday=0s lastThresh=0s
+17:03:20  SHIELDED_RACE_BYPASS  pool=72min — Time Bank carry-forward unshield, recording usage
+17:03:20  RECORDED  oldToday=0s +60 = newToday=60s
+17:03:20  EXT_WRITE_BLOCK  INCREMENT today=60 total=60 hour=17
+
+17:04:21  EVENT  min=2  currentToday=60s lastThresh=60s
+17:04:21  SHIELDED_RACE_BYPASS  pool=71min
+17:04:21  RECORDED  +60 = newToday=120s
+17:04:21  EXT_WRITE_BLOCK  INCREMENT today=120
+
+17:05:21  EVENT  min=3  currentToday=120s lastThresh=120s
+17:05:21  SHIELDED_RACE_BYPASS  pool=70min
+17:05:21  RECORDED  +60 = newToday=180s
+17:05:21  EXT_WRITE_BLOCK  INCREMENT today=180
+```
+
+3 unbroken minutes of foreground use → 3 minutes recorded → pool 72 → 69 (1:1 with reward-minute spend, exact). Timestamps exactly 60 s apart. Identical behavior to the goal-met scenario.
+
+#### Today's already-poisoned reward apps — recovery limitation
+
+Reward apps that had hours of pre-fix `SKIP_SHIELDED_RACE` rejections this morning are NOT fully recoverable today:
+
+- iOS already considered every threshold in the rejected range "delivered" (extension received the callback, even though we said `return false` — that is sufficient for iOS to mark the threshold consumed).
+- After the new binary lands, iOS re-fires only the most recent unsent threshold per app on `scheduleActivity()` re-registration (out-of-order catch-up burst).
+- Per-event 60 s wall-clock + per-event cap (Apr 23) limits each catch-up event to 60 s of credit.
+- Net: each `scheduleActivity()` cycle recovers ≤ 1 min per affected reward app.
+- Going-forward: once `lastThreshold` is poisoned high (e.g., 1380 s = 23 min) by the BYPASS catch-up, only NEW threshold crossings (cumulative > 23 → fires min.24) record correctly.
+
+**Lost minutes from earlier today are forfeit** — bounded undercount accepted, consistent with the Apr 23 / Apr 30 design tradeoff (under-credit > over-credit). Tomorrow at midnight `intervalDidStart()` resets `lastThreshold` and `usage_today` cleanly; next-day operation is identical to the goal-met case.
+
+#### Re-shield path verified (May 2)
+
+The pool-aware re-shield is correctly wired to fire once a kid spends down to 0 carry-forward credit:
+
+1. `setUsageToThreshold()` calls `checkAndBlockIfRewardTimeExhausted()` after every successful record (line 386).
+2. `checkAndBlockIfRewardTimeExhausted()` Check 2 (line 1420): `if pool <= 0 { ... insert(token); managedSettingsStore.shield.applications = currentShields; debugLog("POOL_EMPTY_BLOCK ...") }`.
+3. Iterates **all** `configs.goalConfigs` — every reward app re-shields simultaneously when pool hits 0, not just the one being used (correct per pool semantics).
+4. `computeEffectivePoolBalance()` (line 1542): `return max(0, historical + todayEarned - todayUsed)`. The `max(0, ...)` floor ensures any over-spend by 1 min reports `pool=0` and re-shield fires on the next event.
+
+Validation in the May 2 device test: pool decremented 72 → 71 → 70 → 69 minute-by-minute alongside `usage_<id>_today` advancement. Re-shield trigger not exercised in this run (pool still high) but the wiring is unchanged from the Apr 26–27 ship.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — Filter 2 pool-aware backstop (line 482–498) + 5 `Self.logger` observability lines.
+- `docs/SMART_THRESHOLD_FILTERING.md` — this entry.
+
+#### Out of scope (deliberately deferred)
+
+- Recovering today's lost minutes on already-poisoned devices — forward-looking only. Midnight rollover clears the state. A future enhancement could track `last_iOS_threshold_seen_<id>` (highest threshold ever delivered, regardless of accept/reject) and use it as the floor for `scheduleActivity()` window registration, so the new window starts above iOS's actual cumulative position. Not required for steady-state correctness; only changes today-of-fix UX.
+- Debouncing rapid `MONITORING_RELOAD` calls during a child's session changes (Apr 21 doc remediation #3 — still deferred).
+- Phantom-threshold replay (May 1 finding) — separate, unrelated.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning` (re-used from the Apr 30 work; this fix layered on top).
+- Symptom signature in field logs: every threshold event for a reward app that has `SHIELD_CHECK: ✅ REMOVED shield ... pool=Nmin (silent unshield)` shows `SKIP_SHIELDED_RACE` for the entire day with `usage_*_today=0s` despite real foreground use → pool-aware backstop missing.
+- Verification on a freshly-built device: pull `ext-log-YYYY-MM-DD.log` and grep for `SHIELDED_RACE_BYPASS`. Presence + matching `RECORDED` line = fix is loaded and active.

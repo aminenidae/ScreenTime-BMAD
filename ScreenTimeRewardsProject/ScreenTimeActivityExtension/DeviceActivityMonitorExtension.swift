@@ -455,19 +455,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+        Self.logger.notice("FILTER2_ENTRY app=\(appID.prefix(8))... category=\(category) thresh=\(thresholdSeconds)s")
         if category == "Reward" {
             guard let configs = shieldConfigs else {
                 // shieldConfigs unavailable — can't verify shield state. Block reward app events as a
                 // safe default: false negatives (missing earned-time events) are safer than false
                 // positives (recording usage for a blocked app).
                 debugLog("SKIP_SHIELDED_FALLBACK appID=\(appID.prefix(8))... shieldConfigs nil, blocking reward app event", defaults: defaults)
+                Self.logger.error("SKIP_SHIELDED_FALLBACK app=\(appID.prefix(8))... configs=nil")
                 return false
             }
             for goalConfig in configs.goalConfigs where goalConfig.rewardAppLogicalID == appID {
                 if let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) {
                     let currentShields = managedSettingsStore.shield.applications ?? Set()
-                    if currentShields.contains(token) {
+                    let shieldHasToken = currentShields.contains(token)
+                    Self.logger.notice("SHIELD_STATE app=\(appID.prefix(8))... shieldHasToken=\(shieldHasToken) shieldCount=\(currentShields.count)")
+                    if shieldHasToken {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
+                        Self.logger.notice("SKIP_SHIELDED app=\(appID.prefix(8))... shield up, blocking")
                         return false
                     }
                     // SAFETY NET (Apr 24): the live `managedSettingsStore.shield.applications`
@@ -477,11 +482,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     // false +60s credit on shielded reward app 51E884C1). Cross-check
                     // against goal-met status: if the goal is NOT met, the shield SHOULD
                     // be up regardless of what the live store says — block anyway.
-                    // Purely additive: only over-blocks during the race window. Goal-met
-                    // case still allows recording (kid is in earned-reward-time use).
-                    if !checkGoalMet(goalConfig: goalConfig, defaults: defaults) {
-                        debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met but shield store missing token — blocking (race-window backstop)", defaults: defaults)
-                        return false
+                    // May 2 amendment: pool > 0 (Time Bank carry-forward) is also a legitimate
+                    // unshield reason — must allow recording or kids burn bank credit invisibly.
+                    let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+                    if !goalMet {
+                        let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
+                        Self.logger.notice("SHIELD_RACE_GATE app=\(appID.prefix(8))... goalMet=false pool=\(pool)min")
+                        if pool <= 0 {
+                            debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met AND pool=\(pool)min — blocking (race-window backstop)", defaults: defaults)
+                            Self.logger.error("SKIP_SHIELDED_RACE app=\(appID.prefix(8))... pool=\(pool) — BLOCKING")
+                            return false
+                        }
+                        debugLog("SHIELDED_RACE_BYPASS appID=\(appID.prefix(8))... goal NOT met but pool=\(pool)min — Time Bank carry-forward unshield, recording usage", defaults: defaults)
+                        Self.logger.notice("SHIELDED_RACE_BYPASS app=\(appID.prefix(8))... pool=\(pool)min — RECORDING")
+                    } else {
+                        Self.logger.notice("SHIELD_RACE_GATE app=\(appID.prefix(8))... goalMet=true — RECORDING")
                     }
                 }
                 break
