@@ -1925,3 +1925,132 @@ Net behaviour: post-fix, the in-burst stale events still get rejected on per-eve
 - **Restart-time `lastThreshold` reset.** Apr 12 documented that `intervalDidStart()` MUST reset `lastThreshold` at midnight (already shipped) and MUST NOT reset it on intraday restarts (Apr 13 revert — re-introducing it caused phantom inflation). Today's fix is orthogonal to that decision and does not change either rule.
 - **Sorting iOS catch-up batches before processing.** iOS does not surface batch boundaries to the extension; sorting is not implementable from the callback API. The hold-on-clamp rule sidesteps the ordering problem entirely by treating the unreliable `thresholdSeconds` value as advisory rather than authoritative when the cap fires.
 - **Bug A (Apr 12 §"Out-of-Order Catch-Up Events") variant during legitimate intraday restart.** The original Apr 12 entry's restart scenario also produces stale catch-ups, and on a restart the highest-numbered event can fire BEFORE `WALL_CLOCK_CAP` would clamp it (because `lastEventTime` may be hours stale → `wallClockElapsed` huge → first event credits its full rawDelta unclamped). Apr 23's per-event 60s cap handles this in steady state, but restarts that coincide with a legitimate catch-up (e.g., kid actively using app at the moment of restart) will still under-credit by ≤60 s per skipped threshold. Bounded undercount, accepted as the documented Apr 23 tradeoff.
+
+### May 1, 2026 — v2 Validated, v3 Shipped, Phantom-Threshold Replay Discovered
+
+**Status:** v2 (`rawDelta > perEventCap` gate) validated correct on May 1 against a real iOS-driven catch-up flood. v3 (`max(prior, newToday)` on hold instead of pure-hold) shipped as `ddcb2c5` on `fix/stale-catchup-lastthreshold-poisoning`. New separate finding: iOS DeviceActivityMonitor replays the entire registered threshold set for every monitored app on iOS-initiated activity restart — phantom +60 s credit per affected app. Decision: **don't ship a phantom-credit fix yet; watch and measure first.** No code change for the phantom replay this session.
+
+#### v2 validation — real flood at 13:37:58
+
+iOS-driven `INTERVAL_END` immediately followed by `INTERVAL_START` at 13:37:58 (same session ID `F94884FB`, no `MONITORING_RESTART` from us — autonomous iOS wrap, likely triggered by charger plug-in at battery 20% + Brain Coinz foreground at 13:35:03). Within 1 second iOS dumped catch-up callbacks for all monitored apps. v2 gate behaved correctly across the burst:
+
+| App | Pre-burst lastThresh | First burst event | Outcome |
+|---|---|---|---|
+| BB131A01 | 480 s | thresh=1140 s (raw=660) | Recorded +60 s; subsequent thresh=1860/2580/2160/2280 → `LASTTHRESH_HOLD` (raw=1380/2100/1680/1800 ≫ 60). |
+| C6DA269B | 2640 s | thresh=2700 s (raw=60) | Recorded normally; SKIP_REGRESSION rejected several lower out-of-order thresholds. |
+| E54C1C9E | 1140 s | thresh=2220 s (raw=1080) | Recorded +60 s; subsequent thresh=3420/2100 → `LASTTHRESH_HOLD`. |
+
+**SKIP_REGRESSION distribution post-burst:** 71 hits clustered in hour 13 (legitimate same-day rejects against in-burst held thresholds), 2 in hour 16, 1 in hour 19. **`SKIP_REGRESSION lastThreshold` values topped out at 2940 s** — *not* 3600 s. The v2 gate prevented `lastThreshold` from being walked to the window top, the exact failure mode of Apr 29.
+
+**Recording resumed cleanly post-flood.** Last `RECORDED` was 21:40:25 (E8B1C8C6 thresh=3300 s). No rest-of-day blackout. v2 closed the Apr 29 / Apr 12 bug operationally.
+
+#### v3 — `lastThreshold = max(prior, newToday)` on hold
+
+**Quirk surfaced by v2 validation.** v2's pure-hold worked for the primary bug (no blackouts) but produced a tail-of-day pattern where `lastThreshold` stayed permanently frozen post-flood:
+
+```
+21:36:28  E8B1C8C6  thresh=3060s held lastThresh=2280s — credited=30s   ← real-time
+21:37:24  E8B1C8C6  thresh=3120s held lastThresh=2280s — credited=56s   ← real-time
+21:38:24  E8B1C8C6  thresh=3180s held lastThresh=2280s — credited=59s   ← real-time
+21:39:24  E8B1C8C6  thresh=3240s held lastThresh=2280s — credited=60s   ← real-time
+21:40:25  E8B1C8C6  thresh=3300s held lastThresh=2280s — credited=60s   ← real-time
+```
+
+These five events are once-per-minute legitimate foreground use (`credited` ≈ 60 s, evenly spaced). But because `lastThreshold` was frozen at 2280 s by an earlier hold, every subsequent `rawDelta = thresh − 2280` grows past `perEventCap = 60` and the gate keeps tagging them stale. Counting stays correct (wall-clock cap independently bounds delta), but `SKIP_REGRESSION` is effectively disabled for the rest of the day for that app, and the log misleadingly tags real-time events as "stale catch-up."
+
+**Fix (v3, line 682):**
+
+```swift
+let wasStaleCatchup = rawDelta > perEventCap
+if wasStaleCatchup {
+    let newLastThreshold = max(lastThreshold, newToday)
+    debugLog("LASTTHRESH_HOLD ... thresh=\(thresholdSeconds)s held lastThresh=\(newLastThreshold)s (was \(lastThreshold)s) — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
+    defaults.set(newLastThreshold, forKey: lastThresholdKey)
+} else {
+    defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+}
+```
+
+**Invariant.** `newToday` is the credited high-water mark and never lies — it's bounded by the wall-clock + per-event caps. Anchoring `lastThreshold` to it keeps the variable truthful as "highest credited progression" and re-arms `SKIP_REGRESSION` against any *new* stale flood later in the day. Future real-time events have `rawDelta = max(60, threshold − newToday) ≈ 60 = perEventCap`, fall under the gate, and advance normally.
+
+**Validation pending.** Next-day log should show no tail-cluster pattern: post-flood real-time events for an app produce `RECORDED` lines that advance `lastThreshold` to `thresholdSeconds` on each minute, no `LASTTHRESH_HOLD` on legit progression.
+
+#### Phantom-threshold replay — new finding (NOT YET FIXED)
+
+**The smoking gun.** `93088665` is a daily-limited app shielded all day with `dailyLimit=0` — the kid physically cannot use it. Yet during the 13:37:58 burst iOS fired all 60 distinct thresholds (`min.1` through `min.60`) for it:
+
+```
+13:37:57.438  EVENT appID=93088665... min=3   currentToday=0s lastThresh=0s
+13:37:59.118  EVENT appID=93088665... min=27  currentToday=0s lastThresh=0s
+13:37:59.987  EVENT appID=93088665... min=12  currentToday=0s lastThresh=0s
+13:38:00.446  EVENT appID=93088665... min=22  currentToday=0s lastThresh=0s
+13:38:00.773  EVENT appID=93088665... min=58  currentToday=0s lastThresh=0s
+... (60 total)
+```
+
+**No real usage can explain this.** Same flood for every monitored app — all 8 got exactly 60 distinct thresholds delivered in the burst, including FAE1D45B (the user confirmed it was never opened today) and 93088665 (shielded, unusable).
+
+**Mechanism.** When iOS does an autonomous `INTERVAL_END` → `INTERVAL_START` cycle on the activity (not our `scheduleActivity()`), it appears to **replay the entire registered threshold set for every monitored app**, regardless of actual cumulative usage. The `currentToday=0s lastThresh=0s` on every phantom EVENT for 93088665 confirms iOS is firing all 60 thresholds out of order, not legitimately catching up real cumulative.
+
+**Trigger evidence.** `MONITORING_ALIVE` at 13:35:03 (charger plugged in, battery 20%, foreground app launch). `INTERVAL_END/INTERVAL_START` at 13:37:58 with same session ID — autonomous iOS wrap, no `MONITORING_RESTART` from our side. Likely combo of charger state change + Low Power Mode exit + foreground.
+
+#### Why each affected app records exactly 60 s phantom credit
+
+The recording path with `lastThreshold = 0`:
+
+```swift
+let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
+                                                                              ^^
+                                                                  hard floor of 60 s
+```
+
+First phantom event hits → `rawDelta = 60`, `delta = min(60, wallClockElapsed, perEventCap=60) = 60` → credits 60 s, sets `lastThreshold = thresholdSeconds` (e.g. 2700 s for whichever phantom arrived first). All subsequent phantom events below the new `lastThreshold` are caught by `SKIP_REGRESSION`; events above hit the v2 gate and get held at 0 credit. **Net: exactly 60 s of phantom credit per affected app per restart.**
+
+#### Affected scope (correctly bounded)
+
+The phantom credit only lands when `lastThreshold == 0` at the moment the burst hits. So:
+
+- **Apps with prior real-time recording today** (`lastThreshold > 0`) → protected by their own progression. Phantom thresholds below `lastThreshold` are SKIP_REGRESSION-rejected; above are stale-catchup-held with 0 credit. **Not affected.**
+- **Shielded apps** (downtime / dailyLimit==0 / dailyLimit-exceeded) → SKIP_SHIELDED (Filter 2) rejects every phantom EVENT before it reaches the recording path. **Not affected** despite being included in the iOS replay.
+- **Learning apps not yet opened today** → `lastThreshold = 0`, no shield, +60 s phantom on first phantom event.
+- **Unshielded reward apps not yet used today** (pool>0, kid hasn't touched) → `lastThreshold = 0`, no shield, +60 s phantom on first phantom event.
+
+**Per-restart ceiling:** 60 s × (count of unused, unshielded tracked apps). For a typical 8-app setup where the kid uses 3–4 apps regularly, the affected set is ≤4 apps → **≤4 minutes phantom credit per restart event**.
+
+**Per-app per-day ceiling:** 60 s. Once an app's `lastThreshold` is walked past 0 by a phantom (or by real usage), any subsequent restart-replay that day produces `rawDelta` mismatched against the now-non-zero `lastThreshold` and the v2 gate / SKIP_REGRESSION absorbs it. Only the first phantom of the day for an unused app gets through.
+
+**Frequency of iOS-driven restarts:** unknown from one day's data. Today saw exactly one (13:37:58). Could be 0–N per day depending on charging cycles, Low Power transitions, foreground events.
+
+#### Pool drift implication (asymmetric)
+
+- **Learning-app phantoms inflate earned credit.** +60 s on a 1:4 ratio learning app → +4 min pool credit per restart.
+- **Reward-app phantoms drain the pool.** +60 s on an unshielded reward app → −1 min pool per restart.
+
+May 1's pool went from 1 224 min at midnight to 1 323 min at 19:53 — a +99 min change. With ~120 min of real reward usage observed (per iOS Console snapshot: 642B7130 + 739C4A42 each saw min.60 thresholds fire) and ~100 min of learning earned, the ledger should approximately balance. Instead it grew by 99 — strongly suggesting the reward-app "120 min" reading was heavily contaminated by phantom replay. The full-retention log alone cannot disambiguate phantom from deferred-real.
+
+#### Decision: don't ship a phantom-credit fix yet
+
+**Cost/benefit.** Bug ceiling is ~4 min/day phantom credit, mostly on apps the kid doesn't care about. Pool drift exists but is in noise relative to the deferred-real-vs-phantom ambiguity that the rotating logger alone can't resolve.
+
+**Three fix options were considered:**
+
+| Option | Cost | Risk | Verdict |
+|---|---|---|---|
+| **A — Restart-window suppression** (skip credit on first event when `(now − last INTERVAL_START < 5 s) && lastThreshold == 0`) | ~15 lines, ½ day with validation | Low — under-credits ≤60 s on apps actively used during a rare restart window, asymmetric vs. the bug it fixes; needs careful integration with v3 gate so suppressed events don't poison `lastThreshold` | Defer until measured frequency justifies |
+| **B — iOS API cross-check** (read iOS-side cumulative to validate) | Multi-day spike, likely API doesn't exist for extensions | Sandbox blocks most introspection | Skip unless A and C both fail |
+| **C — Burst-detection drop** (drop a burst once N events for one app land within X seconds) | ~30 lines | High — heuristic boundary against legitimate Apr 26–27 post-unlock catch-ups (which by design fire many events fast) is fragile; tuning is brittle | Skip |
+
+**Action chosen:** none. **Watch and measure first.** Add tooling — a single `INTERVAL_START_PHANTOM_WATCH` log marker and end-of-day grep — to count how many iOS-driven restart events occur per day. If the answer comes back "0–1/day" the bug is operationally invisible and we ignore it forever. If it's "5+/day" we ship Option A.
+
+#### Open questions
+
+1. **Frequency of iOS-driven INTERVAL_END/INTERVAL_START.** Need a week of data with the phantom-watch marker.
+2. **Does `includesPastActivity: true` cause the phantom replay, or is it inherent to monitoring restart?** Untestable without changing the flag, which has its own risks (Apr 12 finding: `false` is BROKEN for our use case).
+3. **Why does iOS choose this moment to wrap the activity?** Charging plug-in correlation is suggestive but not proven — could also be Low Power Mode exit, foreground transition, or a system-wide refresh.
+4. **Are 642B7130 / 739C4A42's recorded "1 min today" purely phantom, partially deferred-real, or fully deferred-real?** Cannot disambiguate from ext-log alone. iOS Console `UsageTrackingAgent` log might help if captured at the right moment.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning` — three commits: `4d4a681` (v1, broken), `da61c65` (v2), `ddcb2c5` (v3).
+- Apr 12 §"Out-of-Order Catch-Up Events" status header updated to **CLOSED Apr 30, 2026** (v2 is the close; v3 is a refinement; phantom replay is a separate, unrelated finding).
+- Phantom-threshold replay is a NEW open issue — distinct from the Apr 12 / Apr 29 bug. Do not conflate.
