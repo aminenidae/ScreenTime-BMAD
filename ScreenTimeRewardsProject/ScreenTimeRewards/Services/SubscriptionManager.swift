@@ -1177,35 +1177,48 @@ extension SubscriptionManager: PurchasesDelegate {
                 }
             }
 
-            // SELF-HEAL: re-hydrate Firestore family record once per app launch.
+            // SELF-HEAL: push RevenueCat's full subscription state to Firestore
+            // once per app launch — tier + status + RC's authoritative
+            // expiration timestamp. Without this client-side sync, Firestore
+            // drifts whenever RC's state changes between webhook events: e.g.
+            // an EXPIRATION webhook fires at trial end, RC subsequently
+            // transitions to a new active period (renewal, grace, intro
+            // re-eligibility) for which no webhook reaches our Cloud Function,
+            // and Firestore stays stuck on "expired" while RC reports active.
+            // The May 1 repro: parent had RC saying 3 days of trial remaining
+            // while Firestore said expired (last webhook was the trial-end
+            // EXPIRATION). User had to manually edit Firestore to pair. This
+            // block makes the iOS app the tie-breaker so RC truth lands in
+            // Firestore on every parent launch.
             //
-            // Users who hit the pre-58ee9f8 .trial bug have a Firestore family
-            // permanently stamped `subscription.status = expired`, even though
-            // RevenueCat reports an active trial. Pushing the current tier via
-            // `updateFamilySubscription` flips the server-side status back to
-            // active. Runs at most once per launch (didRehydrateFamilyThisLaunch
-            // flag), and only when the user actually has access AND owns a
-            // tier the Firestore schema accepts (family/individual). Trial-only
-            // users (no paid family) typically don't have a `currentFamilyId`,
-            // so the gate rules them out naturally.
+            // Calls `updateSubscriptionStatus` (subscription.ts:67), which
+            // writes tier / status / maxChildren / expiryDate atomically — the
+            // older `updateFamilySubscription` only writes tier + maxChildren,
+            // so it could not heal status drifts on its own. expiryDate is
+            // forwarded from the active RC entitlement; nil means RC has no
+            // expiration (lifetime), in which case the server preserves the
+            // existing field instead of clobbering it.
             //
-            // Note: when the tier-change branch above already pushed
-            // `updateFamilySubscription`, this self-heal becomes a near-duplicate
-            // no-op call. We accept that one extra round-trip per launch in
-            // exchange for self-healing affected users without manual Firebase
-            // Console intervention.
+            // Gate runs at most once per launch (didRehydrateFamilyThisLaunch),
+            // only when the user actually has access AND owns a tier the
+            // Firestore schema accepts (family/individual — trial-only users
+            // without a paid family typically don't have currentFamilyId).
             if !self.didRehydrateFamilyThisLaunch,
                self.deviceManager.currentMode == .parentDevice,
                let familyId = FirebaseValidationService.shared.currentFamilyId,
                self.currentStatus.isAccessGranted,
                self.currentTier.requiresParentDevice {
                 do {
-                    try await FirebaseValidationService.shared.updateFamilySubscription(
+                    let entitlement = self.activeEntitlementForCurrentTier(customerInfo)
+                    try await FirebaseValidationService.shared.updateSubscriptionStatus(
                         familyId: familyId,
-                        subscriptionTier: self.currentTier
+                        subscriptionTier: self.currentTier,
+                        subscriptionStatus: self.currentStatus,
+                        expiryDate: entitlement?.expirationDate
                     )
                     #if DEBUG
-                    print("[SubscriptionManager] 🔄 Re-hydrated Firebase family for active subscription (tier=\(self.currentTier.rawValue), status=\(self.currentStatus.rawValue))")
+                    let expiryStr = entitlement?.expirationDate.map { "\($0)" } ?? "nil"
+                    print("[SubscriptionManager] 🔄 Re-hydrated Firebase family from RC (tier=\(self.currentTier.rawValue), status=\(self.currentStatus.rawValue), expires=\(expiryStr))")
                     #endif
                 } catch {
                     #if DEBUG

@@ -284,6 +284,58 @@ final class FirebaseValidationService: ObservableObject {
         #endif
     }
 
+    /// Push the parent device's full subscription state to Firestore — tier,
+    /// status, and the canonical expiration timestamp from RevenueCat. This
+    /// keeps Firestore aligned with RC's truth between webhook events. Without
+    /// this client-side sync, Firestore can drift (e.g. RC fires an EXPIRATION
+    /// at trial end, then reports a new active period that no webhook covers,
+    /// leaving Firestore stuck on "expired" while RC has moved on). Mirrors
+    /// the Cloud Function `updateSubscriptionStatus` in
+    /// `firebase-functions/src/subscription.ts:67`.
+    ///
+    /// `expiryDate` is forwarded as a millisecond Unix timestamp matching the
+    /// Cloud Function's `admin.firestore.Timestamp.fromMillis` expectation.
+    /// Pass nil if RC has no expiration (e.g. lifetime entitlement) — the
+    /// server then leaves Firestore's existing expiryDate field untouched.
+    func updateSubscriptionStatus(
+        familyId: String,
+        subscriptionTier: SubscriptionTier,
+        subscriptionStatus: SubscriptionStatus,
+        expiryDate: Date?
+    ) async throws {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+
+        var data: [String: Any] = [
+            "familyId": familyId,
+            "subscriptionTier": subscriptionTier.rawValue,
+            "subscriptionStatus": subscriptionStatus.rawValue
+        ]
+        if let expiryDate = expiryDate {
+            // Cloud Function expects milliseconds (Timestamp.fromMillis).
+            data["expiryDate"] = Int(expiryDate.timeIntervalSince1970 * 1000)
+        }
+
+        do {
+            _ = try await functions.httpsCallable("updateSubscriptionStatus").call(data)
+            #if DEBUG
+            let expiryStr = expiryDate.map { "\($0)" } ?? "nil"
+            print("[FirebaseValidation] Updated subscription status: tier=\(subscriptionTier.rawValue), status=\(subscriptionStatus.rawValue), expires=\(expiryStr)")
+            #endif
+        } catch {
+            let nsError = error as NSError
+            if nsError.domain.range(of: "functions", options: .caseInsensitive) != nil {
+                throw mapFunctionsError(code: nsError.code, message: nsError.localizedDescription)
+            }
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        throw FirebaseValidationError.notConfigured
+        #endif
+    }
+
     /// Remove a child device from its family. Idempotent: succeeds even if
     /// the child is already absent. Decrements the children-subcollection
     /// count used by Firebase's pairing limit check, so a unpair → re-pair
