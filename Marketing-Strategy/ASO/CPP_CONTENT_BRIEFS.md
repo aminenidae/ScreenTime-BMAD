@@ -1,9 +1,10 @@
 # Brain Coinz — 5 Custom Product Page (CPP) Content Briefs
 
 **Drafted:** 2026-04-21
+**Updated:** 2026-05-02 (assets verified ready, CPP2 promo trimmed to 170/170, target go-live re-anchored to 1.0.4 release click)
 **Owner:** Ameen
-**Target go-live:** 2026-04-30 (1 day before 1.0.4 flips)
-**Status:** Briefs only — ASC creation pending
+**Target go-live:** 1.0.4 release-click date (was 2026-04-30; 1.0.4 submission slipped to 2026-05-01, in review)
+**Status:** ✅ ASSETS VERIFIED — ready for ASC web creation. Screenshot files all present at correct dims (1290×2796) in `screenshots/1.0.4/en-US/final/`. All 5 promo texts at ≤170 chars. Submission requires manual ASC web work (the local patched ASC MCP does not expose CPP-create endpoints). See "Implementation checklist" at end of doc.
 
 ---
 
@@ -92,9 +93,9 @@ Optional. If task #12 produces a 15–30s TikTok cut, attach the same cut as the
 Use the full locked 1.0.4 set 1-10 in order. Editorial reviewers read all 10; they reward craft and coherence. The current sequence (promise/proof pairing) is specifically tuned for this.
 
 ### Promo text (170 char)
-> Thoughtfully designed by indie developers for families. No yelling. No monitoring. No guilt. Kids earn screen time by learning; apps unlock and lock automatically. Try it free.
+> Thoughtfully designed by indie developers for families. No yelling, monitoring, or guilt. Kids earn screen time by learning; apps unlock and lock automatically. Try free.
 
-(170 chars)
+(170/170 chars — trimmed 2026-05-02 from prior 176c "No yelling. No monitoring. No guilt." phrasing; collapsed to comma-list to fit. Preserves "Thoughtfully designed" craft signal that matters most for editorial pitch.)
 
 ### Video
 Optional. If produced: a 20s "hero cut" showing the learn → unlock → play loop. Narration-free, music-led. Apple editorial prefers understated.
@@ -215,20 +216,32 @@ Skip. This audience reads.
 
 ---
 
-## Implementation checklist (for ASC creation, 2026-04-24 → 2026-04-26)
+## Implementation checklist (ASC web — execute during 1.0.4 review window, ~30–45 min total)
 
-For each of the 5 CPPs:
+> CPPs are reviewed independently of the binary (~24–48h each, all 5 in parallel). Goal: all 5 approved by the time Apple approves 1.0.4 so they're live the moment we click "Release This Version." This is a manual ASC web task — local patched ASC MCP does not expose CPP-create.
 
-- [ ] App Store Connect → Brain Coinz → Custom Product Pages → Create
-- [ ] Set Reference Name (internal) per brief
-- [ ] Set Localization = English (U.S.) primary
-- [ ] Upload the specified screenshot set in the specified order (pull from `screenshots/1.0.4/en-US/final/`)
-- [ ] Paste Promo Text per brief
-- [ ] Attach App Preview Video if applicable
-- [ ] Submit CPP for review (~24–48h each)
-- [ ] Once approved, copy the unique URL (format: `https://apps.apple.com/us/app/brain-coinz/id6753270211?ppid=...`)
-- [ ] Log URL in this doc per CPP
-- [ ] Distribute URL to the specified channels
+**Per-CPP recipe (~6–8 min each in ASC web):**
+
+- [ ] App Store Connect → Brain Coinz: Parental Control → left rail → Custom Product Pages → "+" → Create
+- [ ] Reference Name = (per-CPP table below — internal-only, never shown to users)
+- [ ] Localization = English (U.S.) (primary US locale; other locales auto-fall-back to default page)
+- [ ] Drag-drop the screenshots from `screenshots/1.0.4/en-US/final/` in the order listed (each CPP brief above lists its specific subset + order)
+- [ ] Promo Text = paste verbatim from the brief above
+- [ ] App Preview Video: skip for v1 (none produced yet)
+- [ ] "Submit for Review"
+
+| CPP | Reference Name (ASC) | Screenshots (in order) | Promo char | Brief link |
+|---|---|---|---|---|
+| 1 | `tiktok-battle` | 10, 1, 4, 7, 9 (5 slots) | 169/170 | §CPP 1 |
+| 2 | `editorial` | 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 (full set) | 170/170 | §CPP 2 |
+| 3 | `community-evidence` | 3, 6, 5, 8, 1, 4, 7, 9 (8 slots) | 167/170 | §CPP 3 |
+| 4 | `indie-santa` | 3, 10, 1, 6, 4, 9 (6 slots) | 163/170 | §CPP 4 |
+| 5 | `adhd-focus` | 2, 4, 6, 5, 1, 7, 10 (7 slots) | 156/170 | §CPP 5 |
+
+**After each is approved (Apple email arrives ~24–48h later):**
+- [ ] Copy the unique URL (format `https://apps.apple.com/us/app/brain-coinz/id6753270211?ppid=...`)
+- [ ] Log URL in the table below
+- [ ] Hold distribution until 1.0.4 is also approved + released — CPPs ARE accessible the moment they're approved, but routing traffic before 1.0.4 ships sends installs through the OLD 1.0.3 metadata, contaminating 1.0.4 day-1 attribution.
 
 ### CPP URL tracking (fill in after ASC approval)
 

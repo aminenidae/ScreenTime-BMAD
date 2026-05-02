@@ -1,61 +1,56 @@
-# May 1 Release + Measurement Checklist — Brain Coinz 1.0.3 → 1.0.4 Transition
+# 1.0.3 → 1.0.4 Release + Measurement Checklist — Brain Coinz
 
 **Drafted:** 2026-04-21
+**Updated:** 2026-05-02 (corrected release model after submission slipped to May 1)
 **Owner:** Ameen
-**Release date:** 2026-05-01 (scheduled release of 1.0.4)
-**Measurement gate:** 2026-05-01 (Day 14 of 1.0.3(1), reference-only) → 2026-05-15 (Day 14 of 1.0.4)
+**Submit date:** 2026-05-01 (1.0.4 build 7) — awaiting Apple review (NOT yet approved)
+**Release date:** TBD on Apple approval (expected 2026-05-04 to 2026-05-08; release mode = manual one-click on approval)
+**Measurement gate:** Day-14 anchored to 1.0.4 LIVE date (approval + release), not approval date alone
 
-**Purpose:** Submit 1.0.4 this week with a scheduled release of 2026-05-01, capture a Day-14 reference read of 1.0.3 on May 1 for learning (not as a gate), then re-read at Day 14 + 21 post-1.0.4-live.
+**Purpose:** Capture a Day-14 reference read of 1.0.3 (1) once the actual data window closes, then re-read at Day 14 + 21 post-1.0.4-live to score the metadata rewrite.
 
 ---
 
-## Release strategy — why scheduled release, not "submit on May 1"
+## Release strategy — what changed vs. the original plan
 
-ASC supports three release modes for an approved version:
-1. **Auto-release on approval** — unpredictable; tied to Apple review speed.
-2. **Manual release** — approved version held, developer releases with one click when ready.
-3. **Scheduled release** — approved version goes live automatically on a specified future date.
+**Original plan (Apr 21 draft):** submit early, scheduled release pinned to 2026-05-01 — Day-14 measurement locked to 2026-05-15.
 
-We are using **option 3, scheduled release = 2026-05-01.** Reasons:
+**What actually happened:** last-mile fixes pushed submission from Apr 28 to evening of **2026-05-01**. 1.0.4 (7) is now in Apple's review queue with no approval yet. The "scheduled release for May 1" trick is no longer available — release will fire whenever review approves.
 
-| Factor | Submit on May 1 | Submit now + schedule May 1 |
-|---|---|---|
-| Apple review risk | On critical path (1–3 day variance) | Off critical path — approved well before May 1 |
-| 1.0.4 Day-14 measurement date | Floating (~May 15–21 depending on approval) | **Locked: 2026-05-15** |
-| May 1 workload | Measure + submit + hope | Measure + one-click gate |
-| Metadata lock-in | Can tweak until May 1 | Locked the moment you submit |
-| Can back out? | N/A | Yes — ASC allows cancel of scheduled release before it fires |
+**Implications:**
+- 1.0.4 Day-14 measurement floats. Anchor it to LIVE date (= approval date + manual release click), not submit date.
+- Apple review for 1.0.4 ranges 1–3 days typical, but can extend (1.0.3 hit a same-day rejection requiring resubmit). Plan a window, not a point.
+- The May 1 reference-read of 1.0.3 (Section D below) was meant to run BEFORE the flip. Since 1.0.4 has not flipped yet, **the reference read is still valid — execute it today (2026-05-02) before approval lands.**
+- Decision: **manual release on approval** (not scheduled) so we can land the read first if approval lands fast.
 
-Clean, deterministic Day-14 math is the big win.
-
-## Why the May 1 read is now a reference point, not a gate
+## Why the 1.0.3 Day-14 read is a reference point, not a gate
 
 Earlier drafts of this doc treated 1.0.3 Day-14 as a gate on whether to ship 1.0.4. That was wrong. The four post-read paths actually resolve like this:
 
 | Path | 1.0.3 Day-14 diagnosis | What 1.0.4 does about it | Action |
 |---|---|---|---|
-| 1. Healthy | Metadata rewrite worked | Cascade amplifies wins | **Ship 1.0.4** |
-| 2. Partial | 1–2 primaries moved | Fuller token pool + Name change may push the rest | **Ship 1.0.4** |
-| 3. Broken canaries | Likely locale-routing (EN_CA primary not serving US) | **1.0.4 literally fixes this** by adding a dedicated EN_US locale | **Ship 1.0.4** |
-| 4. True rollback | `brain coinz` < 150 AND nothing replaced it | Only case where current 1.0.4 payload is wrong. Action is to **edit 1.0.4's metadata to a rollback payload and re-release** — NOT stay on 1.0.3. | Cancel scheduled release → edit metadata to 1.0.2 Name/Subtitle → re-release |
+| 1. Healthy | Metadata rewrite worked | Cascade amplifies wins | **Release 1.0.4 on approval** |
+| 2. Partial | 1–2 primaries moved | Fuller token pool + Name change may push the rest | **Release 1.0.4 on approval** |
+| 3. Broken canaries | Likely locale-routing (EN_CA primary not serving US) | **1.0.4 literally fixes this** by adding a dedicated EN_US locale | **Release 1.0.4 on approval** |
+| 4. True rollback | `brain coinz` < 150 AND nothing replaced it | Only case where current 1.0.4 payload is wrong. Action is to **edit 1.0.4's metadata to a rollback payload before clicking release** — NOT stay on 1.0.3. | Hold release → edit metadata to 1.0.2 Name/Subtitle → re-submit (new review cycle) |
 
-Staying on 1.0.3 is never the answer: if 1.0.3 worked, 1.0.4 extends it; if it didn't, 1.0.4 has different metadata and structural locale fix; if it hurt us, we ship rollback **as** 1.0.4. So for 3 of 4 paths, 1.0.4 ships as drafted. Only the rare Path 4 triggers cancel-and-swap.
+Staying on 1.0.3 is never the answer: if 1.0.3 worked, 1.0.4 extends it; if it didn't, 1.0.4 has different metadata and structural locale fix; if it hurt us, we ship rollback **as** 1.0.4. So for 3 of 4 paths, 1.0.4 ships as drafted. Only the rare Path 4 triggers a hold-and-swap (which now costs another review cycle, since metadata edits to a build under review require resubmission).
 
 ---
 
-## Section A — Pre-submit checklist (execute this week, 2026-04-21 → 2026-04-25)
+## Section A — Pre-submit checklist (COMPLETE — submitted 2026-05-01 build 7)
 
-All items must be ✅ before clicking Submit. Goal: 1.0.4 in Apple's review queue by end of week, approved and scheduled by April 27–28.
+Status: ✅ All metadata + binary submitted on 2026-05-01. Build 7 in Apple review queue.
 
-### A1. Metadata (per `1.0.4_METADATA_DRAFT.md`)
-- [x] Name locked: `Brain Coinz: Parental Control` (set at App Information level)
-- [x] Subtitle locked per locale: `Limit screen time, differently`
-- [x] EN_US KW field locked (100/100): `motivate,positive,reinforcement,educational,limit,reduce,play,unlock,brainrot,parenting,control,lock`
+### A1. Metadata (AS SUBMITTED 2026-05-01 build 7)
+- [x] Name: `Brain Coinz: Parental Control` (set at App Information level)
+- [x] Subtitle per locale: `Limit screen time, reward kids` (30/30) — Apr 28 swap from `…, differently` to anchor reward-chart niche
+- [x] EN_US KW field (98/100): `parenting,control,lock,kids,family,reward,chart,behavior,tasks,chore,positive,reinforcement,brainrot` — Apr 27–28 swap applied
 - [x] EN_CA / EN_GB / EN_AU KW fields mirror EN_US
 - [x] ES_MX KW field locked (10x-trick payload)
-- [x] Promo Text locked (158/170)
-- [x] What's New locked (bug-fix scope, 210 chars)
-- [x] Description copied across all 5 locales
+- [x] Promo Text: `Parental Control Reinvented! End screen time battles…` (new copy)
+- [x] What's New (bug-fix scope, 210 chars)
+- [x] Description: new Q&A format ("Stop fighting over screen time")
 
 ### A2. Screenshots (EN_US primary set)
 - [x] 10 screenshots uploaded to EN_US at 1290×2796
@@ -65,44 +60,43 @@ All items must be ✅ before clicking Submit. Goal: 1.0.4 in Apple's review queu
 - [x] **Clone same 10 images in same order to ES_MX**
 
 ### A3. Binary
-- [ ] 1.0.4 binary archived in Xcode
-- [ ] Version number = 1.0.4, build number = next unused integer
-- [ ] Build uploaded to ASC (Transporter or Xcode Organizer)
-- [ ] Build processed by ASC (green checkmark, usable from the Version screen)
+- [x] 1.0.4 binary archived in Xcode
+- [x] Version number = 1.0.4, build number = 7
+- [x] Build uploaded to ASC
+- [x] Build processed by ASC
 
 ### A4. Review Information
-- [ ] Reviewer notes pasted from `app-review-notes.md` — MUST include the "In-App Controls / Parental Controls = None" guidance that resolved the 2.3.6 rejection on 1.0.3. Apple re-reads this on every submission.
-- [ ] Demo parent account credentials (if required — 1.0.3 used none because PIN is device-local; re-confirm for 1.0.4)
-- [ ] Contact info current
+- [x] Reviewer notes pasted from `app-review-notes.md` (incl. "In-App Controls / Parental Controls = None")
+- [x] Demo parent account credentials provided as required
+- [x] Contact info current
 
 ### A5. Settings inherited from 1.0.3 (verify unchanged)
-- [ ] Age rating: unchanged
-- [ ] Primary category: unchanged
-- [ ] Secondary category: unchanged
-- [ ] App Privacy questionnaire: unchanged (no new tracking added in 1.0.4)
-- [ ] Export compliance: No (unchanged)
-- [ ] Content rights: Yes, do not contain third-party content (unchanged)
+- [x] Age rating: unchanged
+- [x] Primary category: unchanged
+- [x] Secondary category: unchanged
+- [x] App Privacy questionnaire: unchanged (no new tracking added in 1.0.4)
+- [x] Export compliance: No (unchanged)
+- [x] Content rights: Yes, do not contain third-party content (unchanged)
 
 ### A6. Release configuration
-- [ ] **Release mode = Scheduled release**
-- [ ] **Release date = 2026-05-01** (local store timezone — confirm ASC's display timezone)
-- [ ] Phased release: optional decision. Phased release rolls out to 1/2/5/10/20/50/100% over 7 days. Pros: limits damage if bugs emerge. Cons: slows velocity signal to Apple's ranking algorithm. **Recommendation for 1.0.4: OFF** (want full velocity signal for the Day-14 measurement). Confirm:
-  - [ ] Phased release: OFF
+- [x] **Release mode = Manual release on approval** (changed from "Scheduled 2026-05-01" — submission slipped past the schedule date)
+- [x] Phased release: OFF (full velocity signal for Day-14 measurement)
 
 ### A7. TestFlight smoke test (before submitting to review)
-- [ ] Install 1.0.4 TestFlight build on physical device
-- [ ] Verify parent onboarding (Solo + Family path)
-- [ ] Verify pairing flow end-to-end
-- [ ] Verify subscription flow (trial + paid tier)
-- [ ] Verify child-side app unlock/lock behavior
-- [ ] Verify rating prompt fires on parent device at the expected trigger
-- [ ] Verify no debug UI is visible (Skip-to-Paywall button should be hidden — UserDefaults gate applied 2026-04-20)
-- [ ] No crashes on cold launch, pairing, subscription purchase, or Screen Time authorization
+- [x] Install 1.0.4 TestFlight build on physical device
+- [x] Verify parent onboarding (Solo + Family path)
+- [x] Verify pairing flow end-to-end
+- [x] Verify subscription flow (trial + paid tier)
+- [x] Verify child-side app unlock/lock behavior
+- [x] Verify rating prompt fires on parent device at the expected trigger
+- [x] Verify no debug UI is visible
+- [x] No crashes on cold launch, pairing, subscription purchase, or Screen Time authorization
 
 ### A8. Submit
-- [ ] Click "Submit for Review" in ASC
-- [ ] Record submit timestamp: _______
-- [ ] Record approval timestamp: _______ (expected 24–72h later)
+- [x] Click "Submit for Review" in ASC
+- [x] Submit timestamp: 2026-05-01 (evening — exact time TBD, fill on approval email diff)
+- [ ] Record approval timestamp: _______ (expected 2026-05-04 to 2026-05-08 based on 1.0.3 history)
+- [ ] Record release timestamp (when "Release Now" clicked): _______
 
 ---
 
@@ -113,13 +107,12 @@ These are deliberately deferred. They can happen during or after Apple review.
 ### Custom Product Pages (CPPs) — task #9
 CPPs are independent of the version submission. They are their own mini-review (~24–48h each) and exist as alternate product pages accessible via unique URLs, targeted at specific traffic sources (TikTok, editorial, parenting communities).
 
-**Timeline to have CPPs live on May 1:**
-- 2026-04-21 → 2026-04-23: Draft 5 CPP content briefs (task #9)
-- 2026-04-24 → 2026-04-26: Create CPPs in ASC; submit for review
-- 2026-04-28 → 2026-04-30: CPPs approved, URLs ready to distribute
-- 2026-05-01: 1.0.4 goes live + CPPs live = full attribution stack on Day 1
+**Timeline to have CPPs live on 1.0.4 release day:**
+- 2026-04-21 → 2026-04-23: Draft 5 CPP content briefs (task #9) — DONE per `CPP_CONTENT_BRIEFS.md`
+- TBD: Create CPPs in ASC; submit for review (~24–48h mini-review each, can run in parallel with binary review)
+- Goal: CPPs approved before 1.0.4 release click, so attribution stack is live on Day 1
 
-Not a submit blocker, but a parallel track worth starting now.
+Not a submit blocker, but a parallel track to execute during the 1.0.4 review wait.
 
 ### Subscription group consolidation
 MEMORY flags this as "CRITICAL PENDING: 3 separate groups (Solo/Individual/Family) must be consolidated into 1 'Brain Coinz' group before production launch." 1.0.3 shipped without it, so it is not a hard blocker for 1.0.4 either. Deferring to 1.0.5 unless there is a specific reason to bundle it now. If you decide to do it for 1.0.4, flag immediately — it affects StoreKit product IDs and ASC pricing structure, and would need a separate review cycle of its own.
@@ -129,24 +122,21 @@ TikTok batch, Apple editorial pitch, Indie App Santa, parenting communities — 
 
 ---
 
-## Section C — April 30 pre-read (Day −1, 2026-04-30 evening)
+## Section C — Pre-release state snapshot (SUPERSEDED)
 
-Prep for the May 1 reference read. 30 minutes.
-
-- [ ] Verify `brain coinz` is still the only ranked term on Astro. If another keyword has entered top-1000 ahead of schedule, note the date/pop/diff — early movement is signal.
-- [ ] Screenshot (for the record) the App Store Connect **Analytics → Sources → App Store Search** panel for the past 14 days. Save to `Marketing-Strategy/ASO/evidence/2026-04-30_asc_search_14d.png`.
-- [ ] Confirm no new reviews have appeared on the Live version. If they have, note star + date.
-- [ ] Confirm 1.0.4 is approved + scheduled release date = 2026-05-01. If approval still pending → alert user (may need to switch to manual release and hope for approval May 1 morning).
+Originally scoped as "Day −1 prep on Apr 30 evening" before the May 1 scheduled release. Submission slipped to May 1, so this section is no longer needed as a separate step — the snapshot is now folded into Section D and run while 1.0.4 is awaiting review.
 
 ---
 
-## Section D — May 1 reference read (Day 14 of 1.0.3, 2026-05-01 morning)
+## Section D — 1.0.3 reference read (Day 16+ of 1.0.3, run BEFORE 1.0.4 release click)
 
-Run this **before** 1.0.4 flips live later that day (ASC scheduled releases typically fire around midnight store-timezone; run this read in the early morning US Pacific to catch pre-release state, OR in late afternoon to measure post-release — pick one, document which).
+**When to run:** TODAY (2026-05-02) or any day before Apple approves and we click "Release Now" on 1.0.4. Do NOT run after the flip — this read measures the 1.0.3 metadata package on its own merits, and any post-flip data is contaminated by 1.0.4 metadata cascade.
+
+The read is now Day 16+ of 1.0.3(1) (was planned as Day 14), but the additional 2-day window does not change the diagnostic value — keyword ranks at Day 14 vs Day 16 differ by noise, not signal.
 
 ### D1. Astro keyword ranks
 - [ ] Run `mcp__astro__get_app_keywords(appId: "6753270211", store: "us")`
-- [ ] Save raw JSON response to `Marketing-Strategy/ASO/evidence/2026-05-01_astro_us.json`
+- [ ] Save raw JSON response to `Marketing-Strategy/ASO/evidence/<YYYY-MM-DD>_astro_us.json` (use the actual run date)
 - [ ] Diff `currentRanking` against `BASELINE_METRICS.md`. Flag: newly indexed (`1000 → rank < 1000`), deterioration (`rank dropped > 50`).
 
 ### D2. Primary-win verdict on 1.0.3 (reference only)
@@ -165,10 +155,17 @@ Run this **before** 1.0.4 flips live later that day (ASC scheduled releases typi
 
 ### D4. Path classification — does 1.0.4 still ship as drafted?
 - [ ] Check Path 4 condition: `brain coinz` rank < 150 AND zero new indexed tokens.
-  - **NO** (default expectation) → 1.0.4 ships as drafted. **No ASC action needed — scheduled release fires automatically.**
-  - **YES** → cancel 1.0.4 scheduled release, edit metadata to rollback payload (restore 1.0.2 Name/Subtitle), re-release.
+  - **NO** (default expectation) → 1.0.4 ships as drafted. **Click "Release This Version" in ASC the moment Apple approves.**
+  - **YES** → hold release on 1.0.4, edit metadata to rollback payload (restore 1.0.2 Name/Subtitle) — NOTE: editing metadata on an in-review build forces resubmission and a new ~24–72h review cycle. Decide if rollback urgency justifies the extra week.
 
-### D5. ASC Analytics funnel (14-day window, 2026-04-17 → 2026-04-30)
+### D5. ASC Analytics funnel (14-day window ending the day before this read)
+
+> ⚠️ **Tooling blocker (2026-05-02):** the local patched `appstore-connect-mcp-patched` does NOT expose a `list_analytics_report_requests` endpoint. App's analytics report request already exists (server returns "You already have such an entity" on `create_analytics_report_request`), but the MCP can't retrieve its ID to call `list_analytics_reports`. Two unblock paths:
+>   1. **Manual ASC web capture** (5 min) — log in → Analytics → Sources → App Store Search → set 14d window → screenshot + export CSV.
+>   2. **Patch the MCP** — add a list-analytics-report-requests handler in `~/.local/lib/appstore-connect-mcp-patched/src/handlers/analytics.ts` (calls `GET /v1/apps/{appId}/analyticsReportRequests`), rebuild, restart MCP. Permanent fix.
+>
+> Until one is done, fill the fields below manually.
+
 - [ ] Filter Analytics → Acquisition → Source Type = App Store Search, Territory = US.
 - [ ] Impressions: _______
 - [ ] Product Page Views: _______
@@ -177,7 +174,7 @@ Run this **before** 1.0.4 flips live later that day (ASC scheduled releases typi
 - [ ] PPV → Download CVR: _______%
 - [ ] Impression → Download CVR (overall): _______%
 - [ ] Also pull Source Type = App Store Browse — Impressions: _______ / Downloads: _______
-- [ ] Export CSV to `Marketing-Strategy/ASO/evidence/2026-05-01_asc_analytics.csv`
+- [ ] Export CSV to `Marketing-Strategy/ASO/evidence/<YYYY-MM-DD>_asc_analytics.csv`
 
 ### D6. Rating + review velocity
 - [ ] Current rating count (US): _______
@@ -191,42 +188,71 @@ Run this **before** 1.0.4 flips live later that day (ASC scheduled releases typi
 
 ---
 
-## Section E — 1.0.4 Day 14 re-read (2026-05-15)
+## Section E — 1.0.4 Day 14 re-read (LIVE-date + 14 days)
+
+**When to run:** 14 calendar days after 1.0.4 actually goes live (= the day "Release This Version" was clicked in ASC, NOT submit date or approval date). Fill the live-date the moment the release click happens; the Day-14 read date is `<live-date> + 14`.
+
+| Milestone | Target/actual date |
+|---|---|
+| Submit | 2026-05-01 ✅ |
+| Approval | TBD — fill on Apple email |
+| Release click | TBD — fill same day approval lands |
+| Day 14 re-read | live-date + 14 days |
+| Day 21 re-read | live-date + 21 days |
 
 Execute the D1–D6 protocol against the 1.0.4 live state.
 
 ### E1. Success criteria for 1.0.4
-Tighter than 1.0.3 because of stacked improvements (new Name anchors + EN_US locale + added KW tokens).
+Tighter than 1.0.3 because of stacked improvements (new Name anchors + EN_US locale + Apr 28 KW swap into reward-chart niche).
 
-**Primary — anchored to 1.0.4 locked tokens:**
-- [ ] `parental control app` (Pop 57, Diff 65) → top 300 — new Name anchor
+**Primary — anchored to AS-SUBMITTED 1.0.4 token pool (Name + Subtitle + EN_US KW):**
+
+Parental-control SERP (Name-driven):
+- [ ] `parental control app` (Pop 57, Diff 65) → top 300 — Name anchor
 - [ ] `parental control` (Pop 41, Diff 65) → top 200
-- [ ] `control parental` (Pop 44, Diff 60) → top 200
+- [ ] `parental controls` (Pop 32, Diff 67) → top 200 (stem)
+- [ ] `parent control` (Pop 32, Diff 64) → top 200
+
+Subtitle-driven (`Limit screen time, reward kids`):
 - [ ] `limit screen time` (Pop 23, Diff 55) → top 100
+- [ ] `screen time limit` (Pop 11, Diff 55) → top 150
+- [ ] `reward kids` (Pop 5, Diff 17) → top 50 — lowest-Diff parent target found
+- [ ] `kids reward` / `kids rewards` (Pop 5, Diff 39) → top 50
+
+Reward-chart niche (Apr 28 KW swap, untouched by competitor cohort):
+- [ ] `reward chart` (Pop 8, Diff 19) → top 25 — easiest open-runway win
+- [ ] `behavior chart` (untracked) → enter rank
+- [ ] `kids tasks` (Pop 5, Diff 46) → top 100
+- [ ] `screen time tasks` (Pop 5, Diff 50) → top 100
+- [ ] `reward tasks` (Pop 5, Diff 45) → top 100
+- [ ] `family screen time` (Pop 5, Diff 65) → top 100
+- [ ] `screen time kids` (Pop 5, Diff 70) → top 50
+
+Held from 1.0.3:
 - [ ] `brainrot` (Pop 55, Diff 48) → top 300
 - [ ] `parenting` (Pop 23, Diff 57) → top 200
-- [ ] `time control` (Pop 20, Diff 48) → top 200
-- [ ] `motivate` (Pop 19, Diff 53) → top 150
+- [ ] `positive reinforcement` (Pop 5, Diff 41) → top 50
+- [ ] `positive parenting` (Pop 5, Diff 37) → top 50
+- [ ] `earn screen time` (Pop 9, Diff 40) — defend #93 vs Thrive #91
 - [ ] Hold all 1.0.3 wins (no regression > 50 positions)
 
-**Secondary:**
-- [ ] `screen time limit` (Pop 11) → top 150
-- [ ] `positive reinforcement` (Pop 5, Diff 39) → top 50
-- [ ] `reward kids` (Pop 5, Diff 21) → top 50
-- [ ] `educational rewards` (Pop 5, Diff 23) → top 50
+**Regression watch (tokens dropped on Apr 28):**
+- [ ] `motivate` (was Pop 19) — expected to fall, not a concern
+- [ ] `educational` (Pop 27) — expected to fall, not a concern
+- [ ] `reduce screen time`, `time limit`, `screen limit` — expected to fall, were LEAK-classified anyway
 
 **Rollback trigger (1.0.5 decision):**
 - [ ] `brain coinz` rank drops below 200 (was 33 at 1.0.3 baseline)
-- [ ] Net new-ranked keyword count < 5
-- [ ] Either → plan 1.0.5 with 1.0.3 metadata restored
+- [ ] Net new-ranked keyword count < 5 from the Tier-A list above
+- [ ] Either → plan 1.0.5 with prior-metadata restored
 
 ---
 
-## Section F — 1.0.4 Day 21 re-read (2026-05-22)
+## Section F — 1.0.4 Day 21 re-read (LIVE-date + 21 days)
 
 Lighter pass. Same queries, trajectory focus.
 
-- [ ] Re-run D1 (Astro) and D5 (ASC Analytics) — save to `evidence/2026-05-22_*`.
+- [ ] Re-run D1 (Astro) and D5 (ASC Analytics) — save to `evidence/<YYYY-MM-DD>_*`.
 - [ ] Compare Day 14 → Day 21 for each primary/secondary target.
 - [ ] Note trend (up / flat / down) per keyword in `BASELINE_METRICS.md` trend column.
 - [ ] Decision gate: if trajectory flat/declining on ≥ 4 primaries → plan 1.0.5 refinement (drop lowest-performing token, add verified replacement).

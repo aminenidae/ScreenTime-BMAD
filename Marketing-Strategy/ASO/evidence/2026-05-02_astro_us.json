@@ -1,0 +1,77 @@
+{
+  "captured": "2026-05-02",
+  "captured_purpose": "1.0.3 reference read (Section D of MAY_1_MEASUREMENT_CHECKLIST.md). Originally Day-14 of 1.0.3(1); slipped to Day-16 because 1.0.4 submission slipped from Apr 28 to May 1. Captured BEFORE 1.0.4 release click so 1.0.3 metadata can be diagnosed in isolation.",
+  "app": {
+    "appId": "6753270211",
+    "name": "Brain Coinz",
+    "developer": "Amine Nidae",
+    "platform": "iphone",
+    "store": "us",
+    "tracked_keywords": 38
+  },
+  "live_version_at_capture": "1.0.3 (1) — APPROVED 2026-04-17, live since 2026-04-17",
+  "days_live": 15,
+  "summary": {
+    "ranked_in_top_1000": 2,
+    "unranked_1000": 36,
+    "ranked_keywords": [
+      {"keyword": "brain coinz", "rank": 1, "previous": 1, "popularity": 5, "difficulty": 59, "note": "App Name — own-brand, expected #1"},
+      {"keyword": "earn play time", "rank": 135, "previous": 142, "change": 7, "popularity": 5, "difficulty": 68, "note": "Improved 7 positions; only non-brand ranked keyword"}
+    ]
+  },
+  "brain_coinz_history_30d": [
+    {"date": "2026-05-02", "rank": 1},
+    {"date": "2026-05-01", "rank": 1},
+    {"date": "2026-04-30", "rank": 1},
+    {"date": "2026-04-29", "rank": 1},
+    {"date": "2026-04-28", "rank": 1},
+    {"date": "2026-04-27", "rank": 1},
+    {"date": "2026-04-26", "rank": 1},
+    {"date": "2026-04-25", "rank": 1},
+    {"date": "2026-04-24", "rank": 1},
+    {"date": "2026-04-23", "rank": 1},
+    {"date": "2026-04-22", "rank": 1},
+    {"date": "2026-04-21", "rank": 13},
+    {"date": "2026-04-20", "rank": 4},
+    {"date": "2026-04-19", "rank": 12},
+    {"date": "2026-04-18", "rank": 5},
+    {"date": "2026-04-17", "rank": 5, "note": "1.0.3 approved + live"},
+    {"date": "2026-04-16", "rank": 28},
+    {"date": "2026-04-15", "rank": 30},
+    {"date": "2026-04-14", "rank": 33, "note": "Pre-1.0.3 — baseline"},
+    {"date": "2026-04-13", "rank": 29}
+  ],
+  "earn_play_time_history_30d": [
+    {"date": "2026-05-02", "rank": 135},
+    {"date": "2026-05-01", "rank": 142},
+    {"date": "2026-04-30", "rank": 138},
+    {"date": "2026-04-29", "rank": 135},
+    {"date": "2026-04-28", "rank": 133},
+    {"date": "2026-04-27", "rank": 138},
+    {"date": "2026-04-26", "rank": 135},
+    {"date": "2026-04-25", "rank": 136},
+    {"date": "2026-04-24", "rank": 135},
+    {"date": "2026-04-23", "rank": 139},
+    {"date": "2026-04-22", "rank": 134, "note": "First-ever rank — entered top-1000 at Day 5 post-1.0.3-live"},
+    {"date": "2026-04-21", "rank": 1000},
+    {"date": "2026-04-20", "rank": 1000},
+    {"date": "2026-04-19", "rank": 1000},
+    {"date": "2026-04-18", "rank": 1000},
+    {"date": "2026-04-17", "rank": 1000, "note": "1.0.3 went live"}
+  ],
+  "unranked_keywords_critical_canaries": [
+    {"keyword": "earn screen time", "popularity": 9, "difficulty": 40, "note": "App Name 2 token — should rank if Name indexes for US store"},
+    {"keyword": "time limit", "popularity": 9, "difficulty": 58, "note": "FULLY COVERED by 1.0.3 metadata (`time` Name + `limit` KW). Indexing canary."},
+    {"keyword": "screen limit", "popularity": 6, "difficulty": 56, "note": "FULLY COVERED. Indexing canary."},
+    {"keyword": "app limit", "popularity": 7, "difficulty": 51, "note": "FULLY COVERED. Indexing canary."},
+    {"keyword": "screen time limit", "popularity": 11, "difficulty": 51, "note": "FULLY COVERED. Indexing canary."},
+    {"keyword": "limit screen time", "popularity": 25, "difficulty": 57, "note": "FULLY COVERED."},
+    {"keyword": "parental control", "popularity": 41, "difficulty": 65},
+    {"keyword": "parental control app", "popularity": 57, "difficulty": 65},
+    {"keyword": "screen time", "popularity": 51, "difficulty": 65},
+    {"keyword": "app blocker", "popularity": 50, "difficulty": 62}
+  ],
+  "diagnosis": "PATH 3 — Broken canaries / locale-routing failure. 4 of 4 indexing canaries (time limit, screen limit, app limit, screen time limit) are unranked despite full token coverage in 1.0.3 metadata. Brain Coinz primary language = English (Canada); the 1.0.3 KW string sits in the EN_CA slot. US App Store searchers receive that metadata only via primary-fallback, which appears to be NOT routing US queries to the EN_CA pool. 1.0.4 directly fixes this by adding a dedicated English (U.S.) localization. Action per Section D4: ship 1.0.4 as drafted (Path 3 → release on approval, no metadata change needed).",
+  "path_classification": 3,
+  "release_decision": "Ship 1.0.4 (build 7) on Apple approval — no rollback, no metadata edit"
+}

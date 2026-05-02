@@ -142,3 +142,87 @@ mcp__astro__get_app_keywords(appId: "6753270211", store: "us")
 ```
 
 Filter the result to entries where the `tag` is `pop>5-diff<60-watchlist` (or equivalently, where Pop > 5 AND Diff < 60).
+
+---
+
+## 2026-05-02 — 1.0.3 Day-16 Reference Read (Section D of MAY_1_MEASUREMENT_CHECKLIST.md)
+
+**Captured:** 2026-05-02 (planned for May 1; submission slipped, captured Day 16 instead of Day 14)
+**Live version at capture:** 1.0.3 (1) — live since 2026-04-17 (15 days live)
+**Why captured now:** 1.0.4 (build 7) is in Apple review (submitted 2026-05-01) but has NOT been released. This is the last clean read of 1.0.3 metadata in isolation. After 1.0.4 release click, the read window closes forever.
+**Raw evidence:** `evidence/2026-05-02_astro_us.json`
+
+### Headline
+
+- **2 of 38 tracked keywords ranked.** 36 unranked (1000).
+- `brain coinz`: rank **1** (was #33 at baseline 2026-04-14, hit #1 sustained from 2026-04-22 onward). +32 positions vs baseline. ✅
+- `earn play time`: rank **135** (was 1000 at baseline; first entered top-1000 on 2026-04-22 at #134). New indexing. ✅
+- All other 36 keywords still 1000 — including 4 of 4 indexing-pipeline canaries that should have indexed by Day 14.
+
+### Brain Coinz rank trajectory (own-brand)
+
+| Date | Rank | Note |
+|---|---|---|
+| 2026-04-13 | 29 | Pre-1.0.3 baseline |
+| 2026-04-14 | 33 | Baseline doc captured |
+| 2026-04-17 | 5 | 1.0.3 (1) approved + live |
+| 2026-04-18 | 5 | |
+| 2026-04-19 | 12 | |
+| 2026-04-20 | 4 | |
+| 2026-04-21 | 13 | |
+| 2026-04-22 → 2026-05-02 | **1** (sustained 11 days) | Own-brand consolidated |
+
+### `earn play time` trajectory (only non-brand keyword to enter top-1000)
+
+| Date | Rank | Note |
+|---|---|---|
+| 2026-04-17 | 1000 | 1.0.3 live |
+| 2026-04-18 → 04-21 | 1000 | Indexing not yet active |
+| 2026-04-22 | 134 | First-ever rank — entered top-1000 at Day 5 post-1.0.3 |
+| 2026-04-23 → 05-01 | 133–142 | Stable band |
+| 2026-05-02 | **135** | +7 vs prev day (142 → 135) |
+
+### Indexing-pipeline canaries — diagnostic
+
+The 4 canaries from the Apr 19 watchlist (Pop>5, Diff<60, ALL tokens covered by deployed 1.0.3 metadata) are ALL still rank 1000 at Day 16:
+
+| Canary | Pop | Diff | Token coverage | Rank | Verdict |
+|---|---|---|---|---|---|
+| `time limit` | 9 | 58 | `time` (Name) + `limit` (KW) | 1000 | ❌ FAIL — should rank |
+| `screen limit` | 6 | 56 | `screen` (Name) + `limit` (KW) | 1000 | ❌ FAIL |
+| `app limit` | 7 | 51 | `app` (Subtitle stem) + `limit` (KW) | 1000 | ❌ FAIL |
+| `screen time limit` | 11 | 51 | `screen` + `time` (Name) + `limit` (KW) | 1000 | ❌ FAIL |
+
+**Result: 4-of-4 canary failure** at Day 16 — beyond the Day-14 deadline these were set against.
+
+### Path classification (Section D4 of MAY_1_MEASUREMENT_CHECKLIST.md)
+
+→ **PATH 3 — Broken canaries / locale-routing failure.**
+
+The Apr 18 BASELINE_METRICS audit anticipated this: Brain Coinz primary language = English (Canada). The 1.0.3 KW string sits in the EN_CA slot. US App Store searchers receive that metadata only via primary-fallback, and the 4-of-4 canary failure indicates that fallback is NOT routing US queries to the EN_CA pool reliably (or only partially — `earn play time` did route).
+
+### Action
+
+**Per Section D4 Path 3:** "1.0.4 literally fixes this by adding a dedicated EN_US locale → release 1.0.4 on approval."
+
+→ **Ship 1.0.4 (build 7) the moment Apple approves. No metadata changes. No rollback.**
+
+### Implications for 1.0.4 Day-14 measurement (Section E)
+
+The unranked-canary baseline gives 1.0.4 enormous headroom. If the EN_US locale fix works, expect:
+- 4 indexing canaries to enter top-200 within 7–14 days post-live
+- Reward-chart niche tokens (added in May-1 KW swap) to enter from cold
+- `parental control` SERP (Name-driven) to enter top-300
+- `brain coinz` to hold #1 (low risk — already saturated)
+
+If the canaries STILL fail after 1.0.4 ships with EN_US locale → indexing pipeline is broken at the Apple side, not metadata. Escalate to Apple Developer Support.
+
+### CSV row for trend-tracking
+
+```
+date,version,days_live,brain_coinz_rank,earn_play_time_rank,canaries_indexed_of_4,total_ranked_of_tracked
+2026-04-14,1.0.2(26),pre,33,1000,0/4,1/46
+2026-05-02,1.0.3(1),15,1,135,0/4,2/38
+```
+
+(Will append 1.0.4 rows at live+14 and live+21.)
