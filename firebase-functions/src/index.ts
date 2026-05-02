@@ -13,3 +13,4 @@ export { createFamily, updateFamilySubscription, removeChildFromFamily } from '.
 export { createPairingToken, validateChildPairing, validateCoParentJoin } from './pairing';
 export { verifyFamilySubscription, updateSubscriptionStatus, checkParentSubscription, markFamilyExpired } from './subscription';
 export { revenueCatWebhook } from './webhooks';
+export { submitDiagnosticReport } from './diagnostic';

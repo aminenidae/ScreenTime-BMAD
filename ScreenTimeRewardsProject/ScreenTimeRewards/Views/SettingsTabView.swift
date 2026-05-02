@@ -32,6 +32,18 @@ struct SettingsTabView: View {
     @State private var diagnosticReportText = ""
     @State private var showingLogExport = false
 
+    // Silent diagnostic report upload state machine.
+    @State private var diagnosticUploadState: DiagnosticUploadState = .idle
+    @State private var diagnosticUploadAlertMessage: String = ""
+    @State private var showingDiagnosticUploadAlert = false
+
+    enum DiagnosticUploadState: Equatable {
+        case idle
+        case uploading
+        case success(reportId: String)
+        case failure(message: String)
+    }
+
     @State private var firebaseFamilyResult: String = ""
     @State private var isCreatingFirebaseFamily = false
 
@@ -143,11 +155,14 @@ struct SettingsTabView: View {
                                 .padding(.horizontal, 4)
                         }
 
-                        // Diagnostics Section — log export ships in Release;
-                        // legacy debug-only rows are gated behind #if DEBUG.
+                        // Diagnostics Section — silent diagnostic report upload
+                        // ships in Release. The legacy share-sheet export (which
+                        // exposed raw log files via Files / mail) is now Debug-only
+                        // to avoid leaking the filter chain to non-support contexts.
                         settingsSection(title: "DIAGNOSTICS") {
-                            extensionLogExportRow
+                            sendDiagnosticReportRow
                             #if DEBUG
+                            extensionLogExportRow
                             diagnosticMappingRow
                             cleanupMappingsRow
                             extensionLogsRow
@@ -210,6 +225,20 @@ struct SettingsTabView: View {
 
         .sheet(isPresented: $showingLogExport) {
             DiagnosticsLogExportView()
+        }
+
+        .alert("Diagnostic Report", isPresented: $showingDiagnosticUploadAlert) {
+            Button("OK", role: .cancel) {
+                // Reset to idle once the user dismisses success/failure UI so
+                // subsequent taps fire a fresh upload (not stuck on success).
+                if case .success = diagnosticUploadState {
+                    diagnosticUploadState = .idle
+                } else if case .failure = diagnosticUploadState {
+                    diagnosticUploadState = .idle
+                }
+            }
+        } message: {
+            Text(diagnosticUploadAlertMessage)
         }
 
         .onAppear {
@@ -954,6 +983,97 @@ private extension SettingsTabView {
             Text("This will reset your trial to 14 days. Force quit and relaunch the app after resetting.")
         }
         #endif
+    }
+
+    /// One-tap silent upload of extension logs to Firebase. No share sheet,
+    /// no Files-app, no email composer — log content never surfaces to the
+    /// user. On success the user gets a short reference ID (RPT-XXXXXX) to
+    /// quote in support email.
+    var sendDiagnosticReportRow: some View {
+        Button(action: {
+            startDiagnosticReportUpload()
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    if case .uploading = diagnosticUploadState {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(AppTheme.vibrantTeal)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 18))
+                            .foregroundColor(AppTheme.vibrantTeal)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Send Diagnostic Report")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text(sendDiagnosticReportSubtitle)
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                if case .uploading = diagnosticUploadState {
+                    EmptyView()
+                } else {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 12, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+                }
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled({ if case .uploading = diagnosticUploadState { return true } else { return false } }())
+    }
+
+    private var sendDiagnosticReportSubtitle: String {
+        switch diagnosticUploadState {
+        case .idle: return "Tap to send logs to support"
+        case .uploading: return "Sending…"
+        case .success(let id): return "Sent ✓  Reference: \(id)"
+        case .failure: return "Tap to retry"
+        }
+    }
+
+    private func startDiagnosticReportUpload() {
+        guard diagnosticUploadState != .uploading else { return }
+        diagnosticUploadState = .uploading
+
+        Task {
+            do {
+                let reportId = try await DiagnosticReportUploader.shared.upload()
+                await MainActor.run {
+                    diagnosticUploadState = .success(reportId: reportId)
+                    diagnosticUploadAlertMessage = "Report sent successfully.\n\nReference: \(reportId)\n\nQuote this ID when contacting support."
+                    showingDiagnosticUploadAlert = true
+                }
+            } catch {
+                await MainActor.run {
+                    let message = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+                    diagnosticUploadState = .failure(message: message)
+                    diagnosticUploadAlertMessage = "Couldn't send report.\n\n\(message)\n\nPlease check your connection and try again."
+                    showingDiagnosticUploadAlert = true
+                }
+            }
+        }
     }
 
     var extensionLogExportRow: some View {
