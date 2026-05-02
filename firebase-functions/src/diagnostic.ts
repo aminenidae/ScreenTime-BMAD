@@ -94,6 +94,15 @@ export const submitDiagnosticReport = functions.https.onCall(async (data: Submit
   const shortId = docRef.id.substring(0, 6).toUpperCase();
   const reportId = `RPT-${shortId}`;
 
+  // Firestore document-size limit is 1 MiB. Log files commonly exceed that
+  // when concatenated, so we store each file in its own subcollection doc and
+  // chunk individual files that are themselves > ~900 KB of base64. The
+  // parent doc holds only metadata. To reassemble offline: list
+  // diagnosticReports/{id}/files, group by `name`, sort by `partIndex`,
+  // concat the `content` strings, base64-decode.
+  const CHUNK_BYTES = 900_000;  // base64 chars; leaves ~100KB headroom under 1MiB doc limit
+
+  // 1. Parent metadata doc — small, always fits.
   await docRef.set({
     reportId,
     fullDocId: docRef.id,
@@ -104,14 +113,42 @@ export const submitDiagnosticReport = functions.https.onCall(async (data: Submit
     },
     deviceInfo: deviceInfo || {},
     notes: typeof notes === 'string' ? notes.substring(0, 1000) : null,
-    logFiles: logFiles.map((f) => ({
+    fileManifest: logFiles.map((f) => ({
       name: f.name.substring(0, 256),
-      content: f.content,  // base64-encoded
       sizeBytes: f.content.length,
+      partCount: Math.max(1, Math.ceil(f.content.length / CHUNK_BYTES)),
     })),
     totalBytes,
     fileCount: logFiles.length,
   });
+
+  // 2. Subcollection: one doc per file, chunked across multiple docs if needed.
+  const filesCol = docRef.collection('files');
+  for (const f of logFiles) {
+    const safeName = f.name.replace(/[^a-zA-Z0-9._-]/g, '_').substring(0, 200);
+    const partCount = Math.max(1, Math.ceil(f.content.length / CHUNK_BYTES));
+    if (partCount === 1) {
+      await filesCol.doc(safeName).set({
+        name: f.name,
+        content: f.content,
+        sizeBytes: f.content.length,
+        partIndex: 0,
+        partCount: 1,
+      });
+    } else {
+      for (let i = 0; i < partCount; i++) {
+        const start = i * CHUNK_BYTES;
+        const chunk = f.content.substring(start, start + CHUNK_BYTES);
+        await filesCol.doc(`${safeName}__part${i}`).set({
+          name: f.name,
+          content: chunk,
+          sizeBytes: f.content.length,
+          partIndex: i,
+          partCount,
+        });
+      }
+    }
+  }
 
   return { reportId };
 });
