@@ -274,6 +274,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Apply adult content filter if this is a child device (always-on)
         applyAdultContentFilterIfNeeded()
 
+        // May 2 fix — one-shot cleanup for stale `usage_<id>_today` values that
+        // survived midnight resets in versions before the `tracked_app_ids` union
+        // fix. See `docs/SCHEDULE_VERSIONING_AND_BANK_FIX_PLAN.md` 1D.
+        performStaleUsageCleanupIfNeeded()
+
         #if DEBUG
         print("=" + String(repeating: "=", count: 50))
         print("[ScreenTimeService] 🚀 SERVICE INITIALIZED")
@@ -2369,15 +2374,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         syncGoalConfigsToExtension()
 
         // Pre-populate tracked_app_ids so extension's RESTART_THRESHOLD_RESET
-        // resets lastThreshold for ALL monitored apps (not just previously recorded ones)
+        // resets lastThreshold for ALL monitored apps (not just previously recorded ones).
+        //
+        // May 2 fix — `tracked_app_ids` was previously set to `appTemplates.keys`, which
+        // is built from `monitoredEvents`. Reward apps that don't currently have monitored
+        // thresholds (e.g., shielded most of the time) were excluded, so the extension's
+        // `resetAllDailyCounters` skipped them at midnight — leaving stale
+        // `usage_<id>_today` values that the shield then read as "278 minutes used today."
+        // Union with all categorized logical IDs (every reward + learning app the kid has
+        // configured) to guarantee midnight reset coverage.
         if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-            let allLogicalIDs = Array(appTemplates.keys)
+            var allLogicalIDsSet = Set(appTemplates.keys)
+            for (token, _) in categoryAssignments {
+                if let logicalID = getLogicalID(for: token) {
+                    allLogicalIDsSet.insert(logicalID)
+                }
+            }
+            let allLogicalIDs = Array(allLogicalIDsSet)
             sharedDefaults.set(allLogicalIDs, forKey: "tracked_app_ids")
             lifecycleLog("TRACKED_APP_IDS_SET count=\(allLogicalIDs.count) ids=\(allLogicalIDs.map { String($0.prefix(8)) }.joined(separator: ","))")
 
             // Store window top + stable hash per app so extension can detect exhaustion
-            // and self-rebuild the sliding window without the main app.
-            for logicalID in allLogicalIDs {
+            // and self-rebuild the sliding window without the main app. Only apps with
+            // active monitoring get a window_top — reward apps in the union without
+            // monitored thresholds don't need one (they'll never fire threshold events).
+            for logicalID in appTemplates.keys {
                 let currentMinutes = appCurrentMinutes[logicalID] ?? 0
                 sharedDefaults.set(currentMinutes + 60, forKey: "window_top_min_\(logicalID)")
                 sharedDefaults.set(String(stableHash(logicalID)), forKey: "app_stable_hash_\(logicalID)")
@@ -4016,6 +4037,61 @@ func configureWithTestApplications() {
         return usagePersistence.logicalID(for: tokenHash)
     }
 
+    /// One-shot migration: zero out `usage_<id>_today` and `ext_usage_<id>_today` for
+    /// any known logical ID whose `ext_usage_<id>_date` is not today. Devices that
+    /// upgraded from a version where `tracked_app_ids` excluded reward apps may carry
+    /// stale per-app usage values for days; that stale value gets read by the shield's
+    /// "You used N minutes" message and by the bank's `todayUsed` accumulator, dragging
+    /// the time bank to 0 even when the kid hasn't used reward apps today.
+    ///
+    /// Idempotent — gated on `stale_usage_cleanup_v1`. Safe to call from init.
+    private func performStaleUsageCleanupIfNeeded() {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+        let migrationKey = "stale_usage_cleanup_v1"
+        guard defaults.bool(forKey: migrationKey) != true else { return }
+
+        let todayString: String = {
+            let fmt = DateFormatter()
+            fmt.dateFormat = "yyyy-MM-dd"
+            return fmt.string(from: Date())
+        }()
+
+        // Union: tokens currently categorized + every logical ID with a saved schedule.
+        // Schedules are the most permissive source — they survive even if a token was
+        // detached from `categoryAssignments` (which is exactly the case that causes
+        // the stale value to linger).
+        var knownLogicalIDs = Set<String>()
+        for (token, _) in categoryAssignments {
+            if let logicalID = getLogicalID(for: token) {
+                knownLogicalIDs.insert(logicalID)
+            }
+        }
+        for (logicalID, _) in AppScheduleService.shared.schedules {
+            knownLogicalIDs.insert(logicalID)
+        }
+
+        var clearedCount = 0
+        for logicalID in knownLogicalIDs {
+            let dateKey = "ext_usage_\(logicalID)_date"
+            let storedDate = defaults.string(forKey: dateKey)
+            if storedDate != todayString {
+                if defaults.integer(forKey: "usage_\(logicalID)_today") > 0 ||
+                   defaults.integer(forKey: "ext_usage_\(logicalID)_today") > 0 {
+                    clearedCount += 1
+                }
+                defaults.set(0, forKey: "usage_\(logicalID)_today")
+                defaults.set(0, forKey: "ext_usage_\(logicalID)_today")
+            }
+        }
+
+        defaults.set(true, forKey: migrationKey)
+
+        #if DEBUG
+        print("[ScreenTimeService] 🧹 stale_usage_cleanup_v1: scanned \(knownLogicalIDs.count) apps, cleared \(clearedCount) with stale today-counters")
+        #endif
+        lifecycleLog("STALE_USAGE_CLEANUP_V1 scanned=\(knownLogicalIDs.count) cleared=\(clearedCount)")
+    }
+
     /// Get display name for a given logicalID (looks up from persisted apps)
     func getDisplayName(for logicalID: String) -> String? {
         let persistedApps = usagePersistence.loadAllApps()
@@ -4151,19 +4227,24 @@ func configureWithTestApplications() {
             }
         }
 
-        // Build learning ratios map identical to AppUsageViewModel.buildLearningRatioMap()
-        var learningRatios: [String: Double] = [:]
-        for learningID in learningIDs {
-            if let schedule = AppScheduleService.shared.getSchedule(for: learningID) {
-                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
-                learningRatios[learningID] = ratio
-            }
-        }
-
+        // Phase 2: pin each historical day to the ratio that was active on that day,
+        // so a parent's ratio change today doesn't retroactively re-price yesterday.
+        // The closure takes (learningLogicalID, "yyyy-MM-dd") and returns the ratio
+        // active on that day. Falls back to the live current ratio for any
+        // unrecognized day (covers seed-migration period).
+        let scheduleService = AppScheduleService.shared
         let historicalRemaining = usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningIDs,
             rewardIDs: rewardIDs,
-            learningRatios: learningRatios
+            ratioForDay: { logicalID, dayKey in
+                if let v = scheduleService.versionActive(logicalID: logicalID, on: dayKey) {
+                    return v.ratio
+                }
+                if let s = scheduleService.getSchedule(for: logicalID) {
+                    return Double(s.rewardMinutesEarned) / Double(max(1, s.ratioLearningMinutes))
+                }
+                return 1.0
+            }
         )
 
         defaults.set(historicalRemaining, forKey: "bank_historical_remaining_minutes")

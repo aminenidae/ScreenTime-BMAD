@@ -260,22 +260,43 @@ final class UsagePersistence {
         return (totalSeconds, totalPoints)
     }
 
-    /// Calculate cumulative remaining minutes from all historical data (excluding today)
-    /// Formula: sum of (ratio-adjusted learning app minutes) - sum of (reward app minutes) across all days in history
+    /// Calculate cumulative remaining minutes from all historical data (excluding today).
+    /// Formula: sum of (ratio-adjusted learning app minutes) - sum of (reward app minutes) across all days in history.
+    ///
+    /// Phase 2: prefer the `ratioForDay:` overload below — it resolves the ratio active
+    /// on each day instead of applying a single current-ratio to all history. This static-map
+    /// overload is preserved for callers that don't have a versioned-schedule resolver.
     /// - Parameters:
     ///   - learningIDs: LogicalIDs of learning apps (contribute to earned)
     ///   - rewardIDs: LogicalIDs of reward apps (contribute to used)
     ///   - learningRatios: Map of learningLogicalID → reward ratio (rewardMinutes / learningMinutes). Defaults to 1.0 if not provided.
     /// - Returns: Historical remaining minutes (can be negative if overspent historically)
     func getHistoricalRemainingMinutes(learningIDs: [LogicalAppID], rewardIDs: [LogicalAppID], learningRatios: [String: Double] = [:]) -> Int {
+        getHistoricalRemainingMinutes(
+            learningIDs: learningIDs,
+            rewardIDs: rewardIDs,
+            ratioForDay: { logicalID, _ in learningRatios[logicalID] ?? 1.0 }
+        )
+    }
+
+    /// Per-day variant: caller supplies a closure that returns the ratio active for
+    /// (learning logicalID, day key "yyyy-MM-dd"). Used by Phase 2 versioned-schedule
+    /// callers to pin past days to their historical ratios.
+    func getHistoricalRemainingMinutes(
+        learningIDs: [LogicalAppID],
+        rewardIDs: [LogicalAppID],
+        ratioForDay: (LogicalAppID, String) -> Double
+    ) -> Int {
         var totalEarnedSeconds = 0
         var totalUsedSeconds = 0
 
-        // Sum all historical learning app usage (ratio-adjusted earned time)
+        // Sum all historical learning app usage. Each day applies the ratio that was
+        // active on that day according to the resolver.
         for logicalID in learningIDs {
             if let app = cachedApps[logicalID] {
-                let ratio = learningRatios[logicalID] ?? 1.0
                 for summary in app.dailyHistory {
+                    let dayKey = AppScheduleVersion.dayKey(for: summary.date)
+                    let ratio = ratioForDay(logicalID, dayKey)
                     totalEarnedSeconds += Int(Double(summary.seconds) * ratio)
                 }
             }
@@ -294,7 +315,7 @@ final class UsagePersistence {
         let usedMinutes = totalUsedSeconds / 60
 
         #if DEBUG
-        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m (ratio-adjusted), used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
+        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m (per-day ratio-adjusted), used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
         #endif
 
         return earnedMinutes - usedMinutes

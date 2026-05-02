@@ -28,6 +28,7 @@ struct AppConfigurationSheet: View {
 
     @State private var localConfig: AppScheduleConfiguration
     @State private var isFullDayAccess: Bool
+    @State private var showRatioDecreaseConfirm: Bool = false
 
     init(
         token: ApplicationToken,
@@ -201,7 +202,14 @@ struct AppConfigurationSheet: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        onSave(localConfig)
+                        // Phase 2: any ratio change shows a forward-looking notice.
+                        // Past days are pinned to the version active when they were
+                        // earned, so this dialog is informational, not a warning.
+                        if appType == .learning && proposedRatioChanged {
+                            showRatioDecreaseConfirm = true
+                        } else {
+                            onSave(localConfig)
+                        }
                     }
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .foregroundColor(colorScheme == .dark ? AppTheme.lightCream : accentColor)
@@ -209,7 +217,40 @@ struct AppConfigurationSheet: View {
                 }
             }
             .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar) // Use AppTheme background
+            .alert("Apply new earning rate?", isPresented: $showRatioDecreaseConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Apply") {
+                    onSave(localConfig)
+                }
+            } message: {
+                Text(ratioChangeMessage)
+            }
         }
+    }
+
+    /// True when the proposed effective ratio differs from the saved one.
+    /// Only meaningful for learning apps — reward apps don't carry the earning ratio.
+    @MainActor
+    private var proposedRatioChanged: Bool {
+        guard let current = AppScheduleService.shared.getSchedule(for: localConfig.id) else {
+            // No prior schedule → first-time save → no notice needed
+            return false
+        }
+        return current.ratioLearningMinutes != localConfig.ratioLearningMinutes
+            || current.rewardMinutesEarned != localConfig.rewardMinutesEarned
+    }
+
+    /// Forward-looking notice. Tells the parent when the new rate takes effect.
+    /// "Today" if the kid hasn't done any learning on this app yet today; otherwise
+    /// "tomorrow" — matches `AppScheduleService.decideEffectiveFromDay(for:)`.
+    @MainActor
+    private var ratioChangeMessage: String {
+        let learnedToday = AppScheduleService.shared
+            .effectiveLearningSecondsToday(forLogicalID: localConfig.id) > 0
+        let when = learnedToday ? "Starting tomorrow" : "Starting now"
+        let l = max(1, localConfig.ratioLearningMinutes)
+        let r = max(0, localConfig.rewardMinutesEarned)
+        return "\(when), \(l) minute\(l == 1 ? "" : "s") of learning will grant \(r) minute\(r == 1 ? "" : "s") of reward. Past days keep the rate they were earned at."
     }
 
     // MARK: - Config Summary Section

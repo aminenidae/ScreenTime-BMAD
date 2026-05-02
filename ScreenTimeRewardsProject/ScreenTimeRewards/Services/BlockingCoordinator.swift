@@ -998,10 +998,22 @@ class BlockingCoordinator: ObservableObject {
             }
         }
 
-        // Use UsagePersistence to get CUMULATIVE balance (includes historical rollover)
+        // Use UsagePersistence to get CUMULATIVE balance (includes historical rollover).
+        // Phase 2: per-day ratio lookup pins each historical day to the schedule
+        // version that was active on that day.
+        let scheduleService = AppScheduleService.shared
         let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningIDs,
-            rewardIDs: rewardIDs
+            rewardIDs: rewardIDs,
+            ratioForDay: { logicalID, dayKey in
+                if let v = scheduleService.versionActive(logicalID: logicalID, on: dayKey) {
+                    return v.ratio
+                }
+                if let s = scheduleService.getSchedule(for: logicalID) {
+                    return Double(s.rewardMinutesEarned) / Double(max(1, s.ratioLearningMinutes))
+                }
+                return 1.0
+            }
         )
 
         // Add today's earned (from learning goal checks)

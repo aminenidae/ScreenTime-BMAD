@@ -11,9 +11,15 @@ class AppScheduleService: ObservableObject {
 
     @Published private(set) var schedules: [String: AppScheduleConfiguration] = [:]
 
+    /// Append-only history of schedule versions, indexed by logicalID.
+    /// Each array is sorted ascending by `effectiveFromDay`.
+    @Published private(set) var versions: [String: [AppScheduleVersion]] = [:]
+
     // MARK: - Private Properties
 
     private let userDefaultsKey = "AppScheduleConfigurations"
+    private let versionsKey = "AppScheduleVersions"
+    private let versioningMigrationKey = "schedule_versioning_v1"
     private let sharedDefaults: UserDefaults?
 
     // MARK: - Initialization
@@ -22,6 +28,8 @@ class AppScheduleService: ObservableObject {
         // Use app group for sharing with extensions
         sharedDefaults = UserDefaults(suiteName: "group.com.screentimerewards.shared")
         loadSchedules()
+        loadVersions()
+        seedInitialVersionsIfNeeded()
     }
 
     // MARK: - Public Methods
@@ -82,13 +90,22 @@ class AppScheduleService: ObservableObject {
         sharedDefaults?.set(true, forKey: migrationKey)
     }
 
-    /// Save a schedule configuration for an app
+    /// Save a schedule configuration for an app.
+    ///
+    /// Phase 2: also appends an `AppScheduleVersion` history row. The version's
+    /// `effectiveFromDay` follows the §2E policy:
+    ///   - effective TODAY if the kid has done no learning yet today (no row to re-price), OR
+    ///   - effective TOMORROW otherwise (preserves today's earned at today's old ratio).
     func saveSchedule(_ config: AppScheduleConfiguration) throws {
         schedules[config.id] = config
         try persistSchedules()
 
         // Also save individual keys for extension access
         saveScheduleForExtension(config)
+
+        // Append a versioned snapshot.
+        let effectiveFromDay = decideEffectiveFromDay(for: config)
+        appendVersion(for: config, effectiveFromDay: effectiveFromDay)
 
         // Sync goal configs to extension if this config has linked learning apps
         // This allows the extension to control shields directly
@@ -157,6 +174,9 @@ class AppScheduleService: ObservableObject {
         for config in configs {
             schedules[config.id] = config
             saveScheduleForExtension(config)
+            // Phase 2: per-config versioning for batch saves too.
+            let effectiveFromDay = decideEffectiveFromDay(for: config)
+            appendVersion(for: config, effectiveFromDay: effectiveFromDay)
         }
         try persistSchedules()
 
@@ -181,6 +201,152 @@ class AppScheduleService: ObservableObject {
             }
         }
         return configs
+    }
+
+    // MARK: - Schedule Versioning (Phase 2)
+
+    /// Find the schedule version active for a given app on a given day.
+    /// Returns the most recent version whose `effectiveFromDay <= day`.
+    /// Falls back to the current schedule (wrapped in a synthetic version) if no
+    /// version row matches — covers the upgrade window before the seed migration runs.
+    func versionActive(logicalID: String, on day: String) -> AppScheduleVersion? {
+        if let history = versions[logicalID], !history.isEmpty {
+            // history is kept sorted ascending by effectiveFromDay
+            for version in history.reversed() {
+                if version.effectiveFromDay <= day {
+                    return version
+                }
+            }
+        }
+        // Fallback: current schedule treated as effective forever.
+        if let current = schedules[logicalID] {
+            return AppScheduleVersion(from: current, effectiveFromDay: AppScheduleVersion.earliestDay)
+        }
+        return nil
+    }
+
+    /// Convenience overload: look up by `Date`.
+    func versionActive(logicalID: String, on date: Date) -> AppScheduleVersion? {
+        versionActive(logicalID: logicalID, on: AppScheduleVersion.dayKey(for: date))
+    }
+
+    /// Decide whether a save takes effect today or tomorrow.
+    /// Today if the kid has done zero learning on this app today (no row to
+    /// re-price); tomorrow otherwise.
+    private func decideEffectiveFromDay(for config: AppScheduleConfiguration) -> String {
+        // Reads the live extension counter — represents today's actual learning.
+        let usageKey = "usage_\(config.id)_today"
+        let todaySeconds = sharedDefaults?.integer(forKey: usageKey) ?? 0
+        return todaySeconds == 0 ? AppScheduleVersion.todayKey : AppScheduleVersion.tomorrowKey
+    }
+
+    /// Append a version row for `config` with the given effective day. If a row
+    /// already exists for the same `effectiveFromDay`, replace it (latest write
+    /// wins for a given day).
+    private func appendVersion(for config: AppScheduleConfiguration, effectiveFromDay: String) {
+        let new = AppScheduleVersion(from: config, effectiveFromDay: effectiveFromDay)
+        var history = versions[config.id] ?? []
+        history.removeAll { $0.effectiveFromDay == effectiveFromDay }
+        history.append(new)
+        history.sort { $0.effectiveFromDay < $1.effectiveFromDay }
+        versions[config.id] = history
+        persistVersions()
+    }
+
+    /// One-time migration: seed an `effectiveFromDay = "1970-01-01"` version for every
+    /// existing schedule, carrying its current values. Result: kids see no bank jump
+    /// on upgrade because all historical days resolve to the same ratio they had.
+    private func seedInitialVersionsIfNeeded() {
+        guard sharedDefaults?.bool(forKey: versioningMigrationKey) != true else { return }
+
+        let now = Date()
+        for (logicalID, config) in schedules where versions[logicalID]?.isEmpty != false {
+            let seed = AppScheduleVersion(
+                from: config,
+                effectiveFromDay: AppScheduleVersion.earliestDay,
+                createdAt: now
+            )
+            versions[logicalID] = [seed]
+        }
+        persistVersions()
+        sharedDefaults?.set(true, forKey: versioningMigrationKey)
+        #if DEBUG
+        print("[AppScheduleService] 📜 schedule_versioning_v1: seeded \(versions.count) initial versions")
+        #endif
+    }
+
+    private func loadVersions() {
+        guard let data = sharedDefaults?.data(forKey: versionsKey) else { return }
+        do {
+            let flat = try JSONDecoder().decode([AppScheduleVersion].self, from: data)
+            var byID: [String: [AppScheduleVersion]] = [:]
+            for v in flat {
+                byID[v.logicalID, default: []].append(v)
+            }
+            for key in byID.keys {
+                byID[key]?.sort { $0.effectiveFromDay < $1.effectiveFromDay }
+            }
+            versions = byID
+        } catch {
+            #if DEBUG
+            print("[AppScheduleService] Failed to decode schedule versions: \(error)")
+            #endif
+        }
+    }
+
+    private func persistVersions() {
+        let flat = versions.values.flatMap { $0 }
+        if let data = try? JSONEncoder().encode(flat) {
+            sharedDefaults?.set(data, forKey: versionsKey)
+        }
+    }
+
+    /// Drop versions strictly older than `cutoffDay`. Called when day rolls over to
+    /// keep the array bounded by the 30-day `dailyHistory` window. Always retains
+    /// the most recent version even if it's older than the cutoff (need at least
+    /// one row to resolve `versionActive`).
+    func pruneVersionsOlderThan(_ cutoffDay: String) {
+        var didChange = false
+        for (logicalID, history) in versions {
+            guard !history.isEmpty else { continue }
+            let kept = history.filter { $0.effectiveFromDay >= cutoffDay }
+            // Always retain the most recent version even if older than cutoff.
+            let lastBeforeCutoff = history.last { $0.effectiveFromDay < cutoffDay }
+            var pruned = kept
+            if pruned.isEmpty, let last = lastBeforeCutoff {
+                pruned = [last]
+            } else if let last = lastBeforeCutoff,
+                      let firstKept = pruned.first,
+                      last.effectiveFromDay < firstKept.effectiveFromDay {
+                pruned.insert(last, at: 0)
+            }
+            if pruned.count != history.count {
+                versions[logicalID] = pruned
+                didChange = true
+            }
+        }
+        if didChange {
+            persistVersions()
+        }
+    }
+
+    /// Build a ratio map: learningLogicalID → ratio active on `day`.
+    /// Used by bank computation to apply per-day historical ratios.
+    func ratioMap(on day: String, for logicalIDs: [String]) -> [String: Double] {
+        var result: [String: Double] = [:]
+        for logicalID in logicalIDs {
+            if let version = versionActive(logicalID: logicalID, on: day) {
+                result[logicalID] = version.ratio
+            }
+        }
+        return result
+    }
+
+    /// Today's recorded learning seconds for a single app, read from the extension's
+    /// live counter in App Group UserDefaults. Used by the schedule-edit dialog to
+    /// decide whether a new ratio takes effect today (no learning yet) or tomorrow.
+    func effectiveLearningSecondsToday(forLogicalID logicalID: String) -> Int {
+        sharedDefaults?.integer(forKey: "usage_\(logicalID)_today") ?? 0
     }
 
     // MARK: - Private Methods

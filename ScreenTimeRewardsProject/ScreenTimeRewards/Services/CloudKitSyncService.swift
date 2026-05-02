@@ -2062,6 +2062,19 @@ class CloudKitSyncService: ObservableObject {
                     }
                 }
 
+                // Phase 2: sync the schedule version history alongside the current
+                // config. Parent device uses these to compute the kid's bank pinned to
+                // each day's historical ratio. Additive field — old clients ignore it.
+                if let logicalID = config.logicalID,
+                   let history = AppScheduleService.shared.versions[logicalID],
+                   !history.isEmpty,
+                   let versionsJSON = encodeToJSON(history) {
+                    rec["CD_scheduleVersionsJSON"] = versionsJSON as CKRecordValue
+                    #if DEBUG
+                    print("[CloudKitSyncService]   \(config.displayName ?? "?") - added \(history.count) schedule version(s)")
+                    #endif
+                }
+
                 // Encode streak settings if enabled
                 if let streakSettings = scheduleConfig.streakSettings {
                     if let streakJSON = encodeToJSON(streakSettings) {
@@ -3422,14 +3435,20 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         // Calculate cumulative available minutes (rollover + today's remaining).
-        // Pass `learningRatios` so historical earned is ratio-adjusted — matches
-        // AppUsageViewModel.cumulativeAvailableMinutes (line 210) and
-        // ScreenTimeService.syncBankHistoricalBaselineToExtension (line 4138).
+        // Phase 2: per-day version lookup pins past learning to the ratio active on
+        // each historical day. Matches AppUsageViewModel.cumulativeAvailableMinutes
+        // and ScreenTimeService.syncBankHistoricalBaselineToExtension.
         let learningLogicalIDs = allApps.filter { AppUsage.AppCategory.parse($0.value.category) == .learning }.map { $0.key }
+        let scheduleService = AppScheduleService.shared
         let historicalRemaining = ScreenTimeService.shared.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningLogicalIDs,
             rewardIDs: rewardLogicalIDs,
-            learningRatios: learningRatios
+            ratioForDay: { logicalID, dayKey in
+                if let v = scheduleService.versionActive(logicalID: logicalID, on: dayKey) {
+                    return v.ratio
+                }
+                return learningRatios[logicalID] ?? 1.0
+            }
         )
         let todayRemaining = totalEarnedMinutes - (totalRewardSeconds / 60)
         let cumulativeAvailableMinutes = max(0, historicalRemaining + todayRemaining)

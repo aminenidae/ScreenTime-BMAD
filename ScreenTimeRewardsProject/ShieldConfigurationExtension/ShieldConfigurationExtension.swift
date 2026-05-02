@@ -334,7 +334,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     /// Generate message for reward time expired
     private func generateRewardExpiredMessage(info: AppBlockingInfo) -> String {
         if let usedMinutes = info.rewardUsedMinutes, usedMinutes > 0 {
-            return "You used \(usedMinutes) minutes of reward time. Complete more learning to earn more!"
+            return "You've used \(usedMinutes) minutes of today's reward time. Complete more learning to earn more!"
         }
         return "Your reward time has expired. Complete more learning to unlock again!"
     }

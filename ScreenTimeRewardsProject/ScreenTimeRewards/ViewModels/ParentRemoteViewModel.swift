@@ -36,6 +36,11 @@ struct FullAppConfigDTO: Identifiable, Hashable {
     // Streak settings (decoded from JSON)
     var streakSettings: AppStreakSettings?
 
+    /// Phase 2: append-only schedule history synced from child. Empty array on old
+    /// records (additive field, old clients didn't write it). Used by parent's bank
+    /// computation to pin past days to their historical ratios.
+    var scheduleVersions: [AppScheduleVersion] = []
+
     /// Create from a CloudKit record
     init(from record: CKRecord) {
         self.logicalID = record["CD_logicalID"] as? String ?? ""
@@ -90,6 +95,13 @@ struct FullAppConfigDTO: Identifiable, Hashable {
            let settings = try? JSONDecoder().decode(AppStreakSettings.self, from: data) {
             self.streakSettings = settings
         }
+
+        // Phase 2: decode schedule version history (additive — empty on old records)
+        if let versionsJSON = record["CD_scheduleVersionsJSON"] as? String,
+           let data = versionsJSON.data(using: .utf8),
+           let versions = try? JSONDecoder().decode([AppScheduleVersion].self, from: data) {
+            self.scheduleVersions = versions.sorted { $0.effectiveFromDay < $1.effectiveFromDay }
+        }
     }
 
     // Hashable conformance
@@ -103,7 +115,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
 
     /// Create a new FullAppConfigDTO with changes from MutableAppConfigDTO applied
     func applying(changes: MutableAppConfigDTO) -> FullAppConfigDTO {
-        let updated = FullAppConfigDTO(
+        var updated = FullAppConfigDTO(
             logicalID: logicalID,
             deviceID: deviceID,
             displayName: displayName,
@@ -121,6 +133,9 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             unlockMode: changes.unlockMode,
             streakSettings: changes.streakSettings
         )
+        // Preserve existing schedule version history; the change itself is just a
+        // pending edit — the kid's device will append a new version when it saves.
+        updated.scheduleVersions = scheduleVersions
         return updated
     }
 
@@ -141,7 +156,8 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         timeWindowSummary: String?,
         linkedLearningApps: [LinkedLearningApp],
         unlockMode: UnlockMode,
-        streakSettings: AppStreakSettings?
+        streakSettings: AppStreakSettings?,
+        scheduleVersions: [AppScheduleVersion] = []
     ) {
         self.logicalID = logicalID
         self.deviceID = deviceID
@@ -159,6 +175,7 @@ struct FullAppConfigDTO: Identifiable, Hashable {
         self.linkedLearningApps = linkedLearningApps
         self.unlockMode = unlockMode
         self.streakSettings = streakSettings
+        self.scheduleVersions = scheduleVersions
     }
 
     /// Reconstruct a DTO from its disk-cache representation.
@@ -186,6 +203,14 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             streakSettings = try? JSONDecoder().decode(AppStreakSettings.self, from: data)
         }
 
+        // Phase 2: decode schedule version history from JSON
+        var scheduleVersions: [AppScheduleVersion] = []
+        if let json = cached.scheduleVersionsJSON,
+           let data = json.data(using: .utf8),
+           let decoded = try? JSONDecoder().decode([AppScheduleVersion].self, from: data) {
+            scheduleVersions = decoded.sorted { $0.effectiveFromDay < $1.effectiveFromDay }
+        }
+
         // Parse unlock mode
         let unlockMode = cached.unlockModeRawValue
             .flatMap { UnlockMode(rawValue: $0) } ?? .all
@@ -206,7 +231,8 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             timeWindowSummary: cached.timeWindowSummary,
             linkedLearningApps: linkedLearningApps,
             unlockMode: unlockMode,
-            streakSettings: streakSettings
+            streakSettings: streakSettings,
+            scheduleVersions: scheduleVersions
         )
     }
 
@@ -226,6 +252,11 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             guard let data = try? JSONEncoder().encode(s) else { return nil }
             return String(data: data, encoding: .utf8)
         }
+        let versionsJSON: String? = {
+            guard !scheduleVersions.isEmpty,
+                  let data = try? JSONEncoder().encode(scheduleVersions) else { return nil }
+            return String(data: data, encoding: .utf8)
+        }()
 
         return CachedAppConfig(
             logicalID: logicalID,
@@ -243,7 +274,8 @@ struct FullAppConfigDTO: Identifiable, Hashable {
             unlockModeRawValue: unlockMode.rawValue,
             scheduleConfigJSON: scheduleJSON,
             linkedAppsJSON: linkedJSON,
-            streakSettingsJSON: streakJSON
+            streakSettingsJSON: streakJSON,
+            scheduleVersionsJSON: versionsJSON
         )
     }
 }
@@ -666,6 +698,8 @@ class ParentRemoteViewModel: ObservableObject {
 
     /// Calculate earned minutes from usage history (fallback when DailySnapshotDTO unavailable)
     /// Uses threshold gate logic: only counts learning app usage if it meets the lowest threshold.
+    /// Mirrors `AppUsageViewModel.totalEarnedMinutes`: applies the learning app's own ratio
+    /// (rewardMinutesEarned / ratioLearningMinutes) to gated learning minutes.
     var fallbackEarnedMinutes: Int {
         let calendar = Calendar.current
         let today = calendar.startOfDay(for: Date())
@@ -684,6 +718,22 @@ class ParentRemoteViewModel: ObservableObject {
             }
         }
 
+        // Build map: learningAppID → ratio (rewardMinutes / ratioLearningMinutes)
+        // active TODAY. Phase 2: if the child synced a schedule version active today,
+        // prefer that; otherwise fall back to the current scheduleConfig.
+        let todayKey = AppScheduleVersion.todayKey
+        var ratioPerLearningApp: [String: Double] = [:]
+        for learningConfig in childLearningAppsFullConfig {
+            if let version = learningConfig.scheduleVersions
+                .filter({ $0.effectiveFromDay <= todayKey })
+                .last {
+                ratioPerLearningApp[learningConfig.logicalID] = version.ratio
+            } else if let schedule = learningConfig.scheduleConfig {
+                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
+                ratioPerLearningApp[learningConfig.logicalID] = ratio
+            }
+        }
+
         // Aggregate today's usage per learning app (sum seconds before converting to minutes)
         var usagePerApp: [String: Int] = [:]
         for record in childDailyUsageHistory {
@@ -695,7 +745,8 @@ class ParentRemoteViewModel: ObservableObject {
             usagePerApp[record.logicalID, default: 0] += record.seconds
         }
 
-        // Apply threshold gate logic: only count if usage >= lowestThreshold
+        // Apply threshold gate + ratio: only count if usage >= lowestThreshold,
+        // then multiply by the learning app's ratio (defaults to 1.0 if no schedule).
         var totalEarnedMinutes = 0
         for (logicalID, totalSeconds) in usagePerApp {
             guard let lowestThreshold = lowestThresholdPerLearningApp[logicalID] else {
@@ -703,13 +754,14 @@ class ParentRemoteViewModel: ObservableObject {
             }
             let usageMinutes = totalSeconds / 60
             if usageMinutes >= lowestThreshold {
-                totalEarnedMinutes += usageMinutes
+                let ratio = ratioPerLearningApp[logicalID] ?? 1.0
+                totalEarnedMinutes += Int(Double(usageMinutes) * ratio)
             }
             // else: earned 0 for this app (threshold not met)
         }
 
         #if DEBUG
-        print("[ParentRemoteViewModel] Fallback earnedMinutes: \(totalEarnedMinutes) (threshold gate applied, \(lowestThresholdPerLearningApp.count) linked learning apps)")
+        print("[ParentRemoteViewModel] Fallback earnedMinutes: \(totalEarnedMinutes) (threshold gate applied, \(lowestThresholdPerLearningApp.count) linked learning apps, \(ratioPerLearningApp.count) ratios)")
         #endif
 
         return totalEarnedMinutes

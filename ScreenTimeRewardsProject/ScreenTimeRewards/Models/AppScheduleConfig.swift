@@ -624,3 +624,114 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
         return "Complete \(modeText) \(count) app\(count == 1 ? "" : "s")"
     }
 }
+
+// MARK: - App Schedule Version (history)
+
+/// Frozen snapshot of an app's schedule at a point in time.
+///
+/// Phase 2 of the bank-fix plan: each `saveSchedule(...)` appends one of these to a
+/// per-app history array. Historical bank computations look up the version active
+/// on each day (`effectiveFromDay <= row.date`) instead of re-pricing past learning
+/// at the current ratio.
+///
+/// Stored as JSON in App Group UserDefaults under key `AppScheduleVersions`.
+/// Synced to CloudKit via the `CD_scheduleVersionsJSON` field on `CD_AppConfiguration`.
+struct AppScheduleVersion: Codable, Equatable, Hashable {
+    /// Logical ID of the app this version describes. Matches `AppScheduleConfiguration.id`.
+    let logicalID: String
+
+    /// Day this version takes effect, in `yyyy-MM-dd` (device local time).
+    /// `versionActive(on: day)` returns the most recent version whose
+    /// `effectiveFromDay <= day`. Seed migration uses `"1970-01-01"`.
+    let effectiveFromDay: String
+
+    /// The schedule values at that effective date.
+    let ratioLearningMinutes: Int
+    let rewardMinutesEarned: Int
+    let linkedLearningApps: [LinkedLearningApp]
+    let dailyLimits: DailyLimits
+    let dailyTimeWindows: DailyTimeWindows
+    let allowedTimeWindow: AllowedTimeWindow
+    let unlockMode: UnlockMode
+
+    /// When this version was written. Audit only; bank math uses `effectiveFromDay`.
+    let createdAt: Date
+
+    /// Effective ratio (1.0 = 1 reward minute per 1 learning minute).
+    var ratio: Double {
+        Double(rewardMinutesEarned) / Double(max(1, ratioLearningMinutes))
+    }
+
+    /// Build a version from a current schedule, with a chosen effectivity day.
+    init(
+        from schedule: AppScheduleConfiguration,
+        effectiveFromDay: String,
+        createdAt: Date = Date()
+    ) {
+        self.logicalID = schedule.id
+        self.effectiveFromDay = effectiveFromDay
+        self.ratioLearningMinutes = schedule.ratioLearningMinutes
+        self.rewardMinutesEarned = schedule.rewardMinutesEarned
+        self.linkedLearningApps = schedule.linkedLearningApps
+        self.dailyLimits = schedule.dailyLimits
+        self.dailyTimeWindows = schedule.dailyTimeWindows
+        self.allowedTimeWindow = schedule.allowedTimeWindow
+        self.unlockMode = schedule.unlockMode
+        self.createdAt = createdAt
+    }
+
+    /// Memberwise initializer for decoding/manual construction.
+    init(
+        logicalID: String,
+        effectiveFromDay: String,
+        ratioLearningMinutes: Int,
+        rewardMinutesEarned: Int,
+        linkedLearningApps: [LinkedLearningApp],
+        dailyLimits: DailyLimits,
+        dailyTimeWindows: DailyTimeWindows,
+        allowedTimeWindow: AllowedTimeWindow,
+        unlockMode: UnlockMode,
+        createdAt: Date
+    ) {
+        self.logicalID = logicalID
+        self.effectiveFromDay = effectiveFromDay
+        self.ratioLearningMinutes = ratioLearningMinutes
+        self.rewardMinutesEarned = rewardMinutesEarned
+        self.linkedLearningApps = linkedLearningApps
+        self.dailyLimits = dailyLimits
+        self.dailyTimeWindows = dailyTimeWindows
+        self.allowedTimeWindow = allowedTimeWindow
+        self.unlockMode = unlockMode
+        self.createdAt = createdAt
+    }
+}
+
+extension AppScheduleVersion {
+    /// `yyyy-MM-dd` formatter shared across version writes/reads. UTC-stable so
+    /// device-local midnight transitions don't shift the bucket.
+    static let dayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
+        f.timeZone = TimeZone.current
+        return f
+    }()
+
+    /// Convert a `Date` to the day key used in `effectiveFromDay`.
+    static func dayKey(for date: Date) -> String {
+        dayFormatter.string(from: date)
+    }
+
+    /// Today's day key.
+    static var todayKey: String {
+        dayKey(for: Date())
+    }
+
+    /// Tomorrow's day key.
+    static var tomorrowKey: String {
+        dayKey(for: Calendar.current.date(byAdding: .day, value: 1, to: Date()) ?? Date())
+    }
+
+    /// Sentinel "always-effective" day for the seed migration row.
+    static let earliestDay = "1970-01-01"
+}

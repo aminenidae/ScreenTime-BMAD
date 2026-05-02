@@ -247,6 +247,77 @@ struct CachedAppConfig: Codable {
     let scheduleConfigJSON: String?
     let linkedAppsJSON: String?
     let streakSettingsJSON: String?
+
+    /// Phase 2: append-only schedule version history, JSON-encoded
+    /// `[AppScheduleVersion]`. Optional with `decodeIfPresent` so old caches load.
+    let scheduleVersionsJSON: String?
+
+    init(
+        logicalID: String,
+        deviceID: String,
+        displayName: String,
+        category: String,
+        pointsPerMinute: Int,
+        isEnabled: Bool,
+        blockingEnabled: Bool,
+        tokenHash: String?,
+        lastModified: Date?,
+        iconURL: String?,
+        dailyLimitSummary: String?,
+        timeWindowSummary: String?,
+        unlockModeRawValue: String?,
+        scheduleConfigJSON: String?,
+        linkedAppsJSON: String?,
+        streakSettingsJSON: String?,
+        scheduleVersionsJSON: String? = nil
+    ) {
+        self.logicalID = logicalID
+        self.deviceID = deviceID
+        self.displayName = displayName
+        self.category = category
+        self.pointsPerMinute = pointsPerMinute
+        self.isEnabled = isEnabled
+        self.blockingEnabled = blockingEnabled
+        self.tokenHash = tokenHash
+        self.lastModified = lastModified
+        self.iconURL = iconURL
+        self.dailyLimitSummary = dailyLimitSummary
+        self.timeWindowSummary = timeWindowSummary
+        self.unlockModeRawValue = unlockModeRawValue
+        self.scheduleConfigJSON = scheduleConfigJSON
+        self.linkedAppsJSON = linkedAppsJSON
+        self.streakSettingsJSON = streakSettingsJSON
+        self.scheduleVersionsJSON = scheduleVersionsJSON
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        logicalID = try container.decode(String.self, forKey: .logicalID)
+        deviceID = try container.decode(String.self, forKey: .deviceID)
+        displayName = try container.decode(String.self, forKey: .displayName)
+        category = try container.decode(String.self, forKey: .category)
+        pointsPerMinute = try container.decode(Int.self, forKey: .pointsPerMinute)
+        isEnabled = try container.decode(Bool.self, forKey: .isEnabled)
+        blockingEnabled = try container.decode(Bool.self, forKey: .blockingEnabled)
+        tokenHash = try container.decodeIfPresent(String.self, forKey: .tokenHash)
+        lastModified = try container.decodeIfPresent(Date.self, forKey: .lastModified)
+        iconURL = try container.decodeIfPresent(String.self, forKey: .iconURL)
+        dailyLimitSummary = try container.decodeIfPresent(String.self, forKey: .dailyLimitSummary)
+        timeWindowSummary = try container.decodeIfPresent(String.self, forKey: .timeWindowSummary)
+        unlockModeRawValue = try container.decodeIfPresent(String.self, forKey: .unlockModeRawValue)
+        scheduleConfigJSON = try container.decodeIfPresent(String.self, forKey: .scheduleConfigJSON)
+        linkedAppsJSON = try container.decodeIfPresent(String.self, forKey: .linkedAppsJSON)
+        streakSettingsJSON = try container.decodeIfPresent(String.self, forKey: .streakSettingsJSON)
+        scheduleVersionsJSON = try container.decodeIfPresent(String.self, forKey: .scheduleVersionsJSON)
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case logicalID, deviceID, displayName, category, pointsPerMinute
+        case isEnabled, blockingEnabled, tokenHash, lastModified, iconURL
+        case dailyLimitSummary, timeWindowSummary, unlockModeRawValue
+        case scheduleConfigJSON, linkedAppsJSON, streakSettingsJSON
+        case scheduleVersionsJSON
+    }
 }
 
 struct CachedDailySnapshot: Codable {

@@ -10,6 +10,12 @@ struct ParentAppEditSheet: View {
 
     @State private var localConfig: MutableAppConfigDTO
     @State private var isFullDayAccess: Bool
+    @State private var showRatioDecreaseConfirm: Bool = false
+
+    /// Snapshot of the saved config at sheet open — used to detect ratio decreases
+    /// at save time. Captured up-front because `config` (the binding) may be mutated
+    /// optimistically by the parent view before the user hits Save.
+    private let originalConfigSnapshot: MutableAppConfigDTO?
 
     @Environment(\.colorScheme) var colorScheme
 
@@ -23,6 +29,7 @@ struct ParentAppEditSheet: View {
         self.childLearningApps = childLearningApps
         self.onSave = onSave
         self.onCancel = onCancel
+        self.originalConfigSnapshot = config.wrappedValue
 
         // Initialize local state from the config
         if let existingConfig = config.wrappedValue {
@@ -40,6 +47,34 @@ struct ParentAppEditSheet: View {
 
     private var hasChanges: Bool {
         localConfig.hasChanges
+    }
+
+    /// True when the proposed effective ratio differs from the snapshot taken at
+    /// sheet open. Only meaningful for learning apps. Phase 2: any change shows a
+    /// forward-looking notice — the bank is no longer retroactive.
+    private var proposedRatioChanged: Bool {
+        guard let original = originalConfigSnapshot,
+              let originalSchedule = original.scheduleConfig,
+              let proposedSchedule = localConfig.scheduleConfig else {
+            return false
+        }
+        return originalSchedule.ratioLearningMinutes != proposedSchedule.ratioLearningMinutes
+            || originalSchedule.rewardMinutesEarned != proposedSchedule.rewardMinutesEarned
+    }
+
+    /// Forward-looking notice for the parent. Mirrors child-side copy. The parent
+    /// can't read the kid's live `usage_<id>_today` counter, but can detect today's
+    /// learning from the synced `DailyUsageHistoryDTO` rows on `ParentRemoteViewModel`
+    /// — left to the parent's caller to plumb if needed. For now, default to the
+    /// safer "tomorrow" message because it matches the child's behavior when sync
+    /// is stale.
+    private var ratioChangeMessage: String {
+        guard let proposedSchedule = localConfig.scheduleConfig else {
+            return "Past days keep the rate they were earned at."
+        }
+        let l = max(1, proposedSchedule.ratioLearningMinutes)
+        let r = max(0, proposedSchedule.rewardMinutesEarned)
+        return "Starting tomorrow, \(l) minute\(l == 1 ? "" : "s") of learning will grant \(r) minute\(r == 1 ? "" : "s") of reward. Past days keep the rate they were earned at."
     }
 
     var body: some View {
@@ -170,7 +205,12 @@ struct ParentAppEditSheet: View {
 
                 ToolbarItem(placement: .navigationBarTrailing) {
                     Button("Save") {
-                        onSave(localConfig)
+                        // Phase 2: forward-looking notice on any ratio change.
+                        if localConfig.isLearningApp && proposedRatioChanged {
+                            showRatioDecreaseConfirm = true
+                        } else {
+                            onSave(localConfig)
+                        }
                     }
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(hasChanges ? (colorScheme == .dark ? AppTheme.lightCream : accentColor) : .gray)
@@ -178,6 +218,14 @@ struct ParentAppEditSheet: View {
                 }
             }
             .toolbarBackground(AppTheme.background(for: colorScheme), for: .navigationBar)
+            .alert("Apply new earning rate?", isPresented: $showRatioDecreaseConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Apply") {
+                    onSave(localConfig)
+                }
+            } message: {
+                Text(ratioChangeMessage)
+            }
         }
         .onAppear {
             // Sync localConfig from binding after view appears

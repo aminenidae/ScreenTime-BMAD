@@ -206,15 +206,28 @@ class AppUsageViewModel: ObservableObject {
     // MARK: - Cumulative Available Balance
 
     /// Cumulative available minutes = historical remaining + today's (earned - used)
-    /// This provides rollover of unused reward time from previous days
+    /// This provides rollover of unused reward time from previous days.
+    ///
+    /// Phase 2: each historical day is priced at the ratio that was active on that
+    /// day (via `AppScheduleService.versionActive(logicalID:on:)`). A parent's ratio
+    /// edit today no longer retroactively re-prices yesterday's earned minutes.
     var cumulativeAvailableMinutes: Int {
         let learningLogicalIDs = learningSnapshots.map { $0.logicalID }
         let rewardLogicalIDs = rewardSnapshots.map { $0.logicalID }
 
+        let scheduleService = AppScheduleService.shared
         let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningLogicalIDs,
             rewardIDs: rewardLogicalIDs,
-            learningRatios: buildLearningRatioMap()
+            ratioForDay: { logicalID, dayKey in
+                if let v = scheduleService.versionActive(logicalID: logicalID, on: dayKey) {
+                    return v.ratio
+                }
+                if let s = scheduleService.getSchedule(for: logicalID) {
+                    return Double(s.rewardMinutesEarned) / Double(max(1, s.ratioLearningMinutes))
+                }
+                return 1.0
+            }
         )
 
         let todayRemaining = totalEarnedMinutes - totalUsedMinutes
