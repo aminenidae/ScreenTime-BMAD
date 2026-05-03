@@ -2187,3 +2187,72 @@ Validation in the May 2 device test: pool decremented 72 → 71 → 70 → 69 mi
 - Branch: `fix/stale-catchup-lastthreshold-poisoning` (re-used from the Apr 30 work; this fix layered on top).
 - Symptom signature in field logs: every threshold event for a reward app that has `SHIELD_CHECK: ✅ REMOVED shield ... pool=Nmin (silent unshield)` shows `SKIP_SHIELDED_RACE` for the entire day with `usage_*_today=0s` despite real foreground use → pool-aware backstop missing.
 - Verification on a freshly-built device: pull `ext-log-YYYY-MM-DD.log` and grep for `SHIELDED_RACE_BYPASS`. Presence + matching `RECORDED` line = fix is loaded and active.
+
+### NO_MAPPING Recovery via Stable-Hash Reverse Lookup (May 3, 2026)
+
+#### Symptom
+
+In `ext-log-2026-05-02.log`, app `06909776` (Brain Coinz reward target) recorded only **88 minutes** despite ~4 h 8 min of real foreground use. Investigation showed three loss sources stacked; this entry covers the smallest but cleanest of them: **26 thresholds dropped between 17:24 and 17:49** with the line:
+
+```
+[17:24:20.700][5DEFABE8] NO_MAPPING event=usage.app.5126740347248006254.min.118
+[17:25:20.144][5DEFABE8] NO_MAPPING event=usage.app.5126740347248006254.min.119
+… continues through min.143
+```
+
+26 consecutive 1-minute thresholds (118 – 143) crossed iOS's cumulative window for this app. Each one fired the extension callback. Each one was discarded by `recordUsageEfficiently()` because the primitive lookup `map_usage.app.<hash>.min.<N>_id` returned `nil` and the JSON `eventMappings` fallback also missed.
+
+#### Root cause
+
+The sliding-window registration in `extensionRebuildSlidingWindow()` writes one `map_<eventName>_id` key per minute it registers (currently 60 minutes ahead of `current_min`). When iOS fires a threshold above the registered window — which happens whenever a window-rebuild fails silently, or whenever the post-recording rebuild trigger doesn't run — the new minute's primitive map key never got written, so the callback dropped.
+
+In the May 2 case the timeline was:
+
+1. **15:01:10** rebuild succeeded → window 57 – 116 registered, `window_top_min_06909776 = 116`, primitive map keys written for `min.57` through `min.116`.
+2. **17:20:21** `min.117` fired (above the registered window — likely from an earlier 14:15 rebuild attempt's startMonitoring call partially registering events 56 – 115 before the extension process was killed before logging `EXT_REBUILD_SUCCESS`). The post-recording window-top check at `setUsageToThreshold()` line 754 should have triggered another rebuild for `117 – 176`, but no `WINDOW_TOP_HIT` log emerged. Most likely the same process-termination pattern: the rebuild was invoked but the extension was killed before any log line landed.
+3. **17:24:20** onward iOS started flushing the deferred batch — `min.118` through `min.143` — into a fresh extension process (`5DEFABE8`). That process saw no `map_usage.app.<hash>.min.118_id` key and no entry in JSON `eventMappings`, so each event hit the `NO_MAPPING` early-out and returned `false`.
+
+A failed window-rebuild left the extension permanently unable to record any threshold above the last registered minute — even though all the data needed to recover (the stable-hash → logicalID inverse map) was sitting one UserDefaults read away.
+
+#### Solution
+
+Add a recovery layer to `recordUsageEfficiently()` that runs **only** when both primitive and JSON mappings miss. The event name format is fixed: `usage.app.<stable_hash>.min.<N>`. `scheduleActivity()` writes `app_stable_hash_<logicalID>` for every monitored app. So:
+
+1. Parse `<stable_hash>` from the event name (`usage` / `app` / `<hash>` / `min` / `<N>` — split on `.`, hash is index 2, validate the structure).
+2. Iterate `tracked_app_ids`, compare each app's `app_stable_hash_<logicalID>` against `<stable_hash>` — first match wins.
+3. **Backfill the missing primitive map keys** (`map_<eventName>_id`, `map_<eventName>_category`) so subsequent events from the same hash hit the fast path and don't pay the lookup cost.
+4. **Force a window rebuild** — if iOS is firing thresholds the extension has no map entry for, the registered window is by definition exhausted. Rebuilding now arms the next 60 minutes ahead of current usage.
+5. Continue into the normal recording path.
+
+New log marker: `MAPPING_RECOVERED event=<name> appID=<prefix>… — backfilled via stable-hash, forcing window rebuild`.
+
+#### Why this is safe
+
+- **Hot path untouched.** The existing primitive-lookup branch returns immediately on a hit; the recovery code only runs when both mappings already failed.
+- **No false positives.** Stable-hash collisions would require two logical IDs hashing to the same `UInt64`. The `validateAndReportStableHashCollisions()` audit in `ScreenTimeService` (line 2104+) explicitly checks for this on every config change. If a future collision ever shipped, the validator surfaces it before this lookup can mis-attribute an event.
+- **Filter chain intact.** Recovered events go through `setUsageToThreshold()` exactly like primitive-mapped events. `SKIP_REGRESSION`, `LASTTHRESH_HOLD`, the wall-clock cap, and per-event 60 s cap all apply. No bypass of the Apr 30 stale-catch-up defense.
+- **Window-rebuild is idempotent.** If a rebuild was already pending, calling it again from the recovery path overwrites the same `window_top_min_<id>` keys and re-registers via `startMonitoring`. Worst case: a redundant `EXT_REBUILD_SUCCESS`.
+
+#### Bounded recovery on already-affected devices
+
+Today's already-lost 26 thresholds for `06909776` are **forfeit** — same trade-off as the May 2 pool-aware backstop. iOS considers a threshold "delivered" once the extension callback fires, even if we returned `false`. The next `scheduleActivity()` re-registration only re-fires the most recent unsent threshold per app, and the Apr 30 per-event 60 s cap caps each catch-up to 1 minute of credit.
+
+Going-forward, however, every NO_MAPPING is a one-time event:
+- First occurrence: `MAPPING_RECOVERED` logs, primitive keys are backfilled, window rebuild is triggered.
+- Subsequent events from the same hash: hit the primitive-lookup fast path on the first read.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `recordUsageEfficiently()` recovery branch (line 340 region) + new helper `recoverLogicalIDFromEventName()` (placed adjacent to `readEventMappingFromJSON()`).
+- `docs/SMART_THRESHOLD_FILTERING.md` — this entry.
+
+#### Out of scope (deliberately deferred)
+
+- Diagnosing **why** the 17:20 window-rebuild trigger didn't fire (windowTopMin read returned 0? extension process killed before `WINDOW_TOP_HIT` could log? `defaults.set` for `window_top_min_<id>` lost across process boundaries?). Would require live device repro and instrumented logging. The recovery path makes the question moot for steady-state correctness — even if the rebuild trigger fails, the next received threshold self-heals.
+- The other two losses identified in the May 2 analysis (~55 min from the perEventCap squashing legitimate iOS catch-up bursts, ~105 min that iOS itself never reported as cumulative) — both require separate, riskier changes pending discussion.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning` (continuing the May 2 work).
+- Symptom signature in field logs: `NO_MAPPING event=usage.app.<hash>.min.<N>` for any logicalID that is in `tracked_app_ids` and has a matching `app_stable_hash_<logicalID>`. After the fix lands, the same condition emits `MAPPING_RECOVERED` once per (process, hash) pair, then nothing.
+- Verification: pull `ext-log-YYYY-MM-DD.log` and confirm any post-rebuild threshold above the last registered minute either records normally or emits `MAPPING_RECOVERED` followed by a `RECORDED` line — never `NO_MAPPING` for an app in `tracked_app_ids`.

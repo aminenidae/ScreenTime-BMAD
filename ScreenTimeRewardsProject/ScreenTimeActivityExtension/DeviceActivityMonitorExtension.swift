@@ -337,11 +337,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // 1. Read event mapping (primitives only)
         let mapIdKey = "map_\(eventName)_id"
-        guard let appID = defaults.string(forKey: mapIdKey) else {
-            // Try to read from JSON eventMappings as fallback
-            if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
-                return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
-            }
+        let appID: String
+        if let mapped = defaults.string(forKey: mapIdKey) {
+            appID = mapped
+        } else if let mapping = readEventMappingFromJSON(eventName: eventName, defaults: defaults) {
+            // JSON eventMappings fallback
+            return recordUsageWithMapping(mapping, eventName: eventName, defaults: defaults)
+        } else if let recovered = recoverLogicalIDFromEventName(eventName, defaults: defaults) {
+            // May 2 fix — stable-hash recovery for thresholds above the registered window.
+            // Symptom: log shows `NO_MAPPING event=usage.app.<hash>.min.<N>` for thresholds
+            // that fired after the sliding window was exhausted but before the window-rebuild
+            // wrote map keys for the next 60 minutes (or after the rebuild silently failed).
+            // 26 thresholds (118–143) lost between 17:24–17:49 in ext-log-2026-05-02.log.
+            // Defense: parse `<hash>` from the event name, look it up against
+            // `app_stable_hash_<logicalID>` for each tracked app, recover the logicalID,
+            // backfill the missing map keys so subsequent events from the same hash hit the
+            // primitive-key fast path, and force a window rebuild — by definition the window
+            // was exhausted if iOS is firing thresholds we don't have mappings for.
+            appID = recovered
+            let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+            defaults.set(appID, forKey: mapIdKey)
+            defaults.set(category, forKey: "map_\(eventName)_category")
+            debugLog("MAPPING_RECOVERED event=\(eventName) appID=\(appID.prefix(8))... — backfilled via stable-hash, forcing window rebuild", defaults: defaults)
+            extensionRebuildSlidingWindow(defaults: defaults)
+        } else {
             debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
             return false
         }
@@ -757,6 +776,31 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             extensionRebuildSlidingWindow(defaults: defaults)
         }
         return true
+    }
+
+    /// Recover the logical app ID for an event name when no `map_<eventName>_id`
+    /// primitive key exists. Event names follow `usage.app.<stable_hash>.min.<N>`;
+    /// `app_stable_hash_<logicalID>` is written by `scheduleActivity()` for every
+    /// monitored app, so a reverse lookup is sufficient.
+    private nonisolated func recoverLogicalIDFromEventName(_ eventName: String, defaults: UserDefaults) -> String? {
+        let parts = eventName.split(separator: ".")
+        // Expect "usage.app.<hash>.min.<N>" — hash is index 2
+        guard parts.count >= 5,
+              parts[0] == "usage",
+              parts[1] == "app",
+              parts[parts.count - 2] == "min" else {
+            return nil
+        }
+        let stableHashStr = String(parts[2])
+        guard let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") else {
+            return nil
+        }
+        for logicalID in trackedAppIDs {
+            if defaults.string(forKey: "app_stable_hash_\(logicalID)") == stableHashStr {
+                return logicalID
+            }
+        }
+        return nil
     }
 
     /// Fallback: Read mapping from JSON eventMappings (for compatibility)
