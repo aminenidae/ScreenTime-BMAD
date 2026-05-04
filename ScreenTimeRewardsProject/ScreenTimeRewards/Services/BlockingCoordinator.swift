@@ -977,8 +977,17 @@ class BlockingCoordinator: ObservableObject {
         let cumulativeAvailable: Int
     }
 
-    /// Check if cumulative available reward minutes is exhausted
-    /// Uses historical balance (with rollover) + today's earned minutes
+    /// Check if cumulative available reward minutes is exhausted.
+    /// Uses historical balance (with rollover) + today's earned − today's reward usage.
+    ///
+    /// SOURCE-OF-TRUTH INVARIANT: this formula MUST stay byte-equivalent to the extension's
+    /// `DeviceActivityMonitorExtension.computeEffectivePoolBalance()`. May 3 incident
+    /// (`ext-log-2026-05-03.log`): the extension correctly re-shielded all 14 reward apps at
+    /// 19:58:25 once today's reward usage drove the pool to 0, but this function omitted the
+    /// `todayUsed` term, computed `cumulativeAvailable > 0`, and `syncAllRewardApps` then
+    /// removed the shields again on its next pass — letting the kid launch three previously-
+    /// untouched reward apps (47BC75D2, B9BA329E, C21D0890) from 20:10 onward. Reproduced on
+    /// 4 devices. See `docs/SMART_THRESHOLD_FILTERING.md` "May 3 Pool-Divergence Fix".
     private func checkAvailableMinutes() -> AvailableMinutesCheckResult {
         guard let service = screenTimeService else {
             return AvailableMinutesCheckResult(hasNoTimeAvailable: false, cumulativeAvailable: 0)
@@ -1019,11 +1028,24 @@ class BlockingCoordinator: ObservableObject {
         // Add today's earned (from learning goal checks)
         let todayEarned = getTotalEarnedRewardMinutes(for: currentRewardTokens)
 
-        // Calculate cumulative available
-        let cumulativeAvailable = historicalRemaining + todayEarned
+        // Subtract today's reward app usage. Without this, a kid who exhausts the pool
+        // through reward usage stays unblocked because `cumulativeAvailable` reads as the
+        // full earned + historical, and `syncAllRewardApps` undoes the extension's
+        // `POOL_EMPTY_BLOCK`. Mirrors `computeEffectivePoolBalance()` in the extension.
+        var todayRewardUsedSeconds = 0
+        for logicalID in rewardIDs {
+            if let app = service.usagePersistence.app(for: logicalID) {
+                todayRewardUsedSeconds += app.todaySeconds
+            }
+        }
+        let todayRewardUsed = todayRewardUsedSeconds / 60
+
+        // Calculate cumulative available — floored at 0 so a slight over-spend reads as
+        // "exhausted" rather than negative (matches extension's `max(0, …)`).
+        let cumulativeAvailable = max(0, historicalRemaining + todayEarned - todayRewardUsed)
 
         #if DEBUG
-        print("[BlockingCoordinator] 💰 Available minutes check: historical=\(historicalRemaining), todayEarned=\(todayEarned), cumulative=\(cumulativeAvailable)")
+        print("[BlockingCoordinator] 💰 Available minutes check: historical=\(historicalRemaining), todayEarned=\(todayEarned), todayUsed=\(todayRewardUsed), cumulative=\(cumulativeAvailable)")
         #endif
 
         return AvailableMinutesCheckResult(

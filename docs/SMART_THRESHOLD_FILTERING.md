@@ -2256,3 +2256,71 @@ Going-forward, however, every NO_MAPPING is a one-time event:
 - Branch: `fix/stale-catchup-lastthreshold-poisoning` (continuing the May 2 work).
 - Symptom signature in field logs: `NO_MAPPING event=usage.app.<hash>.min.<N>` for any logicalID that is in `tracked_app_ids` and has a matching `app_stable_hash_<logicalID>`. After the fix lands, the same condition emits `MAPPING_RECOVERED` once per (process, hash) pair, then nothing.
 - Verification: pull `ext-log-YYYY-MM-DD.log` and confirm any post-rebuild threshold above the last registered minute either records normally or emits `MAPPING_RECOVERED` followed by a `RECORDED` line — never `NO_MAPPING` for an app in `tracked_app_ids`.
+
+### Pool-Divergence Re-shield Bypass (May 3, 2026)
+
+#### Symptom
+
+Reproduced on **4 devices** the same day. After today's reward usage drove the Time Bank pool to 0, the extension correctly emitted `POOL_EMPTY_BLOCK` for all 14 reward apps, but kids were still able to launch reward apps that had **zero usage today**. In `ext-log-2026-05-03.log`:
+
+```
+19:58:25  POOL_EMPTY_BLOCK: 06D0FBC2-439… pool=0min — re-applying shield
+19:58:25  POOL_EMPTY_BLOCK: C21D0890-BED… pool=0min — re-applying shield
+…  (14 reward apps total)
+…
+20:10:06  EVENT appID=47BC75D2… min=1 currentToday=0s lastThresh=0s   ← fresh launch
+20:10:06  SKIP_SHIELDED_RACE … pool=0min — blocking (race-window backstop)
+20:15:04  EVENT appID=B9BA329E… min=1 currentToday=0s lastThresh=0s   ← fresh launch
+20:19:04  EVENT appID=C21D0890… min=1 currentToday=0s lastThresh=0s   ← fresh launch
+```
+
+iOS fired `min.1` for three previously-untouched reward apps after the shield was supposedly applied. Each `currentToday=0s` confirms the apps were not in foreground at the time of `POOL_EMPTY_BLOCK` — they were launched *fresh* between 19:58 and 20:19, after the shield write. Something cleared the shield between extension callback and launch.
+
+#### Root cause
+
+`BlockingCoordinator.checkAvailableMinutes()` in the main app and `DeviceActivityMonitorExtension.computeEffectivePoolBalance()` in the extension are supposed to share the same pool formula (the CLAUDE.md note "Pool-aware shield invariant — change them together" exists for exactly this reason). They had silently diverged:
+
+| | extension `computeEffectivePoolBalance` | main-app `checkAvailableMinutes` (BUG) |
+|---|---|---|
+| Historical | `bank_historical_remaining_minutes` (App-Group key written by main app — already historical-earned − historical-used) | `getHistoricalRemainingMinutes` (yesterday and earlier — earned − used) |
+| Today earned | iterate `linkedLearningApps`, threshold-gated | `getTotalEarnedRewardMinutes(currentRewardTokens)` |
+| **Today reward used** | **subtract** `usage_<rewardID>_today` over all reward apps | **MISSING** — never subtracted |
+| Floor | `max(0, …)` | (no floor) |
+
+So the moment a kid spent today's earned reward minutes, the extension correctly read `pool ≤ 0` while the main app read `pool = historical + todayEarned > 0`. On the next pass through `BlockingCoordinator.syncAllRewardApps()` — triggered by periodic refresh, foreground entry, Darwin notification, or any other shield-eval path — `evaluateBlockingState` returned `shouldBlock=false` and `unblockRewardApps` removed the shields the extension had just re-applied.
+
+The extension's `SKIP_SHIELDED_RACE` filter still blocked the *recording* (correctly attributing those minutes to "shielded app should not earn pool"), but iOS had already let the app launch because the shield had been cleared by the main app between the extension's re-shield and the kid's tap.
+
+#### Fix
+
+`BlockingCoordinator.swift:checkAvailableMinutes()` — sum today's reward usage across `rewardIDs` from `usagePersistence.app(for:).todaySeconds`, divide by 60, subtract from `historicalRemaining + todayEarned`, floor at 0. Now byte-equivalent to the extension's formula:
+
+```swift
+let cumulativeAvailable = max(0, historicalRemaining + todayEarned - todayRewardUsed)
+```
+
+Both `computeEffectivePoolBalance()` and `checkAvailableMinutes()` now carry cross-references in their doc comments naming the other function by file path, so the next person editing one is forced past the invariant rather than silently re-introducing the divergence.
+
+#### Why no UI-side regression
+
+`AppUsageViewModel.cumulativeAvailableMinutes` (the home-screen "minutes available" indicator) already subtracted today's reward usage. The shield decision and the displayed available-minutes will now agree — they were contradicting each other before this fix, which is the user-visible side ("home shows 0 minutes available, but the reward app still launches").
+
+#### Bounded recovery
+
+Today's already-launched reward apps cannot be retroactively shielded — iOS shield only takes effect on next foreground transition. The fix prevents the *next* unshield-pass from clearing the extension's POOL_EMPTY_BLOCK. After this binary lands, every periodic refresh / app-foreground / sync path will compute the same pool the extension does, and the shield will hold.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift` — `checkAvailableMinutes()` adds today's reward-usage subtraction + `max(0, …)` floor + invariant doc comment.
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `computeEffectivePoolBalance()` doc comment now names the matching main-app function.
+- `docs/SMART_THRESHOLD_FILTERING.md` — this entry.
+
+#### Out of scope
+
+- The May 2 `WALL_CLOCK_CAP` / `perEventCap=60s` over-correction (~55 min daily under-count for heavy reward usage during catch-up bursts) — separate, riskier, requires its own discussion.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning`.
+- Symptom signature: extension log shows `POOL_EMPTY_BLOCK: …` for all reward apps followed by a fresh `EVENT appID=… min=1 currentToday=0s` for a previously-untouched reward app within minutes. Presence after this fix → file a regression.
+- Verification: pull `ext-log-YYYY-MM-DD.log` and confirm no fresh `min=1 currentToday=0s` events for reward apps occur after a `POOL_EMPTY_BLOCK` block in the same day. Companion main-app print: `[BlockingCoordinator] 💰 Available minutes check: … todayUsed=N, cumulative=0` once the pool is exhausted.

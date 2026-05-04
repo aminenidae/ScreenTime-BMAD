@@ -1539,8 +1539,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// the today-component is computed live by the extension.
     ///
     /// SOURCE-OF-TRUTH INVARIANT: if the main app's bank formula changes, this
-    /// helper MUST be updated in the same commit. See
-    /// `docs/SMART_THRESHOLD_FILTERING.md` "Apr 26–27, 2026 — Pooled Time Bank Shield Gate".
+    /// helper MUST be updated in the same commit. The matching main-app gate is
+    /// `BlockingCoordinator.checkAvailableMinutes()` — keep them byte-equivalent.
+    /// See `docs/SMART_THRESHOLD_FILTERING.md` "Apr 26–27, 2026 — Pooled Time Bank
+    /// Shield Gate" and "May 3, 2026 — Pool-Divergence Re-shield Bypass".
     private nonisolated func computeEffectivePoolBalance(
         configs: ExtensionShieldConfigsMinimal,
         defaults: UserDefaults
