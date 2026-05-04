@@ -47,6 +47,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     // Extension re-arm notification - sent when extension records usage and needs threshold re-armed
     private static let extensionUsageRecordedNotification = CFNotificationName("com.screentimerewards.usageRecorded" as CFString)
 
+    // Window-rebuild request — extension posts when a threshold approaches the top of the
+    // registered sliding window. The in-callback rebuild is unreliable (May 3 incident, see
+    // `requestMainAppWindowRebuild` in the extension); the main app handles it from a context
+    // with full memory headroom.
+    private static let windowRebuildNeededNotification = CFNotificationName("com.screentimerewards.windowRebuildNeeded" as CFString)
+
     // App Group identifier - must match extension
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
 
@@ -1086,7 +1092,8 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
          Self.intervalDidEndNotification,
          Self.intervalWillStartNotification,
          Self.intervalWillEndNotification,
-         Self.extensionUsageRecordedNotification].forEach { notification in
+         Self.extensionUsageRecordedNotification,
+         Self.windowRebuildNeededNotification].forEach { notification in
             CFNotificationCenterAddObserver(
                 center,
                 observer,
@@ -1151,8 +1158,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("[ScreenTimeService] 📡 Darwin notification received (#\(newReceivedSeq)) - triggering sync")
             handleExtensionUsageRecorded(defaults: sharedDefaults)
 
+            // Opportunistic drain: if the dedicated `windowRebuildNeeded` notification
+            // was missed (e.g., main app suspended at the moment it fired), this catches
+            // it on the next recording-driven wake.
+            if sharedDefaults.bool(forKey: "pending_window_rebuild") {
+                handleWindowRebuildRequest(defaults: sharedDefaults)
+            }
+
+        case Self.windowRebuildNeededNotification:
+            // Extension hit the top of the sliding window and is asking the main app to
+            // re-register fresh thresholds (see `requestMainAppWindowRebuild` in the extension).
+            // The in-callback rebuild can't be trusted — main-app `restartMonitoring()` runs
+            // in a process with full memory headroom and reliably calls `scheduleActivity()`.
+            handleWindowRebuildRequest(defaults: sharedDefaults)
+
         default:
             break
+        }
+    }
+
+    /// Handle the extension's `windowRebuildNeeded` Darwin notification.
+    /// Clears the pending flag and triggers a `restartMonitoring()` that ends in a
+    /// fresh `scheduleActivity()` call. Idempotent — double-fires are harmless.
+    private func handleWindowRebuildRequest(defaults: UserDefaults) {
+        let reason = defaults.string(forKey: "pending_window_rebuild_reason") ?? "unknown"
+        let requestedAt = defaults.double(forKey: "pending_window_rebuild_timestamp")
+        let age = requestedAt > 0 ? Int(Date().timeIntervalSince1970 - requestedAt) : -1
+        print("[ScreenTimeService] 🪟 Window-rebuild requested by extension (reason=\(reason), age=\(age)s) — calling restartMonitoring")
+
+        defaults.set(false, forKey: "pending_window_rebuild")
+        defaults.removeObject(forKey: "pending_window_rebuild_reason")
+        defaults.removeObject(forKey: "pending_window_rebuild_timestamp")
+
+        Task { [weak self] in
+            await self?.restartMonitoring(reason: "extension window-rebuild request: \(reason)")
         }
     }
 
@@ -2016,6 +2055,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
 
         lifecycleLog("MONITORING_RESTART — reason: \(reason)")
+
+        // Clear any pending window-rebuild flag — `scheduleActivity()` (called below
+        // via stopMonitoring/start) re-registers the full sliding window, satisfying
+        // the request regardless of which path triggered the restart.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           sharedDefaults.bool(forKey: "pending_window_rebuild") {
+            sharedDefaults.set(false, forKey: "pending_window_rebuild")
+            sharedDefaults.removeObject(forKey: "pending_window_rebuild_reason")
+            sharedDefaults.removeObject(forKey: "pending_window_rebuild_timestamp")
+            #if DEBUG
+            print("[ScreenTimeService] 🪟 Cleared pending_window_rebuild flag (drained by restart)")
+            #endif
+        }
 
         isInternalRestart = true
         stopMonitoring()

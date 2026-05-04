@@ -616,11 +616,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             trackAppID(appID, defaults: defaults)
             defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
 
-            // Check if this threshold reached the top of the registered window → rebuild
+            // Check if this threshold approached the top of the registered window → rebuild.
+            // Trigger 5 minutes early so the main app has time to re-register fresh
+            // thresholds before iOS exhausts the current window and goes silent.
             let thresholdMinNd = thresholdSeconds / 60
             let windowTopMinNd = defaults.integer(forKey: "window_top_min_\(appID)")
-            if windowTopMinNd > 0 && thresholdMinNd >= windowTopMinNd {
-                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMinNd) top=\(windowTopMinNd) → ext rebuild (NEW_DAY)", defaults: defaults)
+            if windowTopMinNd > 0 && thresholdMinNd >= windowTopMinNd - 5 {
+                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMinNd) top=\(windowTopMinNd) → request main-app rebuild + ext fast-path (NEW_DAY)", defaults: defaults)
+                requestMainAppWindowRebuild(reason: "window-top-newday-\(appID.prefix(8))", defaults: defaults)
                 extensionRebuildSlidingWindow(defaults: defaults)
             }
             return true
@@ -768,14 +771,48 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         trackAppID(appID, defaults: defaults)
         defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
 
-        // Check if this threshold reached the top of the registered window → rebuild
+        // Check if this threshold approached the top of the registered window → rebuild.
+        // Trigger 5 minutes early so the main app has time to re-register fresh
+        // thresholds before iOS exhausts the current window and goes silent.
         let thresholdMin = thresholdSeconds / 60
         let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
-        if windowTopMin > 0 && thresholdMin >= windowTopMin {
-            debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMin) top=\(windowTopMin) → ext rebuild", defaults: defaults)
+        if windowTopMin > 0 && thresholdMin >= windowTopMin - 5 {
+            debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(thresholdMin) top=\(windowTopMin) → request main-app rebuild + ext fast-path", defaults: defaults)
+            requestMainAppWindowRebuild(reason: "window-top-\(appID.prefix(8))", defaults: defaults)
             extensionRebuildSlidingWindow(defaults: defaults)
         }
         return true
+    }
+
+    /// Request the main app to rebuild the sliding window. Called when a threshold
+    /// approaches/exceeds the registered window top. May 3 incident
+    /// (`ext-log-2026-05-03.log` Imane + Iness): the in-callback rebuild is
+    /// structurally unreliable — it never produced an `EXT_REBUILD_SUCCESS` after
+    /// midnight on either device. iOS kills the extension process mid-rebuild
+    /// because registering 16 apps × 60 events exceeds the callback's memory/time
+    /// budget. Iness was rescued ~4 h later when her main-app BGTask
+    /// `usage-upload intraday refresh` ran `restartMonitoring()`; Imane's BGTask
+    /// never fired and recording stayed dead from `min.60` onward.
+    ///
+    /// Defense: write a `pending_window_rebuild` flag and post a Darwin notification.
+    /// If the main app is running, it handles the flag immediately and calls
+    /// `scheduleActivity()` (full memory headroom — succeeds reliably). If the main
+    /// app is not running, the flag persists until the next BGTask wake or app
+    /// foreground entry checks it. The in-callback `extensionRebuildSlidingWindow`
+    /// stays as the best-effort fast path; if it succeeds the main-app handler
+    /// observes a clean state and is a no-op.
+    private nonisolated func requestMainAppWindowRebuild(reason: String, defaults: UserDefaults) {
+        defaults.set(true, forKey: "pending_window_rebuild")
+        defaults.set(Date().timeIntervalSince1970, forKey: "pending_window_rebuild_timestamp")
+        defaults.set(reason, forKey: "pending_window_rebuild_reason")
+        debugLog("WINDOW_REBUILD_REQUESTED reason=\(reason) — flagged for main app + Darwin notification posted", defaults: defaults)
+        CFNotificationCenterPostNotification(
+            CFNotificationCenterGetDarwinNotifyCenter(),
+            CFNotificationName("com.screentimerewards.windowRebuildNeeded" as CFString),
+            nil,
+            nil,
+            true
+        )
     }
 
     /// Recover the logical app ID for an event name when no `map_<eventName>_id`

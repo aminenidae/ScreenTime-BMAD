@@ -1346,7 +1346,49 @@ class BlockingCoordinator: ObservableObject {
         print("[BlockingCoordinator] Refreshing \(currentRewardTokens.count) reward apps")
         #endif
 
+        detectAndHealConfigDrift()
+
         syncAllRewardApps(tokens: currentRewardTokens)
+    }
+
+    /// Detect when the extension's `tracked_app_ids` (the set actually registered with iOS
+    /// DeviceActivity) doesn't match the parent-configured reward apps in `currentRewardTokens`.
+    /// May 3 incident on Ali's and Sami's devices: Roblox showed up on the dashboard but its
+    /// stable hash was not registered with iOS, so iOS never fired threshold callbacks for it
+    /// and the recording read 0 (Ali) or got mislabeled with another app's data (Sami).
+    ///
+    /// Self-heal: when a reward token's logical ID is missing from `tracked_app_ids`, trigger
+    /// `restartMonitoring()`. `scheduleActivity()` reads the live reward-app set and registers
+    /// the full sliding window — closing the drift in one pass.
+    private func detectAndHealConfigDrift() {
+        guard let service = screenTimeService,
+              let defaults = UserDefaults(suiteName: appGroupID) else { return }
+        let trackedAppIDs = Set(defaults.stringArray(forKey: "tracked_app_ids") ?? [])
+        var missing: [String] = []
+        for token in currentRewardTokens {
+            guard let logicalID = service.getLogicalID(for: token) else { continue }
+            if !trackedAppIDs.contains(logicalID) {
+                missing.append(String(logicalID.prefix(12)))
+            }
+        }
+        guard !missing.isEmpty else { return }
+
+        let throttleKey = "config_drift_last_heal_timestamp"
+        let lastHeal = defaults.double(forKey: throttleKey)
+        let now = Date().timeIntervalSince1970
+        if now - lastHeal < 60 {
+            #if DEBUG
+            print("[BlockingCoordinator] ⚠️ CONFIG_DRIFT detected (missing: \(missing)) — heal throttled, last ran \(Int(now - lastHeal))s ago")
+            #endif
+            return
+        }
+        defaults.set(now, forKey: throttleKey)
+
+        print("[BlockingCoordinator] ⚠️ CONFIG_DRIFT — \(missing.count) reward apps missing from tracked_app_ids: \(missing) — calling restartMonitoring")
+
+        Task { [weak self] in
+            await self?.screenTimeService?.restartMonitoring(reason: "config-drift-self-heal")
+        }
     }
 
     /// Update tracked reward tokens (call when app selection changes)

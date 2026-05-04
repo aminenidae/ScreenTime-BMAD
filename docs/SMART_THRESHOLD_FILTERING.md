@@ -2324,3 +2324,80 @@ Today's already-launched reward apps cannot be retroactively shielded — iOS sh
 - Branch: `fix/stale-catchup-lastthreshold-poisoning`.
 - Symptom signature: extension log shows `POOL_EMPTY_BLOCK: …` for all reward apps followed by a fresh `EVENT appID=… min=1 currentToday=0s` for a previously-untouched reward app within minutes. Presence after this fix → file a regression.
 - Verification: pull `ext-log-YYYY-MM-DD.log` and confirm no fresh `min=1 currentToday=0s` events for reward apps occur after a `POOL_EMPTY_BLOCK` block in the same day. Companion main-app print: `[BlockingCoordinator] 💰 Available minutes check: … todayUsed=N, cumulative=0` once the pool is exhausted.
+
+### Window-Rebuild Deferral + Config-Drift Self-Heal (May 3, 2026 — late)
+
+#### Symptoms (4 devices)
+
+Cross-device test on May 3 revealed two distinct, severe under-recording bugs:
+
+| Device | iOS Screen Time (real Roblox use) | Brain Coinz recorded | Bug class |
+|---|---|---|---|
+| Imane | 4 h 11 min | 56 min | recording loss past `min.60` |
+| Iness | 4 h 8 min | 58 min | recording loss past `min.60` |
+| Ali | 5 h 53 min | 0 min | Roblox not in extension's monitored set |
+| Sami | 5 h 19 min | 7 min (mislabeled) | wrong token bound to "Roblox" displayName slot |
+
+This entry covers the first two bugs (recording loss + missing-from-monitored-set). The third — wrong token in slot — is held pending dedicated investigation; manual fix for affected users is to remove and re-add Roblox via the parent app's reward-app picker.
+
+#### Bug A — Recording loss past `min.60`
+
+**Root cause.** `extensionRebuildSlidingWindow` runs synchronously inside a DeviceActivity callback. When the firing threshold approaches the top of the registered sliding window, the rebuild has to register `16 apps × 60 events = 960` `DeviceActivityEvent`s in one `startMonitoring()` call. iOS gives the extension a ~6 MB / ~30 s budget per callback, and the rebuild routinely exceeds it — the OS terminates the process mid-call. No `EXT_REBUILD_SUCCESS`, no `EXT_REBUILD_FAILED`, just silence.
+
+May 3 evidence on Imane and Iness:
+- Window 1–60 registered cleanly at midnight (`MIDNIGHT_EXT_REBUILD_OK`).
+- Recording walks `min.1` → `min.60` over the day's reward sessions.
+- Imane: `WINDOW_TOP_HIT` fires at 16:25:34, three `EXT_REBUILD_APP` lines log over 18 ms, then process killed. No success log. Window stays 1–60. iOS has no `min.61+` registered, so it never fires another threshold for that app. Recording dies for 3+ hours of subsequent use.
+- Iness: `WINDOW_TOP_HIT` doesn't even log on her log — same termination, just earlier. Same 3+ hour silence until 20:45 when her main-app BGTask `usage-upload intraday refresh` happened to fire and call `restartMonitoring()`, which reliably re-registered fresh thresholds from the main app's process (full memory headroom). iOS then flushed its 4-hour deferred batch — but by then the kid had stopped using the app and the catch-ups landed against an already-shielded app, getting correctly rejected by `SKIP_SHIELDED`.
+
+The pattern: in-callback rebuild is structurally unreliable. Main-app `restartMonitoring()` is reliable. Bridge them.
+
+**Fix.**
+
+1. Extension — when a threshold fires within 5 minutes of the registered window top (`thresholdMin >= windowTopMin - 5`), set the App-Group flag `pending_window_rebuild=true` (with timestamp + reason), then post a Darwin notification on `com.screentimerewards.windowRebuildNeeded`. Then attempt the in-callback rebuild as a best-effort fast path.
+2. Main app — `ScreenTimeService` subscribes to the new Darwin notification. On receive, `handleWindowRebuildRequest` clears the flag and calls `restartMonitoring(reason: "extension window-rebuild request: …")`, which ends in a fresh `scheduleActivity()`.
+3. Opportunistic drain — every existing `extensionUsageRecorded` Darwin notification handler also checks the pending flag and triggers `handleWindowRebuildRequest` if set. So even if the dedicated notification was missed (main app suspended at the moment), the next recording wakes the main app and drains the request.
+4. BGTask drain — the existing `restartMonitoring()` now clears the pending flag at entry. Any path that ends in `restartMonitoring()` (BGAppRefreshTask, scenePhase, manual restart) satisfies the request.
+5. The trigger lowered from `>= top` to `>= top - 5`. Buys the main app 5 minutes of head-start before iOS exhausts the registered window.
+
+**Latency tradeoff.** Best case: Darwin notification + main app foreground → re-register in <1 s. Mid case: main app suspended but resumable → notification queues, delivers on next wake; typically seconds-to-minutes. Worst case: main app fully terminated and no BGTask wake — request stays in flag form until something wakes the main app (foreground, BGTask, etc.). Same as today's worst case but with a far better mid case.
+
+**Why we keep the in-callback `extensionRebuildSlidingWindow` call.** When it survives the budget — usually when the kid is idle and the callback has spare headroom — it's the fastest path. If it succeeds, the main-app handler observes a clean state and is a no-op (idempotent). If it dies, the flag survives.
+
+#### Bug B — Roblox not in extension's monitored set (Ali + Sami)
+
+**Root cause hypothesis.** The parent's reward-app list (read by the dashboard) and the extension's `tracked_app_ids` (set by `scheduleActivity()` when monitoring started) have drifted. Either an app was added to the dashboard after the last `scheduleActivity()` call, or sync from parent → child completed via CloudKit but didn't trigger a re-register on the child device. On Ali's device the dashboard shows Roblox but iOS has zero registered events for Roblox's stable hash. On Sami's device the symptom mutates into Bug C (a third app's token bound to the "Roblox" slot's displayName), held for separate investigation.
+
+**Fix.** `BlockingCoordinator.refreshAllBlockingStates()` now calls `detectAndHealConfigDrift()` before delegating to `syncAllRewardApps`. Drift detection:
+
+- Read `tracked_app_ids` from the App-Group UserDefaults (the source of truth for "what the extension is monitoring").
+- Map every `currentRewardTokens` entry to its logical ID via `screenTimeService.getLogicalID(for:)`.
+- Any reward logical ID missing from `tracked_app_ids` is a drift signal.
+
+When drift is detected:
+- Log `CONFIG_DRIFT — N reward apps missing from tracked_app_ids: [shortIDs]`.
+- Throttle to ≤1 heal call per 60 s (avoid hammering `restartMonitoring` if the drift is persistent).
+- Call `restartMonitoring(reason: "config-drift-self-heal")`. `scheduleActivity()` reads the live reward-app set and re-registers the full window — closing the drift in one pass.
+
+`refreshAllBlockingStates()` already runs frequently (after every recording sync, every periodic refresh, every blocking-state evaluation), so detection is dense and recovery time is minimal once the main app is alive.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — new `requestMainAppWindowRebuild()` helper, both `WINDOW_TOP_HIT` call sites updated to fire 5 minutes early and request main-app rebuild before the in-callback fast path.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` — new `windowRebuildNeededNotification`, observer registration, `handleWindowRebuildRequest()` handler, opportunistic flag drain in `extensionUsageRecordedNotification` case, flag clearing at top of `restartMonitoring()`.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift` — new `detectAndHealConfigDrift()` called from `refreshAllBlockingStates()`.
+- `docs/SMART_THRESHOLD_FILTERING.md` — this entry.
+
+#### Out of scope
+
+- Bug C (wrong token bound to a displayName slot — Sami's device). Affects token-persistence vs displayName-persistence sync; risky to patch without understanding why they diverged. Manual recovery path documented above.
+- Per-app rebuild instead of all-apps rebuild — would reduce per-callback work but `startMonitoring()` replaces the full event set per activity name, so still need the full registration. Not pursued.
+- Pre-emptively registering a wider window (e.g., 1–180 at midnight) — would push out the rebuild boundary but risks exceeding iOS's per-event-name registration limits. Needs separate testing.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning`.
+- Symptom signatures after this fix:
+  - Bug A regressed → look for `WINDOW_TOP_HIT` events without a corresponding `[ScreenTimeService] 🪟 Window-rebuild requested` print in the main-app log within seconds, or recording stalling at exactly `newToday=3600s` for >10 minutes despite continued use of the same app.
+  - Bug B regressed → look for any `usage.app.<hash>` event whose hash isn't in the extension's `EXT_REBUILD_APP` set at midnight (the monitored set), or for the new `CONFIG_DRIFT` print in the main-app log persisting beyond a single `restartMonitoring` cycle.
+- Verification on a known-good day: `ext-log-YYYY-MM-DD.log` should contain a `WINDOW_REBUILD_REQUESTED` line and a corresponding main-app `Window-rebuild requested` log within ~minutes of any heavy reward use. After the rebuild completes, recording should advance past `newToday=3600s` (1 hour) into `3660s+` cleanly.
