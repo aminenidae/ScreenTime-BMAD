@@ -2401,3 +2401,74 @@ When drift is detected:
   - Bug A regressed → look for `WINDOW_TOP_HIT` events without a corresponding `[ScreenTimeService] 🪟 Window-rebuild requested` print in the main-app log within seconds, or recording stalling at exactly `newToday=3600s` for >10 minutes despite continued use of the same app.
   - Bug B regressed → look for any `usage.app.<hash>` event whose hash isn't in the extension's `EXT_REBUILD_APP` set at midnight (the monitored set), or for the new `CONFIG_DRIFT` print in the main-app log persisting beyond a single `restartMonitoring` cycle.
 - Verification on a known-good day: `ext-log-YYYY-MM-DD.log` should contain a `WINDOW_REBUILD_REQUESTED` line and a corresponding main-app `Window-rebuild requested` log within ~minutes of any heavy reward use. After the rebuild completes, recording should advance past `newToday=3600s` (1 hour) into `3660s+` cleanly.
+
+### Window-Rebuild Debounce + Discovered perEventCap Squashing (May 4, 2026 — Amine's device test)
+
+#### Symptoms
+
+Amine's device tested the May 3 window-rebuild deferral fix with heavy reward-app use (139 min real on app `C6DA269B`). Result: **78.5 min recorded** — a major improvement over the May 3 hard ceiling of 60 min, but still **60 min short of ground truth**.
+
+iOS itself reached cumulative `min=138` for the app — within 1 minute of the user-reported 139 min total. So iOS's threshold-firing layer was healthy and the May 3 fix worked: thresholds past `min.60` were registered and delivered.
+
+The remaining 60-min gap surfaced two new issues, one shipped today, one pending decision.
+
+#### Issue Y — shipped (rebuild-restart thrashing)
+
+**Symptom.** When iOS dumps a deferred catch-up batch, multiple thresholds for the same app fire in seconds (`min=129, 131, 130, 134, …` at 22:02 in Amine's log). Each one fired `WINDOW_TOP_HIT` in the extension, set the pending flag, posted the Darwin notification. The main-app handler stacked **10 `restartMonitoring` calls in 70 s**, each doing a full `stopMonitoring + scheduleActivity` re-register cycle. Wasteful, and risks one of those concurrent restarts colliding with iOS's in-flight catch-up flush.
+
+**Fix.** `handleWindowRebuildRequest` now debounces to ≤1 scheduled restart per 5 s. Implementation: instance-var `lastWindowRebuildScheduledAt: Date?` + class constant `windowRebuildDebounceInterval: TimeInterval = 5.0`. On entry, if `now − last < 5 s`, log "request coalesced" and return without scheduling another restart. The pending flag stays set so a subsequent non-debounced request (or any BGTask drain) still picks it up.
+
+**Risk.** Very low — pure throttle, no semantic change. Worst case: a real rebuild request in the 5-s window after a previous one is dropped, but the next event past the debounce window will re-trigger.
+
+**Files touched.**
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` — `handleWindowRebuildRequest()` adds the debounce + new instance var.
+
+**Symptom signature for verification.** `ext-log-YYYY-MM-DD.log` should show `WINDOW_REBUILD_REQUESTED` lines clustering in bursts during catch-up storms, but the main-app log should show `Window-rebuild requested by extension` separated by ≥5 s, with `Window-rebuild request coalesced` lines for the suppressed in-between requests.
+
+#### Issue X — pending (perEventCap squashing legitimate iOS catch-up bursts)
+
+**Symptom.** When iOS finally delivers a deferred batch of thresholds in a sub-second burst, every event after the first credits zero seconds because `wallClockElapsed = 0` (the previous event was ms ago). The first event of the burst credits at most `perEventCap = 60 s` — even though iOS reports a `rawDelta` of 1740 s, 7560 s, etc. Net: a batch covering 60 minutes of iOS-tracked cumulative growth credits 1 second total.
+
+Example from Amine's 22:06:08–22:06:17 burst:
+```
+22:06:08  oldToday=4710s  +0  thresh=7560s
+22:06:08  oldToday=4710s  +0  thresh=8040s
+22:06:09  oldToday=4710s  +0  thresh=6540s
+…  ~30 events, all +0  …
+22:06:15  oldToday=4710s  +1  thresh=6420s
+```
+
+iOS legitimately accumulated minutes 79 → 138 across the day. The kid stopped using the app, and on next wake iOS dumped 30+ thresholds in 9 s. The wall-clock cap kills 29 of them and `perEventCap = 60` kills the only event that could have crediting more than 60 s.
+
+**Why the cap exists.** Apr 23, 2026 incident — four first-events of an iOS catch-up storm credited +3420 / +2280 / +540 / +420 s = 111 min of phantom over-credit. The 60-s per-event cap was added as a defense-in-depth bound on top of the wall-clock cap.
+
+**Why the cap is now over-correcting.** The Apr 23 over-credit was possible because at the time `lastEventTime` was a global "last_recorded_timestamp" not a per-app `ext_usage_<id>_timestamp`. With the per-app baseline that exists today, `wallClockElapsed` is correctly bounded to the time gap *for that specific app* — making the 60-s hard cap redundantly conservative.
+
+**Proposed fix.** Replace the hard `perEventCap = 60` with `perEventCap = wallClockElapsed`, OR equivalently remove the per-event cap entirely (since `delta = min(rawDelta, wallClockElapsed, perEventCap)` and `wallClockElapsed` is already the binding term in the burst case). The first event of a burst would then credit up to `min(rawDelta, wallClockElapsed)` — i.e., the time iOS reports, bounded by the actual wall-clock gap since the previous event. Subsequent in-burst events still credit 0 via `wallClockElapsed = 0`.
+
+**Risk.** Medium. Reintroduces some of the Apr 23 over-credit surface, but with a tighter per-app baseline. Needs to be tested against the Apr 23 incident scenario before shipping (concretely: simulate a unlock-storm catch-up where four events arrive in quick succession with `rawDelta` values like 3420 s — verify our `wallClockElapsed` for the first event correctly matches the legitimate elapsed unlock window, not 3420 s).
+
+**Status.** Held for explicit user sign-off after Apr 23 scenario verification.
+
+#### Status snapshot — what's shipped vs pending after May 4
+
+| | Bug class | Devices affected | Status | Commit |
+|---|---|---|---|---|
+| Bug A | Recording loss past `min.60` (in-callback rebuild dies) | Imane, Iness | ✅ shipped May 3 | `cb6f68d` |
+| Bug B | Reward app missing from extension's monitored set (config drift) | Ali | ✅ shipped May 3 | `cb6f68d` |
+| Bug C | Wrong token bound to displayName slot (token-vs-name desync) | Sami | ⏸ pending investigation; manual recovery via remove + re-add | — |
+| Bug X | `perEventCap = 60 s` squashes legitimate catch-up bursts | All heavy users | ⏸ pending decision; design + Apr 23 scenario test required | — |
+| Bug Y | Window-rebuild restart thrashing on catch-up storms | All heavy users | ✅ shipped May 4 | `e7d487e` |
+
+Earlier related fixes (still active in this branch):
+- May 2 — Pool-aware `SHIELDED_RACE_BYPASS` (Time Bank carry-forward shield gate).
+- May 2 — Pool-divergence re-shield bypass (`BlockingCoordinator.checkAvailableMinutes` adds `todayUsed` subtraction).
+- May 2 — `NO_MAPPING` recovery via stable-hash reverse lookup.
+
+#### Memory / pointer
+
+- Branch: `fix/stale-catchup-lastthreshold-poisoning` — accumulating multi-day defenses; rebase + squash before merge to `main`.
+- Active diagnostic markers introduced today:
+  - Extension: `WINDOW_REBUILD_REQUESTED`, `MAPPING_RECOVERED`.
+  - Main app: `🪟 Window-rebuild requested by extension`, `🪟 Window-rebuild request coalesced`, `🪟 Cleared pending_window_rebuild flag (drained by restart)`, `⚠️ CONFIG_DRIFT — N reward apps missing from tracked_app_ids`, `💰 Available minutes check: … todayUsed=N, cumulative=…`.
+- Verification target for the next test day: any heavy reward app should record within ~5 minutes of iOS's cumulative high-water mark — gap > 10 min file as a regression. Catch-up bursts of >30 events in <10 s should not lose more than a single 60-s minute (after Bug X is shipped, expected gap is ≤1 minute).
