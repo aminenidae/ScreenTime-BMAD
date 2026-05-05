@@ -1177,14 +1177,36 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
     }
 
+    /// Tracks the wall-clock time of the most recent window-rebuild restart we scheduled.
+    /// Used by `handleWindowRebuildRequest` to debounce rapid-fire requests during iOS
+    /// catch-up storms. May 4 incident (`ext-log-2026-05-04.log`): a 22:02 catch-up burst
+    /// fired six `WINDOW_TOP_HIT` events in 70 s and the main app stacked ten
+    /// `restartMonitoring` calls — wasteful and risks colliding with iOS's catch-up flush.
+    private var lastWindowRebuildScheduledAt: Date?
+    private static let windowRebuildDebounceInterval: TimeInterval = 5.0
+
     /// Handle the extension's `windowRebuildNeeded` Darwin notification.
     /// Clears the pending flag and triggers a `restartMonitoring()` that ends in a
-    /// fresh `scheduleActivity()` call. Idempotent — double-fires are harmless.
+    /// fresh `scheduleActivity()` call. Debounced to ≤1 restart per 5 s — coalesces
+    /// rapid-fire requests during catch-up storms into a single rebuild that re-registers
+    /// the full window for everyone.
     private func handleWindowRebuildRequest(defaults: UserDefaults) {
         let reason = defaults.string(forKey: "pending_window_rebuild_reason") ?? "unknown"
         let requestedAt = defaults.double(forKey: "pending_window_rebuild_timestamp")
         let age = requestedAt > 0 ? Int(Date().timeIntervalSince1970 - requestedAt) : -1
+
+        let now = Date()
+        if let last = lastWindowRebuildScheduledAt,
+           now.timeIntervalSince(last) < Self.windowRebuildDebounceInterval {
+            print("[ScreenTimeService] 🪟 Window-rebuild request coalesced (reason=\(reason), age=\(age)s, last scheduled \(Int(now.timeIntervalSince(last)))s ago — within \(Int(Self.windowRebuildDebounceInterval))s debounce)")
+            // Leave the pending flag set — the in-flight restart will clear it on entry,
+            // and if any state changed since the last scheduled call, the next non-debounced
+            // request (or the existing BGTask drain path) will pick it up.
+            return
+        }
+
         print("[ScreenTimeService] 🪟 Window-rebuild requested by extension (reason=\(reason), age=\(age)s) — calling restartMonitoring")
+        lastWindowRebuildScheduledAt = now
 
         defaults.set(false, forKey: "pending_window_rebuild")
         defaults.removeObject(forKey: "pending_window_rebuild_reason")
