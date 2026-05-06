@@ -1006,8 +1006,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
             let category = defaults.string(forKey: "map_\(logicalID)_category") ?? "Learning"
 
-            // Build 60 new thresholds above current usage
-            for minuteNumber in (currentMin + 1)...(currentMin + 60) {
+            // Right-sized window per app. Main-app `scheduleActivity()` writes
+            // `window_size_<id>` (Learning = 60, Reward = today's daily limit
+            // capped at 240 if unlimited). Default to 60 if missing — backward
+            // compatible with older builds that didn't write the key.
+            let storedWindowSize = defaults.integer(forKey: "window_size_\(logicalID)")
+            let appWindow = storedWindowSize > 0 ? max(60, storedWindowSize) : 60
+            for minuteNumber in (currentMin + 1)...(currentMin + appWindow) {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableHashStr).min.\(minuteNumber)")
                 let event: DeviceActivityEvent
                 if #available(iOS 17.4, *) {
@@ -1029,9 +1034,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(category, forKey: "map_\(eventName.rawValue)_category")
             }
 
-            newWindowTops[logicalID] = currentMin + 60
-            debugLog("EXT_REBUILD_APP appID=\(logicalID.prefix(8))... current=\(currentMin)min → new window \(currentMin + 1)-\(currentMin + 60)", defaults: defaults)
-            Self.logger.notice("EXT_REBUILD_APP app=\(logicalID.prefix(8))... current=\(currentMin)min window=\(currentMin + 1)-\(currentMin + 60)")
+            newWindowTops[logicalID] = currentMin + appWindow
+            debugLog("EXT_REBUILD_APP appID=\(logicalID.prefix(8))... current=\(currentMin)min → new window \(currentMin + 1)-\(currentMin + appWindow) (\(appWindow) thresholds)", defaults: defaults)
+            Self.logger.notice("EXT_REBUILD_APP app=\(logicalID.prefix(8))... current=\(currentMin)min window=\(currentMin + 1)-\(currentMin + appWindow)")
         }
 
         guard !events.isEmpty else {

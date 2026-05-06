@@ -2472,3 +2472,47 @@ Earlier related fixes (still active in this branch):
   - Extension: `WINDOW_REBUILD_REQUESTED`, `MAPPING_RECOVERED`.
   - Main app: `🪟 Window-rebuild requested by extension`, `🪟 Window-rebuild request coalesced`, `🪟 Cleared pending_window_rebuild flag (drained by restart)`, `⚠️ CONFIG_DRIFT — N reward apps missing from tracked_app_ids`, `💰 Available minutes check: … todayUsed=N, cumulative=…`.
 - Verification target for the next test day: any heavy reward app should record within ~5 minutes of iOS's cumulative high-water mark — gap > 10 min file as a regression. Catch-up bursts of >30 events in <10 s should not lose more than a single 60-s minute (after Bug X is shipped, expected gap is ≤1 minute).
+
+### May 6, 2026 — Per-App Right-Sized Sliding Window (window-exhaustion mitigation)
+
+**Status:** SHIPPED on branch `redesign/highwater-mark-credit-model`. Pure registration-budget change — recording algorithm, wall-clock cap, perEventCap, lastThreshold are all untouched.
+
+**Why this exists.** Sliding window was a fixed 60 thresholds per app (registration covered the next 60 minutes of usage). Heavy reward-app users routinely passed 60 min/day, hitting the window top. Above the top iOS has no thresholds to fire — recording silently dies until something triggers a rebuild (main-app foreground, BGTask, autonomous iOS INTERVAL_END/START, charge plug-in). The May 3 Darwin-notification bridge (`cb6f68d`) and May 4 debounce (`e7d487e`) made the rebuild request reliable when the main app is reachable, but on a kid's device where the parent rarely opens the app the rebuild request can stay pending for hours.
+
+May 5 device test (`ext-log-2026-05-05.log`) hit this exactly: YouTube reached `min.153` at 17:17, window exhausted, main app closed all day → 3h 22m of zero events until iOS autonomously restarted the activity at 20:39.
+
+**Insight from user (2026-05-06).** The daily-limit shield is a hard cap independent of Time Bank pool. Past `dailyLimits.todayLimit` the app is shielded → iOS doesn't fire events for shielded apps anyway → registering thresholds beyond `todayLimit` is wasted budget. **Right-size each app's window to its actual usage envelope.**
+
+**Implementation.**
+
+| App category | Window size |
+|---|---|
+| Learning | 60 thresholds (unchanged — kids rarely learn past 60 min/day, parents rarely set higher goals) |
+| Reward (with explicit `dailyLimits.todayLimit`) | `max(60, todayLimit)` thresholds |
+| Reward (unlimited / 1440 sentinel / no schedule) | 240 thresholds (default) |
+
+**Files touched.**
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - New helper `windowSize(for: logicalID:, category:)` (~25 lines).
+  - `scheduleActivity()` computes per-app window, uses it for: threshold registration range (line ~2431), `window_top_min_<id>` write (line ~2477), `SLIDING_WINDOW` log message (line ~2541).
+  - **New App Group key written:** `window_size_<id>` (Int) — single source of truth so the extension's self-rebuild path reads the same value.
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `extensionRebuildSlidingWindow()` reads `window_size_<id>` from App Group, defaults to 60 if missing (backward-compat).
+  - `EXT_REBUILD_APP` log message includes the chosen window size.
+
+**iOS event-budget note.** The "~500 events maximum" ceiling cited in some Apple-forum threads has been tested previously on this codebase and shown to be inaccurate (no enforced cap observed). Right-sizing reward apps to 240 thresholds each ×8 reward apps would cost 1,920 events for reward + 240 for learning = 2,160 events total. No budget guard is implemented; rely on observed iOS tolerance.
+
+**Time Bank carry-forward edge case (verified safe).** If a kid has Time Bank pool credit and the daily limit is 60 min, the daily-limit shield still enforces the 60-min cap independently. The kid cannot use the app past `todayLimit` regardless of pool — so registering only 60 thresholds for that app is correct.
+
+**`window_top_min_<id>` semantics unchanged.** The extension's `WINDOW_TOP_HIT` trigger still fires at `windowTopMin - 5` (5 min early) regardless of the window size. A 240-min reward app fires the rebuild request at `min.235`; a 60-min learning app fires at `min.55`. Same trigger logic, dynamically-sized boundary.
+
+**Pre-existing `_today` recording behavior.** Wall-clock cap, perEventCap, LASTTHRESH_HOLD, SKIP_REGRESSION, and all filter-chain defenses are unchanged. Bug X under-credit and Bug Z phantom-60s remain documented (open). This change only reduces *how often* iOS goes silent on heavy use; it does not change *what is credited* per event.
+
+**Validation target.** A heavy reward-app user (≥120 min on YouTube/Roblox/etc.) should not see recording stall at exactly the registered window top during a session where the parent has not opened Brain Coinz. Pre-fix: stalls at `newToday=3600s` (60 min). Post-fix: continues to whatever `dailyLimits.todayLimit` is, then stops because the daily-limit shield kicks in.
+
+#### Memory / pointer
+
+- Branch: `redesign/highwater-mark-credit-model`.
+- Symptom signature for regression: a single reward app with `dailyLimits.todayLimit` ≥ 120 records `newToday` stalling at exactly 3600s (60 min) for hours during continuous use → window-size write didn't reach the registration path (check `window_size_<id>` in App Group).
+- Symptom signature for the fix working: `SLIDING_WINDOW <id>... range=1-N (N thresholds)` in the lifecycle log shows N matching the configured daily limit (or 240 for unlimited reward apps, 60 for learning).

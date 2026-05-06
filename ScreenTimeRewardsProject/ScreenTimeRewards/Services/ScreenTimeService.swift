@@ -2363,6 +2363,34 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         #endif
     }
 
+    /// Per-app sliding-window size in minutes. Learning apps stay at 60 (rare
+    /// for a kid to learn past 60 min/day). Reward apps right-size the window
+    /// to today's `dailyLimits.todayLimit` — past the daily limit the app gets
+    /// shielded so iOS won't fire events anyway, making registrations beyond
+    /// the limit wasted budget. The daily-limit shield is independent of Time
+    /// Bank pool, so this is a hard ceiling. Apps without an explicit schedule,
+    /// or with the "unlimited" sentinel (1440 min), default to 240.
+    ///
+    /// Mirrors `DeviceActivityMonitorExtension.windowSize(for:)` — the extension
+    /// reads `window_size_<id>` written below to make the same decision when
+    /// it self-rebuilds. Both sides MUST stay aligned.
+    private func windowSize(for logicalID: String, category: AppUsage.AppCategory) -> Int {
+        let learningWindow = 60
+        let rewardDefaultWindow = 240
+        let unlimitedSentinel = 1440 // matches DailyLimits.unlimited
+        switch category {
+        case .reward:
+            guard let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
+                return rewardDefaultWindow
+            }
+            let todayLimit = schedule.dailyLimits.todayLimit
+            if todayLimit == unlimitedSentinel { return rewardDefaultWindow }
+            return max(60, todayLimit)
+        default:
+            return learningWindow
+        }
+    }
+
     private func scheduleActivity() throws {
         // Capture the previously-tracked app set BEFORE we overwrite `tracked_app_ids`
         // below. Apps in the new set but NOT in the previous set are "newly added today"
@@ -2422,13 +2450,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // Rebuild monitoredEvents with sliding window per app
         var newMonitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
         var totalSkipped = 0
+        var perAppWindowSize: [String: Int] = [:]
         for (logicalID, template) in appTemplates {
             let currentMinutes = appCurrentMinutes[logicalID] ?? 0
             totalSkipped += currentMinutes
             let stableAppID = stableHash(logicalID)
 
-            // Sliding window: 60 thresholds above current usage
-            let minutesToRegister = Array((currentMinutes + 1)...(currentMinutes + 60))
+            // Sliding window: right-sized per app. Learning = 60. Reward = today's
+            // daily limit (default 240 if unset/unlimited). See `windowSize(for:category:)`.
+            let appWindow = windowSize(for: logicalID, category: template.category)
+            perAppWindowSize[logicalID] = appWindow
+            let minutesToRegister = Array((currentMinutes + 1)...(currentMinutes + appWindow))
 
             for minuteNumber in minutesToRegister {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableAppID).min.\(minuteNumber)")
@@ -2474,7 +2506,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // monitored thresholds don't need one (they'll never fire threshold events).
             for logicalID in appTemplates.keys {
                 let currentMinutes = appCurrentMinutes[logicalID] ?? 0
-                sharedDefaults.set(currentMinutes + 60, forKey: "window_top_min_\(logicalID)")
+                let appWindow = perAppWindowSize[logicalID] ?? 60
+                sharedDefaults.set(currentMinutes + appWindow, forKey: "window_top_min_\(logicalID)")
+                sharedDefaults.set(appWindow, forKey: "window_size_\(logicalID)")
                 sharedDefaults.set(String(stableHash(logicalID)), forKey: "app_stable_hash_\(logicalID)")
             }
         }
@@ -2537,9 +2571,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
+            let appWindow = perAppWindowSize[logicalID] ?? 60
             let pinnedTag = pinnedAppsToday.contains(logicalID) ? " [PINNED:noPastActivity]" : ""
-            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + 60) (60 thresholds) windowTop=\(mins + 60)\(pinnedTag)")
-            midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + 60)")
+            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + appWindow) (\(appWindow) thresholds) windowTop=\(mins + appWindow)\(pinnedTag)")
+            midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + appWindow)")
         }
 
         // CRITICAL: Set restart timestamp BEFORE starting monitoring
