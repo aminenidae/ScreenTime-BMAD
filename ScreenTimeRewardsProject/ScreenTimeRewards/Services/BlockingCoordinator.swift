@@ -161,24 +161,23 @@ class BlockingCoordinator: ObservableObject {
             }
         }
 
-        // 3-4. Pool-aware reward gate. Mirrors the extension's POOL_EMPTY_BLOCK rule from
-        // commit 172f72a (computeEffectivePoolBalance + checkAndUpdateShields): the kid may
-        // spend Time Bank carry-forward even when today's per-config learning goal is not yet
-        // met. Only block when pool ≤ 0 (no carry-forward AND nothing earned today).
+        // 3-4. Reward gate. 2026-05-06 revert: today's per-config learning goal must be met
+        // before any reward time (including Time Bank carry-forward) can be spent. The
+        // Apr 26-29 pool-only unshield path was rolled back because kids skipped today's
+        // learning when they had bank credit available.
         // Source-of-truth invariant: keep aligned with
-        // DeviceActivityMonitorExtension.checkAndUpdateShields().
+        // DeviceActivityMonitorExtension.checkAndUpdateShields() and
+        // checkAndBlockIfRewardTimeExhausted().
         let learningCheck = checkLearningGoal(logicalID: logicalID)
         let availableCheck = checkAvailableMinutes()
-        if availableCheck.hasNoTimeAvailable {
-            if !learningCheck.isGoalMet {
-                // Pool empty AND today's goal not met → surface learning-goal copy on the shield.
-                activeReasons.insert(.learningGoal)
-                decision.learningTargetMinutes = learningCheck.targetMinutes
-                decision.learningCurrentMinutes = learningCheck.currentMinutes
-            } else {
-                // Pool empty but today's goal met → reward time spent for the day.
-                activeReasons.insert(.rewardTimeExpired)
-            }
+        if !learningCheck.isGoalMet {
+            // Today's goal not met → block with learning-goal copy regardless of pool.
+            activeReasons.insert(.learningGoal)
+            decision.learningTargetMinutes = learningCheck.targetMinutes
+            decision.learningCurrentMinutes = learningCheck.currentMinutes
+        } else if availableCheck.hasNoTimeAvailable {
+            // Goal met but pool empty → reward time spent for the day.
+            activeReasons.insert(.rewardTimeExpired)
         }
 
         // Determine if blocked (any active reason)

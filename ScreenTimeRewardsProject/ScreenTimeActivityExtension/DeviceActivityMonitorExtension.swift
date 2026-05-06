@@ -501,22 +501,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     // false +60s credit on shielded reward app 51E884C1). Cross-check
                     // against goal-met status: if the goal is NOT met, the shield SHOULD
                     // be up regardless of what the live store says — block anyway.
-                    // May 2 amendment: pool > 0 (Time Bank carry-forward) is also a legitimate
-                    // unshield reason — must allow recording or kids burn bank credit invisibly.
+                    // 2026-05-06 revert: removed the May 2 `pool > 0 → SHIELDED_RACE_BYPASS`
+                    // branch. Pool-only carry-forward no longer unshields, so the original
+                    // strict !goalMet → block rule is correct.
                     let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
                     if !goalMet {
-                        let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
-                        Self.logger.notice("SHIELD_RACE_GATE app=\(appID.prefix(8))... goalMet=false pool=\(pool)min")
-                        if pool <= 0 {
-                            debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met AND pool=\(pool)min — blocking (race-window backstop)", defaults: defaults)
-                            Self.logger.error("SKIP_SHIELDED_RACE app=\(appID.prefix(8))... pool=\(pool) — BLOCKING")
-                            return false
-                        }
-                        debugLog("SHIELDED_RACE_BYPASS appID=\(appID.prefix(8))... goal NOT met but pool=\(pool)min — Time Bank carry-forward unshield, recording usage", defaults: defaults)
-                        Self.logger.notice("SHIELDED_RACE_BYPASS app=\(appID.prefix(8))... pool=\(pool)min — RECORDING")
-                    } else {
-                        Self.logger.notice("SHIELD_RACE_GATE app=\(appID.prefix(8))... goalMet=true — RECORDING")
+                        debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met — blocking (race-window backstop)", defaults: defaults)
+                        Self.logger.error("SKIP_SHIELDED_RACE app=\(appID.prefix(8))... goalMet=false — BLOCKING")
+                        return false
                     }
+                    Self.logger.notice("SHIELD_RACE_GATE app=\(appID.prefix(8))... goalMet=true — RECORDING")
                 }
                 break
             }
@@ -1234,6 +1228,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 continue
             }
 
+            // 2026-05-06 revert: pool > 0 alone is no longer sufficient. Kid must also have
+            // met today's per-config learning goal. Earlier behavior (Apr 26 commit `172f72a`)
+            // unshielded on pool-only carry-forward, which let kids skip today's learning when
+            // they had Time Bank credit. Source-of-truth invariant — keep aligned with
+            // BlockingCoordinator.evaluateBlockingState().
+            let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            if !goalMet {
+                debugLog("SHIELD_CHECK: \(shortID) pool=\(pool)min but today's goal NOT met — keeping shield", defaults: defaults)
+                continue
+            }
+
             guard let token = try? Self.propertyListDecoder.decode(ApplicationToken.self, from: goalConfig.rewardAppTokenData) else {
                 debugLog("SHIELD_CHECK: ❌ TOKEN DECODE FAILED for \(shortID) - tokenData may be invalid", defaults: defaults)
                 continue
@@ -1246,20 +1251,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 currentShields.remove(token)
                 managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
                 recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
-                debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (pool=\(pool)min)", defaults: defaults)
+                debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (goalMet, pool=\(pool)min)", defaults: defaults)
 
-                // Only fire "Goal Complete!" when today's per-goal earning is actually > 0.
-                // Pool-driven unshields after midnight (carry-forward Time Bank) must stay
-                // silent — the kid earned nothing today, so the celebration message is wrong.
-                // Mirrors main-app gate at BlockingCoordinator.swift (earnedMinutes > 0).
+                // Defensive guard: with goalMet=true, todayEarned should be > 0 unless
+                // a linked goal has minutesRequired=0 (atypical config). Skip the
+                // "Goal Complete!" fanfare in that edge case.
                 let todayEarned = computeTodayEarnedForGoal(goalConfig, defaults: defaults)
                 if todayEarned > 0 {
                     scheduleGoalCompletedNotification(rewardMinutes: todayEarned, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
-                } else {
-                    debugLog("SHIELD_CHECK: ℹ️ \(shortID) silent unshield (pool-only, todayEarned=0)", defaults: defaults)
                 }
             } else {
-                debugLog("SHIELD_CHECK: ℹ️ \(shortID) pool>0 but not currently shielded", defaults: defaults)
+                debugLog("SHIELD_CHECK: ℹ️ \(shortID) goalMet+pool>0 but not currently shielded", defaults: defaults)
             }
         }
         debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
@@ -1386,10 +1388,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         return currentTotalMinutes >= startTotal && currentTotalMinutes < endTotal
     }
 
-    /// Check if any reward app should be blocked due to downtime, daily limit, or exhausted Time Bank pool.
-    /// Priority: dailyLimit==0 > Downtime > Daily limit exceeded > Pool empty.
-    /// Pool replaces the old per-config Check 2 (learning-goal-not-met) and Check 3 (earned-time-exhausted) —
-    /// see `docs/SMART_THRESHOLD_FILTERING.md` "Apr 26–27, 2026 — Pooled Time Bank Shield Gate".
+    /// Check if any reward app should be blocked due to downtime, daily limit, learning goal not met,
+    /// or exhausted Time Bank pool.
+    /// Priority: dailyLimit==0 > Downtime > Daily limit exceeded > Learning goal not met > Pool empty.
+    /// 2026-05-06 revert restored the per-config learning-goal block — pool > 0 alone no longer
+    /// unshields, so this function must re-shield reward apps whose goal is fresh-for-the-day even
+    /// when carry-forward bank credit exists. See `docs/SMART_THRESHOLD_FILTERING.md`
+    /// "May 6, 2026 — Pool-Only Carry-Forward Unshield Reverted".
     private nonisolated func checkAndBlockIfRewardTimeExhausted(configs: ExtensionShieldConfigsMinimal?, defaults: UserDefaults) {
         guard let configs = configs else {
             return
@@ -1499,10 +1504,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 continue  // Skip reward time check - daily limit takes priority
             }
 
-            // Check 2 (replaces old learning-goal + reward-time-expired checks):
-            // Pool empty → re-apply shield. The pool already accounts for both
-            // "today's threshold not crossed AND no carry-forward credit" and
-            // "earned credit fully consumed by today's reward usage."
+            // Check 1.5 (2026-05-06): Today's per-config learning goal not met → shield with
+            // learningGoal reason regardless of pool. Restores pre-Apr-26 behavior; pool-only
+            // carry-forward unshield was rolled back because kids skipped today's learning when
+            // they had bank credit. Mirrors BlockingCoordinator.evaluateBlockingState gate.
+            let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            if !goalMet {
+                guard let token = try? PropertyListDecoder().decode(
+                    ApplicationToken.self,
+                    from: goalConfig.rewardAppTokenData
+                ) else { continue }
+
+                var currentShields = managedSettingsStore.shield.applications ?? Set()
+                if !currentShields.contains(token) {
+                    currentShields.insert(token)
+                    managedSettingsStore.shield.applications = currentShields
+
+                    recordBlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+
+                    persistBlockingReason(
+                        tokenHash: goalConfig.rewardAppLogicalID,
+                        reasonType: "learningGoal",
+                        usedMinutes: usageMinutes,
+                        defaults: defaults
+                    )
+
+                    debugLog("LEARNING_GOAL_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... goal not met (pool=\(pool)min) — re-applying shield", defaults: defaults)
+                }
+                continue  // Skip pool-empty check - learning goal takes priority
+            }
+
+            // Check 2: Pool empty (only reachable when goal IS met) → re-apply shield with
+            // rewardTimeExpired reason. Kid earned today's reward time but spent it all.
             if pool <= 0 {
                 guard let token = try? PropertyListDecoder().decode(
                     ApplicationToken.self,

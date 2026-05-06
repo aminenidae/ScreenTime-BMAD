@@ -2516,3 +2516,43 @@ May 5 device test (`ext-log-2026-05-05.log`) hit this exactly: YouTube reached `
 - Branch: `redesign/highwater-mark-credit-model`.
 - Symptom signature for regression: a single reward app with `dailyLimits.todayLimit` ≥ 120 records `newToday` stalling at exactly 3600s (60 min) for hours during continuous use → window-size write didn't reach the registration path (check `window_size_<id>` in App Group).
 - Symptom signature for the fix working: `SLIDING_WINDOW <id>... range=1-N (N thresholds)` in the lifecycle log shows N matching the configured daily limit (or 240 for unlimited reward apps, 60 for learning).
+
+### May 6, 2026 — Pool-Only Carry-Forward Unshield Reverted (UX rollback, not a regression)
+
+**Status:** SHIPPED on branch `fix/revert-pool-only-unshield` off `redesign/highwater-mark-credit-model`. Deliberate UX-driven rollback of the Apr 26-27 + May 2 pool-aware shield gate.
+
+**What changed (from the kid's perspective).**
+
+| Scenario | Before (Apr 26 → May 5) | After (May 6 →) |
+|---|---|---|
+| Today's goal met AND pool > 0 | unshielded | unshielded (unchanged) |
+| Today's goal NOT met AND pool > 0 (Time Bank carry-forward) | **unshielded** (kid spends bank credit alone) | **shielded** with learning-goal copy |
+| Today's goal met AND pool ≤ 0 | shielded (rewardTimeExpired) | shielded (rewardTimeExpired) (unchanged) |
+| Today's goal NOT met AND pool ≤ 0 | shielded (learningGoal) | shielded (learningGoal) (unchanged) |
+
+**Why the rollback.** User tested the pool-only carry-forward path with his kids on family devices. Observed UX problem: kids realized they had Time Bank credit from previous days and skipped today's learning goal entirely. The Apr 26 design intent was "let bank credit fund a no-learning day," but in practice it removed the daily learning ritual the parents wanted.
+
+**New rule (both sides).** Shield comes off ONLY when today's per-config learning goal is met AND pool > 0. Carry-forward credit alone no longer unshields — kids must "pay rent" with today's learning regardless of bank balance.
+
+**Files touched (single commit, per pool-aware shield invariant).**
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `checkAndUpdateShields`: `checkGoalMet` precondition added before the unshield path; logs `pool=Nmin but today's goal NOT met — keeping shield`. Notification gate's silent-else branch removed (now unreachable; the defensive `if todayEarned > 0` guard remains for the `minutesRequired==0` edge case).
+  - `checkAndBlockIfRewardTimeExhausted`: new Check 1.5 between daily-limit and pool-empty. When `!goalMet`, re-shields with `reasonType="learningGoal"` regardless of pool. Logs `LEARNING_GOAL_BLOCK: ... goal not met (pool=Nmin) — re-applying shield`. Required so midnight transitions and intraday goal flips re-apply shields when carry-forward bank credit exists.
+  - Filter 2 `SKIP_SHIELDED_RACE`: dropped the `pool > 0 → SHIELDED_RACE_BYPASS` branch. Reverted to the pre-May-2 strict `!goalMet → block` rule for the race-window backstop.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift`
+  - `evaluateBlockingState`: priority inverted. `!isGoalMet → learningGoal block` regardless of pool; only `goalMet AND hasNoTimeAvailable → rewardTimeExpired`. Comment + invariant reference updated.
+
+**Pool-aware shield invariant (still applies).** The extension's `checkAndUpdateShields`/`checkAndBlockIfRewardTimeExhausted` and the main app's `evaluateBlockingState` share one shield policy. They were updated in the same commit. See project memory `project_pool_aware_shield_invariant.md`.
+
+**`computeEffectivePoolBalance` and `checkAvailableMinutes` unchanged.** The pool formula (`max(0, historical + todayEarned - todayUsed)`) stays byte-equivalent across both files. The revert only moves where in the decision flow `goalMet` gates the unshield — the pool math itself remains the source of truth for "is there reward time left after today's spend." The May 3 pool-divergence fix is preserved.
+
+**Notification behavior.** "Goal Complete!" notifications continue to fire only when today's reward earnings > 0. With the new `goalMet` precondition, every unshield event now has `todayEarned > 0` (except the `minutesRequired==0` config edge case), so the notification fires reliably on the first goal-met unshield each day. The previous "silent unshield (pool-only, todayEarned=0)" log line is gone — that branch is unreachable.
+
+**Validation target.** A kid with Time Bank carry-forward credit (e.g., pool > 0 from yesterday) and `usage_<learning>_today < minutesRequired` should see reward apps shielded at first launch. Shield should lift the moment `usage_<learning>_today >= minutesRequired` clears today's goal. Pre-revert: shield was off from midnight onward as long as pool > 0.
+
+#### Memory / pointer
+
+- Branch: `fix/revert-pool-only-unshield` off `redesign/highwater-mark-credit-model`.
+- Symptom signature for regression (revert getting un-reverted by accident): extension log `SHIELD_CHECK: ✅ REMOVED shield for <id> (pool=Nmin)` at midnight when no learning usage has been recorded for the day. Should instead see `SHIELD_CHECK: <id> pool=Nmin but today's goal NOT met — keeping shield`.
+- Symptom signature for the fix working: `LEARNING_GOAL_BLOCK: <id>... goal not met (pool=Nmin) — re-applying shield` in extension debug log when pool > 0 but today's goal is fresh.
