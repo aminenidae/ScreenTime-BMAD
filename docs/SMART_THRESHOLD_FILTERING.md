@@ -2596,7 +2596,11 @@ Adds:
 
 ### May 7, 2026 — iOS-Claimed Cumulative Floor (LASTTHRESH_HOLD blackout fix)
 
-**Status:** SHIPPED on `fix/scrub-stale-linked-learning-refs`.
+**Status:** SHIPPED then REVERTED on `refactor/unified-usage-counter` (Step 1 of the unified-counter refactor — see `docs/UNIFIED_USAGE_COUNTER_PLAN.md`).
+
+The iOS-claimed floor was a parallel counter (`ios_claimed_today_<id>`) added alongside the credited counter (`usage_<id>_today`) to make shield decisions robust to LASTTHRESH_HOLD storms. May 7 device test showed the parallel-counter approach contradicts the broader "one source of truth" architectural goal — the dashboard read the credited counter while the shield path read `max(credited, claimed)`, producing visible divergence between dashboard "Time Bank: N" and the shield's actual decision. Reverted in favor of unifying on `usage_<id>_today` everywhere. The May 6 LASTTHRESH_HOLD scenario is reopened — to be re-addressed by tightening the credit math itself rather than introducing a parallel counter.
+
+**Original (now-reverted) implementation:**
 
 **Symptom (May 6 device test, `ext-log-2026-05-06.log` 23:38 → 23:40).** Pool drained cleanly from 39 → 2 over 36 minutes (`23:00:41 pool=37` → `23:38:47 pool=2`), then froze. Every subsequent threshold event hit `LASTTHRESH_HOLD` with `credited=0` ("stale catch-up, raw=480..2880s > perEventCap=60s"). `usage_C6DA269B_today` stuck at `7711s` (~128 min) while iOS fired thresholds for cumulative=130–187 min. Pool stuck at `max(0, 110 + 20 − 128) = 2`. `POOL_EMPTY_BLOCK` never fired — kid kept playing past the 0-pool point. Shield only re-applied when the parent foregrounded the main app, which triggered `BlockingCoordinator.evaluateBlockingState` to compute pool against fresher data.
 

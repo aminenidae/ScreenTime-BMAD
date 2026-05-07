@@ -564,22 +564,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
 
-        // 2026-05-07 — iOS-claimed cumulative floor for shield decisions.
-        // `usage_<id>_today` reflects only what we've credited, which can fall arbitrarily
-        // far behind iOS' true cumulative when LASTTHRESH_HOLD engages during a stale
-        // catch-up storm (May 6 device repro: extension stuck at usage_today=128min while
-        // iOS fired thresholds at min.178+, all held at +0). Pool stuck above 0, shield
-        // never re-applied. Track the highest threshold iOS has ever fired today as a
-        // separate signal — used by `checkAndBlockIfRewardTimeExhausted` and
-        // `computeEffectivePoolBalance` as a floor for `todayUsed`. Crediting math is
-        // unchanged; only shield decisions use this floor. See
-        // `docs/SMART_THRESHOLD_FILTERING.md` "May 7, 2026 — iOS-Claimed Cumulative Floor".
-        let iosClaimedKey = "ios_claimed_today_\(appID)"
-        let priorClaimed = defaults.integer(forKey: iosClaimedKey)
-        if thresholdSeconds > priorClaimed {
-            defaults.set(thresholdSeconds, forKey: iosClaimedKey)
-        }
-
         let todayKey = "usage_\(appID)_today"
         let totalKey = "usage_\(appID)_total"
         let dateString = Self.dayDateFormatter.string(from: now)
@@ -1155,9 +1139,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "ext_usage_\(appID)_date")
                 defaults.removeObject(forKey: "ext_usage_\(appID)_timestamp")
 
-                // Reset iOS-claimed cumulative floor (see setUsageToThreshold for rationale).
-                defaults.set(0, forKey: "ios_claimed_today_\(appID)")
-
                 // Reset hourly buckets
                 for h in 0..<24 {
                     defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
@@ -1448,12 +1429,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
 
         for goalConfig in configs.goalConfigs {
-            // Get reward app usage (today). Use max(credited, iOS-claimed) so daily-limit
-            // shielding reflects iOS's view even when LASTTHRESH_HOLD has stalled crediting.
-            // See setUsageToThreshold's `ios_claimed_today_<id>` write for rationale.
-            let credited = defaults.integer(forKey: "usage_\(goalConfig.rewardAppLogicalID)_today")
-            let claimed = defaults.integer(forKey: "ios_claimed_today_\(goalConfig.rewardAppLogicalID)")
-            let usageSeconds = max(credited, claimed)
+            // Get reward app usage (today)
+            let usageKey = "usage_\(goalConfig.rewardAppLogicalID)_today"
+            let usageSeconds = defaults.integer(forKey: usageKey)
             let usageMinutes = usageSeconds / 60
 
             // Check -1 (Absolute Highest Priority): App completely blocked for today (dailyLimit == 0)
@@ -1707,14 +1685,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Today's used: sum across all reward apps in the pool. Use the maximum of credited
-        // (`usage_<id>_today`) and iOS-claimed (`ios_claimed_today_<id>`) so the shield reads
-        // iOS's view of the kid's actual play even when LASTTHRESH_HOLD has stalled crediting.
+        // Today's used: sum across all reward apps in the pool.
         var todayUsed = 0
         for goalConfig in configs.goalConfigs {
-            let credited = defaults.integer(forKey: "usage_\(goalConfig.rewardAppLogicalID)_today")
-            let claimed = defaults.integer(forKey: "ios_claimed_today_\(goalConfig.rewardAppLogicalID)")
-            todayUsed += max(credited, claimed) / 60
+            let usageSeconds = defaults.integer(
+                forKey: "usage_\(goalConfig.rewardAppLogicalID)_today")
+            todayUsed += usageSeconds / 60
         }
 
         return max(0, historical + todayEarned - todayUsed)
