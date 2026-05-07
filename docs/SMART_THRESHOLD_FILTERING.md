@@ -2622,3 +2622,16 @@ Adds:
 **Files touched:**
 - `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `setUsageToThreshold` (write), `resetAllDailyCounters` (clear), `computeEffectivePoolBalance` (read+max), `checkAndBlockIfRewardTimeExhausted` Check 1 (read+max).
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift` — `checkAvailableMinutes` (read+max), `checkDailyLimit` (read+max).
+
+#### May 7, 2026 00:00 — Post-build midnight observations (`ext-log-2026-05-07.log`)
+
+First post-`204ae82`-build midnight on a device that had been running the May 6 builds all day.
+
+- `MIDNIGHT_RESET_COMPLETE` cleared `lastThreshold` for 7 apps; `MIDNIGHT_EXT_REBUILD_OK` registered fresh thresholds without falling back to `MIDNIGHT_PENDING`.
+- `resetAllDailyCounters` ran, which (per this commit) also clears `ios_claimed_today_<id>` for every tracked app — confirmed by absence of stale claimed-floor carry-over into May 7.
+- C6DA269B (YouTube) window jumped from `1-60 (60 thresholds)` (May 6 reward window with `dailyLimit ≤ 60`) to `1-240 (240 thresholds)` after the parent removed the daily limit. Confirms the right-sizing logic in `ScreenTimeService.windowSize(for:category:)` reacts to schedule edits as expected.
+- Pool transitioned `66 → 9` between `00:00:02.809` (extension's INTERVAL_START snapshot, reading the App Group key written before the rollover) and `00:01:28.961` (after the main app woke and recomputed `bank_historical_remaining_minutes` via the WIP baseline+delta logic). The drop is **unrelated to Option 4** — Option 4 affects only the `todayUsed` term, which was 0 at that moment for both reads. The historical recompute is the Path B baseline-delta logic settling at the new day boundary.
+
+**Open questions to verify with subsequent test traffic:**
+- During a real LASTTHRESH_HOLD storm, does `ios_claimed_today_<id>` advance past the held `usage_<id>_today`, and does `POOL_EMPTY_BLOCK` fire autonomously?
+- If iOS phantom-fires a high threshold, how does the false-positive shield manifest in the kid's experience? (Recoverable by completing more learning, but worth a kid-facing UX note if it's common.)
