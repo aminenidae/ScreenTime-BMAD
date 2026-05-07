@@ -1648,52 +1648,49 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults: UserDefaults
     ) -> Int {
         let historical = defaults.integer(forKey: "bank_historical_remaining_minutes")
-
-        // Defensive filter: a learning entry whose logicalID is also a reward app is a stale
-        // reference (typically left over from a learning→reward category flip that didn't
-        // scrub `linkedLearningApps`). Counting reward usage as learning lets the kid grow
-        // the pool by playing the reward — see May 6, 2026 device repro on YouTube +
-        // Mini Motorways. Mirrors `BlockingCoordinator.checkLearningGoal`.
         let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
 
-        // Today's earned: iterate UNIQUE learning apps across all goal configs.
-        // A learning app may link to multiple reward apps with different
-        // thresholds/ratios — match `AppUsageViewModel.totalEarnedMinutes` (line 156):
-        // use the LOWEST threshold across all goals, and the FIRST-matching ratio.
-        var seenLearningIDs = Set<String>()
-        var todayEarned = 0
+        // Build BankCalculator inputs from the extension's data sources. The
+        // stale-reference filter (drop linkedLearningApps whose logicalID is also a reward
+        // app — see May 6 2026 fix) is applied at the input boundary; BankCalculator
+        // trusts whatever it gets.
+        var todaySecondsByID: [String: Int] = [:]
+        var ratioByLearningID: [String: Double] = [:]
+        var bankGoalConfigs: [BankCalculator.GoalConfigInput] = []
+
         for goalConfig in configs.goalConfigs {
+            let rewardID = goalConfig.rewardAppLogicalID
+            todaySecondsByID[rewardID] = defaults.integer(forKey: "usage_\(rewardID)_today")
+
+            var bankLinks: [BankCalculator.GoalConfigInput.LinkedLearning] = []
             for linked in goalConfig.linkedLearningApps {
-                guard !rewardAppIDs.contains(linked.learningAppLogicalID) else { continue }
-                guard !seenLearningIDs.contains(linked.learningAppLogicalID) else { continue }
-                seenLearningIDs.insert(linked.learningAppLogicalID)
-
-                // Lowest threshold this learning app must clear (across all goals it feeds).
-                let lowestThreshold = configs.goalConfigs
-                    .flatMap { $0.linkedLearningApps }
-                    .filter  { $0.learningAppLogicalID == linked.learningAppLogicalID }
-                    .map     { $0.minutesRequired }
-                    .min() ?? linked.minutesRequired
-
-                let usageSeconds = defaults.integer(
-                    forKey: "usage_\(linked.learningAppLogicalID)_today")
-                let usageMinutes = usageSeconds / 60
-                guard usageMinutes >= lowestThreshold else { continue }
-
-                let ratio = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
-                todayEarned += Int(Double(usageMinutes) * ratio)
+                let learningID = linked.learningAppLogicalID
+                guard !rewardAppIDs.contains(learningID) else { continue }
+                bankLinks.append(.init(
+                    learningAppLogicalID: learningID,
+                    minutesRequired: linked.minutesRequired
+                ))
+                if todaySecondsByID[learningID] == nil {
+                    todaySecondsByID[learningID] = defaults.integer(forKey: "usage_\(learningID)_today")
+                }
+                if ratioByLearningID[learningID] == nil {
+                    ratioByLearningID[learningID] = Double(linked.rewardMinutesEarned)
+                        / Double(max(1, linked.ratioLearningMinutes))
+                }
             }
+
+            bankGoalConfigs.append(.init(
+                rewardAppLogicalID: rewardID,
+                linkedLearning: bankLinks
+            ))
         }
 
-        // Today's used: sum across all reward apps in the pool.
-        var todayUsed = 0
-        for goalConfig in configs.goalConfigs {
-            let usageSeconds = defaults.integer(
-                forKey: "usage_\(goalConfig.rewardAppLogicalID)_today")
-            todayUsed += usageSeconds / 60
-        }
-
-        return max(0, historical + todayEarned - todayUsed)
+        return BankCalculator.computeBank(.init(
+            todaySecondsByLogicalID: todaySecondsByID,
+            goalConfigs: bankGoalConfigs,
+            ratioByLearningLogicalID: ratioByLearningID,
+            historicalRemainingMinutes: historical
+        ))
     }
 
     /// Today's earned reward minutes for ONE goal config (no cross-goal dedupe).

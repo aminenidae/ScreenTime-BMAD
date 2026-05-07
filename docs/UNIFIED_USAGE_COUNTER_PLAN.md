@@ -29,6 +29,16 @@ These three share a docstring claim of "byte-equivalent" but the inputs they con
 
 ## Step plan (each step independently shippable)
 
+## Status
+
+| Step | Branch | Commit | Status |
+|---|---|---|---|
+| 1 — Revert `ios_claimed_today_<id>` | `refactor/unified-usage-counter` | `0eea57a` | SHIPPED |
+| 2 — Single `BankCalculator` shared function | `refactor/unified-usage-counter` | (this commit) | SHIPPED |
+| 3 — Drop `ext_usage_<id>_today` dual-write | TBD | — | Pending |
+| 4 — Make `getHistoricalRemainingMinutes` deterministic | TBD | — | Pending (touches WIP) |
+| 5 — `PersistedApp.todaySeconds` as live read | TBD | — | Optional |
+
 ### Step 1 — Revert Option 4 (`ios_claimed_today_<id>`)
 
 **Branch:** `refactor/unified-usage-counter` off `fix/scrub-stale-linked-learning-refs`.

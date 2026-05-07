@@ -1024,10 +1024,8 @@ class BlockingCoordinator: ObservableObject {
             return AvailableMinutesCheckResult(hasNoTimeAvailable: false, cumulativeAvailable: 0)
         }
 
-        // Collect learning and reward app logical IDs
         var learningIDs: [String] = []
         var rewardIDs: [String] = []
-
         for (token, category) in service.categoryAssignments {
             if let logicalID = service.getLogicalID(for: token) {
                 if category == .learning {
@@ -1038,9 +1036,6 @@ class BlockingCoordinator: ObservableObject {
             }
         }
 
-        // Use UsagePersistence to get CUMULATIVE balance (includes historical rollover).
-        // Phase 2: per-day ratio lookup pins each historical day to the schedule
-        // version that was active on that day.
         let scheduleService = AppScheduleService.shared
         let historicalRemaining = service.usagePersistence.getHistoricalRemainingMinutes(
             learningIDs: learningIDs,
@@ -1056,32 +1051,71 @@ class BlockingCoordinator: ObservableObject {
             }
         )
 
-        // Add today's earned (from learning goal checks)
-        let todayEarned = getTotalEarnedRewardMinutes(for: currentRewardTokens)
-
-        // Subtract today's reward app usage. Without this, a kid who exhausts the pool
-        // through reward usage stays unblocked because `cumulativeAvailable` reads as the
-        // full earned + historical, and `syncAllRewardApps` undoes the extension's
-        // `POOL_EMPTY_BLOCK`. Mirrors `computeEffectivePoolBalance()` in the extension.
-        var todayRewardUsedSeconds = 0
-        for logicalID in rewardIDs {
-            if let app = service.usagePersistence.app(for: logicalID) {
-                todayRewardUsedSeconds += app.todaySeconds
-            }
-        }
-        let todayRewardUsed = todayRewardUsedSeconds / 60
-
-        // Calculate cumulative available — floored at 0 so a slight over-spend reads as
-        // "exhausted" rather than negative (matches extension's `max(0, …)`).
-        let cumulativeAvailable = max(0, historicalRemaining + todayEarned - todayRewardUsed)
+        let inputs = buildBankCalculatorInputs(
+            rewardIDs: rewardIDs,
+            historicalRemainingMinutes: historicalRemaining
+        )
+        let cumulativeAvailable = BankCalculator.computeBank(inputs)
 
         #if DEBUG
-        print("[BlockingCoordinator] 💰 Available minutes check: historical=\(historicalRemaining), todayEarned=\(todayEarned), todayUsed=\(todayRewardUsed), cumulative=\(cumulativeAvailable)")
+        print("[BlockingCoordinator] 💰 Available minutes check: historical=\(historicalRemaining), cumulative=\(cumulativeAvailable)")
         #endif
 
         return AvailableMinutesCheckResult(
             hasNoTimeAvailable: cumulativeAvailable <= 0,
             cumulativeAvailable: cumulativeAvailable
+        )
+    }
+
+    /// Build BankCalculator inputs from main-app data sources. Drops linkedLearning
+    /// entries whose logicalID is also a reward app (stale category-flip references)
+    /// at the input boundary — the same filter as the extension applies to its inputs.
+    private func buildBankCalculatorInputs(
+        rewardIDs: [String],
+        historicalRemainingMinutes: Int
+    ) -> BankCalculator.Inputs {
+        let scheduleService = AppScheduleService.shared
+        let rewardIDSet = Set(rewardIDs)
+
+        var todaySecondsByID: [String: Int] = [:]
+        var ratioByLearningID: [String: Double] = [:]
+        var bankGoalConfigs: [BankCalculator.GoalConfigInput] = []
+
+        for rewardID in rewardIDs {
+            todaySecondsByID[rewardID] = screenTimeService?.usagePersistence.app(for: rewardID)?.todaySeconds ?? 0
+
+            guard let schedule = scheduleService.getSchedule(for: rewardID) else {
+                bankGoalConfigs.append(.init(rewardAppLogicalID: rewardID, linkedLearning: []))
+                continue
+            }
+
+            var bankLinks: [BankCalculator.GoalConfigInput.LinkedLearning] = []
+            for linked in schedule.linkedLearningApps {
+                guard !rewardIDSet.contains(linked.logicalID) else { continue }
+                bankLinks.append(.init(
+                    learningAppLogicalID: linked.logicalID,
+                    minutesRequired: linked.minutesRequired
+                ))
+                if todaySecondsByID[linked.logicalID] == nil {
+                    todaySecondsByID[linked.logicalID] = screenTimeService?.usagePersistence.app(for: linked.logicalID)?.todaySeconds ?? 0
+                }
+                if ratioByLearningID[linked.logicalID] == nil {
+                    if let learnSched = scheduleService.getSchedule(for: linked.logicalID) {
+                        ratioByLearningID[linked.logicalID] = Double(learnSched.rewardMinutesEarned) / Double(max(1, learnSched.ratioLearningMinutes))
+                    } else {
+                        ratioByLearningID[linked.logicalID] = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
+                    }
+                }
+            }
+
+            bankGoalConfigs.append(.init(rewardAppLogicalID: rewardID, linkedLearning: bankLinks))
+        }
+
+        return .init(
+            todaySecondsByLogicalID: todaySecondsByID,
+            goalConfigs: bankGoalConfigs,
+            ratioByLearningLogicalID: ratioByLearningID,
+            historicalRemainingMinutes: historicalRemainingMinutes
         )
     }
 

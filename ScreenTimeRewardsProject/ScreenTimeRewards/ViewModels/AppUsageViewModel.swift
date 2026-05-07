@@ -230,8 +230,96 @@ class AppUsageViewModel: ObservableObject {
             }
         )
 
-        let todayRemaining = totalEarnedMinutes - totalUsedMinutes
-        return max(0, historicalRemaining + todayRemaining)
+        // Build BankCalculator inputs from snapshot data + AppScheduleService.
+        // Identical algorithm to BlockingCoordinator.checkAvailableMinutes and the
+        // extension's computeEffectivePoolBalance — single source of truth.
+        let rewardIDSet = Set(rewardLogicalIDs)
+
+        var todaySecondsByID: [String: Int] = [:]
+        var ratioByLearningID: [String: Double] = [:]
+        var bankGoalConfigs: [BankCalculator.GoalConfigInput] = []
+
+        for rewardSnapshot in rewardSnapshots {
+            let rewardID = rewardSnapshot.logicalID
+            todaySecondsByID[rewardID] = Int(rewardSnapshot.totalSeconds)
+
+            guard let schedule = scheduleService.getSchedule(for: rewardID) else {
+                bankGoalConfigs.append(.init(rewardAppLogicalID: rewardID, linkedLearning: []))
+                continue
+            }
+
+            var bankLinks: [BankCalculator.GoalConfigInput.LinkedLearning] = []
+            for linked in schedule.linkedLearningApps {
+                guard !rewardIDSet.contains(linked.logicalID) else { continue }
+                bankLinks.append(.init(
+                    learningAppLogicalID: linked.logicalID,
+                    minutesRequired: linked.minutesRequired
+                ))
+            }
+
+            bankGoalConfigs.append(.init(rewardAppLogicalID: rewardID, linkedLearning: bankLinks))
+        }
+
+        for learnSnapshot in learningSnapshots {
+            let learningID = learnSnapshot.logicalID
+            if todaySecondsByID[learningID] == nil {
+                todaySecondsByID[learningID] = Int(learnSnapshot.totalSeconds)
+            }
+            if ratioByLearningID[learningID] == nil {
+                if let schedule = scheduleService.getSchedule(for: learningID) {
+                    ratioByLearningID[learningID] = Double(schedule.rewardMinutesEarned)
+                        / Double(max(1, schedule.ratioLearningMinutes))
+                } else {
+                    ratioByLearningID[learningID] = 1.0
+                }
+            }
+        }
+
+        return BankCalculator.computeBank(.init(
+            todaySecondsByLogicalID: todaySecondsByID,
+            goalConfigs: bankGoalConfigs,
+            ratioByLearningLogicalID: ratioByLearningID,
+            historicalRemainingMinutes: historicalRemaining
+        ))
+    }
+
+    // MARK: - Bank Baseline Snapshot
+
+    /// Freeze the current bank value before a category change is applied.
+    /// MUST be called while `categoryAssignments` still holds the OLD assignments —
+    /// e.g. immediately before `categoryAssignments = mergedCategoryAssignments`.
+    /// Without this, learning↔reward flips and category removals retroactively rewrite
+    /// every prior `dailyHistory` row's contribution to the bank, silently wiping
+    /// accumulated credit. See `docs/CATEGORY_FLIP_BANK_LOSS.md`.
+    func snapshotBankBaselineForPendingCategoryChange() {
+        var learningIDs: [UsagePersistence.LogicalAppID] = []
+        var rewardIDs: [UsagePersistence.LogicalAppID] = []
+
+        for (token, category) in categoryAssignments {
+            let tokenHash = service.usagePersistence.tokenHash(for: token)
+            guard let logicalID = service.usagePersistence.logicalID(for: tokenHash) else { continue }
+            switch category {
+            case .learning: learningIDs.append(logicalID)
+            case .reward: rewardIDs.append(logicalID)
+            }
+        }
+
+        // Use the same per-day ratio resolver as `cumulativeAvailableMinutes` so the
+        // frozen baseline matches the value the user currently sees.
+        let scheduleService = AppScheduleService.shared
+        service.usagePersistence.snapshotBankBaseline(
+            learningIDs: learningIDs,
+            rewardIDs: rewardIDs,
+            ratioForDay: { logicalID, dayKey in
+                if let v = scheduleService.versionActive(logicalID: logicalID, on: dayKey) {
+                    return v.ratio
+                }
+                if let s = scheduleService.getSchedule(for: logicalID) {
+                    return Double(s.rewardMinutesEarned) / Double(max(1, s.ratioLearningMinutes))
+                }
+                return 1.0
+            }
+        )
     }
 
     /// Total points reserved for unlocked reward apps
@@ -1604,6 +1692,11 @@ class AppUsageViewModel: ObservableObject {
             updatedAssignments[token] = targetCategory
             updatedRewardPoints[token] = getDefaultRewardPoints(for: targetCategory)
         }
+
+        // Freeze the current bank value before applying the new assignments — protects
+        // accumulated credit if any token in pendingSelection already had a different
+        // category (silent flip path). See docs/CATEGORY_FLIP_BANK_LOSS.md.
+        snapshotBankBaselineForPendingCategoryChange()
 
         categoryAssignments = updatedAssignments
         rewardPoints = updatedRewardPoints
