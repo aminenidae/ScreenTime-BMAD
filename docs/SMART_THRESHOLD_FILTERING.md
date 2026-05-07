@@ -2556,3 +2556,26 @@ May 5 device test (`ext-log-2026-05-05.log`) hit this exactly: YouTube reached `
 - Branch: `fix/revert-pool-only-unshield` off `redesign/highwater-mark-credit-model`.
 - Symptom signature for regression (revert getting un-reverted by accident): extension log `SHIELD_CHECK: ✅ REMOVED shield for <id> (pool=Nmin)` at midnight when no learning usage has been recorded for the day. Should instead see `SHIELD_CHECK: <id> pool=Nmin but today's goal NOT met — keeping shield`.
 - Symptom signature for the fix working: `LEARNING_GOAL_BLOCK: <id>... goal not met (pool=Nmin) — re-applying shield` in extension debug log when pool > 0 but today's goal is fresh.
+
+#### May 6, 2026 follow-up — Stale `linkedLearningApps` reference filter
+
+Initial test of the revert (`ext-log-2026-05-06.log`, 17:35 → 17:50) exposed a **pre-existing** divergence: heavy YouTube reward use (min.80 → min.93, 13 minutes) left the extension's pool stuck at `pool=86min` instead of dropping to 0. Cause: goal config `642B7130` (Mini Motorways) had `C6DA269B` (YouTube — itself a reward app) listed as a *linked learning app* with a 15-min threshold. `computeEffectivePoolBalance` iterated `linkedLearningApps` directly, read `usage_C6DA269B_today`, and credited the kid's YouTube playtime as "earned" learning. Net pool change per minute of reward play was **positive** (because ratio > 1) — kid plays forever.
+
+This was almost certainly a learning→reward category flip on YouTube that didn't scrub the stale reference out of Mini Motorways' `linkedLearningApps`. Pre-existing — same data shape would have inflated the pool under the Apr 26-27 + May 2 policy too; the revert just made the symptom visible because the policy now relies on the pool-empty re-shield to enforce daily learning.
+
+**Defensive code fix (commit shipped same day as the revert).** Build a `rewardAppIDs` set from the configs' reward IDs and skip any `linkedLearningApp` whose logicalID is in that set. Applied to:
+
+- `DeviceActivityMonitorExtension.swift`
+  - `checkGoalMet` — new `rewardAppIDs:` parameter, filters at function entry; `validLinked.isEmpty` returns goal-not-met. All 3 callers (Filter 2 race-window backstop, `checkAndUpdateShields`, `checkAndBlockIfRewardTimeExhausted`) compute the set from `configs.goalConfigs` and pass it through.
+  - `computeEffectivePoolBalance` — same filter inserted at the top of the `todayEarned` iteration, ahead of the dedupe `seenLearningIDs` guard.
+  - `computeTodayEarnedForGoal` — new `rewardAppIDs:` parameter, same filter on its inner loop. Caller (`checkAndUpdateShields`'s notification gate) reuses the local `rewardAppIDs`.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift`
+  - New private helper `currentRewardLogicalIDs()` — reads `screenTimeService.categoryAssignments` and emits the set of logicalIDs whose category is `.reward`.
+  - Both `checkLearningGoal` variants (snapshot and non-snapshot) filter `config.linkedLearningApps` by that set before any iteration. Empty result → existing "no linked apps = goal met (no requirement, no reward)" branch fires.
+  - `getTotalEarnedRewardMinutesForSnapshot` (used by CloudKit snapshot uploads) skips reward-categorized linked entries during the unique-learning-app dedupe.
+
+**Pool-aware shield invariant preserved.** Extension's `computeEffectivePoolBalance` and main-app's `checkAvailableMinutes` continue to produce byte-equivalent values. The filter is applied symmetrically on both sides.
+
+**Validation target.** With the filter active, the May 5 device repro should produce: `pool=0min` after YouTube hits the daily exhaustion of earned credit, `POOL_EMPTY_BLOCK` fires, YouTube re-shields with `rewardTimeExpired` reason. No infinite-play loop via the cross-categorized linked app. Symptom of regression: `pool` log values don't decrease (or increase) as the kid plays a single reward app heavily.
+
+**Why this isn't a substitute for the data fix.** The defensive filter prevents the worst-case (infinite play), but the underlying data is still wrong — Mini Motorways' "Complete Goal" UI may still show YouTube as a learning requirement that can't be satisfied. The category-flip cleanup in `CategoryAssignmentView` / `AppScheduleService` is the durable fix; this filter is the runtime safety net.

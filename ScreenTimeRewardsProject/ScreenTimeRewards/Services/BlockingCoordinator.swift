@@ -269,6 +269,10 @@ class BlockingCoordinator: ObservableObject {
         // 1. Collect all unique linked learning apps from all reward apps
         var uniqueLearningApps: [String: LinkedLearningApp] = [:]  // keyed by logicalID
 
+        // Defensive filter: drop linked entries whose logicalID is itself a reward app —
+        // see `checkLearningGoal` for the full rationale (May 6, 2026 stale-reference bug).
+        let rewardIDs = currentRewardLogicalIDs()
+
         // scheduleService.schedules is [String: AppScheduleConfiguration]
         for (scheduleID, schedule) in scheduleService.schedules where !schedule.linkedLearningApps.isEmpty {
             #if DEBUG
@@ -280,6 +284,12 @@ class BlockingCoordinator: ObservableObject {
                 print("[EarnedMinutesDebug]     FULL logicalID: '\(linkedApp.logicalID)'")
                 print("[EarnedMinutesDebug]     ratio: \(linkedApp.rewardMinutesEarned):\(linkedApp.ratioLearningMinutes)")
                 #endif
+                if rewardIDs.contains(linkedApp.logicalID) {
+                    #if DEBUG
+                    print("[EarnedMinutesDebug]   ⛔ SKIPPED (logicalID is categorized as reward — stale linkedLearningApps reference)")
+                    #endif
+                    continue
+                }
                 // Only keep the first occurrence (dedupe by learning app logicalID)
                 if uniqueLearningApps[linkedApp.logicalID] == nil {
                     uniqueLearningApps[linkedApp.logicalID] = linkedApp
@@ -386,7 +396,9 @@ class BlockingCoordinator: ObservableObject {
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
-        let linkedApps = config.linkedLearningApps
+        // Defensive filter — see comment on the non-snapshot variant below.
+        let rewardIDs = currentRewardLogicalIDs()
+        let linkedApps = config.linkedLearningApps.filter { !rewardIDs.contains($0.logicalID) }
 
         // No linked learning apps = goal is met (no requirement, no reward)
         if linkedApps.isEmpty {
@@ -844,7 +856,14 @@ class BlockingCoordinator: ObservableObject {
             return LearningGoalCheckResult(isGoalMet: false, targetMinutes: 15, currentMinutes: 0, rewardMinutesEarned: 0)
         }
 
-        let linkedApps = config.linkedLearningApps
+        // Defensive filter: a linkedLearningApp whose logicalID is itself categorized as a
+        // reward app is a stale reference (typically left over from a learning→reward
+        // category flip that didn't scrub `linkedLearningApps`). Counting reward usage as
+        // learning lets the kid grow the pool by playing the reward — see May 6, 2026
+        // device repro on YouTube + Mini Motorways. Mirrors
+        // DeviceActivityMonitorExtension.checkGoalMet / computeEffectivePoolBalance.
+        let rewardIDs = currentRewardLogicalIDs()
+        let linkedApps = config.linkedLearningApps.filter { !rewardIDs.contains($0.logicalID) }
 
         // No linked learning apps = goal is met (no requirement, no reward)
         if linkedApps.isEmpty {
@@ -935,6 +954,19 @@ class BlockingCoordinator: ObservableObject {
             currentMinutes: totalCurrent,
             rewardMinutesEarned: isGoalMet ? totalRewardEarned : 0
         )
+    }
+
+    /// Logical IDs of every app currently categorized as `.reward`.
+    /// Used to filter stale `linkedLearningApps` entries — see `checkLearningGoal`.
+    private func currentRewardLogicalIDs() -> Set<String> {
+        guard let service = screenTimeService else { return [] }
+        var ids: Set<String> = []
+        for (token, category) in service.categoryAssignments where category == .reward {
+            if let logicalID = service.getLogicalID(for: token) {
+                ids.insert(logicalID)
+            }
+        }
+        return ids
     }
 
     private func getTodayUsageMinutes(for logicalID: String, displayName: String? = nil) -> Int {

@@ -504,7 +504,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     // 2026-05-06 revert: removed the May 2 `pool > 0 → SHIELDED_RACE_BYPASS`
                     // branch. Pool-only carry-forward no longer unshields, so the original
                     // strict !goalMet → block rule is correct.
-                    let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+                    let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
+                    let goalMet = checkGoalMet(goalConfig: goalConfig, rewardAppIDs: rewardAppIDs, defaults: defaults)
                     if !goalMet {
                         debugLog("SKIP_SHIELDED_RACE appID=\(appID.prefix(8))... goal NOT met — blocking (race-window backstop)", defaults: defaults)
                         Self.logger.error("SKIP_SHIELDED_RACE app=\(appID.prefix(8))... goalMet=false — BLOCKING")
@@ -1208,6 +1209,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
+        let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
+
         for goalConfig in configs.goalConfigs {
             let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
 
@@ -1233,7 +1236,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // unshielded on pool-only carry-forward, which let kids skip today's learning when
             // they had Time Bank credit. Source-of-truth invariant — keep aligned with
             // BlockingCoordinator.evaluateBlockingState().
-            let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            let goalMet = checkGoalMet(goalConfig: goalConfig, rewardAppIDs: rewardAppIDs, defaults: defaults)
             if !goalMet {
                 debugLog("SHIELD_CHECK: \(shortID) pool=\(pool)min but today's goal NOT met — keeping shield", defaults: defaults)
                 continue
@@ -1256,7 +1259,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // Defensive guard: with goalMet=true, todayEarned should be > 0 unless
                 // a linked goal has minutesRequired=0 (atypical config). Skip the
                 // "Goal Complete!" fanfare in that edge case.
-                let todayEarned = computeTodayEarnedForGoal(goalConfig, defaults: defaults)
+                let todayEarned = computeTodayEarnedForGoal(goalConfig, rewardAppIDs: rewardAppIDs, defaults: defaults)
                 if todayEarned > 0 {
                     scheduleGoalCompletedNotification(rewardMinutes: todayEarned, rewardAppID: goalConfig.rewardAppLogicalID, defaults: defaults)
                 }
@@ -1267,19 +1270,40 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
     }
 
-    /// Check if a reward app's learning goal is met
-    private nonisolated func checkGoalMet(goalConfig: ExtensionGoalConfigMinimal, defaults: UserDefaults) -> Bool {
+    /// Check if a reward app's learning goal is met.
+    ///
+    /// `rewardAppIDs` (set of all reward-app logicalIDs from the configs) is used to filter
+    /// stale entries: if a linkedLearningApp's logicalID is itself a reward app — usually
+    /// because the parent flipped its category and old `linkedLearningApps` references
+    /// weren't scrubbed — the entry is ignored. Reward-app *usage* must never count as
+    /// learning toward another reward's goal, otherwise playing the reward app generates
+    /// its own credit (pool grows during play, kid plays forever). Mirrors the main-app
+    /// filter in `BlockingCoordinator.checkLearningGoal`.
+    private nonisolated func checkGoalMet(
+        goalConfig: ExtensionGoalConfigMinimal,
+        rewardAppIDs: Set<String>,
+        defaults: UserDefaults
+    ) -> Bool {
         let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
-        debugLog("GOAL_CHECK: \(shortID) mode=\(goalConfig.unlockMode) linkedApps=\(goalConfig.linkedLearningApps.count)", defaults: defaults)
 
-        if goalConfig.linkedLearningApps.isEmpty {
-            debugLog("GOAL_CHECK: ⚠️ \(shortID) has NO linked learning apps - goal cannot be met", defaults: defaults)
+        let validLinked = goalConfig.linkedLearningApps.filter { linked in
+            if rewardAppIDs.contains(linked.learningAppLogicalID) {
+                debugLog("GOAL_CHECK: \(shortID) skipping stale linked \(String(linked.learningAppLogicalID.prefix(12)))... (it's a reward app)", defaults: defaults)
+                return false
+            }
+            return true
+        }
+
+        debugLog("GOAL_CHECK: \(shortID) mode=\(goalConfig.unlockMode) linkedApps=\(validLinked.count)", defaults: defaults)
+
+        if validLinked.isEmpty {
+            debugLog("GOAL_CHECK: ⚠️ \(shortID) has NO valid linked learning apps - goal cannot be met", defaults: defaults)
             return false
         }
 
         switch goalConfig.unlockMode {
         case "any":
-            for linked in goalConfig.linkedLearningApps {
+            for linked in validLinked {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
@@ -1294,7 +1318,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
 
         case "all":
-            for linked in goalConfig.linkedLearningApps {
+            for linked in validLinked {
                 let usageKey = "usage_\(linked.learningAppLogicalID)_today"
                 let usageSeconds = defaults.integer(forKey: usageKey)
                 let usageMinutes = usageSeconds / 60
@@ -1402,6 +1426,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Pool is the same across all reward apps in this child's config — compute once.
         let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
+        let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
 
         for goalConfig in configs.goalConfigs {
             // Get reward app usage (today)
@@ -1508,7 +1533,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // learningGoal reason regardless of pool. Restores pre-Apr-26 behavior; pool-only
             // carry-forward unshield was rolled back because kids skipped today's learning when
             // they had bank credit. Mirrors BlockingCoordinator.evaluateBlockingState gate.
-            let goalMet = checkGoalMet(goalConfig: goalConfig, defaults: defaults)
+            let goalMet = checkGoalMet(goalConfig: goalConfig, rewardAppIDs: rewardAppIDs, defaults: defaults)
             if !goalMet {
                 guard let token = try? PropertyListDecoder().decode(
                     ApplicationToken.self,
@@ -1624,6 +1649,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     ) -> Int {
         let historical = defaults.integer(forKey: "bank_historical_remaining_minutes")
 
+        // Defensive filter: a learning entry whose logicalID is also a reward app is a stale
+        // reference (typically left over from a learning→reward category flip that didn't
+        // scrub `linkedLearningApps`). Counting reward usage as learning lets the kid grow
+        // the pool by playing the reward — see May 6, 2026 device repro on YouTube +
+        // Mini Motorways. Mirrors `BlockingCoordinator.checkLearningGoal`.
+        let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
+
         // Today's earned: iterate UNIQUE learning apps across all goal configs.
         // A learning app may link to multiple reward apps with different
         // thresholds/ratios — match `AppUsageViewModel.totalEarnedMinutes` (line 156):
@@ -1632,6 +1664,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         var todayEarned = 0
         for goalConfig in configs.goalConfigs {
             for linked in goalConfig.linkedLearningApps {
+                guard !rewardAppIDs.contains(linked.learningAppLogicalID) else { continue }
                 guard !seenLearningIDs.contains(linked.learningAppLogicalID) else { continue }
                 seenLearningIDs.insert(linked.learningAppLogicalID)
 
@@ -1668,10 +1701,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// unshields where this goal earned nothing today must stay silent.
     private nonisolated func computeTodayEarnedForGoal(
         _ goalConfig: ExtensionGoalConfigMinimal,
+        rewardAppIDs: Set<String>,
         defaults: UserDefaults
     ) -> Int {
         var earned = 0
         for linked in goalConfig.linkedLearningApps {
+            // Same defensive filter as computeEffectivePoolBalance.
+            guard !rewardAppIDs.contains(linked.learningAppLogicalID) else { continue }
             let usageSeconds = defaults.integer(
                 forKey: "usage_\(linked.learningAppLogicalID)_today")
             let usageMinutes = usageSeconds / 60
