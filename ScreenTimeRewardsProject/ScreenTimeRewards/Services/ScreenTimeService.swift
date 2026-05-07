@@ -723,6 +723,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         self.categoryAssignments = categoryAssignments
         self.rewardPointsAssignments = rewardPoints
 
+        // Strip stale linkedLearningApps references that point at apps now categorized
+        // as .reward — see scrubStaleLinkedLearningReferences().
+        scrubStaleLinkedLearningReferences()
+
         #if DEBUG
         print("[ScreenTimeService] Configuring monitoring with \(selection.applications.count) apps, \(categoryAssignments.count) categories, \(rewardPoints.count) reward points")
         #endif
@@ -4402,6 +4406,26 @@ func configureWithTestApplications() {
 
 // MARK: - CloudKit Integration Helpers
 extension ScreenTimeService {
+    /// Strip stale `linkedLearningApps` entries from every schedule whose reference points at an
+    /// app now categorized as `.reward`. Called after any category mutation to keep schedule
+    /// data consistent with current assignments.
+    ///
+    /// Background: a learning→reward flip (e.g. parent reclassifies YouTube) leaves YouTube's
+    /// logicalID dangling in any *other* reward app's `linkedLearningApps`. Without scrubbing,
+    /// the runtime defensive filter (May 6, 2026) hides the symptom but the UI still shows
+    /// "Complete Goal: use YouTube for 15 min" as a requirement that can never be satisfied.
+    /// See `docs/CATEGORY_FLIP_BANK_LOSS.md` and `docs/SMART_THRESHOLD_FILTERING.md`
+    /// "May 6 follow-up — Stale linkedLearningApps reference filter".
+    func scrubStaleLinkedLearningReferences() {
+        var rewardLogicalIDs: Set<String> = []
+        for (token, category) in categoryAssignments where category == .reward {
+            if let logicalID = getLogicalID(for: token) {
+                rewardLogicalIDs.insert(logicalID)
+            }
+        }
+        AppScheduleService.shared.scrubLinkedReferences(rewardAppLogicalIDs: rewardLogicalIDs)
+    }
+
     /// Assign a category to an application token
     /// This method provides a way for external code to modify category assignments
     func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
@@ -4412,6 +4436,13 @@ extension ScreenTimeService {
         let appName = getDisplayName(for: token) ?? "Unknown App"
         print("[ScreenTimeService] Assigned category \(category.rawValue) to \(appName)")
         #endif
+
+        // Strip stale linkedLearningApps references — only matters when the new category
+        // is .reward (a learning→reward flip is what creates stale refs), but the helper
+        // is a no-op when there's nothing to clean.
+        if category == .reward {
+            scrubStaleLinkedLearningReferences()
+        }
 
         // Sync goal configs to extension when reward apps are assigned
         // This ensures the extension can check learning goals when usage is recorded

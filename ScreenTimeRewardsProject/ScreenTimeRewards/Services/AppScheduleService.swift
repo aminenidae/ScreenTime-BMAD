@@ -189,6 +189,59 @@ class AppScheduleService: ObservableObject {
         }
     }
 
+    /// Strip stale `linkedLearningApps` entries that point at apps now categorized as `.reward`.
+    ///
+    /// Walks every schedule and drops linked entries whose logicalID is in `rewardAppLogicalIDs`.
+    /// Persists + re-syncs to the extension only if any schedule actually changed.
+    ///
+    /// Why: a learning↔reward category flip leaves stale references in *other* reward apps'
+    /// `linkedLearningApps` lists. The extension and main-app shield calculations now defensively
+    /// filter such references at runtime (May 6, 2026 — see `docs/SMART_THRESHOLD_FILTERING.md`),
+    /// but this scrub is the durable fix: clean the data so the UI ("Complete Goal: use YouTube
+    /// for 15 min") doesn't show impossible requirements either.
+    ///
+    /// Call this after any category mutation — see `ScreenTimeService.scrubStaleLinkedLearningReferences()`.
+    func scrubLinkedReferences(rewardAppLogicalIDs: Set<String>) {
+        guard !rewardAppLogicalIDs.isEmpty else { return }
+
+        var didMutate = false
+        var mutatedConfigs: [AppScheduleConfiguration] = []
+
+        for (scheduleID, schedule) in schedules {
+            // Don't touch a reward app's linked-learning list if the only stale entry IS itself —
+            // a self-link is a separate UX bug, not in scope for this scrub.
+            let filtered = schedule.linkedLearningApps.filter { linked in
+                !rewardAppLogicalIDs.contains(linked.logicalID) || linked.logicalID == scheduleID
+            }
+            guard filtered.count < schedule.linkedLearningApps.count else { continue }
+
+            var updated = schedule
+            updated.linkedLearningApps = filtered
+            schedules[scheduleID] = updated
+            mutatedConfigs.append(updated)
+            didMutate = true
+
+            #if DEBUG
+            let removed = schedule.linkedLearningApps.count - filtered.count
+            print("[AppScheduleService] 🧹 Scrubbed \(removed) stale linked learning ref(s) from schedule \(scheduleID.prefix(12))...")
+            #endif
+        }
+
+        guard didMutate else { return }
+
+        do { try persistSchedules() } catch {
+            print("[AppScheduleService] ⚠️ Failed to persist after scrub: \(error)")
+        }
+        for config in mutatedConfigs {
+            saveScheduleForExtension(config)
+        }
+
+        // Re-sync goal configs so the extension picks up the cleaned linkedLearningApps.
+        Task { @MainActor in
+            ScreenTimeService.shared.syncGoalConfigsToExtension()
+        }
+    }
+
     /// Create default configurations for a set of app IDs
     func createDefaultConfigs(for logicalIDs: Set<String>, type: AppType) -> [String: AppScheduleConfiguration] {
         var configs: [String: AppScheduleConfiguration] = [:]

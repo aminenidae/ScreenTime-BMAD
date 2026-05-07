@@ -2579,3 +2579,17 @@ This was almost certainly a learning→reward category flip on YouTube that didn
 **Validation target.** With the filter active, the May 5 device repro should produce: `pool=0min` after YouTube hits the daily exhaustion of earned credit, `POOL_EMPTY_BLOCK` fires, YouTube re-shields with `rewardTimeExpired` reason. No infinite-play loop via the cross-categorized linked app. Symptom of regression: `pool` log values don't decrease (or increase) as the kid plays a single reward app heavily.
 
 **Why this isn't a substitute for the data fix.** The defensive filter prevents the worst-case (infinite play), but the underlying data is still wrong — Mini Motorways' "Complete Goal" UI may still show YouTube as a learning requirement that can't be satisfied. The category-flip cleanup in `CategoryAssignmentView` / `AppScheduleService` is the durable fix; this filter is the runtime safety net.
+
+#### May 6, 2026 — durable data fix: scrub stale linkedLearningApps on category change
+
+Branch `fix/scrub-stale-linked-learning-refs` (off `fix/revert-pool-only-unshield`).
+
+Adds:
+
+- `AppScheduleService.scrubLinkedReferences(rewardAppLogicalIDs:)` — walks every schedule, drops `linkedLearningApps` entries whose `logicalID` is in the passed-in reward set, persists + re-syncs to extension only when something changed. Self-link safeguard: doesn't touch a reward app's own self-reference (separate UX bug, out of scope).
+- `ScreenTimeService.scrubStaleLinkedLearningReferences()` — collects logicalIDs of every `.reward`-categorized token from `categoryAssignments` and forwards to the AppScheduleService method.
+- Call sites: `ScreenTimeService.configureMonitoring(...)` (immediately after `self.categoryAssignments = categoryAssignments`) and `ScreenTimeService.assignCategory(_:to:)` (after the per-token mutation, gated on `category == .reward`).
+
+**Result:** parents who flip an app from learning to reward will not see stale "Complete Goal: use YouTube for 15 min" requirements lingering on other reward apps' shield screens. The runtime defensive filter (above) remains as a belt-and-suspenders safety net for any path that doesn't go through these mutation sites (e.g. CloudKit-driven schedule edits — see follow-up below if/when that surfaces).
+
+**Out of scope:** CloudKit `ChildConfigCommandProcessor` and `CloudKitSyncService` payload-application paths that overwrite `schedules[...]` directly. If a stale linkedLearningApps reference comes in via CloudKit, the runtime defensive filter still hides the symptom but the data isn't scrubbed until the next on-device category change. Flag for later if observed.
