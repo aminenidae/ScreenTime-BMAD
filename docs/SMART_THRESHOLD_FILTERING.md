@@ -2593,3 +2593,32 @@ Adds:
 **Result:** parents who flip an app from learning to reward will not see stale "Complete Goal: use YouTube for 15 min" requirements lingering on other reward apps' shield screens. The runtime defensive filter (above) remains as a belt-and-suspenders safety net for any path that doesn't go through these mutation sites (e.g. CloudKit-driven schedule edits — see follow-up below if/when that surfaces).
 
 **Out of scope:** CloudKit `ChildConfigCommandProcessor` and `CloudKitSyncService` payload-application paths that overwrite `schedules[...]` directly. If a stale linkedLearningApps reference comes in via CloudKit, the runtime defensive filter still hides the symptom but the data isn't scrubbed until the next on-device category change. Flag for later if observed.
+
+### May 7, 2026 — iOS-Claimed Cumulative Floor (LASTTHRESH_HOLD blackout fix)
+
+**Status:** SHIPPED on `fix/scrub-stale-linked-learning-refs`.
+
+**Symptom (May 6 device test, `ext-log-2026-05-06.log` 23:38 → 23:40).** Pool drained cleanly from 39 → 2 over 36 minutes (`23:00:41 pool=37` → `23:38:47 pool=2`), then froze. Every subsequent threshold event hit `LASTTHRESH_HOLD` with `credited=0` ("stale catch-up, raw=480..2880s > perEventCap=60s"). `usage_C6DA269B_today` stuck at `7711s` (~128 min) while iOS fired thresholds for cumulative=130–187 min. Pool stuck at `max(0, 110 + 20 − 128) = 2`. `POOL_EMPTY_BLOCK` never fired — kid kept playing past the 0-pool point. Shield only re-applied when the parent foregrounded the main app, which triggered `BlockingCoordinator.evaluateBlockingState` to compute pool against fresher data.
+
+**Root cause.** The Apr 29 lastThreshold hold-on-clamp (`docs/SMART_THRESHOLD_FILTERING.md` "Apr 30, 2026 — Stale Catch-Up lastThreshold Poisoning") correctly prevents inflation when iOS fires a stale catch-up burst, by holding `lastThreshold` and crediting at most `perEventCap=60s`. Side effect: when the kid plays continuously through several extension-kill-and-rebuild cycles (5 kills observed in 47 min on May 6), iOS' internal cumulative drifts ahead of `usage_<id>_today`. Subsequent rebuilds re-fire those thresholds as catch-ups, all held at credited=0. Shield decisions read `usage_<id>_today`, see no progress, never fire `POOL_EMPTY_BLOCK` or `dailyLimitReached`.
+
+**Fix (Option 4 from the May 6 mitigation discussion).** Track iOS' threshold-firing floor as a separate signal:
+
+- New App Group key `ios_claimed_today_<id>` (Int seconds) — written by `setUsageToThreshold` immediately after the filter chain (Filter 0 SKIP_MIDNIGHT, Filter 1 SKIP_INVALID, Filter 2 SKIP_SHIELDED, Filter 2.5 SKIP_PIN_REPLAY, Filter 3 SKIP_REGRESSION) passes. Updated to `max(prior, thresholdSeconds)` on every legitimate event, regardless of how much the wall-clock cap or LASTTHRESH_HOLD ultimately credits.
+- Cleared in `resetAllDailyCounters()` alongside `usage_<id>_today` and `ext_usage_*` keys.
+- `computeEffectivePoolBalance` (extension): `todayUsed += max(usage_<id>_today, ios_claimed_today_<id>) / 60`. Same value for both reward apps in the pool.
+- `checkAndBlockIfRewardTimeExhausted` (extension) Check 1 daily-limit: `usageMinutes = max(credited, claimed) / 60`. Daily-limit shielding now triggers off iOS' floor too.
+- `BlockingCoordinator.checkAvailableMinutes` (main app): mirror the same `max(credited, claimed)` over reward apps. Reads `ios_claimed_today_<id>` from App Group UserDefaults directly (separate from `UsagePersistence.todaySeconds`).
+- `BlockingCoordinator.checkDailyLimit` (main app): same `max` for `usedMinutes`.
+
+**Crediting math is unchanged.** `usage_<id>_today`, `ext_usage_<id>_today`, `lastThreshold`, perEventCap, wallClockCap, LASTTHRESH_HOLD all behave identically. Only the *shield decision* layer reads the iOS-claimed floor. Nothing in the bank/earned/streak math is affected.
+
+**Trade-off.** If iOS fires a phantom min.500 threshold (untrue cumulative), `ios_claimed_today_<id>` jumps to 30000s. Pool drops to 0, shield slams up — even though the kid hasn't actually played. False-positive shielding is recoverable: the kid can complete more learning to clear it, or the parent can manually unshield. False-positive *crediting* (the symmetric error in the existing wall-clock-cap defense) would silently inflate the bank. The asymmetry is intentional: shields are the safer side to err on.
+
+**Pool-aware shield invariant preserved.** Extension `computeEffectivePoolBalance` and main-app `checkAvailableMinutes` continue to produce byte-equivalent values — both now read the same App Group key with the same `max(credited, claimed)` rule.
+
+**Validation target.** A heavy reward-app kid playing through repeated extension kills + rebuilds should see the shield re-apply within ~1 minute of pool reaching 0, without needing a main-app launch. Symptom of regression: `usage_<id>_today` plateaus while iOS log shows higher thresholds firing AND shield doesn't apply.
+
+**Files touched:**
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `setUsageToThreshold` (write), `resetAllDailyCounters` (clear), `computeEffectivePoolBalance` (read+max), `checkAndBlockIfRewardTimeExhausted` Check 1 (read+max).
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/BlockingCoordinator.swift` — `checkAvailableMinutes` (read+max), `checkDailyLimit` (read+max).

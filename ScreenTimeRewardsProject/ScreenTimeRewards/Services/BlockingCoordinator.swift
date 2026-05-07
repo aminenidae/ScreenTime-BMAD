@@ -790,8 +790,13 @@ class BlockingCoordinator: ObservableObject {
             return DailyLimitCheckResult(isOverLimit: false, limitMinutes: nil, usedMinutes: nil)
         }
 
-        // Get today's usage from App Group
-        let usedMinutes = getTodayUsageMinutes(for: logicalID)
+        // Get today's usage. Take max with iOS-claimed cumulative so the daily-limit
+        // shield reflects iOS' threshold-firing floor when LASTTHRESH_HOLD has stalled
+        // crediting. Mirrors the extension's `checkAndBlockIfRewardTimeExhausted` Check 1.
+        let creditedMinutes = getTodayUsageMinutes(for: logicalID)
+        let claimedSeconds = UserDefaults(suiteName: appGroupID)?
+            .integer(forKey: "ios_claimed_today_\(logicalID)") ?? 0
+        let usedMinutes = max(creditedMinutes, claimedSeconds / 60)
 
         if usedMinutes >= todayLimit {
             return DailyLimitCheckResult(
@@ -1063,10 +1068,21 @@ class BlockingCoordinator: ObservableObject {
         // through reward usage stays unblocked because `cumulativeAvailable` reads as the
         // full earned + historical, and `syncAllRewardApps` undoes the extension's
         // `POOL_EMPTY_BLOCK`. Mirrors `computeEffectivePoolBalance()` in the extension.
+        //
+        // 2026-05-07: also take max with `ios_claimed_today_<id>` written by the extension's
+        // `setUsageToThreshold`, so the shield reads iOS' threshold-firing floor when
+        // LASTTHRESH_HOLD has stalled crediting (May 6 stuck-pool repro). Crediting math
+        // (UsagePersistence.todaySeconds) is unaffected.
+        let extDefaults = UserDefaults(suiteName: appGroupID)
         var todayRewardUsedSeconds = 0
         for logicalID in rewardIDs {
-            if let app = service.usagePersistence.app(for: logicalID) {
-                todayRewardUsedSeconds += app.todaySeconds
+            let credited = service.usagePersistence.app(for: logicalID)?.todaySeconds ?? 0
+            let claimed = extDefaults?.integer(forKey: "ios_claimed_today_\(logicalID)") ?? 0
+            todayRewardUsedSeconds += max(credited, claimed)
+            if claimed > credited {
+                #if DEBUG
+                print("[BlockingCoordinator] 🛡️ ios_claimed_today_\(logicalID.prefix(12)) (\(claimed)s) > credited (\(credited)s) — using iOS floor for shield")
+                #endif
             }
         }
         let todayRewardUsed = todayRewardUsedSeconds / 60
