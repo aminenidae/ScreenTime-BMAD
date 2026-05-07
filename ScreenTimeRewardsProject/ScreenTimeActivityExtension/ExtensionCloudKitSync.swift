@@ -155,7 +155,7 @@ final class ExtensionCloudKitSync {
 
         // Collect data for each app
         for appID in appIDs {
-            let todaySeconds = defaults.integer(forKey: "ext_usage_\(appID)_today")
+            let todaySeconds = defaults.integer(forKey: "usage_\(appID)_today")
             let totalSeconds = defaults.integer(forKey: "ext_usage_\(appID)_total")
 
             // Collect hourly data

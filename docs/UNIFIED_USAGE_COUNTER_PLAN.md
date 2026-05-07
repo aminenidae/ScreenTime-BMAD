@@ -35,7 +35,7 @@ These three share a docstring claim of "byte-equivalent" but the inputs they con
 |---|---|---|---|
 | 1 — Revert `ios_claimed_today_<id>` | `refactor/unified-usage-counter` | `0eea57a` | SHIPPED |
 | 2 — Single `BankCalculator` shared function | `refactor/unified-usage-counter` | (this commit) | SHIPPED |
-| 3 — Drop `ext_usage_<id>_today` dual-write | TBD | — | Pending |
+| 3 — Drop `ext_usage_<id>_today` dual-write | `refactor/unified-usage-counter` | (this commit) | SHIPPED |
 | 4 — Make `getHistoricalRemainingMinutes` deterministic | TBD | — | Pending (touches WIP) |
 | 5 — `PersistedApp.todaySeconds` as live read | TBD | — | Optional |
 

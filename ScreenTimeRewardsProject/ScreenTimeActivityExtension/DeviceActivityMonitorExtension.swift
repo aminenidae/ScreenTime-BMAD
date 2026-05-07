@@ -198,11 +198,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 midnightDiagnosticLog("MIDNIGHT_START activity=\(activity.rawValue) trackedApps=\(diagTrackedIDs.count)", defaults: defaults)
                 Self.logger.notice("MIDNIGHT_START trackedApps=\(diagTrackedIDs.count)")
                 for diagAppID in diagTrackedIDs {
-                    let extToday = defaults.integer(forKey: "ext_usage_\(diagAppID)_today")
                     let extDate = defaults.string(forKey: "ext_usage_\(diagAppID)_date") ?? "nil"
                     let lastThresh = defaults.integer(forKey: "usage_\(diagAppID)_lastThreshold")
                     let usageToday = defaults.integer(forKey: "usage_\(diagAppID)_today")
-                    midnightDiagnosticLog("  APP_STATE \(diagAppID.prefix(8))... ext_today=\(extToday)s ext_date=\(extDate) lastThresh=\(lastThresh)s usage_today=\(usageToday)s", defaults: defaults)
+                    midnightDiagnosticLog("  APP_STATE \(diagAppID.prefix(8))... ext_date=\(extDate) lastThresh=\(lastThresh)s usage_today=\(usageToday)s", defaults: defaults)
                 }
 
                 // Midnight PENDING_SET is deferred — set below only if extension rebuild fails
@@ -593,9 +592,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(thresholdSeconds, forKey: lastThresholdKey)
             defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-            // ext_ keys
+            // ext_ keys (today's seconds canonical lives in `usage_<id>_today` above —
+            // ext_usage_<id>_today is no longer written. Step 3 of the unified-counter
+            // refactor: see docs/UNIFIED_USAGE_COUNTER_PLAN.md.)
             debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... NEW_DAY today=\(initialUsage) total=\(initialUsage) date=\(dateString) hour=\(hour)", defaults: defaults)
-            defaults.set(initialUsage, forKey: "ext_usage_\(appID)_today")
             defaults.set(initialUsage, forKey: "ext_usage_\(appID)_total")
             defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
             defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
@@ -737,15 +737,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(currentTotal + delta, forKey: totalKey)
         defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
 
-        // ext_ keys (source of truth)
-        let currentExtToday = defaults.integer(forKey: "ext_usage_\(appID)_today")
+        // ext_ keys (today's seconds canonical lives in `usage_<id>_today` above —
+        // ext_usage_<id>_today is no longer written. Step 3 of the unified-counter
+        // refactor: see docs/UNIFIED_USAGE_COUNTER_PLAN.md.)
         let currentExtTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
-        let currentExtDate = defaults.string(forKey: "ext_usage_\(appID)_date")
 
-        let newExtToday = (currentExtDate == dateString) ? currentExtToday + delta : delta
-
-        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newExtToday) total=\(currentExtTotal + delta) hour=\(hour)", defaults: defaults)
-        defaults.set(newExtToday, forKey: "ext_usage_\(appID)_today")
+        debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... INCREMENT today=\(newToday) total=\(currentExtTotal + delta) hour=\(hour)", defaults: defaults)
         defaults.set(currentExtTotal + delta, forKey: "ext_usage_\(appID)_total")
         defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
         defaults.set(hour, forKey: "ext_usage_\(appID)_hour")
@@ -992,12 +989,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 continue
             }
 
-            // Compute current usage for this app (today only)
+            // Compute current usage for this app (today only). Reads canonical
+            // `usage_<id>_today`; freshness gated by `ext_usage_<id>_date` matching today.
             let extDate = defaults.string(forKey: "ext_usage_\(logicalID)_date")
-            let extTodaySeconds = (extDate == todayDateString)
-                ? defaults.integer(forKey: "ext_usage_\(logicalID)_today")
+            let todaySeconds = (extDate == todayDateString)
+                ? defaults.integer(forKey: "usage_\(logicalID)_today")
                 : 0
-            let currentMin = extTodaySeconds / 60
+            let currentMin = todaySeconds / 60
 
             let category = defaults.string(forKey: "map_\(logicalID)_category") ?? "Learning"
 

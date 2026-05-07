@@ -1284,9 +1284,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }()
 
         for (logicalID, var usage) in appUsages {
-            // Read from PROTECTED ext_ keys (SET semantics - source of truth)
-            // These keys use max(current, threshold) logic, preventing phantom inflation
-            let extTodayKey = "ext_usage_\(logicalID)_today"
+            // Today's seconds reads the canonical `usage_<id>_today` key (Step 3 of the
+            // unified-counter refactor — see docs/UNIFIED_USAGE_COUNTER_PLAN.md). The
+            // `ext_usage_<id>_total` and `ext_usage_<id>_date` keys are still written by
+            // the extension and used here for total-time tracking and the today/yesterday
+            // freshness gate.
+            let extTodayKey = "usage_\(logicalID)_today"
             let extTotalKey = "ext_usage_\(logicalID)_total"
             let extDateKey = "ext_usage_\(logicalID)_date"
 
@@ -2430,11 +2433,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 guard let app = event.applications.first,
                       seenLogicalIDs.insert(app.logicalID).inserted else { continue }
                 let extDate = sharedDefaults.string(forKey: "ext_usage_\(app.logicalID)_date")
-                let extTodaySeconds = sharedDefaults.integer(forKey: "ext_usage_\(app.logicalID)_today")
+                let extTodaySeconds = sharedDefaults.integer(forKey: "usage_\(app.logicalID)_today")
                 if extDate == todayDateString {
                     appCurrentMinutes[app.logicalID] = extTodaySeconds / 60
                     lifecycleLog("SLIDING_WINDOW_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) → \(extTodaySeconds / 60) min")
-                    midnightDiagnosticLog("SCHEDULE_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") extTodaySeconds=\(extTodaySeconds) currentMinutes=\(extTodaySeconds / 60)")
+                    midnightDiagnosticLog("SCHEDULE_READ \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") usage_today=\(extTodaySeconds) currentMinutes=\(extTodaySeconds / 60)")
                 } else {
                     lifecycleLog("SLIDING_WINDOW_DATE_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → defaulting to 0 min")
                     midnightDiagnosticLog("SCHEDULE_READ_MISMATCH \(app.logicalID.prefix(8))... extDate=\(extDate ?? "nil") today=\(todayDateString) extTodaySeconds=\(extTodaySeconds) → 0min")
@@ -4565,10 +4568,14 @@ extension ScreenTimeService {
         let allKeys = defaults.dictionaryRepresentation().keys
         var orphanedAppIDs = Set<String>()
 
-        // Find all app IDs by looking for ext_usage_*_today keys
-        for key in allKeys where key.hasPrefix("ext_usage_") && key.hasSuffix("_today") {
-            // Extract appID from "ext_usage_{appID}_today"
-            let prefixLen = "ext_usage_".count
+        // Find all app IDs by looking for usage_*_today keys (canonical key, written by
+        // the extension on every threshold event). Step 3 of unified-counter refactor:
+        // ext_usage_<id>_today is no longer written, so this scan switched to the
+        // canonical key. Apps with stale legacy `ext_usage_*_today` keys still get
+        // cleaned up below via the per-orphan key removal.
+        for key in allKeys where key.hasPrefix("usage_") && key.hasSuffix("_today") && !key.hasPrefix("ext_usage_") {
+            // Extract appID from "usage_{appID}_today"
+            let prefixLen = "usage_".count
             let suffixLen = "_today".count
             guard key.count > prefixLen + suffixLen else { continue }
 
@@ -4972,7 +4979,7 @@ extension ScreenTimeService {
             return nil
         }
 
-        let todaySeconds = sharedDefaults.integer(forKey: "ext_usage_\(appID)_today")
+        let todaySeconds = sharedDefaults.integer(forKey: "usage_\(appID)_today")
         let totalSeconds = sharedDefaults.integer(forKey: "ext_usage_\(appID)_total")
         let date = sharedDefaults.string(forKey: "ext_usage_\(appID)_date")
         let hour = sharedDefaults.integer(forKey: "ext_usage_\(appID)_hour")
