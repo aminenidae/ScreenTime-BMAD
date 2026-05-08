@@ -113,3 +113,34 @@ These three share a docstring claim of "byte-equivalent" but the inputs they con
 
 - Pool-aware shield invariant memory (`project_pool_aware_shield_invariant.md`) needs to be updated after each step to reflect the current unified architecture.
 - Save the architectural decision so future sessions don't re-introduce parallel counters.
+
+## Validation log
+
+### 2026-05-07 evening — Steps 1+2+3 device test
+
+User-reported: "Overall, conclusive and positive."
+
+Test sequence on the device:
+1. Build installed with Steps 1+2+3.
+2. Pre-test state: Time Bank = 0, reward apps shielded (carried over from prior test).
+3. Learning session: Facebook (BB131A01) for 3 min 39 s. Bank moved 0 → 15.
+4. Reward drain: YouTube (C6DA269B) until shield re-applied. POOL_EMPTY_BLOCK fired autonomously at 18:54:23 with pool=0. Last-session usage shown to user as 15 min.
+5. Bank back at 0, shield up.
+
+Internal consistency confirmed:
+- Dashboard "Time Bank: N" matched the value the shield was deciding from at every observed moment.
+- No oscillation: shield stayed applied through main-app foreground/background transitions when bank=0.
+- 15 min earned from learning = 15 min drained by reward = bank back to 0. No leak, no double-count, no drift.
+
+User observation worth recording for future debugging (NOT a bug):
+- Wall-clock-realistic learning of 3 min 39 s registered as +15 bank minutes, not the +12 (3 × 4) the user mentally expected. Two compounding rounding effects:
+  - **Integer-minute floor in `BankCalculator.computeBank`:** today's per-app seconds are converted to minutes via `seconds / 60` integer division. Facebook went from 937 s (15.616 min, integer 15) to 1156 s (19.266 min, integer 19) — a 4-integer-minute jump even though wall-clock was 3 min 39 s. At the 1:4 ratio that's +16 earned, not +12.
+  - **Floor-at-zero hiding a deficit:** before the learning session, the bank's true value was −1 minute, displayed as 0 (because pool is clamped at `max(0, …)`). Adding +16 yielded +15 visible. The "absorbed" minute was a pre-existing floor effect, not new behavior.
+- Symmetric on the YouTube drain side: the system credited a wall-clock-elapsed `first-event-after-unshield` chunk (303 s in one event) that captured real play between unshield and the first registered threshold event, plus integer-minute rounding through subsequent +60-second records. Total 924 s drained corresponded to ~15 min foreground time on YouTube.
+
+If second-level fairness ever becomes a UX concern: switch `BankCalculator.computeBank` to fractional-minute math (`Double(seconds) / 60.0` instead of `seconds / 60`). Small change, requires propagating the type through callers' display code. Not currently warranted — the rounding is symmetric (sometimes pro-kid via floor, sometimes pro-parent via ceiling-on-the-way-in) and bounded at ≤59 s per session.
+
+### Unblocked next steps
+
+- **Step 4 — Make `getHistoricalRemainingMinutes` deterministic.** Touches the user's category-flip-protection WIP. Coordinate before merging.
+- **Step 5 — Optional live-read of `PersistedApp.todaySeconds`.** Defer until proven necessary.

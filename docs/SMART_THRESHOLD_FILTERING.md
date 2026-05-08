@@ -2639,3 +2639,29 @@ First post-`204ae82`-build midnight on a device that had been running the May 6 
 **Open questions to verify with subsequent test traffic:**
 - During a real LASTTHRESH_HOLD storm, does `ios_claimed_today_<id>` advance past the held `usage_<id>_today`, and does `POOL_EMPTY_BLOCK` fire autonomously?
 - If iOS phantom-fires a high threshold, how does the false-positive shield manifest in the kid's experience? (Recoverable by completing more learning, but worth a kid-facing UX note if it's common.)
+
+### May 7, 2026 evening — Unified usage counter (Steps 1+2+3) device test passed
+
+**Status:** SHIPPED on `refactor/unified-usage-counter`. Device-validated end-to-end. See `docs/UNIFIED_USAGE_COUNTER_PLAN.md` for the full plan + status table.
+
+The 3-step refactor collapsed four parallel "today's per-app seconds" counters and three independent bank-balance algorithms into a single canonical key (`usage_<id>_today`) and a single shared function (`Shared/BankCalculator.swift`). All three callers — extension shield, main-app shield, dashboard "Time Bank" copy — now agree by construction.
+
+**What changed (in commits `0eea57a`, `59850d1`, `e3042cc`):**
+- Step 1: removed `ios_claimed_today_<id>` parallel counter (Option 4 from May 7 morning). Trade-off accepted: May 6 LASTTHRESH_HOLD storm scenario reopened, to be addressed later by tightening credit math rather than introducing parallel state.
+- Step 2: extracted `BankCalculator.computeBank(...)` as a pure function in `ScreenTimeRewards/Shared/BankCalculator.swift`. Algorithm: lowest-threshold-per-unique-learning-app, ratio-multiplied earnings, summed reward usage, clamped at zero. All three callsites build inputs from their own data sources and call this single function.
+- Step 3: dropped the `ext_usage_<id>_today` dual-write. The other `ext_usage_<id>_*` keys (date, hour, timestamp, total, hourly buckets) still hold semantically distinct values and continue to be written. Legacy stale `ext_usage_<id>_today` keys clean up naturally via `resetAllDailyCounters` at midnight and `cleanupOrphanedExtensionKeys` on app removal.
+
+**Device test result (evening of 2026-05-07):**
+- Pre-test: Time Bank = 0, shield up. ✓
+- Learning session (Facebook 3 min 39 s real → +4 integer minutes via floor → ratio 1:4 → +16 earned, with previous −1 floor-absorbed deficit): bank rose 0 → 15. ✓ Working as designed.
+- Reward drain (YouTube): pool decremented 1/min, POOL_EMPTY_BLOCK at pool=0 fired autonomously, shield re-applied without main-app launch. ✓
+- No shield oscillation when main app foregrounded with bank=0. ✓
+- Internal consistency: 15 in = 15 out = bank back to 0. ✓
+
+**Known integer-minute rounding artifact (not a bug):**
+
+`BankCalculator.computeBank` does `seconds / 60` integer division — a session of `M min N sec` registers as `M+1` integer minutes if any threshold past minute `M+1` fires before the read. With ratios > 1, this rounds toward higher visible bank gain on the learning side (e.g. 3 min 39 s × 4 ratio = 16 visible bank, not 12) and toward higher visible spend on the reward side. Net effect across a balanced session is zero (15 in = 15 out), but per-session display can drift up to ~59 s × ratio. Symmetric. Documented for future debug sessions so this isn't chased as a leak. If precise second-level fairness ever matters, switch to fractional-minute math in `BankCalculator`; not warranted yet.
+
+**Architecture invariant going forward:**
+
+Any new code path that reads or computes "today's per-app usage" or "what's in the bank" MUST go through `usage_<id>_today` (App Group key) and `BankCalculator.computeBank(...)` respectively. Adding a parallel counter or a parallel formula re-introduces the May 7 shield-oscillation class of bug. See `project_pool_aware_shield_invariant.md`.
