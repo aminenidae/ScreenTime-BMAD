@@ -1,136 +1,121 @@
 import SwiftUI
 
-/// Animated horizontal progress bar showing reward time balance
-/// Displays available time with a filling bar (full = time available)
+/// Hero display for the child's spendable reward-time balance.
+///
+/// Earlier this component was a horizontal progress bar (hence the "Ring" name),
+/// but a balance has no fixed target — there's nothing to fill toward — so the
+/// bar communicated nothing. This version makes the number itself the hero,
+/// sitting on a soft halo. Low-balance state pulses the hero coral instead of
+/// the old separate stroke overlay.
 struct TimeBalanceRing: View {
     let availableMinutes: Int   // Cumulative available (rollover + today)
-    let todayEarned: Int        // Today's earned (for progress calculation)
+    let todayEarned: Int        // Today's earned (kept for API compatibility, no longer drives layout)
 
     @Environment(\.colorScheme) var colorScheme
-    @State private var animatedProgress: Double = 0
+    @State private var pulse: Bool = false
 
-    // Backward compatibility initializer
     init(availableMinutes: Int, todayEarned: Int) {
         self.availableMinutes = availableMinutes
         self.todayEarned = todayEarned
     }
 
-    // Legacy initializer for backward compatibility
+    /// Legacy initializer for backward compatibility
     init(earnedMinutes: Int, usedMinutes: Int) {
         self.availableMinutes = max(earnedMinutes - usedMinutes, 0)
         self.todayEarned = earnedMinutes
-    }
-
-    private var progress: Double {
-        // Use a 60-minute reference as "full" for meaningful progress display
-        let reference = max(todayEarned, 60)
-        guard reference > 0 else { return availableMinutes > 0 ? 1.0 : 0.0 }
-        return min(1.0, Double(availableMinutes) / Double(reference))
     }
 
     private var isLowBalance: Bool {
         availableMinutes > 0 && availableMinutes < 5
     }
 
-    /// Formats available time as "X h Y min" when >= 60 minutes, otherwise just the number
+    /// Formats available time as "Xh Ym" when >= 60 minutes, otherwise just the number.
     private var formattedAvailableTime: String {
         if availableMinutes >= 60 {
             let hours = availableMinutes / 60
             let mins = availableMinutes % 60
             if mins == 0 {
-                return "\(hours) h"
+                return "\(hours)h"
             }
-            return "\(hours) h \(mins) min"
+            return "\(hours)h \(mins)m"
         }
         return "\(availableMinutes)"
     }
 
-    /// Label changes based on whether we're showing hours or minutes
     private var timeLabel: String {
         availableMinutes >= 60 ? "AVAILABLE" : "MIN AVAILABLE"
     }
 
-    private var progressGradient: LinearGradient {
-        LinearGradient(
-            colors: isLowBalance
-                ? [AppTheme.playfulCoral, AppTheme.sunnyYellow]
-                : [AppTheme.vibrantTeal, AppTheme.sunnyYellow],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
+    /// Primary hero color — coral when low-balance to draw the eye, brand teal otherwise.
+    private var heroColor: Color {
+        isLowBalance
+            ? AppTheme.playfulCoral
+            : AppTheme.brandedText(for: colorScheme)
     }
 
-    /// Content color readable against BOTH the empty track and the filled gradient.
-    /// White used to be used here, but it disappears against the pale empty track when
-    /// the balance is 0 (or near-0). Brand dark-teal stays readable in both states.
-    private var contentColor: Color {
-        AppTheme.brandedText(for: colorScheme)
+    private var haloColor: Color {
+        isLowBalance ? AppTheme.playfulCoral : AppTheme.vibrantTeal
     }
 
     var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .leading) {
-                // Background track — bumped from 0.1 to 0.2 so it has visible
-                // definition behind the dark content when the balance is 0.
-                Capsule()
-                    .fill(AppTheme.vibrantTeal.opacity(0.2))
-
-                // Progress bar
-                Capsule()
-                    .fill(progressGradient)
-                    .frame(width: geometry.size.width * animatedProgress)
-                    .animation(.spring(response: 0.6, dampingFraction: 0.7), value: animatedProgress)
-
-                // Content overlay
-                HStack(spacing: 12) {
-                    // Game controller icon
-                    Image(systemName: "gamecontroller.fill")
-                        .font(.system(size: 28))
-                        .foregroundColor(contentColor)
-
-                    // Time display
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(formattedAvailableTime)
-                            .font(.system(size: 32, weight: .bold, design: .rounded))
-                            .foregroundColor(contentColor)
-                            .lineLimit(1)
-                            .minimumScaleFactor(0.7)
-                            .contentTransition(.numericText())
-                            .animation(.spring(response: 0.4), value: availableMinutes)
-
-                        Text(timeLabel)
-                            .font(.system(size: 11, weight: .semibold))
-                            .tracking(1)
-                            .foregroundColor(contentColor.opacity(0.9))
-                    }
-
-                    Spacer()
-                }
-                .padding(.horizontal, 20)
-            }
-        }
-        .frame(height: 80)
-        .overlay {
-            // Low balance pulse effect
-            if isLowBalance {
-                Capsule()
-                    .stroke(AppTheme.playfulCoral.opacity(0.5), lineWidth: 3)
-                    .scaleEffect(x: 1.02, y: 1.05)
-                    .opacity(0.5)
-                    .animation(
-                        .easeInOut(duration: 1.0).repeatForever(autoreverses: true),
-                        value: isLowBalance
+        ZStack {
+            // Soft circular halo behind the hero — adds visual character without
+            // implying "progress toward a goal" the way a bar does.
+            Circle()
+                .fill(
+                    RadialGradient(
+                        colors: [
+                            haloColor.opacity(colorScheme == .dark ? 0.32 : 0.20),
+                            haloColor.opacity(0.0)
+                        ],
+                        center: .center,
+                        startRadius: 8,
+                        endRadius: 120
                     )
+                )
+                .frame(width: 240, height: 240)
+
+            // Hero content
+            HStack(spacing: 18) {
+                Image(systemName: "gamecontroller.fill")
+                    .font(.system(size: 38, weight: .semibold))
+                    .foregroundColor(heroColor)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(formattedAvailableTime)
+                        .font(.system(size: 56, weight: .black, design: .rounded))
+                        .foregroundColor(heroColor)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.6)
+                        .contentTransition(.numericText())
+                        .animation(.spring(response: 0.4), value: availableMinutes)
+
+                    Text(timeLabel)
+                        .font(.system(size: 11, weight: .bold))
+                        .tracking(1.5)
+                        .foregroundColor(heroColor.opacity(0.75))
+                }
             }
+            .scaleEffect(pulse ? 1.04 : 1.0)
         }
+        .frame(maxWidth: .infinity)
+        .frame(height: 140)
         .onAppear {
-            withAnimation(.spring(response: 0.8, dampingFraction: 0.7).delay(0.2)) {
-                animatedProgress = progress
-            }
+            startPulseIfNeeded()
         }
-        .onChange(of: progress) { newValue in
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.7)) {
-                animatedProgress = newValue
+        .onChange(of: isLowBalance) { _ in
+            startPulseIfNeeded()
+        }
+    }
+
+    private func startPulseIfNeeded() {
+        if isLowBalance {
+            withAnimation(.easeInOut(duration: 1.1).repeatForever(autoreverses: true)) {
+                pulse = true
+            }
+        } else {
+            withAnimation(.easeOut(duration: 0.3)) {
+                pulse = false
             }
         }
     }
@@ -138,25 +123,25 @@ struct TimeBalanceRing: View {
 
 // MARK: - Preview
 
-#Preview("Full Balance") {
+#Preview("Healthy Balance") {
     VStack {
-        TimeBalanceRing(earnedMinutes: 45, usedMinutes: 0)
+        TimeBalanceRing(availableMinutes: 40, todayEarned: 76)
             .padding()
     }
     .background(AppTheme.background(for: .light))
 }
 
-#Preview("Partial Balance") {
+#Preview("Zero Balance") {
     VStack {
-        TimeBalanceRing(earnedMinutes: 45, usedMinutes: 20)
+        TimeBalanceRing(availableMinutes: 0, todayEarned: 76)
             .padding()
     }
     .background(AppTheme.background(for: .light))
 }
 
-#Preview("Low Balance") {
+#Preview("Low Balance Pulse") {
     VStack {
-        TimeBalanceRing(earnedMinutes: 45, usedMinutes: 42)
+        TimeBalanceRing(availableMinutes: 3, todayEarned: 45)
             .padding()
     }
     .background(AppTheme.background(for: .light))
@@ -172,7 +157,7 @@ struct TimeBalanceRing: View {
 
 #Preview("Dark Mode") {
     VStack {
-        TimeBalanceRing(earnedMinutes: 60, usedMinutes: 15)
+        TimeBalanceRing(availableMinutes: 40, todayEarned: 76)
             .padding()
     }
     .background(AppTheme.background(for: .dark))

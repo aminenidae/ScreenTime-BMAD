@@ -56,6 +56,12 @@ struct RewardUnlockCard: View {
         Int(snapshot.totalSeconds / 60)
     }
 
+    /// Color for goal-met indicators. vibrantTeal reads well on light backgrounds
+    /// but disappears against the dark card in dark mode — swap to lightCream there.
+    private var accentColor: Color {
+        colorScheme == .dark ? AppTheme.lightCream : AppTheme.vibrantTeal
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             headerRow
@@ -221,7 +227,7 @@ struct RewardUnlockCard: View {
                         .font(.system(size: 11, weight: .bold))
                         .tracking(1)
                 }
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(accentColor)
             }
 
             ForEach(validLinkedApps, id: \.logicalID) { linkedApp in
@@ -268,18 +274,20 @@ struct RewardUnlockCard: View {
 
             HStack(spacing: 6) {
                 Text("\(progress.used) / \(progress.required)m")
-                    .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(progress.goalMet ? AppTheme.vibrantTeal : AppTheme.textPrimary(for: colorScheme))
+                    .font(.system(size: 13, weight: .bold))
+                    .foregroundColor(progress.goalMet ? accentColor : AppTheme.textPrimary(for: colorScheme))
                     .monospacedDigit()
                 Image(systemName: progress.goalMet ? "checkmark.circle.fill" : "circle")
                     .font(.system(size: 16))
-                    .foregroundColor(progress.goalMet ? AppTheme.vibrantTeal : AppTheme.textSecondary(for: colorScheme).opacity(0.4))
+                    .foregroundColor(progress.goalMet ? accentColor : AppTheme.textSecondary(for: colorScheme).opacity(0.5))
             }
         }
         .padding(10)
         .background(
             RoundedRectangle(cornerRadius: 12)
-                .fill(progress.goalMet ? AppTheme.vibrantTeal.opacity(0.1) : AppTheme.vibrantTeal.opacity(0.04))
+                .fill(progress.goalMet
+                      ? AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.18 : 0.1)
+                      : AppTheme.vibrantTeal.opacity(colorScheme == .dark ? 0.10 : 0.04))
         )
     }
 }
