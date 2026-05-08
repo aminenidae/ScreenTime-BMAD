@@ -21,11 +21,6 @@ struct ChildDashboardView: View {
 
     // MARK: - Computed Properties
 
-    /// Total learning time today (in seconds)
-    private var totalLearningSeconds: TimeInterval {
-        viewModel.learningSnapshots.reduce(0) { $0 + $1.totalSeconds }
-    }
-
     /// Total reward time used today (in seconds)
     private var totalRewardUsedSeconds: TimeInterval {
         viewModel.rewardSnapshots.reduce(0) { $0 + $1.totalSeconds }
@@ -44,6 +39,21 @@ struct ChildDashboardView: View {
     /// Cumulative available minutes (rollover from previous days + today's net)
     private var cumulativeAvailableMinutes: Int {
         viewModel.cumulativeAvailableMinutes
+    }
+
+    /// Learning snapshots whose logicalID is NOT referenced by any reward's linkedLearningApps.
+    /// Shown in the bottom "Bonus Learning" section.
+    private var orphanLearningSnapshots: [LearningAppSnapshot] {
+        let linkedIDs = Set(
+            viewModel.rewardSnapshots
+                .compactMap { AppScheduleService.shared.getSchedule(for: $0.logicalID) }
+                .flatMap { $0.linkedLearningApps.map(\.logicalID) }
+        )
+        return viewModel.learningSnapshots.filter { !linkedIDs.contains($0.logicalID) }
+    }
+
+    private var orphanLearningTotalSeconds: TimeInterval {
+        orphanLearningSnapshots.reduce(0) { $0 + $1.totalSeconds }
     }
 
     var body: some View {
@@ -72,18 +82,25 @@ struct ChildDashboardView: View {
                             availableMinutes: cumulativeAvailableMinutes
                         )
 
-                        // Reward Apps Section
-                        RewardAppListSection(
-                            snapshots: viewModel.rewardSnapshots,
-                            remainingMinutes: cumulativeAvailableMinutes,
-                            unlockedApps: viewModel.unlockedRewardApps
-                        )
+                        // One card per reward app, each showing its own linked learning
+                        // requirements + progress directly underneath. Replaces the old
+                        // single-grouping that hid the per-reward linkage behind a sheet.
+                        ForEach(viewModel.rewardSnapshots, id: \.id) { rewardSnapshot in
+                            RewardUnlockCard(
+                                snapshot: rewardSnapshot,
+                                unlockedApp: viewModel.unlockedRewardApps[rewardSnapshot.token],
+                                remainingMinutes: cumulativeAvailableMinutes
+                            )
+                        }
 
-                        // Learning Apps Section
-                        LearningAppListSection(
-                            snapshots: viewModel.learningSnapshots,
-                            totalSeconds: totalLearningSeconds
-                        )
+                        // Bonus Learning: learning apps not linked to any reward app.
+                        // Hidden when every learning app is already represented inside a card.
+                        if !orphanLearningSnapshots.isEmpty {
+                            BonusLearningSection(
+                                snapshots: orphanLearningSnapshots,
+                                totalSeconds: orphanLearningTotalSeconds
+                            )
+                        }
 
                         // Empty state when no apps configured
                         if viewModel.learningSnapshots.isEmpty && viewModel.rewardSnapshots.isEmpty {

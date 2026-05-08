@@ -60,19 +60,20 @@ struct TimeBalanceRing: View {
         )
     }
 
-    /// Content color that contrasts against the progress bar gradient
+    /// Content color readable against BOTH the empty track and the filled gradient.
+    /// White used to be used here, but it disappears against the pale empty track when
+    /// the balance is 0 (or near-0). Brand dark-teal stays readable in both states.
     private var contentColor: Color {
-        // White works well against both teal and coral gradients in light mode
-        // In dark mode, use cream for warmth
-        colorScheme == .dark ? AppTheme.lightCream : .white
+        AppTheme.brandedText(for: colorScheme)
     }
 
     var body: some View {
         GeometryReader { geometry in
             ZStack(alignment: .leading) {
-                // Background track
+                // Background track — bumped from 0.1 to 0.2 so it has visible
+                // definition behind the dark content when the balance is 0.
                 Capsule()
-                    .fill(AppTheme.vibrantTeal.opacity(0.1))
+                    .fill(AppTheme.vibrantTeal.opacity(0.2))
 
                 // Progress bar
                 Capsule()
@@ -85,7 +86,7 @@ struct TimeBalanceRing: View {
                     // Game controller icon
                     Image(systemName: "gamecontroller.fill")
                         .font(.system(size: 28))
-                        .foregroundColor(contentColor.opacity(0.9))
+                        .foregroundColor(contentColor)
 
                     // Time display
                     VStack(alignment: .leading, spacing: 2) {
@@ -98,9 +99,9 @@ struct TimeBalanceRing: View {
                             .animation(.spring(response: 0.4), value: availableMinutes)
 
                         Text(timeLabel)
-                            .font(.system(size: 11, weight: .medium))
+                            .font(.system(size: 11, weight: .semibold))
                             .tracking(1)
-                            .foregroundColor(contentColor.opacity(0.85))
+                            .foregroundColor(contentColor.opacity(0.9))
                     }
 
                     Spacer()

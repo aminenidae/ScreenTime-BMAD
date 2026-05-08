@@ -2,8 +2,10 @@ import SwiftUI
 import FamilyControls
 import ManagedSettings
 
-/// Section displaying learning apps with usage times and earning progress
-struct LearningAppListSection: View {
+/// Section for learning apps that aren't linked to any reward app's unlock requirements.
+/// Shown at the bottom of the child dashboard so the child can still see their usage,
+/// but it's visually separated from the reward unlock cards.
+struct BonusLearningSection: View {
     let snapshots: [LearningAppSnapshot]
     let totalSeconds: TimeInterval
 
@@ -11,21 +13,14 @@ struct LearningAppListSection: View {
     @State private var isExpanded = true
     @State private var selectedApp: LearningAppSnapshot?
 
-    // Design colors
-    
-    
-    
-
     private var totalMinutes: Int {
         Int(totalSeconds / 60)
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            // Section header
             sectionHeader
 
-            // App list
             if isExpanded {
                 VStack(spacing: 10) {
                     ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
@@ -43,11 +38,6 @@ struct LearningAppListSection: View {
                     }
                 }
             }
-
-            // Empty state
-            if snapshots.isEmpty {
-                emptyState
-            }
         }
         .padding(16)
         .background(
@@ -63,8 +53,6 @@ struct LearningAppListSection: View {
         }
     }
 
-    // MARK: - Subviews
-
     private var sectionHeader: some View {
         Button {
             withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
@@ -72,20 +60,17 @@ struct LearningAppListSection: View {
             }
         } label: {
             HStack(spacing: 10) {
-                // Icon
-                Image(systemName: "book.fill")
+                Image(systemName: "sparkles")
                     .font(.system(size: 18))
                     .foregroundColor(colorScheme == .light ? AppTheme.vibrantTeal : AppTheme.lightCream)
 
-                // Title
-                Text("LEARNING APPS")
+                Text("BONUS LEARNING")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                 Spacer()
 
-                // Total time badge
                 HStack(spacing: 4) {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 11))
@@ -94,7 +79,6 @@ struct LearningAppListSection: View {
                 }
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
 
-                // Expand/collapse chevron
                 Image(systemName: "chevron.down")
                     .font(.system(size: 12, weight: .semibold))
                     .foregroundColor(AppTheme.lightCream.opacity(0.6))
@@ -106,7 +90,6 @@ struct LearningAppListSection: View {
 
     private func learningAppRow(snapshot: LearningAppSnapshot) -> some View {
         HStack(spacing: 12) {
-            // App icon
             if #available(iOS 15.2, *) {
                 Label(snapshot.token)
                     .labelStyle(.iconOnly)
@@ -124,7 +107,6 @@ struct LearningAppListSection: View {
                     )
             }
 
-            // App name
             VStack(alignment: .leading, spacing: 2) {
                 if #available(iOS 15.2, *) {
                     Label(snapshot.token)
@@ -142,7 +124,6 @@ struct LearningAppListSection: View {
 
             Spacer()
 
-            // Usage time
             Text(TimeFormatting.formatSecondsCompact(snapshot.totalSeconds))
                 .font(.system(size: 14, weight: .bold))
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
@@ -153,45 +134,4 @@ struct LearningAppListSection: View {
                 .fill(AppTheme.vibrantTeal.opacity(0.05))
         )
     }
-
-    private var emptyState: some View {
-        VStack(spacing: 12) {
-            Image(systemName: "book.closed")
-                .font(.system(size: 32))
-                .foregroundColor(AppTheme.lightCream.opacity(0.4))
-
-            Text("No learning apps used today")
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-
-            Text("Start using your learning apps to earn reward time!")
-                .font(.system(size: 13))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 24)
-    }
-}
-
-// MARK: - Preview
-
-#Preview {
-    ScrollView {
-        VStack(spacing: 16) {
-            // With apps
-            LearningAppListSection(
-                snapshots: [],
-                totalSeconds: 2700  // 45 minutes
-            )
-
-            // Empty state
-            LearningAppListSection(
-                snapshots: [],
-                totalSeconds: 0
-            )
-        }
-        .padding()
-    }
-    .background(AppTheme.background(for: .light))
 }
