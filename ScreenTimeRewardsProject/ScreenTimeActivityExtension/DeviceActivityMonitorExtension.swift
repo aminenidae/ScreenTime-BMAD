@@ -1184,7 +1184,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
-        debugLog("SHIELD_CHECK: pool=\(pool)min across \(configs.goalConfigs.count) goal configs", defaults: defaults)
+        let historicalForLog = defaults.integer(forKey: "bank_historical_remaining_minutes")
+        debugLog("SHIELD_CHECK: pool=\(pool)min historical=\(historicalForLog)min across \(configs.goalConfigs.count) goal configs", defaults: defaults)
 
         // Pool empty → nothing to unshield this pass. checkAndBlockIfRewardTimeExhausted
         // will (re-)apply shields if needed.
