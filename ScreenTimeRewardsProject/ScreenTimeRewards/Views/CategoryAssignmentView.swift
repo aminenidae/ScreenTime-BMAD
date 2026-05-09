@@ -497,6 +497,11 @@ private extension CategoryAssignmentView {
         }
         #endif
         
+        // Freeze the current bank value BEFORE the category mutation lands. Without this,
+        // any flip/add/remove silently rewrites the meaning of every prior dailyHistory row
+        // (see docs/CATEGORY_FLIP_BANK_LOSS.md).
+        viewModel.snapshotBankBaselineForPendingCategoryChange()
+
         // Update the bindings with merged data
         categoryAssignments = mergedCategoryAssignments
         rewardPoints = mergedRewardPoints

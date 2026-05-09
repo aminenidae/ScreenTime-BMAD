@@ -117,6 +117,8 @@ final class UsagePersistence {
     private let appGroupIdentifier = "group.com.screentimerewards.shared"
     private let persistedAppsKey = "persistedApps_v3"
     private let tokenMappingsKey = "tokenMappings_v1"
+    private let bankBaselineMinutesKey = "bank_baseline_minutes_v1"
+    private let bankBaselineDateKey = "bank_baseline_date_v1"
 
     private let userDefaults: UserDefaults?
     private var cachedApps: [LogicalAppID: PersistedApp]
@@ -261,11 +263,20 @@ final class UsagePersistence {
     }
 
     /// Calculate cumulative remaining minutes from all historical data (excluding today).
-    /// Formula: sum of (ratio-adjusted learning app minutes) - sum of (reward app minutes) across all days in history.
     ///
+    /// Two-layer model:
+    /// 1. **Baseline snapshot**: `bank_baseline_minutes` freezes the historical value before
+    ///    the last category change. Protects accumulated credit from being retroactively
+    ///    rewritten when parents flip/add/remove app categories
+    ///    (see `docs/CATEGORY_FLIP_BANK_LOSS.md`).
+    /// 2. **Live delta**: dailyHistory entries on or after `baseline_date` are summed using
+    ///    the day-active ratio (Phase 2 versioned-schedule).
+    ///
+    /// On first call (no baseline persisted), bootstraps by running the full-history
+    /// computation under the current ratio resolver and freezing it as today's baseline.
     /// Phase 2: prefer the `ratioForDay:` overload below — it resolves the ratio active
-    /// on each day instead of applying a single current-ratio to all history. This static-map
-    /// overload is preserved for callers that don't have a versioned-schedule resolver.
+    /// on each day instead of applying a single current-ratio to all history.
+    ///
     /// - Parameters:
     ///   - learningIDs: LogicalIDs of learning apps (contribute to earned)
     ///   - rewardIDs: LogicalIDs of reward apps (contribute to used)
@@ -287,38 +298,121 @@ final class UsagePersistence {
         rewardIDs: [LogicalAppID],
         ratioForDay: (LogicalAppID, String) -> Double
     ) -> Int {
-        var totalEarnedSeconds = 0
-        var totalUsedSeconds = 0
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
 
-        // Sum all historical learning app usage. Each day applies the ratio that was
-        // active on that day according to the resolver.
+        let baselineDate: Date
+        let baselineMinutes: Int
+
+        if let persistedDate = userDefaults?.object(forKey: bankBaselineDateKey) as? Date {
+            baselineDate = calendar.startOfDay(for: persistedDate)
+            baselineMinutes = userDefaults?.integer(forKey: bankBaselineMinutesKey) ?? 0
+        } else {
+            // Migration: first call after upgrade. Compute legacy full-history value
+            // under the current ratio resolver and freeze it as today's baseline.
+            // From this moment on, only dailyHistory entries dated >= today contribute
+            // to the live delta.
+            let legacy = legacyFullHistoryRemainingMinutes(
+                learningIDs: learningIDs,
+                rewardIDs: rewardIDs,
+                ratioForDay: ratioForDay
+            )
+            userDefaults?.set(legacy, forKey: bankBaselineMinutesKey)
+            userDefaults?.set(today, forKey: bankBaselineDateKey)
+            baselineDate = today
+            baselineMinutes = legacy
+
+            #if DEBUG
+            print("[UsagePersistence] 🪙 Bank baseline initialized at migration: \(legacy)m, date=\(today)")
+            #endif
+        }
+
+        // Live delta: only dailyHistory rows on/after baseline_date, weighted by per-day ratio.
+        var deltaEarnedSeconds = 0
+        var deltaUsedSeconds = 0
+
+        for logicalID in learningIDs {
+            guard let app = cachedApps[logicalID] else { continue }
+            for summary in app.dailyHistory where summary.date >= baselineDate {
+                let dayKey = AppScheduleVersion.dayKey(for: summary.date)
+                let ratio = ratioForDay(logicalID, dayKey)
+                deltaEarnedSeconds += Int(Double(summary.seconds) * ratio)
+            }
+        }
+
+        for logicalID in rewardIDs {
+            guard let app = cachedApps[logicalID] else { continue }
+            for summary in app.dailyHistory where summary.date >= baselineDate {
+                deltaUsedSeconds += summary.seconds
+            }
+        }
+
+        let deltaMinutes = (deltaEarnedSeconds / 60) - (deltaUsedSeconds / 60)
+        let total = baselineMinutes + deltaMinutes
+
+        #if DEBUG
+        print("[UsagePersistence] 📊 Historical balance: baseline=\(baselineMinutes)m (frozen at \(baselineDate)), delta=\(deltaMinutes)m (per-day ratio-adjusted), total=\(total)m")
+        #endif
+
+        return total
+    }
+
+    /// Legacy aggregator — sums every dailyHistory row regardless of date, with per-day ratio.
+    /// Retained only as the migration bootstrap for the baseline-snapshot model.
+    private func legacyFullHistoryRemainingMinutes(
+        learningIDs: [LogicalAppID],
+        rewardIDs: [LogicalAppID],
+        ratioForDay: (LogicalAppID, String) -> Double
+    ) -> Int {
+        var earnedSeconds = 0
+        var usedSeconds = 0
         for logicalID in learningIDs {
             if let app = cachedApps[logicalID] {
                 for summary in app.dailyHistory {
                     let dayKey = AppScheduleVersion.dayKey(for: summary.date)
                     let ratio = ratioForDay(logicalID, dayKey)
-                    totalEarnedSeconds += Int(Double(summary.seconds) * ratio)
+                    earnedSeconds += Int(Double(summary.seconds) * ratio)
                 }
             }
         }
-
-        // Sum all historical reward app usage (used time)
         for logicalID in rewardIDs {
             if let app = cachedApps[logicalID] {
-                for summary in app.dailyHistory {
-                    totalUsedSeconds += summary.seconds
-                }
+                for summary in app.dailyHistory { usedSeconds += summary.seconds }
             }
         }
+        return (earnedSeconds / 60) - (usedSeconds / 60)
+    }
 
-        let earnedMinutes = totalEarnedSeconds / 60
-        let usedMinutes = totalUsedSeconds / 60
+    /// Freeze the current historical-remaining value as the bank baseline before a category change.
+    ///
+    /// Must be called BEFORE mutating `categoryAssignments`, so `learningIDs`/`rewardIDs` still
+    /// reflect the categories under which the existing `dailyHistory` was earned. After this
+    /// call, all dailyHistory rows < today are absorbed into the frozen baseline; subsequent
+    /// category changes can no longer retroactively rewrite their meaning.
+    ///
+    /// Pass the same `ratioForDay:` resolver used by callers of `getHistoricalRemainingMinutes`
+    /// so the frozen baseline matches what the user currently sees.
+    func snapshotBankBaseline(
+        learningIDs: [LogicalAppID],
+        rewardIDs: [LogicalAppID],
+        ratioForDay: (LogicalAppID, String) -> Double = { _, _ in 1.0 }
+    ) {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+
+        // Compute the bank value under the OLD categories using the current baseline + delta.
+        let currentValue = getHistoricalRemainingMinutes(
+            learningIDs: learningIDs,
+            rewardIDs: rewardIDs,
+            ratioForDay: ratioForDay
+        )
+
+        userDefaults?.set(currentValue, forKey: bankBaselineMinutesKey)
+        userDefaults?.set(today, forKey: bankBaselineDateKey)
 
         #if DEBUG
-        print("[UsagePersistence] 📊 Historical balance: earned=\(earnedMinutes)m (per-day ratio-adjusted), used=\(usedMinutes)m, remaining=\(earnedMinutes - usedMinutes)m")
+        print("[UsagePersistence] 🔒 Bank baseline snapshot: \(currentValue)m frozen at \(today)")
         #endif
-
-        return earnedMinutes - usedMinutes
     }
 
     /// Reload cached apps from shared defaults, returning the latest snapshot.
