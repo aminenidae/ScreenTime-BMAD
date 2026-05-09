@@ -1683,12 +1683,37 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             ))
         }
 
-        return BankCalculator.computeBank(.init(
+        let inputs = BankCalculator.Inputs(
             todaySecondsByLogicalID: todaySecondsByID,
             goalConfigs: bankGoalConfigs,
             ratioByLearningLogicalID: ratioByLearningID,
             historicalRemainingMinutes: historical
-        ))
+        )
+
+        // Diagnostic breakdown: replicate BankCalculator's earned/used so the log
+        // shows every component of the max(0, hist + earned - used) clamp, not
+        // just the post-clamp pool. Cheap walk over inputs.
+        var lowestThresholdByLearningID: [String: Int] = [:]
+        for goal in inputs.goalConfigs {
+            for link in goal.linkedLearning {
+                let prior = lowestThresholdByLearningID[link.learningAppLogicalID] ?? Int.max
+                lowestThresholdByLearningID[link.learningAppLogicalID] = min(prior, link.minutesRequired)
+            }
+        }
+        var todayEarned = 0
+        for (learningID, threshold) in lowestThresholdByLearningID {
+            let usageMin = (inputs.todaySecondsByLogicalID[learningID] ?? 0) / 60
+            guard usageMin >= threshold else { continue }
+            let r = inputs.ratioByLearningLogicalID[learningID] ?? 1.0
+            todayEarned += Int(Double(usageMin) * r)
+        }
+        var todayUsed = 0
+        for goal in inputs.goalConfigs {
+            todayUsed += (inputs.todaySecondsByLogicalID[goal.rewardAppLogicalID] ?? 0) / 60
+        }
+        debugLog("BANK_BREAKDOWN historical=\(historical)min todayEarned=\(todayEarned)min todayUsed=\(todayUsed)min raw=\(historical + todayEarned - todayUsed)min", defaults: defaults)
+
+        return BankCalculator.computeBank(inputs)
     }
 
     /// Today's earned reward minutes for ONE goal config (no cross-goal dedupe).

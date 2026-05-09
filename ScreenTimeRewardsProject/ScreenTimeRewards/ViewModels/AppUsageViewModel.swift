@@ -130,15 +130,14 @@ class AppUsageViewModel: ObservableObject {
         return BlockingCoordinator.shared.getEarnedRewardMinutes(for: token)
     }
 
-    /// Build a map of learningAppLogicalID → reward ratio (rewardMinutes / learningMinutes)
-    /// Reads ratio from each learning app's own schedule configuration.
+    /// Build a map of learningAppLogicalID → reward ratio (rewardMinutes / learningMinutes).
+    /// Routes through `AppScheduleService.ratio(on: today)` so a same-day ratio
+    /// edit (which records `effectiveFromDay=tomorrow`) doesn't re-price today's
+    /// earnings.
     private func buildLearningRatioMap() -> [String: Double] {
         var ratios: [String: Double] = [:]
         for snapshot in learningSnapshots {
-            if let schedule = AppScheduleService.shared.getSchedule(for: snapshot.logicalID) {
-                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
-                ratios[snapshot.logicalID] = ratio
-            }
+            ratios[snapshot.logicalID] = AppScheduleService.shared.ratio(logicalID: snapshot.logicalID)
         }
         return ratios
     }
@@ -266,12 +265,8 @@ class AppUsageViewModel: ObservableObject {
                 todaySecondsByID[learningID] = Int(learnSnapshot.totalSeconds)
             }
             if ratioByLearningID[learningID] == nil {
-                if let schedule = scheduleService.getSchedule(for: learningID) {
-                    ratioByLearningID[learningID] = Double(schedule.rewardMinutesEarned)
-                        / Double(max(1, schedule.ratioLearningMinutes))
-                } else {
-                    ratioByLearningID[learningID] = 1.0
-                }
+                // Today-pinned ratio — see AppScheduleService.ratio(on:).
+                ratioByLearningID[learningID] = scheduleService.ratio(logicalID: learningID)
             }
         }
 

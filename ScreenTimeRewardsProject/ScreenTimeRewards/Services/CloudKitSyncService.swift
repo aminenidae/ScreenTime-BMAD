@@ -3405,14 +3405,12 @@ class CloudKitSyncService: ObservableObject {
         }
 
         // Build learning ratios map identical to `AppUsageViewModel.buildLearningRatioMap()`.
-        // Ratio comes from each learning app's OWN schedule (rewardMinutesEarned /
-        // ratioLearningMinutes). Defaults to 1.0 if no schedule.
+        // Today-pinned via `AppScheduleService.ratio(on:)` so a same-day ratio edit
+        // (recorded with effectiveFromDay=tomorrow) doesn't re-price today's
+        // uploaded snapshot.
         var learningRatios: [String: Double] = [:]
         for (logicalID, app) in allApps where AppUsage.AppCategory.parse(app.category) == .learning {
-            if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
-                let ratio = Double(schedule.rewardMinutesEarned) / Double(max(1, schedule.ratioLearningMinutes))
-                learningRatios[logicalID] = ratio
-            }
+            learningRatios[logicalID] = AppScheduleService.shared.ratio(logicalID: logicalID)
         }
 
         // Apply threshold gate + ratio: only count if usage >= lowestThreshold,

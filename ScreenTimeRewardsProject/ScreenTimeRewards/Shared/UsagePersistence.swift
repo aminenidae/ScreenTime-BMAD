@@ -120,6 +120,14 @@ final class UsagePersistence {
     private let bankBaselineMinutesKey = "bank_baseline_minutes_v1"
     private let bankBaselineDateKey = "bank_baseline_date_v1"
 
+    /// JSON-encoded `[String: [String]]` mapping `dayKey` (yyyy-MM-dd) → array of
+    /// learning app logicalIDs whose dailyHistory row for that day has already
+    /// been baked into `bankBaselineMinutesKey`. `getHistoricalRemainingMinutes`
+    /// MUST skip these rows or it will double-count.
+    /// Set when a reward app's link to a learning app is removed mid-day — see
+    /// `freezeUnlinkedLearningContribution`.
+    private let bankAbsorbedRowsKey = "bank_absorbed_history_rows_v1"
+
     private let userDefaults: UserDefaults?
     private var cachedApps: [LogicalAppID: PersistedApp]
     private var cachedTokenMappings: [String: TokenMapping]
@@ -327,7 +335,13 @@ final class UsagePersistence {
             #endif
         }
 
+        // Opportunistic prune so the absorbed-rows map doesn't grow unbounded.
+        pruneAbsorbedHistoryRows()
+        let absorbed = loadAbsorbedHistoryRows()
+
         // Live delta: only dailyHistory rows on/after baseline_date, weighted by per-day ratio.
+        // Skip rows already absorbed into baseline (link-removal freeze) — see
+        // `bank_absorbed_history_rows_v1`.
         var deltaEarnedSeconds = 0
         var deltaUsedSeconds = 0
 
@@ -335,6 +349,7 @@ final class UsagePersistence {
             guard let app = cachedApps[logicalID] else { continue }
             for summary in app.dailyHistory where summary.date >= baselineDate {
                 let dayKey = AppScheduleVersion.dayKey(for: summary.date)
+                if isHistoryRowAbsorbed(logicalID: logicalID, dayKey: dayKey, in: absorbed) { continue }
                 let ratio = ratioForDay(logicalID, dayKey)
                 deltaEarnedSeconds += Int(Double(summary.seconds) * ratio)
             }
@@ -343,6 +358,10 @@ final class UsagePersistence {
         for logicalID in rewardIDs {
             guard let app = cachedApps[logicalID] else { continue }
             for summary in app.dailyHistory where summary.date >= baselineDate {
+                // Reward-side absorption isn't currently emitted, but the same
+                // filter is applied symmetrically in case it ever is.
+                let dayKey = AppScheduleVersion.dayKey(for: summary.date)
+                if isHistoryRowAbsorbed(logicalID: logicalID, dayKey: dayKey, in: absorbed) { continue }
                 deltaUsedSeconds += summary.seconds
             }
         }
@@ -413,6 +432,84 @@ final class UsagePersistence {
         #if DEBUG
         print("[UsagePersistence] 🔒 Bank baseline snapshot: \(currentValue)m frozen at \(today)")
         #endif
+    }
+
+    // MARK: - Absorbed History Rows (link-removal freeze double-count guard)
+
+    /// Map of `dayKey → logicalID → totalAbsorbedMinutes` (always positive when
+    /// stored). Tracks how much of each (day, learning app) has been baked into
+    /// `bankBaselineMinutesKey` so a later re-link can reverse it without
+    /// orphaning the absorbed mark.
+    typealias AbsorbedRowsMap = [String: [LogicalAppID: Int]]
+
+    /// Load the absorbed-rows map from UserDefaults.
+    /// Returns an empty dictionary if the key is missing or decode fails.
+    func loadAbsorbedHistoryRows() -> AbsorbedRowsMap {
+        guard let data = userDefaults?.data(forKey: bankAbsorbedRowsKey),
+              let raw = try? JSONDecoder().decode(AbsorbedRowsMap.self, from: data)
+        else {
+            return [:]
+        }
+        return raw
+    }
+
+    /// Persist the absorbed-rows map.
+    private func saveAbsorbedHistoryRows(_ map: AbsorbedRowsMap) {
+        if let data = try? JSONEncoder().encode(map) {
+            userDefaults?.set(data, forKey: bankAbsorbedRowsKey)
+        }
+    }
+
+    /// Adjust the absorbed amount for `(dayKey, logicalID)` by `byMinutes`.
+    /// Use the same value (with opposite sign) the caller is adding to / removing
+    /// from `bankBaselineMinutesKey`. Entries with `total <= 0` are removed —
+    /// `getHistoricalRemainingMinutes` then re-includes that row in the live
+    /// delta, which is the correct behavior on a re-link.
+    func adjustHistoryRowAbsorption(logicalID: LogicalAppID, dayKey: String, byMinutes: Int) {
+        guard byMinutes != 0 else { return }
+        var map = loadAbsorbedHistoryRows()
+        let prior = map[dayKey]?[logicalID] ?? 0
+        let next = prior + byMinutes
+        if next > 0 {
+            var dayMap = map[dayKey] ?? [:]
+            dayMap[logicalID] = next
+            map[dayKey] = dayMap
+        } else {
+            // Re-link or full reversal — drop the entry so dailyHistory re-counts.
+            var dayMap = map[dayKey] ?? [:]
+            dayMap.removeValue(forKey: logicalID)
+            if dayMap.isEmpty {
+                map.removeValue(forKey: dayKey)
+            } else {
+                map[dayKey] = dayMap
+            }
+        }
+        saveAbsorbedHistoryRows(map)
+    }
+
+    /// Whether `(logicalID)`'s history row for `dayKey` has any absorbed amount
+    /// outstanding. `getHistoricalRemainingMinutes` skips rows that return true
+    /// to avoid double-counting against the baked baseline.
+    func isHistoryRowAbsorbed(logicalID: LogicalAppID, dayKey: String, in map: AbsorbedRowsMap) -> Bool {
+        (map[dayKey]?[logicalID] ?? 0) > 0
+    }
+
+    /// Drop entries whose dayKey is older than `maxAgeDays`. Cheap maintenance —
+    /// keeps the absorbed map from growing unbounded across years of use. Called
+    /// from `getHistoricalRemainingMinutes` opportunistically.
+    private func pruneAbsorbedHistoryRows(olderThanDays maxAgeDays: Int = 90) {
+        let map = loadAbsorbedHistoryRows()
+        guard !map.isEmpty else { return }
+
+        let calendar = Calendar.current
+        guard let cutoffDate = calendar.date(byAdding: .day, value: -maxAgeDays, to: calendar.startOfDay(for: Date()))
+        else { return }
+        let cutoffKey = AppScheduleVersion.dayKey(for: cutoffDate)
+
+        let pruned = map.filter { $0.key >= cutoffKey }
+        if pruned.count != map.count {
+            saveAbsorbedHistoryRows(pruned)
+        }
     }
 
     /// Reload cached apps from shared defaults, returning the latest snapshot.

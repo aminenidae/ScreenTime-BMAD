@@ -340,7 +340,7 @@ class BlockingCoordinator: ObservableObject {
             // Only earn if threshold is met
             if currentMinutes >= linkedApp.minutesRequired {
                 let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
-                let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
+                let ratio = AppScheduleService.shared.ratio(logicalID: linkedApp.logicalID)
                 let earned = Double(currentMinutes) * ratio
                 #if DEBUG
                 print("[EarnedMinutesDebug]   ✅ Threshold MET: \(currentMinutes) >= \(linkedApp.minutesRequired)")
@@ -472,7 +472,7 @@ class BlockingCoordinator: ObservableObject {
                 if currentMinutes >= linkedApp.minutesRequired {
                     // Calculate proportional reward using ratio from learning app's own schedule
                     let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
-                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
+                    let ratio = AppScheduleService.shared.ratio(logicalID: linkedApp.logicalID)
                     let earned = Double(currentMinutes) * ratio
                     totalRewardEarned += Int(earned)
                     #if DEBUG
@@ -507,7 +507,7 @@ class BlockingCoordinator: ObservableObject {
                 if currentMinutes >= target {
                     // Calculate proportional reward using ratio from learning app's own schedule
                     let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
-                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
+                    let ratio = AppScheduleService.shared.ratio(logicalID: linkedApp.logicalID)
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
@@ -890,7 +890,7 @@ class BlockingCoordinator: ObservableObject {
                 if currentMinutes >= linkedApp.minutesRequired {
                     // Calculate proportional reward using ratio from learning app's own schedule
                     let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
-                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
+                    let ratio = AppScheduleService.shared.ratio(logicalID: linkedApp.logicalID)
                     let earned = Double(currentMinutes) * ratio
                     totalRewardEarned += Int(earned)
                 } else {
@@ -915,7 +915,7 @@ class BlockingCoordinator: ObservableObject {
                 if currentMinutes >= target {
                     // Calculate proportional reward using ratio from learning app's own schedule
                     let learningRatio = AppScheduleService.shared.getSchedule(for: linkedApp.logicalID)
-                    let ratio = Double(learningRatio?.rewardMinutesEarned ?? 1) / Double(max(1, learningRatio?.ratioLearningMinutes ?? 1))
+                    let ratio = AppScheduleService.shared.ratio(logicalID: linkedApp.logicalID)
                     let earned = Double(currentMinutes) * ratio
                     let earnedInt = Int(earned)
 
@@ -1100,11 +1100,8 @@ class BlockingCoordinator: ObservableObject {
                     todaySecondsByID[linked.logicalID] = screenTimeService?.usagePersistence.app(for: linked.logicalID)?.todaySeconds ?? 0
                 }
                 if ratioByLearningID[linked.logicalID] == nil {
-                    if let learnSched = scheduleService.getSchedule(for: linked.logicalID) {
-                        ratioByLearningID[linked.logicalID] = Double(learnSched.rewardMinutesEarned) / Double(max(1, learnSched.ratioLearningMinutes))
-                    } else {
-                        ratioByLearningID[linked.logicalID] = Double(linked.rewardMinutesEarned) / Double(max(1, linked.ratioLearningMinutes))
-                    }
+                    // Today-pinned ratio — see AppScheduleService.ratio(on:).
+                    ratioByLearningID[linked.logicalID] = scheduleService.ratio(logicalID: linked.logicalID)
                 }
             }
 

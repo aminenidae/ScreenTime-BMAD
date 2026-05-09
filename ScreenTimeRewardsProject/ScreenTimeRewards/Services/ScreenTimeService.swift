@@ -4255,13 +4255,17 @@ func configureWithTestApplications() {
             }
 
             let linkedGoals = schedule.linkedLearningApps.map { linked in
-                // Read ratio from the learning app's own schedule (not from the per-link fields)
-                let learningSchedule = AppScheduleService.shared.getSchedule(for: linked.logicalID)
+                // Today-pinned ratio (honors decideEffectiveFromDay's tomorrow-rule):
+                // a ratio change while there's already usage today is recorded with
+                // effectiveFromDay=tomorrow, so versionActive(on:today) still returns
+                // the prior version. Reading the live schedule here would re-price
+                // today instantly.
+                let fields = AppScheduleService.shared.ratioFields(logicalID: linked.logicalID)
                 return ExtensionGoalConfig.LinkedGoal(
                     learningAppLogicalID: linked.logicalID,
                     minutesRequired: linked.minutesRequired,
-                    ratioLearningMinutes: learningSchedule?.ratioLearningMinutes ?? 1,
-                    rewardMinutesEarned: learningSchedule?.rewardMinutesEarned ?? 1
+                    ratioLearningMinutes: fields?.ratioLearningMinutes ?? 1,
+                    rewardMinutesEarned: fields?.rewardMinutesEarned ?? 1
                 )
             }
 

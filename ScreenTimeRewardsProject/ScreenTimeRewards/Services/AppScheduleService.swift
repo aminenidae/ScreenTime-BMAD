@@ -97,6 +97,18 @@ class AppScheduleService: ObservableObject {
     ///   - effective TODAY if the kid has done no learning yet today (no row to re-price), OR
     ///   - effective TOMORROW otherwise (preserves today's earned at today's old ratio).
     func saveSchedule(_ config: AppScheduleConfiguration) throws {
+        // BEFORE mutating: freeze any learning app whose gating eligibility this
+        // save would reduce or remove. Walks both old and new linkedLearningApps
+        // so threshold-tightening edits are caught alongside outright removals.
+        // Must run while `schedules` still reflects the OLD state — see
+        // `freezeAffectedLearningContribution`.
+        let oldLinkedIDs: Set<String> = Set((schedules[config.id]?.linkedLearningApps ?? []).map { $0.logicalID })
+        let newLinkedIDs: Set<String> = Set(config.linkedLearningApps.map { $0.logicalID })
+        let affected = oldLinkedIDs.union(newLinkedIDs)
+        for learningID in affected {
+            freezeAffectedLearningContribution(learningLogicalID: learningID, changedRewardConfig: config)
+        }
+
         schedules[config.id] = config
         try persistSchedules()
 
@@ -118,6 +130,23 @@ class AppScheduleService: ObservableObject {
 
     /// Delete a schedule configuration
     func deleteSchedule(for logicalID: String) throws {
+        // If we're deleting a reward schedule that linked any learning apps,
+        // those learning apps are losing this link — freeze each affected one
+        // BEFORE the schedule disappears (so their old contribution survives).
+        if let removedConfig = schedules[logicalID], !removedConfig.linkedLearningApps.isEmpty {
+            // Build a synthetic "new state" of the deleted schedule: same id but
+            // empty linked list. freezeAffectedLearningContribution will then see
+            // the link drop and freeze the loss.
+            var emptied = removedConfig
+            emptied.linkedLearningApps = []
+            for link in removedConfig.linkedLearningApps {
+                freezeAffectedLearningContribution(
+                    learningLogicalID: link.logicalID,
+                    changedRewardConfig: emptied
+                )
+            }
+        }
+
         schedules.removeValue(forKey: logicalID)
         try persistSchedules()
 
@@ -172,6 +201,13 @@ class AppScheduleService: ObservableObject {
     /// Batch save multiple configurations (for challenge creation)
     func saveSchedules(_ configs: [AppScheduleConfiguration]) throws {
         for config in configs {
+            // Same freeze sweep as saveSchedule, applied per config in order.
+            let oldLinkedIDs: Set<String> = Set((schedules[config.id]?.linkedLearningApps ?? []).map { $0.logicalID })
+            let newLinkedIDs: Set<String> = Set(config.linkedLearningApps.map { $0.logicalID })
+            for learningID in oldLinkedIDs.union(newLinkedIDs) {
+                freezeAffectedLearningContribution(learningLogicalID: learningID, changedRewardConfig: config)
+            }
+
             schedules[config.id] = config
             saveScheduleForExtension(config)
             // Phase 2: per-config versioning for batch saves too.
@@ -281,6 +317,116 @@ class AppScheduleService: ObservableObject {
     /// Convenience overload: look up by `Date`.
     func versionActive(logicalID: String, on date: Date) -> AppScheduleVersion? {
         versionActive(logicalID: logicalID, on: AppScheduleVersion.dayKey(for: date))
+    }
+
+    /// Effective ratio (rewardMinutes / learningMinutes) for `logicalID` on `day`,
+    /// honoring the day+1 effective-from policy. Today's live bank readers MUST
+    /// route through this — reading `schedule.rewardMinutesEarned /
+    /// schedule.ratioLearningMinutes` directly re-prices today instantly when a
+    /// parent edits the ratio mid-day, defeating `decideEffectiveFromDay`.
+    func ratio(logicalID: String, on day: String = AppScheduleVersion.todayKey) -> Double {
+        versionActive(logicalID: logicalID, on: day)?.ratio ?? 1.0
+    }
+
+    /// Effective `(rewardMinutesEarned, ratioLearningMinutes)` integer pair for
+    /// `logicalID` on `day`. Used by the extension-config sync, which writes the
+    /// pair (not a Double) into `ExtensionGoalConfig.LinkedGoal`.
+    func ratioFields(logicalID: String, on day: String = AppScheduleVersion.todayKey)
+        -> (rewardMinutesEarned: Int, ratioLearningMinutes: Int)?
+    {
+        guard let v = versionActive(logicalID: logicalID, on: day) else { return nil }
+        return (v.rewardMinutesEarned, v.ratioLearningMinutes)
+    }
+
+    // MARK: - Link-Removal Freeze (preserve today's bank across an unlink)
+
+    /// Hold today's bank value constant across a schedule edit that would change
+    /// a learning app's `todayEarned` contribution. Without this, removing a
+    /// goal link (or raising its threshold past today's usage) visibly wipes
+    /// today's contribution from `BankCalculator.todayEarned` until midnight.
+    /// Mirrors the May 7 category-flip freeze pattern, per-affected-learning-app.
+    ///
+    /// Call BEFORE mutating `schedules` so `schedules.values` still reflects the
+    /// OLD state. The new state is reconstructed by swapping `newConfig` in.
+    ///
+    /// Symmetric: positive `loss` (link removed / threshold raised past usage)
+    /// → bake into baseline + add to absorbed-rows map.
+    /// Negative `loss` (link added / threshold lowered into range) → reverse a
+    /// prior freeze on the same (today, learningID) pair. The absorbed-rows
+    /// helper drops the entry once the running total reaches zero, so today's
+    /// dailyHistory row gets re-included at midnight as if the freeze never
+    /// happened.
+    private func freezeAffectedLearningContribution(
+        learningLogicalID: String,
+        changedRewardConfig newConfig: AppScheduleConfiguration
+    ) {
+        let usageKey = "usage_\(learningLogicalID)_today"
+        let usageSeconds = sharedDefaults?.integer(forKey: usageKey) ?? 0
+        let usageMinutes = usageSeconds / 60
+        guard usageMinutes > 0 else { return }
+
+        let oldConfigs = Array(schedules.values)
+        var newConfigs = oldConfigs
+        if let idx = newConfigs.firstIndex(where: { $0.id == newConfig.id }) {
+            newConfigs[idx] = newConfig
+        } else {
+            newConfigs.append(newConfig)
+        }
+
+        let oldLowest = Self.lowestThreshold(for: learningLogicalID, across: oldConfigs)
+        let newLowest = Self.lowestThreshold(for: learningLogicalID, across: newConfigs)
+
+        let r = ratio(logicalID: learningLogicalID)
+        let oldContribution = (oldLowest.map { usageMinutes >= $0 } ?? false)
+            ? Int(Double(usageMinutes) * r) : 0
+        let newContribution = (newLowest.map { usageMinutes >= $0 } ?? false)
+            ? Int(Double(usageMinutes) * r) : 0
+        let loss = oldContribution - newContribution
+        guard loss != 0 else { return }
+
+        // Bound the negative case so we never reverse more than was previously
+        // baked in (e.g. a brand-new link with no prior freeze must not push
+        // baseline negative). Read absorbed amount via the persistence helper.
+        let todayKey = AppScheduleVersion.todayKey
+        let priorAbsorbed = ScreenTimeService.shared.usagePersistence
+            .loadAbsorbedHistoryRows()[todayKey]?[learningLogicalID] ?? 0
+        let appliedLoss: Int
+        if loss < 0 {
+            appliedLoss = -min(priorAbsorbed, -loss)
+        } else {
+            appliedLoss = loss
+        }
+        guard appliedLoss != 0 else { return }
+
+        let baselineKey = "bank_baseline_minutes_v1"
+        let current = sharedDefaults?.integer(forKey: baselineKey) ?? 0
+        sharedDefaults?.set(current + appliedLoss, forKey: baselineKey)
+
+        ScreenTimeService.shared.usagePersistence
+            .adjustHistoryRowAbsorption(logicalID: learningLogicalID, dayKey: todayKey, byMinutes: appliedLoss)
+
+        #if DEBUG
+        print("[AppScheduleService] 🔒 Bank freeze L=\(learningLogicalID.prefix(8))... " +
+              "usage=\(usageMinutes)m oldLowest=\(oldLowest.map(String.init) ?? "nil") " +
+              "newLowest=\(newLowest.map(String.init) ?? "nil") rawLoss=\(loss)m " +
+              "applied=\(appliedLoss)m priorAbsorbed=\(priorAbsorbed)m day=\(todayKey)")
+        #endif
+    }
+
+    /// Lowest `minutesRequired` for `learningLogicalID` across every reward
+    /// schedule's `linkedLearningApps`. Returns nil when no schedule references
+    /// the learning app.
+    private static func lowestThreshold(
+        for learningLogicalID: String,
+        across configs: [AppScheduleConfiguration]
+    ) -> Int? {
+        var lowest: Int? = nil
+        for config in configs {
+            for link in config.linkedLearningApps where link.logicalID == learningLogicalID {
+                lowest = lowest.map { Swift.min($0, link.minutesRequired) } ?? link.minutesRequired
+            }
+        }
+        return lowest
     }
 
     /// Decide whether a save takes effect today or tomorrow.

@@ -21,6 +21,27 @@ struct BonusLearningSection: View {
         VStack(alignment: .leading, spacing: 12) {
             sectionHeader
 
+            // Why these apps are separated: the bank only credits learning apps
+            // that a reward app links to (BankCalculator step 1). Without an
+            // explicit warning here, kids assume usage is earning when it isn't.
+            HStack(alignment: .top, spacing: 8) {
+                Image(systemName: "exclamationmark.triangle.fill")
+                    .font(.system(size: 12))
+                    .foregroundColor(AppTheme.sunnyYellow)
+                    .padding(.top, 2)
+
+                Text("Not linked to any reward — time spent here isn't earning bank minutes. Ask a parent to link these apps to a reward.")
+                    .font(.system(size: 12))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(AppTheme.sunnyYellow.opacity(0.12))
+            )
+
             if isExpanded {
                 VStack(spacing: 10) {
                     ForEach(Array(snapshots.enumerated()), id: \.element.id) { index, snapshot in
@@ -60,11 +81,14 @@ struct BonusLearningSection: View {
             }
         } label: {
             HStack(spacing: 10) {
-                Image(systemName: "sparkles")
+                // Was `sparkles` — implied "great extra effort" which contradicts
+                // the warning below. `link.slash` reads as "missing link" without
+                // being scolding.
+                Image(systemName: "link.slash")
                     .font(.system(size: 18))
-                    .foregroundColor(colorScheme == .light ? AppTheme.vibrantTeal : AppTheme.lightCream)
+                    .foregroundColor(AppTheme.sunnyYellow)
 
-                Text("BONUS LEARNING")
+                Text("UNLINKED LEARNING")
                     .font(.system(size: 14, weight: .semibold))
                     .tracking(1.5)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))

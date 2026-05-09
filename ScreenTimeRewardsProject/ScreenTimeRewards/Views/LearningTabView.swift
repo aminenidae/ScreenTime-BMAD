@@ -201,6 +201,18 @@ struct LearningTabView: View {
         scheduleService.schedules[snapshot.logicalID] != nil
     }
 
+    /// True when at least one reward app's `linkedLearningApps` references this
+    /// learning app. Without a link, the bank's `todayEarned` ignores this app's
+    /// usage entirely — see `BankCalculator.computeBank` step 1.
+    private func isLinkedToReward(_ snapshot: LearningAppSnapshot) -> Bool {
+        for schedule in scheduleService.schedules.values {
+            if schedule.linkedLearningApps.contains(where: { $0.logicalID == snapshot.logicalID }) {
+                return true
+            }
+        }
+        return false
+    }
+
     private func configSummary(for snapshot: LearningAppSnapshot) -> String? {
         scheduleService.schedules[snapshot.logicalID]?.displaySummary
     }
@@ -333,6 +345,7 @@ struct LearningTabView: View {
         let iconScale: CGFloat = horizontalSizeClass == .regular ? 1.05 : 1.35
         let fallbackIconSize: CGFloat = horizontalSizeClass == .regular ? 18 : 24
         let configured = isConfigured(snapshot)
+        let linked = isLinkedToReward(snapshot)
 
         Button {
             handleAppTap(snapshot)
@@ -390,6 +403,21 @@ struct LearningTabView: View {
                                         .foregroundColor(secondaryTextColor.opacity(0.8))
                                         .lineLimit(1)
                                 }
+                            }
+
+                            // Configured but not linked: usage isn't credited.
+                            if !linked {
+                                HStack(spacing: 4) {
+                                    Image(systemName: "link.badge.plus")
+                                        .font(.system(size: 10))
+                                        .foregroundColor(AppTheme.sunnyYellow)
+
+                                    Text("Not linked — usage won't earn time")
+                                        .font(.system(size: 11, weight: .medium))
+                                        .foregroundColor(AppTheme.sunnyYellow)
+                                        .lineLimit(2)
+                                }
+                                .padding(.top, 2)
                             }
                         } else {
                             // Unconfigured: show warning
