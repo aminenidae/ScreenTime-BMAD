@@ -1,11 +1,12 @@
 # 1.0.3 → 1.0.4 Release + Measurement Checklist — Brain Coinz
 
 **Drafted:** 2026-04-21
-**Updated:** 2026-05-02 (corrected release model after submission slipped to May 1)
+**Updated:** 2026-05-06 (build 7 withdrawn by user; build 8 in progress)
 **Owner:** Ameen
-**Submit date:** 2026-05-01 (1.0.4 build 7) — awaiting Apple review (NOT yet approved)
-**Release date:** TBD on Apple approval (expected 2026-05-04 to 2026-05-08; release mode = manual one-click on approval)
-**Measurement gate:** Day-14 anchored to 1.0.4 LIVE date (approval + release), not approval date alone
+**Submit history:** Build 7 submitted 2026-05-01 evening → **WITHDRAWN by user 2026-05-06** before approval (serious bugs surfaced post-submit). Build 8 in development.
+**Resubmit date:** TBD (depends on build 8 fix scope)
+**Release date:** TBD on Apple approval of build 8; release mode = manual one-click on approval
+**Measurement gate:** Day-14 anchored to 1.0.4 LIVE date (approval + release), not approval date alone — clock has not started yet
 
 **Purpose:** Capture a Day-14 reference read of 1.0.3 (1) once the actual data window closes, then re-read at Day 14 + 21 post-1.0.4-live to score the metadata rewrite.
 
@@ -15,13 +16,16 @@
 
 **Original plan (Apr 21 draft):** submit early, scheduled release pinned to 2026-05-01 — Day-14 measurement locked to 2026-05-15.
 
-**What actually happened:** last-mile fixes pushed submission from Apr 28 to evening of **2026-05-01**. 1.0.4 (7) is now in Apple's review queue with no approval yet. The "scheduled release for May 1" trick is no longer available — release will fire whenever review approves.
+**What actually happened:**
+1. Last-mile fixes pushed submission from Apr 28 to evening of **2026-05-01** as build 7.
+2. **2026-05-06 — build 7 withdrawn by user.** Serious bugs surfaced post-submit. Build 8 now in development with additional fixes.
+3. Resubmission date TBD on build-8 readiness. The "scheduled release for May 1" trick is gone; the May-15 Day-14 target is also gone.
 
 **Implications:**
-- 1.0.4 Day-14 measurement floats. Anchor it to LIVE date (= approval date + manual release click), not submit date.
-- Apple review for 1.0.4 ranges 1–3 days typical, but can extend (1.0.3 hit a same-day rejection requiring resubmit). Plan a window, not a point.
-- The May 1 reference-read of 1.0.3 (Section D below) was meant to run BEFORE the flip. Since 1.0.4 has not flipped yet, **the reference read is still valid — execute it today (2026-05-02) before approval lands.**
-- Decision: **manual release on approval** (not scheduled) so we can land the read first if approval lands fast.
+- 1.0.4 Day-14 measurement floats. Anchor it to LIVE date (= approval date + manual release click) of **build 8**, not build 7.
+- Apple review for 1.0.4 ranges 1–3 days typical, but can extend. Plan a window, not a point.
+- The 2026-05-02 reference-read of 1.0.3 (Section D below) is preserved as-is — captured Day 16 of 1.0.3 in isolation, still our last clean baseline before any 1.0.4 flip. Re-read is unnecessary unless build 8 takes >2 weeks to ship.
+- Decision: **manual release on build-8 approval** (not scheduled).
 
 ## Why the 1.0.3 Day-14 read is a reference point, not a gate
 
@@ -38,11 +42,11 @@ Staying on 1.0.3 is never the answer: if 1.0.3 worked, 1.0.4 extends it; if it d
 
 ---
 
-## Section A — Pre-submit checklist (COMPLETE — submitted 2026-05-01 build 7)
+## Section A — Pre-submit checklist (build 7 SUBMITTED 2026-05-01 then WITHDRAWN 2026-05-06; package re-rides build 8)
 
-Status: ✅ All metadata + binary submitted on 2026-05-01. Build 7 in Apple review queue.
+Status: ⚠️ Build 7 was submitted then withdrawn. Metadata package below is staged for build 8 unchanged. **Re-verify** the ASC fields (esp. "In-App Controls / Parental Controls" questionnaire — see `app-review-notes.md`) before resubmitting build 8 — ASC silently re-opens the questionnaire on resubmit.
 
-### A1. Metadata (AS SUBMITTED 2026-05-01 build 7)
+### A1. Metadata (staged for build 8 = as-submitted in withdrawn build 7)
 - [x] Name: `Brain Coinz: Parental Control` (set at App Information level)
 - [x] Subtitle per locale: `Limit screen time, reward kids` (30/30) — Apr 28 swap from `…, differently` to anchor reward-chart niche
 - [x] EN_US KW field (98/100): `parenting,control,lock,kids,family,reward,chart,behavior,tasks,chore,positive,reinforcement,brainrot` — Apr 27–28 swap applied

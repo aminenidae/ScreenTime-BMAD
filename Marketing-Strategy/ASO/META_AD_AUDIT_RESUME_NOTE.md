@@ -4,8 +4,8 @@
 
 ## Where we are
 
-- **1.0.4 (build 7) was submitted to Apple review on 2026-05-01** (last-mile fixes pushed submission off the original Apr 28 plan); awaiting approval as of 2026-05-02.
-- Release mode = manual on approval (the original Apr 21 scheduled-May-1 plan was forfeited when submission slipped past the schedule date).
+- **1.0.4 (build 7) was submitted to Apple review on 2026-05-01 then WITHDRAWN by user 2026-05-06** — serious bugs surfaced post-submit; build 8 now in development with additional fixes. Resubmit date TBD.
+- Release mode = manual on build-8 approval (the original Apr 21 scheduled-May-1 plan was forfeited when submission slipped past the schedule date, then nullified by the build-7 withdrawal).
 - Resumed marketing track. Decision: explore competitor ads, **starting with Meta** (TikTok next).
 - Spawned an ASO subagent that produced `META_AD_AUDIT_2026-04-28.md` (216 lines) — but Meta Ad Library was JS-protected via WebFetch, so most "active ad" findings are *inferred* from third-party sources (iSpot.tv TV spots, SocialPeta 2021 data, competitor homepages, YouTube). Audit is more of a **positioning-cohort intel doc** than a verified ad inventory.
 

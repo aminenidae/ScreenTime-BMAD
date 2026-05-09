@@ -149,7 +149,7 @@ Filter the result to entries where the `tag` is `pop>5-diff<60-watchlist` (or eq
 
 **Captured:** 2026-05-02 (planned for May 1; submission slipped, captured Day 16 instead of Day 14)
 **Live version at capture:** 1.0.3 (1) — live since 2026-04-17 (15 days live)
-**Why captured now:** 1.0.4 (build 7) is in Apple review (submitted 2026-05-01) but has NOT been released. This is the last clean read of 1.0.3 metadata in isolation. After 1.0.4 release click, the read window closes forever.
+**Why captured now:** 1.0.4 (build 7) was in Apple review (submitted 2026-05-01) but had NOT been released; this was the last clean read of 1.0.3 metadata in isolation. **Update 2026-05-06: build 7 was subsequently withdrawn by user — build 8 in progress.** This Day-16 read remains the canonical 1.0.3-in-isolation baseline; no need to re-capture unless build 8 takes >2 weeks to ship.
 **Raw evidence:** `evidence/2026-05-02_astro_us.json`
 
 ### Headline
@@ -205,7 +205,9 @@ The Apr 18 BASELINE_METRICS audit anticipated this: Brain Coinz primary language
 
 **Per Section D4 Path 3:** "1.0.4 literally fixes this by adding a dedicated EN_US locale → release 1.0.4 on approval."
 
-→ **Ship 1.0.4 (build 7) the moment Apple approves. No metadata changes. No rollback.**
+→ **Original action: Ship 1.0.4 (build 7) the moment Apple approves. No metadata changes. No rollback.**
+
+→ **Update 2026-05-06:** Build 7 was withdrawn by user before approval (serious bugs surfaced post-submit). Action carries forward unchanged to build 8 — same metadata package, ship on build-8 approval, no rollback.
 
 ### Implications for 1.0.4 Day-14 measurement (Section E)
 
