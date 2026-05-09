@@ -214,19 +214,37 @@ struct DailyUsageChartCard: View {
                     .foregroundStyle(AppTheme.vibrantTeal.opacity(0.3))
                     .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
                     .annotation(position: .top, alignment: .center, spacing: 4) {
-                        VStack(spacing: 2) {
+                        VStack(alignment: .leading, spacing: 3) {
                             Text(selectedDateLabel(for: selectedDate))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
-                            Text("\(learningMin + rewardMin)m")
-                                .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(AppTheme.vibrantTeal)
-                            Text("Learning: \(learningMin)m | Reward: \(rewardMin)m")
-                                .font(.system(size: 9, weight: .medium))
-                                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(AppTheme.vibrantTeal)
+                                    .frame(width: 6, height: 6)
+                                Text("Learning")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                                Spacer(minLength: 6)
+                                Text("\(learningMin)m")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(AppTheme.vibrantTeal)
+                            }
+                            HStack(spacing: 4) {
+                                Circle()
+                                    .fill(AppTheme.playfulCoral)
+                                    .frame(width: 6, height: 6)
+                                Text("Reward")
+                                    .font(.system(size: 10, weight: .medium))
+                                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                                Spacer(minLength: 6)
+                                Text("\(rewardMin)m")
+                                    .font(.system(size: 11, weight: .bold))
+                                    .foregroundColor(AppTheme.playfulCoral)
+                            }
                         }
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 4)
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
                         .background(
                             RoundedRectangle(cornerRadius: 6)
                                 .fill(AppTheme.card(for: colorScheme))

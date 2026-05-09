@@ -21,8 +21,21 @@ struct ChildAppDetailView: View {
     @State private var achievedMilestone: Int = 0
     @State private var milestoneBonus: Int = 0
 
+    /// Mirrors `RewardUnlockCard.isUnlocked` so the dashboard card and detail view
+    /// agree. Goal-unlocked apps (no manual session yet) appear unlocked on the
+    /// card; without this alignment, the detail view would show "locked" and the
+    /// "Complete these to unlock" header — a visible inconsistency.
     private var isUnlocked: Bool {
-        unlockedApp != nil
+        let isManuallyUnlocked = unlockedApp != nil
+        let isGoalUnlocked = BlockingCoordinator.shared.canUnlockApp(token: snapshot.token)
+        return isManuallyUnlocked || isGoalUnlocked
+    }
+
+    /// Real reason this app is blocked. Surfaced so the LearningProgressCard
+    /// header can show the actual cause (daily limit / downtime / …) instead of
+    /// always saying "Finish your goal" — even when the goal is already met.
+    private var blockingReason: BlockingReasonType? {
+        BlockingCoordinator.shared.evaluateBlockingState(for: snapshot.token).primaryReason
     }
 
     private var remainingMinutes: Int {
@@ -97,7 +110,9 @@ struct ChildAppDetailView: View {
                         token: snapshot.token,
                         isUnlocked: isUnlocked,
                         remainingMinutes: remainingMinutes,
-                        totalDailyLimit: dailyLimit
+                        totalDailyLimit: dailyLimit,
+                        usedMinutes: usedMinutes,
+                        hasActiveSession: unlockedApp != nil
                     )
 
                     // 2. Streak Progress (if enabled for this app)
@@ -119,11 +134,17 @@ struct ChildAppDetailView: View {
                         learningProgress: learningProgress,
                         learningAppTokens: learningAppTokens,
                         unlockMode: unlockMode,
-                        isUnlocked: isUnlocked
+                        isUnlocked: isUnlocked,
+                        blockingReason: blockingReason,
+                        dailyLimit: dailyLimit
                     )
 
-                    // 4. Time Bank Visualization
-                    if isUnlocked {
+                    // 4. Time Bank Visualization — only meaningful when there's an
+                    // active timed session (manual unlock with allocated minutes) AND
+                    // a real per-app daily cap. Goal-unlocked-without-session has no
+                    // allocation to visualize; dailyLimit >= 1440 means "no per-app
+                    // cap" so the "X of 1440 min" ring is nonsense.
+                    if unlockedApp != nil && dailyLimit > 0 && dailyLimit < 1440 {
                         TimeBankVisualizationCard(
                             remainingMinutes: remainingMinutes,
                             dailyLimit: dailyLimit,
@@ -139,14 +160,9 @@ struct ChildAppDetailView: View {
                         )
                     }
 
-                    // 6. Quick Stats (optional)
-                    if isUnlocked {
-                        QuickStatsCard(
-                            daysUsedThisWeek: 4, // Would be calculated in real implementation
-                            longestSessionMinutes: 25, // Would be calculated in real implementation
-                            totalEarnedThisMonth: 180 // Would be calculated in real implementation
-                        )
-                    }
+                    // 6. Quick Stats — disabled. Was rendering hardcoded placeholders
+                    // (4 days used / 25 min longest / 180 min earned) presented as
+                    // real data. Re-enable when the underlying stats are wired up.
                 }
                 .padding(20)
             }

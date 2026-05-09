@@ -8,11 +8,17 @@ struct RewardUnlockCard: View {
     let snapshot: RewardAppSnapshot
     let unlockedApp: UnlockedRewardApp?
     let remainingMinutes: Int
+    /// "Ready to play" pulse on unlocked cards. Kid-only delight cue —
+    /// disable on the parent dashboard so the unlocked indicator is calm.
+    var pulseWhenUnlocked: Bool = true
 
     @EnvironmentObject var viewModel: AppUsageViewModel
     @Environment(\.colorScheme) var colorScheme
     @State private var showDetail = false
-    @State private var unlockedGlow: Double = 0.35
+    // Lock-icon "ready to play" animation. Replaces the old coral shadow pulse,
+    // which read as a red danger flash.
+    @State private var lockWiggle: Double = 0
+    @State private var lockScale: Double = 1.0
 
     private var config: AppScheduleConfiguration? {
         AppScheduleService.shared.getSchedule(for: snapshot.logicalID)
@@ -79,10 +85,6 @@ struct RewardUnlockCard: View {
         .background(
             RoundedRectangle(cornerRadius: 20)
                 .fill(AppTheme.card(for: colorScheme))
-                .shadow(
-                    color: isUnlocked ? AppTheme.playfulCoral.opacity(unlockedGlow) : .clear,
-                    radius: 10
-                )
         )
         .overlay(borderOverlay)
         .contentShape(Rectangle())
@@ -90,10 +92,13 @@ struct RewardUnlockCard: View {
             showDetail = true
         }
         .onAppear {
-            // Subtle "ready to play" pulse on unlocked cards. Locked cards stay still.
-            if isUnlocked {
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    unlockedGlow = 0.75
+            // "Ready to play" wiggle on the open-lock icon. Locked cards stay still.
+            // Replaces the old coral shadow pulse — flashing red around the whole card
+            // read as a danger cue.
+            if isUnlocked && pulseWhenUnlocked {
+                withAnimation(.easeInOut(duration: 0.55).repeatForever(autoreverses: true)) {
+                    lockWiggle = 12
+                    lockScale = 1.18
                 }
             }
         }
@@ -173,6 +178,8 @@ struct RewardUnlockCard: View {
             Image(systemName: isUnlocked ? "lock.open.fill" : "lock.fill")
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundColor(isUnlocked ? AppTheme.playfulCoral : AppTheme.brandedText(for: colorScheme))
+                .rotationEffect(.degrees(isUnlocked ? lockWiggle : 0), anchor: .bottom)
+                .scaleEffect(isUnlocked ? lockScale : 1.0)
         }
     }
 
@@ -208,7 +215,12 @@ struct RewardUnlockCard: View {
         switch reason {
         case .learningGoal: return "COMPLETE GOAL TO UNLOCK"
         case .downtime: return "APP IN DOWNTIME"
-        case .dailyLimitReached: return "DAILY LIMIT REACHED"
+        case .dailyLimitReached:
+            // dailyLimit == 0 isn't "used up the limit" — it means the parent has
+            // disabled this app for today. Different message avoids implying the
+            // child burned through their time.
+            let limit = config?.dailyLimits.todayLimit ?? 0
+            return limit == 0 ? "BLOCKED FOR TODAY" : "DAILY LIMIT REACHED"
         case .rewardTimeExpired: return "TIME EXPIRED"
         }
     }

@@ -39,11 +39,11 @@ struct StreaksSummarySection<Provider: DashboardDataProvider>: View {
                     .foregroundColor(AppTheme.sunnyYellow.opacity(0.3))
 
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("Start your streak!")
+                    Text("No streaks yet")
                         .font(.headline)
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text("Enable streaks on reward apps to track daily progress")
+                    Text("Enable streaks on reward apps to track your child's daily progress")
                         .font(.caption)
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .lineLimit(2)

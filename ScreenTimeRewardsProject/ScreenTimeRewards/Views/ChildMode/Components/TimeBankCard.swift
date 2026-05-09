@@ -10,6 +10,13 @@ struct TimeBankCard: View {
     @Environment(\.colorScheme) var colorScheme
     @State private var isAnimating = false
 
+    /// Minutes rolled over from prior days. Surfaced as a hint when non-zero so the
+    /// `Earned − Used = Available` math reconciles (otherwise users wonder why
+    /// e.g. 76 earned − 91 used = 56 available).
+    private var carryoverMinutes: Int {
+        max(availableMinutes - (earnedMinutes - usedMinutes), 0)
+    }
+
     // Convenience initializer for backward compatibility
     init(earnedMinutes: Int, usedMinutes: Int, availableMinutes: Int? = nil) {
         self.earnedMinutes = earnedMinutes
@@ -30,6 +37,19 @@ struct TimeBankCard: View {
                 availableMinutes: availableMinutes,
                 todayEarned: earnedMinutes
             )
+
+            // Carryover hint — only when non-zero, so the chip math below reconciles.
+            if carryoverMinutes > 0 {
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.counterclockwise.circle.fill")
+                        .font(.system(size: 11))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.55))
+                    Text("+\(carryoverMinutes) MIN CARRIED OVER")
+                        .font(.system(size: 11, weight: .semibold))
+                        .tracking(0.8)
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.65))
+                }
+            }
 
             // Breakdown chips
             breakdownSection

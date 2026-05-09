@@ -8,7 +8,25 @@ struct AppHeroHeaderCard: View {
     let isUnlocked: Bool
     let remainingMinutes: Int
     let totalDailyLimit: Int
+    /// Today's used time. Surfaced when there's no allocated session — otherwise
+    /// the right-side label shows "0 min" even when the child has been using the app.
+    var usedMinutes: Int = 0
+    /// True when there's a real timed session (manual unlock with allocation).
+    /// When false, we display `usedMinutes` instead of `remainingMinutes`.
+    var hasActiveSession: Bool = true
     @Environment(\.colorScheme) var colorScheme
+
+    private var rightLabelValue: Int {
+        hasActiveSession ? remainingMinutes : usedMinutes
+    }
+
+    private var rightLabelSuffix: String {
+        hasActiveSession ? "min" : "min used"
+    }
+
+    private var showRightLabel: Bool {
+        hasActiveSession || usedMinutes > 0
+    }
 
     var body: some View {
         HStack(spacing: 12) {
@@ -51,10 +69,13 @@ struct AppHeroHeaderCard: View {
 
             Spacer()
 
-            // Time remaining (compact)
-            Text("\(remainingMinutes) min")
-                .font(.system(size: 15, weight: .semibold))
-                .foregroundColor(timeColor)
+            // Right-side label: remaining time during an active session, otherwise
+            // today's used time. "0 min" was misleading on goal-unlocked-no-session.
+            if showRightLabel {
+                Text("\(rightLabelValue) \(rightLabelSuffix)")
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundColor(timeColor)
+            }
         }
         .padding(16)
         .background(
@@ -69,6 +90,8 @@ struct AppHeroHeaderCard: View {
 
     private var timeColor: Color {
         guard isUnlocked else { return AppTheme.textSecondary(for: colorScheme) }
+        // No active session → right label is "X min used" — neutral color.
+        guard hasActiveSession else { return AppTheme.textPrimary(for: colorScheme) }
         guard totalDailyLimit > 0 else { return AppTheme.playfulCoral }
         let percentage = Double(remainingMinutes) / Double(totalDailyLimit)
         if percentage > 0.5 { return AppTheme.vibrantTeal }

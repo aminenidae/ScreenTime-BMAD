@@ -29,15 +29,24 @@ struct ParentDashboardView: View {
                 // Content
                 ScrollView {
                     VStack(spacing: 16) {
-                        // Section 1: Usage Overview (with drill-down)
-                        UsageOverviewSection(dataProvider: dataAdapter)
-
-                        // Section 2: Time Bank
+                        // Section 1: Time Bank
                         TimeBankCard(
                             earnedMinutes: dataAdapter.earnedMinutes + dataAdapter.streakBonusMinutes,
                             usedMinutes: dataAdapter.usedMinutes,
                             availableMinutes: dataAdapter.availableMinutes
                         )
+
+                        // Section 2: Card-per-reward (mirrors child dashboard layout —
+                        // each reward shows its linked-learning requirements + progress
+                        // directly underneath, replacing the hidden "Today's Activity" grouping).
+                        ForEach(viewModel.rewardSnapshots, id: \.id) { rewardSnapshot in
+                            RewardUnlockCard(
+                                snapshot: rewardSnapshot,
+                                unlockedApp: viewModel.unlockedRewardApps[rewardSnapshot.token],
+                                remainingMinutes: viewModel.cumulativeAvailableMinutes,
+                                pulseWhenUnlocked: false
+                            )
+                        }
 
                         // Section 3: Streaks Summary
                         StreaksSummarySection(dataProvider: dataAdapter)

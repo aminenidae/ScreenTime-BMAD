@@ -8,6 +8,13 @@ struct LearningProgressCard: View {
     let learningAppTokens: [String: ApplicationToken]
     let unlockMode: UnlockMode
     let isUnlocked: Bool
+    /// Real reason this app is blocked — when known and not goal-related, the
+    /// header reflects that instead of falsely showing "Finish your goal" while
+    /// the goal is already met (e.g. blocked by daily limit / downtime).
+    var blockingReason: BlockingReasonType? = nil
+    /// Used to disambiguate `.dailyLimitReached` when limit is 0 (parent-disabled,
+    /// not "used up the limit").
+    var dailyLimit: Int = -1
     @Environment(\.colorScheme) var colorScheme
 
     var body: some View {
@@ -19,11 +26,6 @@ struct LearningProgressCard: View {
             ForEach(linkedLearningApps, id: \.logicalID) { linkedApp in
                 learningAppProgressRow(for: linkedApp)
             }
-
-            // Unlock mode explanation
-            if !isUnlocked && !linkedLearningApps.isEmpty {
-                unlockModeExplanation
-            }
         }
         .padding(20)
         .background(
@@ -32,13 +34,65 @@ struct LearningProgressCard: View {
         )
     }
 
+    /// True when the linked-learning goal(s) are met for the current unlock mode.
+    /// Used to detect "goal met but app still blocked" — the lock must come from
+    /// a non-goal source (daily limit, downtime, …).
+    private var goalsMet: Bool {
+        guard !linkedLearningApps.isEmpty else { return true }
+        let metCount = linkedLearningApps.filter { learningProgress[$0.logicalID]?.goalMet ?? false }.count
+        switch unlockMode {
+        case .all: return metCount == linkedLearningApps.count
+        case .any: return metCount >= 1
+        }
+    }
+
+    /// Header copy adapts to: shield state × number of linked apps × unlock mode ×
+    /// real blocking reason. When the goal is already met, surface the actual
+    /// reason (daily limit / downtime / etc.) instead of falsely saying
+    /// "Finish your goal".
+    private var headerText: String {
+        let multi = linkedLearningApps.count >= 2
+        if isUnlocked {
+            switch (multi, unlockMode) {
+            case (false, _):       return "UNLOCKED — GOAL REACHED"
+            case (true, .all):     return "UNLOCKED — ALL GOALS REACHED"
+            case (true, .any):     return "UNLOCKED — GOAL REACHED"
+            }
+        }
+
+        // Locked. If the real blocking reason is known and isn't goal-related,
+        // show that instead — the goal might already be met.
+        if let reason = blockingReason {
+            switch reason {
+            case .downtime:         return "APP IN DOWNTIME"
+            case .dailyLimitReached:
+                return dailyLimit == 0 ? "BLOCKED FOR TODAY" : "DAILY LIMIT REACHED"
+            case .rewardTimeExpired: return "REWARD TIME EXPIRED"
+            case .learningGoal:
+                break // fall through to goal-not-met copy
+            }
+        }
+
+        // No reason given, or reason is goal-not-met. If goals look met, the lock
+        // is somewhere else we can't name — show neutral copy.
+        if goalsMet {
+            return "GOAL REACHED — STILL LOCKED"
+        }
+
+        switch (multi, unlockMode) {
+        case (false, _):       return "FINISH YOUR GOAL TO UNLOCK"
+        case (true, .all):     return "FINISH ALL GOALS TO UNLOCK"
+        case (true, .any):     return "FINISH ANY GOAL TO UNLOCK"
+        }
+    }
+
     private var headerSection: some View {
         HStack(spacing: 8) {
-            Image(systemName: "book.fill")
+            Image(systemName: isUnlocked ? "checkmark.circle.fill" : "book.fill")
                 .font(.system(size: 16))
-                .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                .foregroundColor(isUnlocked ? AppTheme.vibrantTeal : AppTheme.brandedText(for: colorScheme))
 
-            Text(isUnlocked ? "YOU'VE EARNED THIS TIME BY:" : "COMPLETE THESE TO UNLOCK")
+            Text(headerText)
                 .font(.system(size: 13, weight: .bold))
                 .tracking(1.5)
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
@@ -140,21 +194,4 @@ struct LearningProgressCard: View {
         .padding(.vertical, 4)
     }
 
-    private var unlockModeExplanation: some View {
-        HStack(spacing: 8) {
-            Image(systemName: unlockMode == .all ? "checkmark.circle.fill" : "circle.fill")
-                .font(.system(size: 12))
-                .foregroundColor(AppTheme.playfulCoral)
-
-            Text(unlockMode == .all ? "Complete ALL apps above" : "Complete ANY ONE app above")
-                .font(.system(size: 12, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-        }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(
-            RoundedRectangle(cornerRadius: 12)
-                .fill(AppTheme.playfulCoral.opacity(0.08))
-        )
-    }
 }
