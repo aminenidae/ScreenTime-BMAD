@@ -1271,6 +1271,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             print("✅ [ScreenTimeService] Loaded \(appUsages.count) apps from persistence")
         }
 
+        // Drain pending archives written by the extension at midnight rollover.
+        // Required for devices where the main app was closed between yesterday's
+        // last extension write and midnight (otherwise yesterday's per-app
+        // totals are wiped before any dailyHistory entry is created).
+        drainPendingArchives(defaults: defaults)
+
         // Track sync statistics for summary log
         var syncedApps: [(name: String, delta: Int)] = []
         var unchangedCount = 0
@@ -1391,6 +1397,77 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             } else {
                 print("[ScreenTimeService] 📊 Synced \(syncedApps.count) app(s): \(syncSummary) | \(unchangedCount) unchanged")
             }
+        }
+        #endif
+    }
+
+    /// Drain pending-archive keys written by the extension's `resetAllDailyCounters`
+    /// at midnight rollover. Each key holds the per-app `usage_<id>_today` value
+    /// captured immediately before the wipe, plus the date string from
+    /// `ext_usage_<id>_date`. Drained entries are appended to the app's
+    /// `dailyHistory` (deduped by date) and the pending keys removed.
+    ///
+    /// Without this, devices where the main app was closed between the kid's
+    /// last reward-app session and midnight lose yesterday's totals — the
+    /// extension's pre-existing reset path zeroed `usage_<id>_today` before any
+    /// archive could be written by the main app.
+    private func drainPendingArchives(defaults: UserDefaults) {
+        let trackedIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        guard !trackedIDs.isEmpty else { return }
+
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let formatter = DateFormatter()
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.timeZone = TimeZone.current
+
+        var drained: [(name: String, seconds: Int, date: String)] = []
+
+        for logicalID in trackedIDs {
+            let secondsKey = "pending_archive_\(logicalID)_seconds"
+            let dateKey = "pending_archive_\(logicalID)_date"
+
+            let seconds = defaults.integer(forKey: secondsKey)
+            guard seconds > 0,
+                  let dateString = defaults.string(forKey: dateKey),
+                  let archiveDate = formatter.date(from: dateString) else {
+                continue
+            }
+
+            let archiveDay = calendar.startOfDay(for: archiveDate)
+            // Refuse to archive today/future as historical (defensive).
+            guard archiveDay < today,
+                  var persistedApp = usagePersistence.app(for: logicalID) else {
+                defaults.removeObject(forKey: secondsKey)
+                defaults.removeObject(forKey: dateKey)
+                continue
+            }
+
+            let alreadyArchived = persistedApp.dailyHistory.contains {
+                calendar.isDate($0.date, inSameDayAs: archiveDay)
+            }
+            if !alreadyArchived {
+                let summary = UsagePersistence.DailyUsageSummary(
+                    date: archiveDay,
+                    seconds: seconds,
+                    points: 0
+                )
+                persistedApp.dailyHistory.append(summary)
+                if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
+                    persistedApp.dailyHistory.removeAll { $0.date < cutoff }
+                }
+                usagePersistence.saveApp(persistedApp)
+                drained.append((name: persistedApp.displayName, seconds: seconds, date: dateString))
+            }
+
+            defaults.removeObject(forKey: secondsKey)
+            defaults.removeObject(forKey: dateKey)
+        }
+
+        #if DEBUG
+        if !drained.isEmpty {
+            let summary = drained.map { "\($0.name): \($0.seconds)s on \($0.date)" }.joined(separator: ", ")
+            print("[ScreenTimeService] 🏦 Drained pending archives: \(summary)")
         }
         #endif
     }
@@ -4556,6 +4633,10 @@ extension ScreenTimeService {
         // Remove re-arm keys
         defaults.removeObject(forKey: "rearm_\(logicalID)_requested")
         defaults.removeObject(forKey: "rearm_\(logicalID)_time")
+
+        // Remove pending-archive keys (extension midnight rollover handoff)
+        defaults.removeObject(forKey: "pending_archive_\(logicalID)_seconds")
+        defaults.removeObject(forKey: "pending_archive_\(logicalID)_date")
 
         #if DEBUG
         print("[ScreenTimeService] 🧹 Cleaned up extension keys for \(logicalID)")

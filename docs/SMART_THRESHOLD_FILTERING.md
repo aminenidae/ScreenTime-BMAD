@@ -2738,4 +2738,55 @@ A single iOS flood is bounded by the registered sliding window per app (default 
 
 **Open work (not in this commit):**
 
-Fix A — extension's `resetAllDailyCounters` should archive `usage_<id>_today` into `dailyHistory` before zeroing it, so yesterday-view and bank-rollover survive the case where the main app isn't open at midnight. Tracked separately.
+Fix A — extension's `resetAllDailyCounters` should archive `usage_<id>_today` into `dailyHistory` before zeroing it, so yesterday-view and bank-rollover survive the case where the main app isn't open at midnight. Tracked separately. (See next section — shipped same day.)
+
+### May 9, 2026 — Pending-archive handoff (yesterday-view + bank rollover preservation)
+
+**Status:** SHIPPED on `refactor/unified-usage-counter`. Companion fix to the wall-clock-cap removal (above). Same investigation thread, separate commit.
+
+**Symptom:** Same 2026-05-08 5-device test as the wall-clock-cap fix. On the 2 failing devices, even after the wall-clock cap is fixed and credit math produces ~109 min for Roblox, the dashboard's "yesterday" view would still show 0 and `getHistoricalRemainingMinutes` would return baseline-only — because the data never got into `dailyHistory`.
+
+**Root cause:**
+
+The extension's `resetAllDailyCounters` (called from `intervalDidStart` at midnight, and from the same-day `setUsageToThreshold` path on day-rollover detection) zeroes `usage_<id>_today` and removes `ext_usage_<id>_date` directly. There is no archive step in the extension. The dashboard's "yesterday" view reads from `app.dailyHistory[]`, which is populated by `ScreenTimeService.readExtensionUsageData()` — but only when the main app is foregrounded **and** the extension still has yesterday's data accessible (`isFromToday == true` gate inside `readExtensionUsageData`).
+
+Failure path on a device where the parent didn't open the main app between yesterday's last reward session (22:55) and midnight:
+
+1. `usage_ABFF9B19_today = 882s`, `ext_usage_ABFF9B19_date = "2026-05-08"`. Bank, shield, dashboard all read this.
+2. 00:00 May 9: extension's `intervalDidStart` triggers `resetAllDailyCounters`. `usage_ABFF9B19_today` set to 0; `ext_usage_ABFF9B19_date` removed. **Yesterday's 882s now exists nowhere on the device.**
+3. Morning May 9: parent foregrounds the main app. `readExtensionUsageData` runs. `extTodaySeconds = 0`, `extDateString = nil`. The `isFromToday` gate evaluates false → `else` branch increments `unchangedCount` and exits. **No archive opportunity remains.**
+4. Dashboard renders: yesterday's view = 0 min for Roblox; bank's `getHistoricalRemainingMinutes` returns baseline only — yesterday's earnings/spend never enters the live delta.
+
+The pre-existing archive logic in `readExtensionUsageData` (lines ~1322–1346) was conditional on `isFromToday` — it could only archive yesterday's value if the main app had previously synced with the extension and `persistedApp.todaySeconds` already held that value. On a device where the main app didn't run during yesterday's session, `persistedApp.todaySeconds` was 0, and there was nothing to archive.
+
+**Fix design — pending-archive handoff:**
+
+The extension captures yesterday's value into a dedicated UserDefaults key right before the wipe; the main app drains that key into `dailyHistory` on next foreground.
+
+| Side | Change |
+|------|--------|
+| Extension | In `resetAllDailyCounters`, before zeroing `usage_<id>_today`, read `usage_<id>_today` and `ext_usage_<id>_date` and write them to `pending_archive_<id>_seconds` and `pending_archive_<id>_date`. Logs as `PENDING_ARCHIVE`. |
+| Main app | New private method `drainPendingArchives(defaults:)` on `ScreenTimeService`. Called at the top of `readExtensionUsageData`, after the defensive empty-load. Iterates `tracked_app_ids`, reads pending-archive keys, appends to `app.dailyHistory` (deduped by date), removes the keys. |
+| Main app | `cleanupExtensionKeys(for:)` extended to also remove `pending_archive_<id>_*` keys when an app is orphaned. |
+
+**Why a separate handoff key (vs. extending `PersistedAppMinimal`):**
+
+The extension's `updateJSONPersistence` already round-trips `persistedApps_v3` through `PersistedAppMinimal`, which lacks `dailyHistory`. Adding `dailyHistory` to the minimal struct or sharing the full `PersistedApp` type into the extension target is a much larger change and increases the extension's memory footprint — the 6 MB DeviceActivityMonitor extension limit is already a constraint. The handoff key approach is ~30 lines of code total, no schema changes, no extension memory growth.
+
+**Properties of the design:**
+
+- **Idempotent** — drain is keyed off the pending key's existence; once removed, repeated foregrounds are no-ops.
+- **Deduplicated** — drain checks `dailyHistory.contains` for the same date before appending, so even if the existing `isFromToday`-path archive runs first, the drain won't double-write.
+- **Defensive** — refuses to archive any date >= today (sanity check); refuses to archive without a `persistedApp` lookup (orphan).
+- **Cross-day-tolerant** — if multiple midnights pass without main-app launch (e.g., parent away for 3 days), each midnight's pending-archive key holds whatever `usage_<id>_today` was at that moment; only the *most recent* survives. Earlier days' data still goes through the `_total` cumulative key but per-day breakdown is lost. Acceptable trade-off — the alternative is a per-day pending-archive key set, which adds complexity for a rare scenario.
+- **Points-free** — the pending archive doesn't carry a `points` value. `DailyUsageSummary.points = 0` in the drained entry. Acceptable because (a) the bank uses seconds-based ratio math, not points, and (b) the main-app-was-closed scenario means `persistedApp.todayPoints` would have been 0 anyway under the old archive path.
+
+**What didn't change:**
+
+- The existing `readExtensionUsageData` archive path inside the `isFromToday` block stays. It still handles the common case where the main app *did* run during yesterday's session — the drain is a backstop for the case where it didn't.
+- `updateJSONPersistence`'s `PersistedAppMinimal` round-trip continues to silently strip `dailyHistory`. This is a latent bug (only fires on the JSON-fallback recording path, which runs only when `map_<event>_id` keys are missing). 0 occurrences in 2026-05-08 logs. Out of scope here; flagged for a separate pass.
+
+**What changed in code:**
+
+- `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `resetAllDailyCounters` writes `pending_archive_*` keys before wipe. ~10 lines added.
+- `ScreenTimeRewards/Services/ScreenTimeService.swift` — new `drainPendingArchives(defaults:)` private method (~50 lines), called from start of `readExtensionUsageData`. `cleanupExtensionKeys(for:)` extended by 2 lines to drop pending-archive keys for orphaned apps.

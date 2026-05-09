@@ -1099,6 +1099,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Only reset if this app hasn't been reset today
             let lastReset = defaults.double(forKey: resetKey)
             if lastReset < startOfToday {
+                // Capture yesterday's value into a pending-archive key BEFORE the wipe.
+                // Main app's drainPendingArchives() picks this up on next foreground —
+                // without it, devices where the main app was closed at midnight lose
+                // yesterday's per-app totals entirely (no dailyHistory entry).
+                let yesterdaySeconds = defaults.integer(forKey: todayKey)
+                let yesterdayDate = defaults.string(forKey: "ext_usage_\(appID)_date")
+                if yesterdaySeconds > 0, let dateString = yesterdayDate {
+                    defaults.set(yesterdaySeconds, forKey: "pending_archive_\(appID)_seconds")
+                    defaults.set(dateString, forKey: "pending_archive_\(appID)_date")
+                    debugLog("PENDING_ARCHIVE appID=\(appID.prefix(8))... seconds=\(yesterdaySeconds) date=\(dateString)", defaults: defaults)
+                }
+
                 debugLog("EXT_WRITE_BLOCK appID=\(appID.prefix(8))... DAILY_RESET clearing usage and hourly buckets", defaults: defaults)
                 defaults.set(0, forKey: todayKey)
                 defaults.set(startOfToday, forKey: resetKey)
