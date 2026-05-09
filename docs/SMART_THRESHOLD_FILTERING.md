@@ -2790,3 +2790,252 @@ The extension's `updateJSONPersistence` already round-trips `persistedApps_v3` t
 
 - `ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `resetAllDailyCounters` writes `pending_archive_*` keys before wipe. ~10 lines added.
 - `ScreenTimeRewards/Services/ScreenTimeService.swift` — new `drainPendingArchives(defaults:)` private method (~50 lines), called from start of `readExtensionUsageData`. `cleanupExtensionKeys(for:)` extended by 2 lines to drop pending-archive keys for orphaned apps.
+
+### May 9, 2026 — NEW_DAY `lastThreshold` poisoning (parallel-branch miss of May 1 v3 anchor)
+
+**Status:** DIAGNOSED, NOT YET SHIPPED. Fix design below pending verification against the second failing-device log.
+
+**Symptom:** Same May 8 → May 9 5-device test as the wall-clock-cap removal and pending-archive handoff above. After installing the new build (`refactor/unified-usage-counter` through `e3701d7`) at 01:54 on 2026-05-09, one device that recorded 1h 51min of Roblox in iOS Settings → Screen Time recorded only **7 minutes** in our app for the entire next day's session (08:08 → 14:09). The bank "didn't move" because nothing was being credited.
+
+**Root cause — the parallel-branch miss:**
+
+`setUsageToThreshold` in the extension has two branches that handle credit calculation:
+
+1. **Same-day branch** (line ~547+, `lastResetTimestamp >= startOfToday`) — patched on May 1 with the v3 anchor `lastThreshold = max(prior, newToday)` so a stale catch-up event can't poison `lastThreshold` past the credited high-water mark.
+
+2. **NEW_DAY branch** (line ~572+, `lastResetTimestamp < startOfToday`) — runs on the very first event of a new day for an app. Sets `lastThreshold = thresholdSeconds` *unconditionally*, with no v3 anchor, no sanity check.
+
+The May 1 fix was scoped only to branch #1. Branch #2 has the same bug, in identical-shape code, written in 2026-02 and never revisited. The Apr 29 incident manifested mid-day (14:35:14), so the same-day branch was where attention went.
+
+**Why it triggered on May 9 specifically:**
+
+Three preconditions must all hold for branch #2 to be reached with a stale event:
+
+| Condition | May 7 → May 8 | May 8 → May 9 |
+|-----------|---------------|---------------|
+| Yesterday's iOS-cumulative for any app exceeds today's wall-clock-since-midnight | Max app at min.20 (1200s) | ABFF9B19 at min.111 (6660s) — 1h 51min Roblox |
+| Extension was killed across midnight | yes (battery 5%, dead/sleeping) | yes (battery 85%, healthy) |
+| iOS delivers a queued threshold event *before* `intervalDidStart` finishes its reset | **no** — 80ms reset window was empty (00:06:46.642 → 00:06:46.722) | **yes** — `min.111 THRESHOLD_CALL` arrived at `00:05:18.521`, same millisecond as `INTERVAL_END`, before `MIDNIGHT_RESET_COMPLETE` at `00:05:18.765` |
+
+The May 8 device was nearly dead overnight, so iOS deferred event delivery until well after the extension had completed its day-rollover. The May 9 device was healthy enough that iOS had events queued and ready to fire the instant the extension restarted. The race window is normally 80–250ms wide; on May 8 it was empty, on May 9 it caught the stale `min.111`.
+
+**Failing-device timeline (`ext-log-2026-05-09.log`, redacted):**
+
+```
+00:05:18.521  INTERVAL_END
+00:05:18.521  THRESHOLD_CALL min.111            ← stale, yesterday's queue
+00:05:18.557  EVENT min=111 currentToday=882s lastThresh=882s
+00:05:18.628  MIDNIGHT_START                    ← intervalDidStart begins (concurrent thread)
+00:05:18.660  DAY_ROLLOVER appID=ABFF9B19...    ← NEW_DAY branch fires from min.111 handler
+00:05:18.701  APP_STATE ABFF9B19 ext_date=2026-05-08 lastThresh=882s usage_today=882s
+00:05:18.765  MIDNIGHT_RESET_COMPLETE
+00:05:19.225  EXT_REBUILD_APP ABFF9B19 current=1min → window 2-181 (180 thresholds)
+              ↑ current=1min because NEW_DAY credited initialUsage=60 from the stale event
+```
+
+Then the rest of the day:
+
+```
+08:08:48.592  EVENT min=2  currentToday=60s lastThresh=6660s  → SKIP_REGRESSION
+08:11:05.819  EVENT min=4  currentToday=60s lastThresh=6660s  → SKIP_REGRESSION
+08:16:50.209  EVENT min=8  currentToday=60s lastThresh=6660s  → SKIP_REGRESSION
+... (174 more SKIP_REGRESSION on legitimate today events) ...
+14:09:51.847  RECORDED min=116 oldToday=60s +300 = newToday=360s thresh=6960s
+              ↑ first event > 6660s, finally passes — 6 hours of credit lost
+```
+
+176 of 182 today events for ABFF9B19 were `recorded=false`. Only events with `thresholdSeconds > 6660` (today's iOS cumulative caught back up to yesterday's high-water mark) made it through.
+
+**Comparison to May 8 (worked):**
+
+```
+00:06:46.642  MIDNIGHT_START
+00:06:46.722  MIDNIGHT_RESET_COMPLETE   ← 80ms, no events arrived in window
+00:06:46.788  EXT_REBUILD_APP ABFF9B19 current=0min → window 1-60
+```
+
+Clean reset. `lastThreshold` wiped to 0 for all apps. Today's events recorded normally.
+
+**Two-device-with-same-bug-different-symptoms hypothesis (pending verification):**
+
+The user reported the second failing device as "flood and usage overcounting." This is plausibly the same NEW_DAY branch hit with different inputs:
+
+- If yesterday's stale event has a moderate `thresholdSeconds` (say 600s) AND today's kid uses the app heavily, the bogus `lastThreshold = 600` doesn't block events past min.10 — it blocks min.1–9 only. From min.11 onwards, the same-day branch fires with `lastThreshold = 600` and a real event at min.11 (660s), making `rawDelta = max(60, 660 − 600) = 60`. The kid would see ~10 missing minutes early in the day, then everything credits normally.
+- If yesterday's stale event is small (e.g. min.5, 300s) AND iOS dumps several stale events in the race window — the NEW_DAY branch records 60s, sets lastThresh=300, then *subsequent* in-burst stale events (still in the same 250ms race window before MIDNIGHT_RESET_COMPLETE) hit the same-day branch with `lastResetTimestamp` now updated. They'd flow through the post-NEW_DAY credit path with the v3 anchor — but each could credit up to 60s per event, and if iOS has 5–10 queued stale events, that's 5–10 minutes of bogus credit at 00:00 before any real usage. **This is the overcounting symptom.**
+
+Confirmation deferred to second-device log analysis.
+
+**Fix design (pending implementation):**
+
+Single new filter at the top of `setUsageToThreshold`, before any state mutation. Naming candidate: `SKIP_STALE_FLUSH`.
+
+```swift
+// Filter 1.5: SKIP_STALE_FLUSH — physical-impossibility check.
+// A threshold event today claiming more cumulative seconds than the
+// wall-clock seconds elapsed since midnight necessarily reflects yesterday's
+// iOS-cumulative being flushed across the day boundary. Drop it before any
+// state mutation so neither the credit count nor lastThreshold gets poisoned.
+// Mirrors SKIP_PIN_REPLAY (which uses the same idea anchored to firstSeen).
+let wallClockSinceMidnight = max(0, Int(nowTimestamp - startOfToday))
+if thresholdSeconds > wallClockSinceMidnight + 60 {  // +60s grace for jitter
+    debugLog("SKIP_STALE_FLUSH appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s > wallClockSinceMidnight+60=\(wallClockSinceMidnight + 60)s — yesterday's queued event", defaults: defaults)
+    return false
+}
+```
+
+**Belt-and-suspenders complement:** in the NEW_DAY branch, replace the bare
+`defaults.set(thresholdSeconds, forKey: lastThresholdKey)` with the same
+v3 high-water-mark anchor as the same-day branch. Even if a near-edge event
+slips through the +60s grace, it can't poison `lastThreshold` past `newToday`.
+
+**Why `wallClockSinceMidnight` is correct here (vs. why I rejected it as a credit cap on May 9 morning):**
+
+When discussing the wall-clock-cap removal, I (correctly) rejected `wallClockSinceMidnight` as a credit budget — it's essentially infinite for any normal day and never constrains anything. But that's a property of using it as a *credit cap*. As a *physical-impossibility check on threshold magnitude*, it's exactly the right anchor: any threshold > wall-clock-since-midnight is, by definition, claiming usage that didn't happen today. That's a sharp, principled bound. The two uses look superficially similar (both involve "wall clock since midnight") but answer different questions:
+
+- "How many seconds of credit can this event grant?" → bounded by perEventCap (60s), not wallClockSinceMidnight.
+- "Could this event represent today's activity at all?" → bounded by wallClockSinceMidnight + grace.
+
+**Self-heal question (open):**
+
+The bad `lastThreshold = 6660` is currently sitting in the test device's storage. New build can't repair it until tomorrow's midnight reset (which clears `lastThreshold` for all apps). Options:
+
+1. Wait it out — bug stops affecting the device after the next clean midnight.
+2. Add a self-heal: on every `EXT_REBUILD_APP`, if `lastThreshold > current_minutes × 60 + 60`, reset `lastThreshold` to `current_minutes × 60`. Catches the poisoning automatically.
+3. Triggered repair on app launch (main app sees impossible `lastThreshold`, clears it).
+
+Decision deferred until fix implementation.
+
+### May 9–10, 2026 — Three-layer phantom-flood defense
+
+**Status:** DESIGNED, READY FOR IMPLEMENTATION. Supersedes the May 9 NEW_DAY-only fix above. Ships in one commit alongside this entry.
+
+**Problem statement:** iOS DeviceActivity occasionally fires threshold events for cumulative crossings that don't reflect today's actual usage. Two distinct manifestations observed across the May 8–9 device tests:
+
+1. **Device 1 (May 9 morning).** A stale `min.111` event fired at `00:05:18.521` — the same millisecond as `INTERVAL_END` and 178 ms before `MIDNIGHT_RESET_COMPLETE`. The event entered the NEW_DAY branch of `setUsageToThreshold` (because `lastResetTimestamp < startOfToday` had not been updated yet) and wrote `lastThreshold = 6660s` directly. For the rest of the day, every legitimate event for the app got `SKIP_REGRESSION`'d because its threshold was below 6660. **Symptom: undercounting.** Kid played Roblox for 4 hours; only 7 minutes were credited.
+
+2. **Device 2 (May 9 afternoon).** After a window rebuild fired `startMonitoring()` at `12:51:20`, iOS dumped queued threshold events for all 14 monitored apps simultaneously. 12 of those apps had not been opened by the kid at all today (iOS Screen Time confirmed each had <18 seconds of real usage), but iOS still flushed accumulated cross-day cumulative crossings as if they had. The events arrived in waves over the next two hours, eventually delivering nearly the full sequence of mins 1–125 for each phantom app — but the LOW mins (min.1, 2, 3) arrived 30+ minutes after the first wave's HIGH mins (min.10, 100, 162). **Symptom: massive overcounting + shield oscillation.** ~330 min of phantom credit on apps the kid never opened, drained the bank to 0 and held it there via a feedback loop where each minute earned was instantly lost to phantom credit during the brief shield-drop windows.
+
+**Root cause (upstream, in iOS, NOT fixable in our code):**
+
+iOS Screen Time's per-day usage tracker and iOS DeviceActivity's threshold delivery queue are loosely coupled and inconsistent. Per-day cumulative resets at midnight; the threshold delivery queue retains undelivered crossings across days and dumps them on `startMonitoring()` calls. Apple Developer Forum thread 811305 (FB21450954) describes the same symptom on iOS 26.2; unresolved as of March 2026 with no API workaround. Confirmed by parallel research agent: there is no public iOS API to ask "did the user actually foreground app X today" outside the DeviceActivityReport extension, and that extension cannot pipe data back to the monitor extension.
+
+**Hypotheses tested and REJECTED during diagnosis:**
+
+| Hypothesis | Why it failed |
+|------------|---------------|
+| "Phantom flood is in a tight burst, legit usage is spread out" | Real catchups (deferred legit events) are also tight bursts. Both compress N minutes of cumulative into seconds of wall-clock when extension restarts after being killed. |
+| "Phantom events arrive out-of-order; legit events are monotonic" | Both can be out-of-order. AbacusFlashMath morning legit fired `min=2, 1, 3, 5, 4, 7, 6, 8...` — adjacent reorderings under 1 second. iOS catchups never arrive perfectly monotonic. |
+| "Phantom floods skip min.1 entirely; legit catchups always include min.1" | iOS does eventually deliver min.1 in phantom waves — but 30+ minutes after the first event for the app, in a separate later wave. So presence-of-min.1 alone is not a signal; **timing of min.1 relative to first event is.** |
+| "Phantom floods have holes in the sequence" | Both legit and phantom data have holes due to event-drop under iOS pressure. Legit AbacusFlashMath had 19 holes in its 1-110 range; phantom 19C7CA9F had only 7 holes in 1-125. Hole-counting does not separate. |
+| "Cumulative growth-rate exceeding wall-clock = phantom" | Same shape in legit deferred catchups — extension was dead while kid played, iOS dumps everything when extension wakes up. Pace-impossibility happens identically in both. |
+| "Cross-app simultaneity within a `startMonitoring()` window = phantom" | Real catchups affect every app the kid was using during the dead window — could be 2-3 apps simultaneously. Threshold heuristics ("more than N apps = phantom") have edge cases where legit multi-app activity gets falsely flagged. |
+| "Just keep the wall-clock-since-last-event credit cap (the May 9 morning removal)" | The cap suppresses legit deferred catchups (Device 1's 1h 51min Roblox session credited only 14.7 min on May 8 because every in-burst event after the first got `wallClockElapsed=0`). Returning the cap re-introduces this undercounting. |
+
+**Surviving signals — the two physical-impossibility checks that hold up:**
+
+1. **Per-app: timing of min.1 relative to first event of day.**
+   - In every legit case across all 5 device logs (Roblox today/yesterday, AbacusFlashMath today, May 5 multi-app catchups), the first event for an app fresh in the day was either min.1 itself OR min.1/2/3 arrived within hundreds of milliseconds of the first event.
+   - In every phantom case (12 untouched reward apps on Device 2), the first event was at min.10+ and min.1 did not arrive for 30+ minutes.
+   - The two regimes are separated by roughly 6,000× — a 60-second decision window catches phantom cases with massive margin without false-positiving any observed legit case.
+
+2. **Aggregate: total post-unshield credit ≤ wall-clock since unshield + grace.**
+   - The kid has one set of hands and can foreground only one app at a time. Therefore, total credited usage across all monitored apps since the last shield drop cannot exceed wall-clock seconds since that shield drop.
+   - This is a hard physical bound. Pre-unshield credit is preserved (it accumulated during the goal-earning window before unshield) but does not enter the post-unshield budget calculation.
+   - Anchoring to the unshield moment (rather than midnight) gives a tighter budget that triggers earlier on phantom floods.
+
+**Three-layer defense (final design):**
+
+```
+┌──────────────────────────────────────────────────────────────────┐
+│ Existing filters (kept unchanged)                                │
+│   SKIP_MIDNIGHT, SKIP_INVALID, SKIP_SHIELDED, SKIP_PIN_REPLAY    │
+└──────────────────────────────────────────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ NEW Layer 1: SKIP_STALE_FLUSH                                    │
+│   if thresholdSeconds > wallClockSinceMidnight + 60s             │
+│       → reject (catches Device 1's NEW_DAY race)                 │
+└──────────────────────────────────────────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ NEW Layer 2: PER-APP MIN.1 BUFFER                                │
+│   if phantom_suspect_<id> set: reject                            │
+│   if first event of day (lastThresh=0, currentToday=0):          │
+│     if thresholdSeconds ≤ 180: clear buffer state, proceed       │
+│     else if no buffer open: open buffer (record start time),     │
+│                              reject this event                    │
+│     else if buffer age > 60s: set phantom_suspect, reject        │
+│     else: still in 60s window, reject (still buffering)          │
+│                                                                   │
+│   Catches Device 2's per-app phantom (untouched apps)            │
+└──────────────────────────────────────────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ Existing SKIP_REGRESSION + lastThreshold v3 anchor               │
+│ Existing per-event 60s cap (with first-after-unlock relaxation)  │
+└──────────────────────────────────────────────────────────────────┘
+                               ↓
+┌──────────────────────────────────────────────────────────────────┐
+│ NEW Layer 3: POST-UNSHIELD BUDGET                                │
+│   compute totalPostUnshieldCredit (sum of per-app                │
+│     (usage_<id>_today − usage_<id>_at_unshield))                 │
+│   if totalPostUnshieldCredit + delta                             │
+│      > wallClockSinceUnshield + grace (10%)                      │
+│       → reject (catches AbacusFlashMath afternoon-contamination  │
+│         and any other continuation phantom that passes Layer 2)  │
+└──────────────────────────────────────────────────────────────────┘
+                               ↓
+                        Credit applied
+```
+
+**Coverage table:**
+
+| Phantom subtype | Caught by |
+|-----------------|-----------|
+| Midnight race-window NEW_DAY poisoning | Layer 1 |
+| First-event-of-day phantom on untouched apps | Layer 2 |
+| Continuation phantom on apps with prior usage today | Layer 3 |
+| Sustained multi-app flood across 13+ apps | Layer 2 + Layer 3 |
+| In-burst per-event undercounting on legit deferred catchup | Existing per-event cap (kept) |
+
+**State to add (App Group UserDefaults keys):**
+
+| Key | Type | Purpose |
+|-----|------|---------|
+| `phantom_suspect_<id>` | Bool | Set when an app's first-event-of-day check fails. While set, all events for the app are rejected. Cleared at midnight. |
+| `first_event_start_<id>` | Double (TimeInterval) | Timestamp when the buffer opened for an app. Cleared when verdict reached or at midnight. |
+| `last_unshield_timestamp` | Double (TimeInterval) | When was the most recent shield-drop event. Anchors the budget. Updated by `checkAndUpdateShields` whenever the shield state transitions to "any app unshielded". |
+| `usage_<id>_at_unshield` | Int (seconds) | Per-app snapshot of `usage_<id>_today` at the moment of `last_unshield_timestamp`. Used to compute post-unshield delta. |
+
+All four are cleared in `resetAllDailyCounters` at midnight and in `cleanupExtensionKeys` for orphaned apps.
+
+**Replay against failing-device logs:**
+
+*Device 1 (2026-05-09 00:05:18 NEW_DAY race):*
+- Layer 1 sees `thresholdSeconds = 6660`, `wallClockSinceMidnight = 318` → `6660 > 318 + 60 = 378` → REJECT.
+- NEW_DAY branch never executes for the stale event. `lastThreshold` stays 0.
+- Subsequent legit today events for Roblox process normally.
+
+*Device 2 (2026-05-09 12:53–14:46 multi-app phantom flood):*
+- For each of the 12 untouched reward apps:
+  - First event has threshold 600s–9720s, > 180s.
+  - Layer 2 opens buffer at t₀, rejects this event.
+  - For 60 seconds, more high-threshold events arrive → all rejected (still buffering).
+  - At t₀+60s, no event with threshold ≤ 180s arrived → set `phantom_suspect_<id>` = true.
+  - All subsequent events for the day → rejected immediately at top of Layer 2.
+- For AbacusFlashMath (had real morning usage, lastThreshold > 0 in afternoon):
+  - Layer 2 doesn't apply (not first-event-of-day).
+  - Afternoon events compute deltas through existing filters.
+  - Layer 3 sees that crediting would push post-unshield total above wall-clock-since-unshield → REJECT.
+
+Final: Device 2 credits 234 min (Roblox real) + 16 min (AFM legit morning) = **250 min total** instead of 675 min. Bank stays at the right number. No oscillation.
+
+**Edge cases acknowledged:**
+
+1. **Layer 2 loses 1-2 events in rare legit-with-late-min.1 case.** If iOS happens to deliver a legit catchup with first event at min.5+ (we've never seen this in our data, but theoretically possible), the events arriving while the buffer is open get rejected. Once min.1/2/3 arrives within 60s, the buffer state clears and subsequent events credit normally. Worst-case undercount: 60s. Bounded.
+
+2. **Layer 3 needs a non-zero `last_unshield_timestamp` to function.** If the bank starts the day with `pool > 0` and shields never re-applied (so unshield never tracked), we fall back to `startOfToday` as the anchor. Loose but safe.
+
+3. **Multiple shield drop/re-apply cycles.** Each unshield event resets the snapshots. `usage_<id>_at_unshield` always reflects the latest unshield. The grace factor (10%) accommodates iOS background-counting that occasionally produces 1-3 minutes of cumulative beyond wall-clock.
+
+4. **The phantom_suspect flag persists for the day, even if iOS later delivers min.1 for the app.** This is intentional. If the kid genuinely opens the app later in the day, they would be undercredited until midnight. Trade-off: undercount-on-rare-edge-case vs. overcount-on-known-iOS-bug. We chose to undercount.

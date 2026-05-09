@@ -4638,6 +4638,11 @@ extension ScreenTimeService {
         defaults.removeObject(forKey: "pending_archive_\(logicalID)_seconds")
         defaults.removeObject(forKey: "pending_archive_\(logicalID)_date")
 
+        // Remove three-layer phantom-flood defense state (May 9–10, 2026)
+        defaults.removeObject(forKey: "phantom_suspect_\(logicalID)")
+        defaults.removeObject(forKey: "first_event_start_\(logicalID)")
+        defaults.removeObject(forKey: "usage_\(logicalID)_at_unshield")
+
         #if DEBUG
         print("[ScreenTimeService] 🧹 Cleaned up extension keys for \(logicalID)")
         #endif

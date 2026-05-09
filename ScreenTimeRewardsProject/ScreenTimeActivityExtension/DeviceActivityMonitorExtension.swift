@@ -471,6 +471,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
+        // Filter 1.5: SKIP_STALE_FLUSH — physical-impossibility check.
+        // A threshold event today claiming more cumulative seconds than the wall-clock
+        // since midnight necessarily reflects yesterday's iOS-cumulative being flushed
+        // across the day boundary. Drop it before any state mutation so neither credit
+        // nor lastThreshold gets poisoned. Catches the May 9 NEW_DAY race where a stale
+        // min.111 (6660s) arrived at 00:05:18 (318s after midnight) and entered the
+        // NEW_DAY branch before MIDNIGHT_RESET_COMPLETE finished — see SMART_THRESHOLD_FILTERING.md
+        // "May 9–10, 2026 — Three-layer phantom-flood defense".
+        let wallClockSinceMidnight = max(0, Int(nowTimestamp - startOfToday))
+        if thresholdSeconds > wallClockSinceMidnight + 60 {
+            debugLog("SKIP_STALE_FLUSH appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s > wallClockSinceMidnight+60=\(wallClockSinceMidnight + 60)s — yesterday's queued event", defaults: defaults)
+            Self.logger.notice("SKIP_STALE_FLUSH app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(wallClockSinceMidnight)s")
+            return false
+        }
+
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         Self.logger.notice("FILTER2_ENTRY app=\(appID.prefix(8))... category=\(category) thresh=\(thresholdSeconds)s")
@@ -533,6 +548,68 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_PIN_REPLAY appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(Int(wallClockSincePin))s", defaults: defaults) }
                 Self.logger.notice("SKIP_PIN_REPLAY app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(Int(wallClockSincePin))s")
                 return false
+            }
+        }
+
+        // Filter 2.7: PER-APP MIN.1 BUFFER — first-event-of-day phantom defense.
+        // Catches Device 2-class phantom: iOS dumps stale-queue events (min.10+) for apps
+        // the kid never opened today, then trickles in min.1 30+ minutes later. Real
+        // catchups (extension restart while app is being used) deliver min.1 within
+        // hundreds of milliseconds of the first event. The 60-second window cleanly
+        // separates the two regimes (validated against 5 device logs — see
+        // SMART_THRESHOLD_FILTERING.md "May 9–10, 2026").
+        //
+        // Storage:
+        //   phantom_suspect_<id>     — sticky Bool; while set, reject all events for
+        //                              this app today. Cleared at midnight.
+        //   first_event_start_<id>   — TimeInterval; when buffer opened. Cleared on
+        //                              verdict (legit) or escalation to suspect.
+        let phantomSuspectKey = "phantom_suspect_\(appID)"
+        if defaults.bool(forKey: phantomSuspectKey) {
+            debugLog("SKIP_PHANTOM_APP appID=\(appID.prefix(8))... app flagged phantom-suspect today — rejecting", defaults: defaults)
+            Self.logger.notice("SKIP_PHANTOM_APP app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+            return false
+        }
+
+        let layer2_lastThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
+        let layer2_currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+        let isFirstEventOfDay = (layer2_lastThreshold == 0 && layer2_currentToday == 0)
+        let firstEventStartKey = "first_event_start_\(appID)"
+
+        if isFirstEventOfDay {
+            if thresholdSeconds <= 180 {
+                // Acceptable first event (min.1, 2, or 3). Clear any stale buffer state
+                // (e.g., from a prior buffer that was already invalidated mid-window) and
+                // proceed normally — the existing filters and credit math handle this.
+                if defaults.double(forKey: firstEventStartKey) > 0 {
+                    debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — min≤3 within window, accepting", defaults: defaults)
+                    defaults.removeObject(forKey: firstEventStartKey)
+                }
+            } else {
+                // Suspicious first event (high threshold). Either open a new buffer or
+                // evaluate an existing one.
+                let bufferStart = defaults.double(forKey: firstEventStartKey)
+                if bufferStart == 0 {
+                    // No buffer open. Start one. Reject this event (it's the high-min trigger).
+                    defaults.set(nowTimestamp, forKey: firstEventStartKey)
+                    debugLog("FIRST_EVENT_BUFFER_OPEN appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — waiting up to 60s for min≤3", defaults: defaults)
+                    Self.logger.notice("FIRST_EVENT_BUFFER_OPEN app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+                    return false
+                } else {
+                    let bufferAge = nowTimestamp - bufferStart
+                    if bufferAge > 60 {
+                        // Timeout. No min≤3 ever arrived in the 60-second window. Verdict: phantom.
+                        defaults.set(true, forKey: phantomSuspectKey)
+                        defaults.removeObject(forKey: firstEventStartKey)
+                        debugLog("PHANTOM_SUSPECT_SET appID=\(appID.prefix(8))... 60s window expired without min≤3 — flagging app as phantom-flooded today", defaults: defaults)
+                        Self.logger.notice("PHANTOM_SUSPECT_SET app=\(appID.prefix(8))... bufferAge=\(Int(bufferAge))s")
+                        return false
+                    } else {
+                        // Still in 60-second window, this is another high-threshold event. Reject.
+                        debugLog("FIRST_EVENT_BUFFER_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferAge=\(Int(bufferAge))s — still waiting for min≤3", defaults: defaults)
+                        return false
+                    }
+                }
             }
         }
 
@@ -650,6 +727,36 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let unlockAge = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
             debugLog("PER_EVENT_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s \(batteryContextString(defaults: defaults))", defaults: defaults)
         }
+
+        // Layer 3: POST-UNSHIELD BUDGET — physical-impossibility on aggregate usage.
+        // Total credited usage across all monitored apps since the last shield drop
+        // cannot exceed wall-clock seconds since that shield drop (kid has one set of
+        // hands, can foreground only one app at a time). Catches continuation phantom
+        // on apps with prior real usage today (e.g., AbacusFlashMath afternoon
+        // contamination) which Layer 2 cannot see because lastThreshold > 0.
+        // See SMART_THRESHOLD_FILTERING.md "May 9–10, 2026".
+        let lastUnshield = defaults.double(forKey: "last_unshield_timestamp")
+        if lastUnshield > 0, lastUnshield <= nowTimestamp {
+            let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+            var totalPostUnshieldCredit = 0
+            for trackedID in trackedAppIDs {
+                let usageNow = defaults.integer(forKey: "usage_\(trackedID)_today")
+                let usageAtUnshield = defaults.integer(forKey: "usage_\(trackedID)_at_unshield")
+                totalPostUnshieldCredit += max(0, usageNow - usageAtUnshield)
+            }
+            let wallClockSinceUnshield = max(0, Int(nowTimestamp - lastUnshield))
+            // 10 % grace accommodates iOS background-counting jitter (Device 1
+            // observed ~3 % overshoot — 111 min credit vs 108 min wall-clock for a
+            // genuinely heavy session).
+            let grace = wallClockSinceUnshield / 10
+            let proposedTotal = totalPostUnshieldCredit + delta
+            if proposedTotal > wallClockSinceUnshield + grace {
+                debugLog("SKIP_BUDGET_EXCEEDED appID=\(appID.prefix(8))... totalPost=\(totalPostUnshieldCredit)s + delta=\(delta)s = \(proposedTotal)s > wallClockSinceUnshield=\(wallClockSinceUnshield)s + grace=\(grace)s — phantom contamination", defaults: defaults)
+                Self.logger.notice("SKIP_BUDGET_EXCEEDED app=\(appID.prefix(8))... proposed=\(proposedTotal)s budget=\(wallClockSinceUnshield + grace)s")
+                return false
+            }
+        }
+
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
         if midnightDiagActive { midnightDiagnosticLog("DIAG_INCREMENT appID=\(appID.prefix(8))... old=\(currentToday)s +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s", defaults: defaults) }
@@ -1132,6 +1239,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // Clear newly-added pin anchor at midnight: a "newly added" app from
                 // yesterday is treated as already-known today (cumulative=0 anyway).
                 defaults.removeObject(forKey: "app_first_seen_today_\(appID)")
+
+                // Three-layer phantom-flood defense state (May 9–10, 2026):
+                //   • phantom_suspect_<id>     — sticky reject-all flag, must clear at midnight
+                //   • first_event_start_<id>   — Layer 2 buffer-open timestamp
+                //   • usage_<id>_at_unshield   — Layer 3 budget snapshot
+                defaults.removeObject(forKey: "phantom_suspect_\(appID)")
+                defaults.removeObject(forKey: "first_event_start_\(appID)")
+                defaults.removeObject(forKey: "usage_\(appID)_at_unshield")
             }
         }
 
@@ -1141,6 +1256,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Clear shield check flag so it re-evaluates after next restart
         defaults.removeObject(forKey: "ext_shield_check_after_restart")
+
+        // Clear unshield anchor — fresh day starts with no active unshield window.
+        defaults.removeObject(forKey: "last_unshield_timestamp")
     }
 
     /// Send Darwin notification to main app with sequence tracking for diagnostics
@@ -1240,6 +1358,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
                 recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
                 debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (goalMet, pool=\(pool)min)", defaults: defaults)
+
+                // Layer 3 anchor: track unshield-window for the post-unshield budget filter.
+                // Snapshot all monitored apps' usage_<id>_today at this moment. If we're
+                // already in an active unshield window (last_unshield_timestamp is recent),
+                // don't reset — this is a continuation of the same window. A fresh window
+                // is detected by ≥ 60s gap since the prior unshield event (which implies
+                // a re-shield happened in between).
+                let now = Date().timeIntervalSince1970
+                let lastUnshieldStamp = defaults.double(forKey: "last_unshield_timestamp")
+                if lastUnshieldStamp == 0 || (now - lastUnshieldStamp) > 60 {
+                    defaults.set(now, forKey: "last_unshield_timestamp")
+                    let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                    for trackedID in trackedAppIDs {
+                        let usageNow = defaults.integer(forKey: "usage_\(trackedID)_today")
+                        defaults.set(usageNow, forKey: "usage_\(trackedID)_at_unshield")
+                    }
+                    debugLog("UNSHIELD_ANCHOR_SET timestamp=\(Int(now)) snapshotted=\(trackedAppIDs.count) apps", defaults: defaults)
+                }
 
                 // Defensive guard: with goalMet=true, todayEarned should be > 0 unless
                 // a linked goal has minutesRequired=0 (atypical config). Skip the
