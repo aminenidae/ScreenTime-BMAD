@@ -2665,3 +2665,77 @@ The 3-step refactor collapsed four parallel "today's per-app seconds" counters a
 **Architecture invariant going forward:**
 
 Any new code path that reads or computes "today's per-app usage" or "what's in the bank" MUST go through `usage_<id>_today` (App Group key) and `BankCalculator.computeBank(...)` respectively. Adding a parallel counter or a parallel formula re-introduces the May 7 shield-oscillation class of bug. See `project_pool_aware_shield_invariant.md`.
+
+### May 9, 2026 — Wall-clock cap removed (deferred-batch flush undercounting)
+
+**Status:** SHIPPED on `refactor/unified-usage-counter`. Supersedes the wall-clock cap introduced Apr 30 (see `Charging-Flush Overcounting + Wall-Clock Cap (Apr 23, 2026)`).
+
+**Symptom:** 5-device test, 2026-05-08. 3 devices recorded reward usage correctly; 2 showed **0 minutes for the reward app yesterday** in our dashboard despite iOS Settings → Screen Time confirming the kid had played Roblox for **1h 51min**. The Time Bank also showed no deduction — the parent's perception was "the app didn't track anything."
+
+**Investigation (`ext-log-2026-05-08.log`, one of the 2 failing devices):**
+
+iOS fired **113 RECORDED events** for ABFF9B19 (Roblox) yesterday on this device — meaning 109+ minutes of cumulative iOS-observed Roblox usage. Of those events, only **14.7 minutes (882s) of credit reached `usage_<id>_today`**. The remaining ~95 minutes were silently dropped. (The 14.7 min that *did* credit was then lost separately because the extension's midnight `resetAllDailyCounters` clears `usage_<id>_today` to 0 without first archiving to `dailyHistory`; that's a distinct bug, see Fix A in the same investigation thread, deferred to a follow-up commit.)
+
+Per-event credit pattern showed three phases:
+
+| Phase | Wall clock | Events | Credit |
+|-------|-----------|--------|--------|
+| Phase 1 | 21:07:44 → 21:16:46 (9 min) | 10 events (some bursty) | ~5.5 min credited |
+| **Phase 2** | **22:16:24 → 22:16:58 (34 sec)** | **~60 events flushed in one batch** | **+60 sec total (only the first event got credit)** |
+| Phase 3 | 22:17 → 22:55 | scattered small bursts | ~9 min credited |
+
+Phase 2 is where ~59 of the lost 95 minutes went. iOS had been holding threshold events while the device was idle / the extension was killed; when the extension came back the OS dumped its entire backlog in 34 seconds. Threshold values arrived **out of order** (4140s, 3600s, 3420s, 3900s, 2220s, …) and 59 of the 60 events received `+0` credit.
+
+**Root cause — what the wall-clock cap was actually doing:**
+
+The cap (Apr 30, ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift) computed:
+
+```swift
+let wallClockBaseline = max(lastEventTime, unlockTime, startOfToday)
+let wallClockElapsed  = nowTimestamp - wallClockBaseline
+let delta = min(rawDelta, wallClockElapsed, perEventCap)
+```
+
+Once event #1 of a burst recorded, `lastEventTime` advanced to *now*. Event #2 (arriving 0.6 s later) saw `wallClockElapsed ≈ 0` and credited 0. Same for events #3 through #60. The cap was structurally incompatible with iOS's actual delivery model — iOS legitimately delivers minutes-of-real-usage in sub-second bursts after deferring events during dormancy.
+
+**Why the cap existed in the first place:**
+
+April 29 incident (`ext-log-2026-04-29.log`): a stale catch-up flood walked `lastThreshold` to 3600s in <14 s, then `SKIP_REGRESSION` blocked every subsequent legitimate threshold for 9.4 hours. The Apr 30 wall-clock cap was a stop-gap to bound credit during such floods.
+
+**Why it's redundant now:**
+
+The actual root cause of the Apr 29 blackout was `lastThreshold` poisoning, not over-credit. That root cause was fixed on **May 1** (`Apr 30, 2026 — Stale Catch-Up lastThreshold Poisoning` section above) by anchoring `lastThreshold` to the credited high-water-mark `max(prior, newToday)` instead of the raw stale `thresholdSeconds`. With that anchor in place, `SKIP_REGRESSION` self-rearms after a flood and rest-of-day recording is preserved. The wall-clock cap on top of that became defense against a problem that was already solved at the root.
+
+**Initial proposal (rejected mid-discussion):** Replace the "since-last-event" baseline with a "since-midnight" budget (`wall-clock-since-midnight − currentToday`). This was rejected because the budget is essentially infinite for any normal day (~80,000 seconds) and never actually constrains anything in practice — the per-event 60s cap and the 60-event sliding window already bound any single flood to ≤60 minutes.
+
+**Shipped fix:** **Remove the wall-clock cap entirely.** No replacement budget. The remaining defenses are sufficient by construction:
+
+| Defense | What it bounds |
+|---------|---------------|
+| `perEventCap = 60s` (relaxed once after unlock) | Each iOS threshold event = at most 1 min of new credit (or up to elapsed-since-unlock on the first post-unlock event) |
+| `SKIP_REGRESSION` | Blocks duplicate / out-of-order events |
+| `lastThreshold` high-water-mark anchor (May 1) | Floods can't poison subsequent `SKIP_REGRESSION` decisions |
+| `SKIP_MIDNIGHT` (Filter 0) | Blocks cross-day stale flushes between midnight and first `scheduleActivity()` |
+
+**Replay of the failing log under the new code:**
+
+| Phase | Old credit | New credit |
+|-------|-----------|-----------|
+| Phase 1 | ~5.5 min | ~9 min |
+| **Phase 2 (60-event burst)** | **1 min** | **60 min** |
+| Phase 3 | ~9 min | ~40 min |
+| **Total** | **14.7 min** | **~109 min** |
+
+New total matches iOS Settings → Screen Time's 1h 51min within 1 minute (rounding from `seconds / 60` integer math).
+
+**What changed in code:**
+
+`ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — removed `wallClockBaseline`/`wallClockElapsed` calculation and dropped them from the `min(...)` for `delta`. Renamed the diagnostic line `WALL_CLOCK_CAP` → `PER_EVENT_CAP` to reflect the only remaining cap layer. ~30 lines net deleted (mostly comments). Trailing comment in `ScreenTimeRewards/Services/ScreenTimeService.swift` referencing `WALL_CLOCK_CAP defense` updated.
+
+**Worst-case bound on the new code:**
+
+A single iOS flood is bounded by the registered sliding window per app (default 60 events for learning apps, up to 240 for unlimited reward apps per the May 6 right-sized window). Worst-case phantom credit during a stale flood is therefore ≤60 min for learning apps, ≤240 min for unlimited reward apps — and `SKIP_MIDNIGHT` plus the `lastThreshold` anchor make actual phantom credit vanishingly rare in practice (iOS doesn't fabricate threshold events; it only delivers crossings that its own usage measurement observed).
+
+**Open work (not in this commit):**
+
+Fix A — extension's `resetAllDailyCounters` should archive `usage_<id>_today` into `dailyHistory` before zeroing it, so yesterday-view and bank-rollover survive the case where the main app isn't open at midnight. Tracked separately.

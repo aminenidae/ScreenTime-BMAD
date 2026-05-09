@@ -99,8 +99,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Write to the dedicated monitoring lifecycle log (shared with extension via app group).
     /// Battery context is appended to every line so MONITORING_RESTART, MONITORING_DEAD,
     /// MONITORING_ALIVE, MONITORING_START events can be correlated with charge-state
-    /// transitions (which trigger iOS deferred-event flushes that historically caused
-    /// catch-up storms — see WALL_CLOCK_CAP defense in the extension).
+    /// transitions (which trigger iOS deferred-event flushes).
     private func lifecycleLog(_ message: String) {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
         let timestamp = Self.lifecycleDateFormatter.string(from: Date())

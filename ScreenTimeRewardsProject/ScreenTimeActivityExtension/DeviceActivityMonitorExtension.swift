@@ -624,57 +624,31 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Same day — use threshold delta when we have a reliable lastThreshold (>0),
-        // otherwise fall back to safe +60 to prevent phantom threshold amplification.
-        // lastThreshold > 0 means it was set by a previous recording in this session.
-        // lastThreshold = 0 means daily reset or post-restart — can't trust delta.
+        // Per-event 60 s cap: each iOS threshold represents at most 1 minute of new
+        // progression. Relaxed on the first event after a shield drop — the kid may
+        // have legitimately played multiple minutes before iOS fired its first
+        // threshold; the relaxation is bounded by elapsed-since-unlock. Subsequent
+        // in-burst events advance lastEventTime past unlockTime, so the cap drops
+        // back to 60 s.
         //
-        // Two-layer cap: a credited minute requires a real minute of elapsed time.
-        //
-        // Layer 1 — wall-clock cap.
-        // Anchor: ext_usage_<appID>_timestamp (written below on every recording;
-        // cleared at midnight by resetAllDailyCounters). On day-1 (timestamp absent)
-        // fall back to startOfToday so a flush burst at 00:00:01 still gets capped
-        // against ~1s of elapsed wall-clock instead of crediting the full threshold.
-        // Catches in-burst events: once the first event for an app records,
-        // ext_usage_*_timestamp updates to nowTimestamp and subsequent events in the
-        // same burst see wallClockElapsed ≈ 0.
-        //
-        // Layer 2 — per-event hard cap (60 s).
-        // Each threshold event represents the cumulative crossing exactly one minute
-        // mark, so by definition at most 60 s of real progression has occurred since
-        // the previous threshold for this app. Without this layer, the FIRST event of
-        // a burst (when the timestamp anchor is hours stale) would credit the full
-        // raw delta — exactly the failure mode observed Apr 23 23:38:22 where four
-        // first-events of an iOS catch-up storm credited +3420 / +2280 / +540 / +420
-        // seconds (111 min total fake credit) before the in-burst cap could kick in.
-        // Trade-off: if iOS skips intermediate thresholds (rare — we register all 60
-        // 1-min thresholds in the sliding window), we under-credit by ≤60 s per
-        // skipped threshold. Asymmetric vs. unbounded over-credit; ship.
+        // Defense in depth (kept unchanged):
+        //   - SKIP_MIDNIGHT (Filter 0) — blocks cross-day stale flushes.
+        //   - SKIP_REGRESSION — blocks duplicates and out-of-order regressions.
+        //   - lastThreshold high-water-mark anchor (May 1) — flood can't poison
+        //     subsequent SKIP_REGRESSION decisions.
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
-        // Anchor cap on the latest of: last event for this app, last unlock for this app
-        // (Apr 26–27 fix), or start-of-today (midnight fallback). Using max() means a
-        // legitimate post-unlock catch-up burst can credit up to elapsed-since-unlock
-        // on its FIRST event — subsequent in-burst events naturally fall back to 60s
-        // because lastEventTime advances. Without this, the per-event 60s cap discards
-        // multi-minute legitimate use that accumulated between unshield and first event.
         let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
-        let wallClockBaseline: TimeInterval = max(lastEventTime, unlockTime, startOfToday)
-        let wallClockElapsed = max(0, Int(nowTimestamp - wallClockBaseline))
         let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
 
-        // First event after an unlock relaxes the per-event cap to elapsed-since-unlock
-        // (bounded by rawDelta and wallClockElapsed). Subsequent events have
-        // lastEventTime > unlockTime, so isFirstEventAfterUnlock=false and cap=60s.
         let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
         let perEventCap = isFirstEventAfterUnlock
             ? max(60, Int(nowTimestamp - unlockTime))
             : 60
-        let delta = max(0, min(rawDelta, wallClockElapsed, perEventCap))
+        let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
             let unlockAge = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
-            debugLog("WALL_CLOCK_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s wallClock=\(wallClockElapsed)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s sinceLastEvent=\(lastEventTime > 0 ? "yes" : "no(midnight-baseline)") \(batteryContextString(defaults: defaults))", defaults: defaults)
+            debugLog("PER_EVENT_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s \(batteryContextString(defaults: defaults))", defaults: defaults)
         }
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
