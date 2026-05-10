@@ -278,6 +278,72 @@ class AppScheduleService: ObservableObject {
         }
     }
 
+    /// Strip stale `linkedLearningApps` entries that point at apps which no longer
+    /// exist in the master apps list (i.e., the user deleted them via the picker).
+    ///
+    /// Walks every schedule and drops linked entries whose logicalID is in
+    /// `deletedLogicalIDs`. Persists + re-syncs only if a schedule actually changed.
+    ///
+    /// Why: deleting a learning app from the Learning Apps tab removes it from
+    /// `usagePersistence` and from `AppConfiguration`, but leaves stale references
+    /// inside other reward apps' goal configs. The goal check then requires usage of
+    /// an app that no longer exists → 0 min, requirement never met → reward stays
+    /// shielded forever. (Bug observed May 9, 2026 — see SMART_THRESHOLD_FILTERING.md.)
+    func scrubDeletedLearningReferences(deletedLogicalIDs: Set<String>) {
+        guard !deletedLogicalIDs.isEmpty else { return }
+
+        var didMutate = false
+        var mutatedConfigs: [AppScheduleConfiguration] = []
+
+        for (scheduleID, schedule) in schedules {
+            let filtered = schedule.linkedLearningApps.filter { !deletedLogicalIDs.contains($0.logicalID) }
+            guard filtered.count < schedule.linkedLearningApps.count else { continue }
+
+            var updated = schedule
+            updated.linkedLearningApps = filtered
+            schedules[scheduleID] = updated
+            mutatedConfigs.append(updated)
+            didMutate = true
+
+            #if DEBUG
+            let removed = schedule.linkedLearningApps.count - filtered.count
+            print("[AppScheduleService] 🧹 Scrubbed \(removed) deleted-app linked ref(s) from schedule \(scheduleID.prefix(12))...")
+            #endif
+        }
+
+        guard didMutate else { return }
+
+        do { try persistSchedules() } catch {
+            print("[AppScheduleService] ⚠️ Failed to persist after deletion scrub: \(error)")
+        }
+        for config in mutatedConfigs {
+            saveScheduleForExtension(config)
+        }
+
+        Task { @MainActor in
+            ScreenTimeService.shared.syncGoalConfigsToExtension()
+        }
+    }
+
+    /// Self-heal: walk every schedule and drop linked-learning entries whose
+    /// logicalID isn't in `validLogicalIDs` (the current master apps list). Called
+    /// on parent-app launch to repair existing orphan references that pre-date the
+    /// deletion-path fix.
+    func scrubOrphanLearningReferences(validLogicalIDs: Set<String>) {
+        var orphans: Set<String> = []
+        for schedule in schedules.values {
+            for linked in schedule.linkedLearningApps where !validLogicalIDs.contains(linked.logicalID) {
+                orphans.insert(linked.logicalID)
+            }
+        }
+        if !orphans.isEmpty {
+            #if DEBUG
+            print("[AppScheduleService] 🧹 Found \(orphans.count) orphan learning ref(s): \(orphans.map { $0.prefix(8) })")
+            #endif
+            scrubDeletedLearningReferences(deletedLogicalIDs: orphans)
+        }
+    }
+
     /// Create default configurations for a set of app IDs
     func createDefaultConfigs(for logicalIDs: Set<String>, type: AppType) -> [String: AppScheduleConfiguration] {
         var configs: [String: AppScheduleConfiguration] = [:]

@@ -726,6 +726,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // as .reward — see scrubStaleLinkedLearningReferences().
         scrubStaleLinkedLearningReferences()
 
+        // Drop linkedLearningApps references whose target app was deleted earlier.
+        // Self-heals data left orphaned by the pre-fix deletion path.
+        scrubOrphanLearningReferences()
+
         #if DEBUG
         print("[ScreenTimeService] Configuring monitoring with \(selection.applications.count) apps, \(categoryAssignments.count) categories, \(rewardPoints.count) reward points")
         #endif
@@ -4509,6 +4513,16 @@ extension ScreenTimeService {
         AppScheduleService.shared.scrubLinkedReferences(rewardAppLogicalIDs: rewardLogicalIDs)
     }
 
+    /// Self-heal: drop any `linkedLearningApps` entries whose logicalID isn't in
+    /// the master apps list (i.e., the user deleted that app earlier but the
+    /// reference was orphaned in goal configs). Without this, the goal check
+    /// requires usage of an app that no longer exists, blocking unlock forever.
+    /// Discovered May 9, 2026 — see SMART_THRESHOLD_FILTERING.md.
+    func scrubOrphanLearningReferences() {
+        let validLogicalIDs = Set(usagePersistence.loadAllApps().keys)
+        AppScheduleService.shared.scrubOrphanLearningReferences(validLogicalIDs: validLogicalIDs)
+    }
+
     /// Assign a category to an application token
     /// This method provides a way for external code to modify category assignments
     func assignCategory(_ category: AppUsage.AppCategory, to token: ApplicationToken) {
@@ -4641,6 +4655,9 @@ extension ScreenTimeService {
         // Remove three-layer phantom-flood defense state (May 9–10, 2026)
         defaults.removeObject(forKey: "phantom_suspect_\(logicalID)")
         defaults.removeObject(forKey: "first_event_start_\(logicalID)")
+        defaults.removeObject(forKey: "first_event_max_thresh_\(logicalID)")
+        defaults.removeObject(forKey: "burst_active_until_\(logicalID)")
+        defaults.removeObject(forKey: "shadow_usage_\(logicalID)_today")
         defaults.removeObject(forKey: "usage_\(logicalID)_at_unshield")
 
         #if DEBUG
@@ -4702,6 +4719,10 @@ extension ScreenTimeService {
     func deleteAppConfiguration(logicalID: String) {
         // Clean up extension UserDefaults keys FIRST to prevent stale data
         cleanupExtensionKeys(for: logicalID)
+
+        // Drop the deleted app from any reward schedule's linkedLearningApps so we
+        // don't leave orphan references that block reward unlocks (May 9, 2026 bug).
+        AppScheduleService.shared.scrubDeletedLearningReferences(deletedLogicalIDs: [logicalID])
 
         let context = PersistenceController.shared.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID

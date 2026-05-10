@@ -433,6 +433,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
     /// All filters applied BEFORE any recording (including day rollover)
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
+        // Shadow as `var` so Layer 2 can fast-forward to the highest threshold seen
+        // in a buffered burst when min≤3 arrives and the burst is accepted as legit.
+        var thresholdSeconds = thresholdSeconds
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
         let midnightDiagActive = defaults.bool(forKey: "midnight_diagnostic_active")
@@ -484,6 +487,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             debugLog("SKIP_STALE_FLUSH appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s > wallClockSinceMidnight+60=\(wallClockSinceMidnight + 60)s — yesterday's queued event", defaults: defaults)
             Self.logger.notice("SKIP_STALE_FLUSH app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s wallClock=\(wallClockSinceMidnight)s")
             return false
+        }
+
+        // Shadow tracker (May 10, 2026): record what the "trust max threshold" model
+        // would have credited, in parallel with the real filter chain. Updated for every
+        // event that passes Filter 1.5 (basic validity + stale-flush guard), regardless
+        // of whether downstream filters accept it. Compare against real `usage_<id>_today`
+        // via SHADOW_BREAKDOWN log entries. If shadow tracks real usage closely without
+        // phantom inflation, we can shed PER_EVENT_CAP / Layer 3 / SKIP_REGRESSION
+        // complexity. If shadow inflates on phantom days, we keep the layered model.
+        let shadowKey = "shadow_usage_\(appID)_today"
+        let shadowOld = defaults.integer(forKey: shadowKey)
+        if thresholdSeconds > shadowOld {
+            defaults.set(thresholdSeconds, forKey: shadowKey)
+            if thresholdSeconds - shadowOld > 60 {
+                debugLog("SHADOW_ADVANCE appID=\(appID.prefix(8))... old=\(shadowOld)s new=\(thresholdSeconds)s — trust-max would credit +\(thresholdSeconds - shadowOld)s vs real +60s cap", defaults: defaults)
+            }
         }
 
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
@@ -575,23 +594,40 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let layer2_currentToday = defaults.integer(forKey: "usage_\(appID)_today")
         let isFirstEventOfDay = (layer2_lastThreshold == 0 && layer2_currentToday == 0)
         let firstEventStartKey = "first_event_start_\(appID)"
+        let firstEventMaxThreshKey = "first_event_max_thresh_\(appID)"
 
         if isFirstEventOfDay {
             if thresholdSeconds <= 180 {
-                // Acceptable first event (min.1, 2, or 3). Clear any stale buffer state
-                // (e.g., from a prior buffer that was already invalidated mid-window) and
-                // proceed normally — the existing filters and credit math handle this.
+                // Acceptable first event (min.1, 2, or 3). If a buffer is open from
+                // earlier high-min events, this is a legit catchup burst — fast-forward
+                // to the highest threshold seen during the buffer (those high-min events
+                // were rejected in HOLD and iOS won't redeliver them, so we credit them
+                // here in one shot).
                 if defaults.double(forKey: firstEventStartKey) > 0 {
-                    debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — min≤3 within window, accepting", defaults: defaults)
+                    let maxSeen = defaults.integer(forKey: firstEventMaxThreshKey)
+                    if maxSeen > thresholdSeconds {
+                        debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s maxSeen=\(maxSeen)s — accepting burst, fast-forwarding to maxSeen", defaults: defaults)
+                        thresholdSeconds = maxSeen
+                    } else {
+                        debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — accepting (no higher held)", defaults: defaults)
+                    }
                     defaults.removeObject(forKey: firstEventStartKey)
+                    defaults.removeObject(forKey: firstEventMaxThreshKey)
+                    // Open a 10-second burst window so this event AND its tail (out-of-order
+                    // catch-up events from the same iOS dump) bypass PER_EVENT_CAP and credit
+                    // their full deltas. Without this, the 60s cap discards 8-10 min of a
+                    // legit catch-up burst (Device 1 May 10 — see SMART_THRESHOLD_FILTERING.md).
+                    defaults.set(nowTimestamp + 10, forKey: "burst_active_until_\(appID)")
                 }
             } else {
                 // Suspicious first event (high threshold). Either open a new buffer or
                 // evaluate an existing one.
                 let bufferStart = defaults.double(forKey: firstEventStartKey)
                 if bufferStart == 0 {
-                    // No buffer open. Start one. Reject this event (it's the high-min trigger).
+                    // No buffer open. Start one. Reject this event (it's the high-min trigger),
+                    // but remember its threshold so we can fast-forward if a low-min arrives.
                     defaults.set(nowTimestamp, forKey: firstEventStartKey)
+                    defaults.set(thresholdSeconds, forKey: firstEventMaxThreshKey)
                     debugLog("FIRST_EVENT_BUFFER_OPEN appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — waiting up to 60s for min≤3", defaults: defaults)
                     Self.logger.notice("FIRST_EVENT_BUFFER_OPEN app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
                     return false
@@ -601,12 +637,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         // Timeout. No min≤3 ever arrived in the 60-second window. Verdict: phantom.
                         defaults.set(true, forKey: phantomSuspectKey)
                         defaults.removeObject(forKey: firstEventStartKey)
+                        defaults.removeObject(forKey: firstEventMaxThreshKey)
                         debugLog("PHANTOM_SUSPECT_SET appID=\(appID.prefix(8))... 60s window expired without min≤3 — flagging app as phantom-flooded today", defaults: defaults)
                         Self.logger.notice("PHANTOM_SUSPECT_SET app=\(appID.prefix(8))... bufferAge=\(Int(bufferAge))s")
                         return false
                     } else {
-                        // Still in 60-second window, this is another high-threshold event. Reject.
-                        debugLog("FIRST_EVENT_BUFFER_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferAge=\(Int(bufferAge))s — still waiting for min≤3", defaults: defaults)
+                        // Still in 60-second window. Update the running max so we can
+                        // fast-forward correctly when min≤3 arrives, then reject this event.
+                        let prevMax = defaults.integer(forKey: firstEventMaxThreshKey)
+                        if thresholdSeconds > prevMax {
+                            defaults.set(thresholdSeconds, forKey: firstEventMaxThreshKey)
+                        }
+                        debugLog("FIRST_EVENT_BUFFER_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferAge=\(Int(bufferAge))s maxSoFar=\(max(prevMax, thresholdSeconds))s — still waiting for min≤3", defaults: defaults)
                         return false
                     }
                 }
@@ -657,9 +699,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 notifyMainApp()
             }
 
-            // First event of the day records 60s (1 minute). Subsequent burst events
-            // use delta math (thresholdSeconds - lastThreshold) to accumulate correctly.
-            let initialUsage = 60
+            // First event of the day credits cumulative usage equal to thresholdSeconds.
+            // (For min.1 first events thresholdSeconds == 60. For Layer 2 fast-forward
+            // acceptance — when a buffered burst of high-min events is resolved by min≤3 —
+            // thresholdSeconds is overridden to the max threshold seen during the buffer,
+            // so this records the full 10-min-or-whatever burst in one shot.)
+            let initialUsage = thresholdSeconds
             debugLog("NEW_DAY appID=\(appID.prefix(8))... initialUsage=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults)
             if midnightDiagActive { midnightDiagnosticLog("DIAG_NEW_DAY appID=\(appID.prefix(8))... initial=\(initialUsage)s thresh=\(thresholdSeconds)s", defaults: defaults) }
             Self.logger.notice("NEW_DAY app=\(appID.prefix(8))... initial=\(initialUsage)s thresh=\(thresholdSeconds)s")
@@ -719,13 +764,40 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
 
         let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
-        let perEventCap = isFirstEventAfterUnlock
-            ? max(60, Int(nowTimestamp - unlockTime))
-            : 60
+        // Burst-window bypass: when Layer 2 just accepted a buffered burst as legit, all
+        // events that follow within 10s are out-of-order catch-up events from the same
+        // iOS dump. Their deltas can legitimately exceed 60s (e.g., iOS dumps min.3 and
+        // min.11 within 1s of each other). PER_EVENT_CAP would cap each at 60s and most
+        // of the credit would be lost. Bypass the cap during this window so the full
+        // delta lands. SKIP_REGRESSION still protects against duplicate events.
+        let burstActiveUntil = defaults.double(forKey: "burst_active_until_\(appID)")
+        let isBurstActive = burstActiveUntil > nowTimestamp
+        // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent for
+        // 30-60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2s.
+        // Layer 2's first-of-day buffer doesn't fire on these (because today>0 and
+        // lastThreshold>0). Detect the burst via timing: if the previous recorded event
+        // for this app arrived within 5 seconds, this event is part of the same iOS
+        // flush. Bypass PER_EVENT_CAP so legit catch-up minutes aren't capped at 60s
+        // each. SKIP_REGRESSION still blocks duplicates and out-of-order regressions.
+        // Note: the very first event of a mid-day burst still gets capped (we can't
+        // know it's a burst until a second event confirms within 5s). Subsequent
+        // events bypass — recovers most of the credit at the cost of 60s on the head.
+        let isMidDayBurst = lastEventTime > 0 && (nowTimestamp - lastEventTime) < 5
+        let perEventCap: Int
+        if isBurstActive || isMidDayBurst {
+            perEventCap = Int.max
+        } else if isFirstEventAfterUnlock {
+            perEventCap = max(60, Int(nowTimestamp - unlockTime))
+        } else {
+            perEventCap = 60
+        }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
             let unlockAge = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
             debugLog("PER_EVENT_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s \(batteryContextString(defaults: defaults))", defaults: defaults)
+        } else if (isBurstActive || isMidDayBurst) && rawDelta > 60 {
+            let reason = isBurstActive ? "buffer-legit" : "mid-day-burst"
+            debugLog("BURST_BYPASS appID=\(appID.prefix(8))... raw=\(rawDelta)s credited=\(delta)s — \(reason), full delta", defaults: defaults)
         }
 
         // Layer 3: POST-UNSHIELD BUDGET — physical-impossibility on aggregate usage.
@@ -737,23 +809,37 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // See SMART_THRESHOLD_FILTERING.md "May 9–10, 2026".
         let lastUnshield = defaults.double(forKey: "last_unshield_timestamp")
         if lastUnshield > 0, lastUnshield <= nowTimestamp {
-            let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-            var totalPostUnshieldCredit = 0
-            for trackedID in trackedAppIDs {
-                let usageNow = defaults.integer(forKey: "usage_\(trackedID)_today")
-                let usageAtUnshield = defaults.integer(forKey: "usage_\(trackedID)_at_unshield")
-                totalPostUnshieldCredit += max(0, usageNow - usageAtUnshield)
-            }
             let wallClockSinceUnshield = max(0, Int(nowTimestamp - lastUnshield))
-            // 10 % grace accommodates iOS background-counting jitter (Device 1
-            // observed ~3 % overshoot — 111 min credit vs 108 min wall-clock for a
-            // genuinely heavy session).
-            let grace = wallClockSinceUnshield / 10
-            let proposedTotal = totalPostUnshieldCredit + delta
-            if proposedTotal > wallClockSinceUnshield + grace {
-                debugLog("SKIP_BUDGET_EXCEEDED appID=\(appID.prefix(8))... totalPost=\(totalPostUnshieldCredit)s + delta=\(delta)s = \(proposedTotal)s > wallClockSinceUnshield=\(wallClockSinceUnshield)s + grace=\(grace)s — phantom contamination", defaults: defaults)
-                Self.logger.notice("SKIP_BUDGET_EXCEEDED app=\(appID.prefix(8))... proposed=\(proposedTotal)s budget=\(wallClockSinceUnshield + grace)s")
-                return false
+            // Burst-continuation exemption: when an unshield was just triggered by a
+            // Layer 2 fast-forward credit, iOS may still be flushing the rest of the
+            // same pre-unshield burst (out-of-order catch-up delivery). If the current
+            // event's app already had usage at the unshield snapshot AND the unshield
+            // happened within the last 60 s, the event is almost certainly a tail of
+            // that legit burst, not new post-unshield activity. Don't block it.
+            // Continuation phantom hours later (AFM-style) still hits the budget check
+            // because wallClockSinceUnshield > 60s.
+            let usageAtUnshieldForThisApp = defaults.integer(forKey: "usage_\(appID)_at_unshield")
+            let isBurstContinuation = usageAtUnshieldForThisApp > 0 && wallClockSinceUnshield <= 60
+            if isBurstContinuation {
+                debugLog("BUDGET_EXEMPT_BURST appID=\(appID.prefix(8))... at_unshield=\(usageAtUnshieldForThisApp)s sinceUnshield=\(wallClockSinceUnshield)s — pre-unshield burst tail", defaults: defaults)
+            } else {
+                let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                var totalPostUnshieldCredit = 0
+                for trackedID in trackedAppIDs {
+                    let usageNow = defaults.integer(forKey: "usage_\(trackedID)_today")
+                    let usageAtUnshield = defaults.integer(forKey: "usage_\(trackedID)_at_unshield")
+                    totalPostUnshieldCredit += max(0, usageNow - usageAtUnshield)
+                }
+                // 10 % grace accommodates iOS background-counting jitter (Device 1
+                // observed ~3 % overshoot — 111 min credit vs 108 min wall-clock for a
+                // genuinely heavy session).
+                let grace = wallClockSinceUnshield / 10
+                let proposedTotal = totalPostUnshieldCredit + delta
+                if proposedTotal > wallClockSinceUnshield + grace {
+                    debugLog("SKIP_BUDGET_EXCEEDED appID=\(appID.prefix(8))... totalPost=\(totalPostUnshieldCredit)s + delta=\(delta)s = \(proposedTotal)s > wallClockSinceUnshield=\(wallClockSinceUnshield)s + grace=\(grace)s — phantom contamination", defaults: defaults)
+                    Self.logger.notice("SKIP_BUDGET_EXCEEDED app=\(appID.prefix(8))... proposed=\(proposedTotal)s budget=\(wallClockSinceUnshield + grace)s")
+                    return false
+                }
             }
         }
 
@@ -1241,11 +1327,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "app_first_seen_today_\(appID)")
 
                 // Three-layer phantom-flood defense state (May 9–10, 2026):
-                //   • phantom_suspect_<id>     — sticky reject-all flag, must clear at midnight
-                //   • first_event_start_<id>   — Layer 2 buffer-open timestamp
-                //   • usage_<id>_at_unshield   — Layer 3 budget snapshot
+                //   • phantom_suspect_<id>          — sticky reject-all flag, must clear at midnight
+                //   • first_event_start_<id>        — Layer 2 buffer-open timestamp
+                //   • first_event_max_thresh_<id>   — Layer 2 max threshold seen during buffer
+                //   • burst_active_until_<id>       — Layer 2 burst-window for PER_EVENT_CAP bypass
+                //   • shadow_usage_<id>_today       — shadow trust-max-threshold tracker
+                //   • usage_<id>_at_unshield        — Layer 3 budget snapshot
                 defaults.removeObject(forKey: "phantom_suspect_\(appID)")
                 defaults.removeObject(forKey: "first_event_start_\(appID)")
+                defaults.removeObject(forKey: "first_event_max_thresh_\(appID)")
+                defaults.removeObject(forKey: "burst_active_until_\(appID)")
+                defaults.removeObject(forKey: "shadow_usage_\(appID)_today")
                 defaults.removeObject(forKey: "usage_\(appID)_at_unshield")
             }
         }
@@ -1835,6 +1927,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             todayUsed += (inputs.todaySecondsByLogicalID[goal.rewardAppLogicalID] ?? 0) / 60
         }
         debugLog("BANK_BREAKDOWN historical=\(historical)min todayEarned=\(todayEarned)min todayUsed=\(todayUsed)min raw=\(historical + todayEarned - todayUsed)min", defaults: defaults)
+
+        // SHADOW_BREAKDOWN: same calculation, but using shadow_usage_<id>_today (max
+        // threshold ever seen today) instead of usage_<id>_today (real credited value).
+        // Shows what the bank would have looked like if we trusted iOS's threshold value
+        // as ground truth. Compare against BANK_BREAKDOWN above to evaluate whether the
+        // simpler trust-max model is safe to switch to. (May 10, 2026.)
+        var shadowEarned = 0
+        for (learningID, threshold) in lowestThresholdByLearningID {
+            let shadowSecs = defaults.integer(forKey: "shadow_usage_\(learningID)_today")
+            let usageMin = shadowSecs / 60
+            guard usageMin >= threshold else { continue }
+            let r = inputs.ratioByLearningLogicalID[learningID] ?? 1.0
+            shadowEarned += Int(Double(usageMin) * r)
+        }
+        var shadowUsed = 0
+        for goal in inputs.goalConfigs {
+            let shadowSecs = defaults.integer(forKey: "shadow_usage_\(goal.rewardAppLogicalID)_today")
+            shadowUsed += shadowSecs / 60
+        }
+        debugLog("SHADOW_BREAKDOWN historical=\(historical)min shadowEarned=\(shadowEarned)min shadowUsed=\(shadowUsed)min raw=\(historical + shadowEarned - shadowUsed)min — trust-max model (real Earned=\(todayEarned)min Used=\(todayUsed)min, diff Earned=\(shadowEarned - todayEarned)min Used=\(shadowUsed - todayUsed)min)", defaults: defaults)
 
         return BankCalculator.computeBank(inputs)
     }
