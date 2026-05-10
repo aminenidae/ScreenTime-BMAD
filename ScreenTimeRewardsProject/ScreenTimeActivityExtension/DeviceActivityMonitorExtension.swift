@@ -505,19 +505,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 1.7: PHANTOM_FLOOD_DETECTOR — cross-app simultaneity check.
-        // A real kid uses one app at a time, so first events for different apps fire
-        // minutes apart (each event needs ≥60s of foreground use). When iOS dumps a
-        // queued backlog after a long silence (phone died/woke, midnight crossing on
-        // a sleepy device, monitoring restart, etc.), it dumps events for ALL monitored
-        // apps simultaneously — that's the flood signature.
+        // Filter 1.7: PHANTOM_FLOOD_LOCKOUT — once a flood has been detected
+        // (by Filter 2's SKIP_SHIELDED-in-burst trigger below), a global flag locks
+        // out ALL events for 5 minutes. This honors the "filters are cumulative"
+        // principle: even an event that would otherwise pass Layer 2 (BUFFER_LEGIT)
+        // is invalid if it arrived during a flood window. The flag is set BY a
+        // shielded-reward-app event firing during a burst, and READ by every event
+        // here at the top of the chain.
         //
-        // Detection: 3+ distinct tracked apps fire events within a 10-second window.
-        // Once detected, set `phantom_flood_active_until = now + 300s` and reject all
-        // events for any app for that 5-minute window. The flag overrides per-app
-        // Layer 2 verdicts: BUFFER_LEGIT for an app whose event arrived during the
-        // flood window doesn't get to bypass this filter. (May 10, 2026 — see
-        // SMART_THRESHOLD_FILTERING.md "Phantom flood after phone wake".)
+        // Design principle (May 10, 2026): every filter decision answers "is this
+        // burst a flood or a legit catch-up?" The strong phantom signal is events
+        // firing for currently-shielded reward apps — kids physically cannot use
+        // a blocked app, so those events MUST be phantom. When that signal appears
+        // in a burst (≥1 other app has had a recent event), we lock out the whole
+        // burst. Bursts WITHOUT a shielded-reward-app event are trusted as legit
+        // catch-up — even on iPad-9th-gen-class devices where iOS regularly dumps
+        // events for multiple legitimately-used apps at once.
         //
         // Storage:
         //   last_event_arrival_<id>     — timestamp of last event arrival (any outcome)
@@ -529,26 +532,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
         defaults.set(nowTimestamp, forKey: "last_event_arrival_\(appID)")
-        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-        var recentDistinctApps = 0
-        for trackedID in trackedAppIDs {
-            let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
-            if arrival > 0 && (nowTimestamp - arrival) <= 10 {
-                recentDistinctApps += 1
-            }
-        }
-        if recentDistinctApps >= 3 {
-            defaults.set(nowTimestamp + 300, forKey: "phantom_flood_active_until")
-            // Clear any open Layer 2 buffers for tracked apps — the buffers were
-            // populated during the flood and would otherwise fire BUFFER_LEGIT later.
-            for trackedID in trackedAppIDs {
-                defaults.removeObject(forKey: "first_event_start_\(trackedID)")
-                defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
-            }
-            debugLog("PHANTOM_FLOOD_DETECTED triggered by appID=\(appID.prefix(8))... — \(recentDistinctApps) distinct apps fired events within 10s, locking out all events for 300s", defaults: defaults)
-            Self.logger.notice("PHANTOM_FLOOD_DETECTED apps=\(recentDistinctApps) lockout=300s")
-            return false
-        }
 
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
@@ -570,6 +553,32 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     if shieldHasToken {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
                         Self.logger.notice("SKIP_SHIELDED app=\(appID.prefix(8))... shield up, blocking")
+
+                        // FLOOD TRIGGER (May 10, 2026): a verifiably-shielded app cannot
+                        // produce legit events — the kid physically can't use a blocked app.
+                        // If this event arrived within a burst (any other tracked app has
+                        // had an event in the last 10s), the burst itself is phantom: lock
+                        // out all events for 5 minutes and clear any open Layer 2 buffers
+                        // (their BUFFER_LEGIT verdicts would otherwise still fire later).
+                        // Solo SKIP_SHIELDED events without burst context are just blocked
+                        // here, not escalated — could be a one-off iOS stray.
+                        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                        var otherAppsRecent = 0
+                        for trackedID in trackedAppIDs where trackedID != appID {
+                            let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
+                            if arrival > 0 && (nowTimestamp - arrival) <= 10 {
+                                otherAppsRecent += 1
+                            }
+                        }
+                        if otherAppsRecent >= 1 {
+                            defaults.set(nowTimestamp + 300, forKey: "phantom_flood_active_until")
+                            for trackedID in trackedAppIDs {
+                                defaults.removeObject(forKey: "first_event_start_\(trackedID)")
+                                defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
+                            }
+                            debugLog("PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=\(appID.prefix(8))... + \(otherAppsRecent) other app(s) within 10s — burst is phantom, locking out 300s, clearing all open buffers", defaults: defaults)
+                            Self.logger.notice("PHANTOM_FLOOD_DETECTED via SKIP_SHIELDED otherApps=\(otherAppsRecent) lockout=300s")
+                        }
                         return false
                     }
                     // SAFETY NET (Apr 24): the live `managedSettingsStore.shield.applications`
