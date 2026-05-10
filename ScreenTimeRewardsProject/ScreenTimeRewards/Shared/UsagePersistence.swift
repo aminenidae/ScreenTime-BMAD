@@ -368,26 +368,22 @@ final class UsagePersistence {
 
         let deltaMinutes = (deltaEarnedSeconds / 60) - (deltaUsedSeconds / 60)
         let total = baselineMinutes + deltaMinutes
-        // Clamp to ≥ 0. BankCalculator's contract (`historicalRemainingMinutes >= 0`)
-        // requires non-negative input, and conceptually a kid's bank "savings" can
-        // never be below zero. If `total` is negative, it means prior days credited
-        // less than was used — usually from phantom credit on reward apps or a
-        // shield race that let usage leak past bank=0. We surface 0 here so today's
-        // earnings show on the bank UI immediately rather than silently paying off
-        // an invisible deficit. The internal accumulator (baseline + delta) keeps
-        // tracking the true value across calls; once delta climbs back above
-        // -baseline, the displayed historical begins to grow again.
-        let clamped = max(0, total)
+        // Return the raw signed total so the bank computation downstream honestly
+        // reflects an underwater state (negative). Kids who carry a deficit from
+        // prior phantom credit or shield-race leakage see bank=0 on the UI until
+        // their real earnings net back above zero — that's the intended UX:
+        // truthful state, no hidden grace minutes. BankCalculator's final
+        // max(0, ...) clamp ensures the visible bank never displays as negative.
 
         #if DEBUG
         if total < 0 {
-            print("[UsagePersistence] ⚠️ Historical balance NEGATIVE: baseline=\(baselineMinutes)m delta=\(deltaMinutes)m total=\(total)m — clamping to 0 for display. Internal deficit persists; check for phantom reward credit.")
+            print("[UsagePersistence] ⚠️ Historical balance NEGATIVE: baseline=\(baselineMinutes)m delta=\(deltaMinutes)m total=\(total)m — kid is in deficit, bank UI will show 0 until net earnings recover. Likely cause: prior phantom reward credit.")
         } else {
             print("[UsagePersistence] 📊 Historical balance: baseline=\(baselineMinutes)m (frozen at \(baselineDate)), delta=\(deltaMinutes)m (per-day ratio-adjusted), total=\(total)m")
         }
         #endif
 
-        return clamped
+        return total
     }
 
     /// Legacy aggregator — sums every dailyHistory row regardless of date, with per-day ratio.
@@ -413,11 +409,7 @@ final class UsagePersistence {
                 for summary in app.dailyHistory { usedSeconds += summary.seconds }
             }
         }
-        // Same non-negative clamp as the live path — a kid's accumulated bank
-        // savings can't be below zero. The migration baseline freezes whatever
-        // legacy aggregate exists at upgrade time; if that aggregate is negative
-        // we still seed baseline=0 and let the live delta accumulate from there.
-        return max(0, (earnedSeconds / 60) - (usedSeconds / 60))
+        return (earnedSeconds / 60) - (usedSeconds / 60)
     }
 
     /// Freeze the current historical-remaining value as the bank baseline before a category change.
