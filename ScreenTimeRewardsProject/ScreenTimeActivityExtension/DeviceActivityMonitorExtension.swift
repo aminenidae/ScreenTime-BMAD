@@ -1453,7 +1453,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         let pool = computeEffectivePoolBalance(configs: configs, defaults: defaults)
-        let historicalForLog = defaults.integer(forKey: "bank_historical_remaining_minutes")
+        // Defensive clamp: the cached value can lag a stale main-app write or hold a
+        // pre-clamp-fix negative number. UsagePersistence.getHistoricalRemainingMinutes
+        // already clamps, but clamp here too so the extension's view matches the UI's
+        // even before the main app refreshes the cache.
+        let historicalForLog = max(0, defaults.integer(forKey: "bank_historical_remaining_minutes"))
         debugLog("SHIELD_CHECK: pool=\(pool)min historical=\(historicalForLog)min across \(configs.goalConfigs.count) goal configs", defaults: defaults)
 
         // Pool empty → nothing to unshield this pass. checkAndBlockIfRewardTimeExhausted
@@ -1919,7 +1923,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         configs: ExtensionShieldConfigsMinimal,
         defaults: UserDefaults
     ) -> Int {
-        let historical = defaults.integer(forKey: "bank_historical_remaining_minutes")
+        // Defensive clamp matching UsagePersistence.getHistoricalRemainingMinutes.
+        // Without this, a stale cache (e.g., main app hasn't refreshed since a
+        // pre-fix negative was written) would leave the extension computing pool=0
+        // for shield decisions while the UI's bank already shows positive — the
+        // kid would see bank in the UI but reward apps would stay shielded.
+        let historical = max(0, defaults.integer(forKey: "bank_historical_remaining_minutes"))
         let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
 
         // Build BankCalculator inputs from the extension's data sources. The
