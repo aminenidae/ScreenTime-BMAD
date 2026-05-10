@@ -3157,3 +3157,70 @@ Trace: legit multi-learning-app catch-up (kid uses 3 learning apps in morning, i
 - Commits `1a8347b` (burst-tolerant recording + orphan scrub + shadow tracker) and `8f6bd7c` (flood detection re-anchored on shielded-reward signal) are the post-May-10 baseline. Intermediate commit `83eb923` (cross-app simultaneity rule) was superseded the same day; do not revive that rule on its own.
 - Design principle: every filter decision answers "is this burst a flood or a legit catch-up?" The shielded-reward-app event is the discriminator.
 - iPad 9th gen and similar lower-RAM devices exhibit bursty iOS DeviceActivity delivery: long silent stretches followed by 1-2s queue dumps. Treat bursts as the norm, not the exception.
+
+---
+
+### May 10, 2026 — Hypothesis: iOS threshold-count budget exceeded
+
+After the May 10 build with Filter 1.7 was installed on Amine's iPhone, a 6+ hour silent stretch was observed: the kid ran a learning app for several minutes, no events fired, no recording, but `MONITORING_ALIVE` and `MONITORING_ALREADY_ACTIVE` heartbeats kept reporting "yes I'm monitoring."
+
+This matches the same symptom shape as Device 1, Device 2, and now Amine's iPhone — three different devices all showing long silent stretches followed by burst dumps. The pattern is too consistent to be hardware. We're now suspecting our app, specifically the threshold registration count.
+
+#### The smoking gun (`Monitoring Log 05.10.2026.rtf` + `ext-log-2026-05-10.log`)
+
+```
+[2026-05-10 08:10:14] SLIDING_WINDOW C6DA269B  240 thresholds  ← 4-hour daily limit
+[2026-05-10 08:10:14] SLIDING_WINDOW 642B7130  120 thresholds
+[2026-05-10 08:10:14] SLIDING_WINDOW 739C4A42  120
+[2026-05-10 08:10:14] SLIDING_WINDOW 93088665  120
+[2026-05-10 08:10:14] SLIDING_WINDOW E8B1C8C6   60
+[2026-05-10 08:10:14] SLIDING_WINDOW FAE1D45B   60
+[2026-05-10 08:10:14] SLIDING_WINDOW BB131A01   60
+[2026-05-10 08:40:26] MONITORING_START — events=780 (sliding window, 0 min already tracked)
+```
+
+**780 threshold events registered against an iOS limit of ~500 per scheduled activity.** That CLAUDE.md note (preserved before the May 6 rewrite) said "iOS ~500 threshold limit — sliding window keeps exactly 60 per app, safe up to 8 apps." That math worked because every app got the same fixed 60-threshold window.
+
+The May 6 per-app right-sized window change tied window size to each app's daily limit (60–240 thresholds). On a device with several long-daily-limit apps it adds up fast: this iPhone hit 780 with 7 apps. Other tested devices likely hit similar over-limit totals.
+
+#### What iOS appears to do when over the limit
+
+We've never received an explicit error from iOS, but the observed pattern is:
+
+1. We call `startMonitoring` with > 500 thresholds.
+2. iOS accepts the activity (no error thrown), `MONITORING_ALREADY_ACTIVE` returns true on subsequent polls.
+3. iOS does NOT actually fire threshold callbacks for the over-limit set — possibly silently truncates, possibly drops the entire schedule, possibly accepts but never dispatches.
+4. The kid uses apps. iOS internally tracks cumulative usage but our extension never gets `eventDidReachThreshold` calls.
+5. When our app eventually restarts monitoring (BG task, app launch, or window-rebuild request), iOS dumps queued events all at once — the "phantom flood" we've been chasing.
+
+#### Re-interpreting the phantom-flood symptom
+
+What we labeled "phantom flood" since May 9 is plausibly **legit-but-deferred event delivery**:
+
+- Device 2 May 9 morning: 12 reward apps got ~330 min of credit "phantom" all at once. Reading those events fresh, that could be hours of real cumulative usage iOS held back because our schedule was over-limit, then dumped on monitoring restart.
+- Amine's iPhone May 10 morning: 781 events processed in 2 minutes (08:17:13–08:19:21). The number suspiciously matches the 780-event schedule registration count. iOS may have queued one event per registered threshold and released them on the post-wake `startMonitoring` call.
+
+The `SHADOW_BREAKDOWN` shadowEarned values trailing real `todayEarned` on Amine's iPhone today (real=84, shadow=20) is consistent with this: shadow only sees events that arrive while shadow code is running; pre-build events were never seen by shadow.
+
+#### What this means for the layered defense
+
+- **Filter 1.7 (SKIP_SHIELDED-triggered phantom flood lockout)** still helps when the dumped backlog includes events for currently-shielded reward apps — those are unambiguously phantom regardless of whether the underlying cause is iOS's over-limit registration or true cross-day queue carry. Keep it.
+- **The bursts were never the root cause.** They were a symptom of iOS deferring events because we registered too many thresholds. The fix needs to address the registration count, not the delivery shape.
+- **Layer 2 fast-forward, burst-window cap bypass, mid-day burst detection** are still useful for legit catch-up bursts that happen for OTHER reasons (extension dormancy, midnight transitions, etc.).
+
+#### Proposed direction (for discussion, not implemented yet)
+
+Cap total registered threshold events at ~480 across all apps. Options to consider:
+
+1. **Revert per-app right-sized windows.** Go back to fixed 60 thresholds per app. Lose the longer-look-ahead benefit but stay under the iOS limit reliably.
+2. **Dynamic budget allocation.** Compute total budget = 480, divide proportionally based on each app's daily limit. e.g. with 7 apps and limits {240, 120, 120, 120, 60, 60, 60} totaling 780, multiply each by 480/780 ≈ 0.615 to fit within budget. Apps with longer limits still get more thresholds, but no app gets > 480.
+3. **Max thresholds per app, regardless of limit.** Cap each app at e.g. 80 thresholds (480/6). Use the existing intra-day window-rebuild infrastructure to extend coverage as the kid approaches the window top.
+4. **Multi-activity registration.** Split apps across multiple `DeviceActivityName` activities, each under the 500 limit. iOS treats them independently. More complex to manage but no per-app cap.
+
+#### What needs to be confirmed before fixing
+
+1. **The actual iOS limit.** "~500" is from prior empirical testing; the real number could be 1000 or scheme-dependent. Worth probing experimentally on a clean device — register 1000 thresholds, see if events fire.
+2. **Whether iOS truncates or rejects.** Does iOS accept the full 780 and fire only first 500? Does it reject the schedule entirely? Does it accept everything but throttle? This affects which fix strategy works.
+3. **Whether the registration is the only cause.** Other devices and other days may have hit silent stretches without being over-limit. If silent stretches happen below 500 events too, there's a separate iOS bug at play.
+
+Until we have these answers, this section stays a hypothesis. The flood-detection layer keeps protecting against the worst-case (phantom credit landing on shielded reward apps). The next step is investigation, not yet code.
