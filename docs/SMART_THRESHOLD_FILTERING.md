@@ -3039,3 +3039,121 @@ Final: Device 2 credits 234 min (Roblox real) + 16 min (AFM legit morning) = **2
 3. **Multiple shield drop/re-apply cycles.** Each unshield event resets the snapshots. `usage_<id>_at_unshield` always reflects the latest unshield. The grace factor (10%) accommodates iOS background-counting that occasionally produces 1-3 minutes of cumulative beyond wall-clock.
 
 4. **The phantom_suspect flag persists for the day, even if iOS later delivers min.1 for the app.** This is intentional. If the kid genuinely opens the app later in the day, they would be undercredited until midnight. Trade-off: undercount-on-rare-edge-case vs. overcount-on-known-iOS-bug. We chose to undercount.
+
+---
+
+### May 10, 2026 — Burst-tolerant recording + flood detection redesign
+
+The May 9 three-layer defense above held the line on the morning Device 2 phantom flood, but May 10 device testing exposed three problems with it on iPad-9th-gen-class hardware (Device 1 + Device 2):
+
+1. **Legit catch-up bursts were under-credited.** iPad 9th gen frequently goes silent for 30–60 minutes mid-day, then iOS dumps a backlog of threshold events for any app the kid was actively using in 1–2 seconds. The PER_EVENT_CAP at 60s clipped each event in the burst, so an 11-minute legit session credited as 3 minutes (Device 1 May 10, AbacusFlashMath morning session, log `ext-log-2026-05-10.log`).
+2. **Layer 2's BUFFER_LEGIT acceptance failed to fast-forward credit.** When the buffer accepted a burst as legit (min≤3 within 60s), only the min≤3 event itself was recorded. The high-min events that had been HOLD-rejected were already discarded; iOS doesn't redeliver them.
+3. **The post-wake phantom scenario defeated Layer 2 entirely.** When Amine's iPhone died overnight and woke at 08:10 May 10, iOS dumped a queue of events for ALL 7 monitored apps within 2 seconds at 08:17 — including events for apps that had **zero usage yesterday** (FAE1D45B). The dump included min.1, 2, 3 for each app (because those were the never-delivered queue entries), so Layer 2's "min≤3 in burst = legit" rule mis-classified the entire flood as legit catch-up. 5 min of phantom credit landed on FAE1D45B and triggered a "Goal Complete!" notification with no actual usage.
+
+The redesign anchors every filter decision on a single question: **"Is this burst a flood or a legit catch-up?"**
+
+#### Filter chain order (post May 10)
+
+```
+Filter 0   SKIP_MIDNIGHT             — block events during midnight rebuild window
+Filter 1   SKIP_INVALID              — threshold < 60s
+Filter 1.5 SKIP_STALE_FLUSH          — threshold > wallClockSinceMidnight + 60s
+           [shadow update]           — record max threshold seen for parallel evaluation
+Filter 1.7 PHANTOM_FLOOD_LOCKOUT     — read phantom_flood_active_until, SKIP_FLOOD if
+                                       active. Stamp last_event_arrival_<id>.
+Filter 2   SKIP_SHIELDED             — block events for verifiably-shielded reward apps.
+                                       FLOOD TRIGGER: when SKIP_SHIELDED fires AND ≥1
+                                       other tracked app has an arrival in last 10s,
+                                       set phantom_flood_active_until = now+5min and
+                                       wipe all open Layer 2 buffers.
+Filter 2.5 SKIP_PIN_REPLAY           — block historical replay since pin
+Layer 2    FIRST_EVENT_BUFFER         — fast-forward + burst-window for first-of-day catch-up
+Filter 3   SKIP_REGRESSION           — block duplicates / out-of-order regressions
+PER_EVENT_CAP                         — cap delta at 60s, bypassed during burst-window
+Layer 3    POST_UNSHIELD_BUDGET      — block phantom continuation post-unshield
+RECORD                                — credit + update lastThreshold
+```
+
+#### Layer 2 fast-forward (commit `1a8347b`)
+
+Buffer now tracks the max threshold seen during HOLD phase (`first_event_max_thresh_<id>`). On BUFFER_LEGIT acceptance, `thresholdSeconds` is overridden to that max. NEW_DAY recording credits `initialUsage = thresholdSeconds` instead of a hardcoded 60s, so the fast-forward credit lands instead of being clipped to 1 min.
+
+Trace: Device 1 morning burst (min.4, 6, 9, 10, 3 within 1.7s, kid used app for 10 min):
+- min.4 → BUFFER_OPEN, max=240
+- min.6, 9, 10 → BUFFER_HOLD, max climbs to 600
+- min.3 → BUFFER_LEGIT, fast-forward to 600s, NEW_DAY credits 600s = **10 min**
+
+Without fast-forward, only min.3 was recorded as 60s = 1 min.
+
+#### Burst-window PER_EVENT_CAP bypass (commit `1a8347b`)
+
+BUFFER_LEGIT now also opens a per-app `burst_active_until_<id>` flag set to `now + 10s`. While active, PER_EVENT_CAP is bypassed (set to `Int.max`) so out-of-order tail events that arrive in the same iOS dump credit their full deltas instead of being clipped to 60s each.
+
+#### Mid-day burst detection (commit `1a8347b`)
+
+For burst-only-delivery devices, Layer 2's first-of-day buffer doesn't fire mid-day (today>0 / lastThresh>0). Detect bursts via timing instead: if the previous recorded event for an app is <5s old, bypass PER_EVENT_CAP for the current event. The first event of a mid-day burst still gets capped (we can't know it's a burst until a second event confirms within 5s); subsequent events bypass.
+
+#### Layer 3 burst-continuation exemption (commit `1a8347b`)
+
+Layer 3's post-unshield budget incorrectly blocks events that arrive in the seconds immediately after a Layer-2-triggered unshield — those are the rest of the same legit pre-unshield burst still flushing, not new post-unshield activity. Exemption: if `usage_<id>_at_unshield > 0` AND `now - lastUnshield ≤ 60s`, skip the budget check.
+
+#### Shadow tracker (commit `1a8347b`)
+
+Parallel "trust max threshold" evaluation. After Filter 1.5, before any other filter, `shadow_usage_<id>_today = max(shadow, thresholdSeconds)`. Logs `SHADOW_ADVANCE` per-event when divergence > 60s and `SHADOW_BREAKDOWN` paired with `BANK_BREAKDOWN` for periodic comparison. Multi-day data informs whether trust-max is safe to switch to as the recording model.
+
+#### Phantom flood detector — initial cross-app rule (commit `83eb923`, **superseded**)
+
+First implementation declared flood when 3+ distinct tracked apps fired events within a 10-second window. Superseded May 10 because the rule false-positives on iPad-9th-gen legit multi-app catch-up bursts: a kid using 3 learning apps in the morning gets all 3 events delivered in one iOS burst, mis-classified as flood, and loses all credit.
+
+#### Phantom flood detector — re-anchored on shielded-reward signal (commit `8f6bd7c`)
+
+The strong, asymmetric signal: a verifiably-shielded reward app cannot produce legit threshold events. The kid physically cannot foreground a blocked app. So events arriving for `shieldHasToken=true` apps are by definition phantom.
+
+The flood TRIGGER moves into Filter 2 (SKIP_SHIELDED). When a shielded-reward-app event hits SKIP_SHIELDED, count tracked apps with arrivals in the last 10s. If ≥1 other app is recent, declare flood (`phantom_flood_active_until = now + 300s`), wipe all open Layer 2 buffers, lockout activates.
+
+Filter 1.7 itself only does two things now: read `phantom_flood_active_until` and SKIP_FLOOD if active; stamp `last_event_arrival_<id>` for the current event.
+
+Trace: Amine's iPhone post-wake flood (08:17:13–14):
+- 08:17:13.793 — min.107 for 739C4A42 (shielded reward) → SKIP_SHIELDED. Other apps: 0 in 10s. No flood.
+- 08:17:14.114 — min.220 for C6DA269B (shielded reward) → SKIP_SHIELDED. Other apps: 739C4A42 0.3s ago. **PHANTOM_FLOOD_DETECTED**, lockout 300s, all buffers wiped.
+- All subsequent events for next 5 min → SKIP_FLOOD.
+
+Result: 0 phantom credit instead of 5 min on FAE1D45B. No spurious notification.
+
+Trace: legit multi-learning-app catch-up (kid uses 3 learning apps in morning, iOS dumps all 3 in burst):
+- Each event is for a learning app (not categorized as Reward) → SKIP_SHIELDED never fires
+- No flood declared → all 3 catch-up bursts process normally → full credit ✓
+
+#### Edge cases & known gaps
+
+1. **Pure-learning-app phantom isn't caught.** If iOS ever dumps a phantom flood that includes only learning-app events (no reward apps in the burst), no SKIP_SHIELDED fires and the flood detector doesn't trigger. PER_EVENT_CAP still bounds the damage to 60s per event when the burst-window doesn't activate. We have no observed case of this scenario yet.
+2. **Reward-app catch-up tail after re-shield can be falsely flagged.** If the kid earns bank, plays a reward app until bank runs out, the app re-shields, and iOS subsequently dumps queued events from that play session, those queued events would hit SKIP_SHIELDED and trigger flood. Layer 3 burst-continuation exemption helps if events arrive within 60s of unshield, but tail events arriving later are vulnerable.
+3. **Solo SKIP_SHIELDED events don't escalate.** Required by design — a single stray event for a shielded app could be an iOS one-off, not a full flood. Only blocks individually.
+4. **Burst-window timing for mid-day catch-up:** the 5s threshold for "previous event < 5s ago" was chosen empirically. If iOS delivers tail events with longer gaps on slower devices, some credit may still get capped at 60s.
+5. **Shadow tracker is observation-only.** It records what trust-max-threshold would have credited but doesn't change real recording. Multi-day data needed before switching to it as the primary model.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - Layer 2 fast-forward (`thresholdSeconds = maxSeen` on BUFFER_LEGIT)
+  - NEW_DAY `initialUsage = thresholdSeconds` (was hardcoded 60s)
+  - `burst_active_until_<id>` flag + PER_EVENT_CAP bypass when active
+  - Mid-day burst detection via `last_event_arrival_<id>` < 5s
+  - Layer 3 burst-continuation exemption
+  - Filter 1.7: SKIP_FLOOD enforcement + arrival stamping
+  - SKIP_SHIELDED flood-trigger (shielded reward + ≥1 other app in 10s = flood)
+  - Shadow tracker (`shadow_usage_<id>_today`, SHADOW_ADVANCE, SHADOW_BREAKDOWN)
+  - Midnight cleanup for new keys
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `cleanupExtensionKeys` extended for new keys
+  - `scrubOrphanLearningReferences` self-heal at parent-app launch (drops `linkedLearningApps` references to apps no longer in master list)
+  - `deleteAppConfiguration` now invokes scrub before Core Data delete
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift`
+  - `scrubDeletedLearningReferences(deletedLogicalIDs:)`
+  - `scrubOrphanLearningReferences(validLogicalIDs:)`
+
+#### Memory / pointer
+
+- Commits `1a8347b` (burst-tolerant recording + orphan scrub + shadow tracker) and `8f6bd7c` (flood detection re-anchored on shielded-reward signal) are the post-May-10 baseline. Intermediate commit `83eb923` (cross-app simultaneity rule) was superseded the same day; do not revive that rule on its own.
+- Design principle: every filter decision answers "is this burst a flood or a legit catch-up?" The shielded-reward-app event is the discriminator.
+- iPad 9th gen and similar lower-RAM devices exhibit bursty iOS DeviceActivity delivery: long silent stretches followed by 1-2s queue dumps. Treat bursts as the norm, not the exception.
