@@ -2461,21 +2461,82 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Mirrors `DeviceActivityMonitorExtension.windowSize(for:)` — the extension
     /// reads `window_size_<id>` written below to make the same decision when
     /// it self-rebuilds. Both sides MUST stay aligned.
-    private func windowSize(for logicalID: String, category: AppUsage.AppCategory) -> Int {
-        let learningWindow = 60
-        let rewardDefaultWindow = 240
+    ///
+    /// Returns 0 for apps that should NOT have any thresholds registered today:
+    ///   • Disallowed today (per-day limit = 0, or full-day not allowed)
+    ///   • Currently-shielded reward apps (the shield prevents foregrounding;
+    ///     iOS can never fire a callback while shielded). Shield-drop triggers
+    ///     re-registration via `unblockRewardApps`.
+    ///
+    /// For active apps:
+    ///   • Learning: window matches the lowest linked-goal threshold + 15-min
+    ///     buffer (capped at 60). An app with no linked goal defaults to 30.
+    ///   • Reward: window matches today's daily limit, capped at `rewardLookaheadCap`
+    ///     (default 90 min). Unlimited reward apps also get the cap.
+    ///
+    /// Budget rationale: iOS DeviceActivity has a ~500-threshold limit per scheduled
+    /// activity. Without aggressive sizing (e.g., 240 per unlimited reward app),
+    /// devices with several apps exceeded the budget — observed silent stretches
+    /// and burst dumps. See SMART_THRESHOLD_FILTERING.md "iOS threshold-count budget".
+    private func windowSize(for logicalID: String, category: AppUsage.AppCategory, isShielded: Bool) -> Int {
         let unlimitedSentinel = 1440 // matches DailyLimits.unlimited
+        let rewardLookaheadCap = 90
+
+        // Disallowed today: per-day limit is 0 (or "no app today"). Zero thresholds.
+        if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
+           schedule.dailyLimits.todayLimit == 0 {
+            return 0
+        }
+
         switch category {
         case .reward:
+            // Currently shielded reward apps can't produce callbacks — kid can't
+            // foreground a blocked app. Zero thresholds; we'll re-register on
+            // shield drop via `unblockRewardApps`.
+            if isShielded {
+                return 0
+            }
             guard let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
-                return rewardDefaultWindow
+                return rewardLookaheadCap
             }
             let todayLimit = schedule.dailyLimits.todayLimit
-            if todayLimit == unlimitedSentinel { return rewardDefaultWindow }
-            return max(60, todayLimit)
+            if todayLimit == unlimitedSentinel { return rewardLookaheadCap }
+            return max(60, min(todayLimit, rewardLookaheadCap))
         default:
-            return learningWindow
+            // Learning: size to lowest linked-goal threshold + 15-min buffer.
+            // Apps with no linked goal (parent has them as "learning" but they're
+            // not wired into any reward's requirements) get a modest 30-threshold default.
+            let goalMin = lowestLearningGoalMinutes(for: logicalID)
+            if goalMin > 0 {
+                return max(15, min(goalMin + 15, 60))
+            }
+            return 30
         }
+    }
+
+    /// Lowest `minutesRequired` across all goal configs that link this learning app.
+    /// Returns 0 if no goal config references this app.
+    private func lowestLearningGoalMinutes(for learningLogicalID: String) -> Int {
+        var lowest = Int.max
+        for (_, schedule) in AppScheduleService.shared.schedules {
+            for link in schedule.linkedLearningApps where link.logicalID == learningLogicalID {
+                lowest = min(lowest, link.minutesRequired)
+            }
+        }
+        return lowest == Int.max ? 0 : lowest
+    }
+
+    /// Set of logical IDs currently in the iOS shield set. Computed once per
+    /// `scheduleActivity()` so each app's `windowSize` can branch on shield state.
+    private func currentlyShieldedLogicalIDs() -> Set<String> {
+        let shieldedTokens = managedSettingsStore.shield.applications ?? Set()
+        var ids: Set<String> = []
+        for token in shieldedTokens {
+            if let id = getLogicalID(for: token) {
+                ids.insert(id)
+            }
+        }
+        return ids
     }
 
     private func scheduleActivity() throws {
@@ -2534,6 +2595,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
         }
 
+        // Snapshot of currently-shielded reward apps so `windowSize` can branch.
+        // Shielded reward apps register 0 thresholds (no events possible while
+        // blocked); shield drops trigger re-registration via `unblockRewardApps`.
+        let shieldedIDs = currentlyShieldedLogicalIDs()
+
         // Rebuild monitoredEvents with sliding window per app
         var newMonitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
         var totalSkipped = 0
@@ -2543,10 +2609,15 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             totalSkipped += currentMinutes
             let stableAppID = stableHash(logicalID)
 
-            // Sliding window: right-sized per app. Learning = 60. Reward = today's
-            // daily limit (default 240 if unset/unlimited). See `windowSize(for:category:)`.
-            let appWindow = windowSize(for: logicalID, category: template.category)
+            // Sliding window per app. Returns 0 for shielded reward apps and for
+            // disallowed-today apps — those are skipped entirely from registration
+            // to keep total threshold count under the iOS budget (~500).
+            let isShielded = template.category == .reward && shieldedIDs.contains(logicalID)
+            let appWindow = windowSize(for: logicalID, category: template.category, isShielded: isShielded)
             perAppWindowSize[logicalID] = appWindow
+            if appWindow <= 0 {
+                continue
+            }
             let minutesToRegister = Array((currentMinutes + 1)...(currentMinutes + appWindow))
 
             for minuteNumber in minutesToRegister {
@@ -3240,6 +3311,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] ⚠️  RESEARCH FINDING: Requires app relaunch to take effect (shield staleness)")
         print("[ScreenTimeService] Unblocked tokens: \(tokens.map { String($0.hashValue) })")
         #endif
+
+        // Shield-drop restart: a reward app's window is 0 while shielded (no thresholds
+        // registered). Now that it's unshielded, we need to register its full window so
+        // iOS fires threshold events as the kid uses it. The restart is batched per
+        // unblockRewardApps call — one restart regardless of how many apps unshielded.
+        // See SMART_THRESHOLD_FILTERING.md "iOS threshold-count budget".
+        if !tokens.isEmpty {
+            let count = tokens.count
+            Task { [weak self] in
+                guard let self = self else { return }
+                await self.restartMonitoring(reason: "shield-dropped-\(count)-apps")
+            }
+        }
 
         // Post notification
         NotificationCenter.default.post(

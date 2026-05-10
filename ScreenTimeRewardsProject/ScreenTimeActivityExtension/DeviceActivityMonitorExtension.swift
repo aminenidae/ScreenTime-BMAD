@@ -1221,11 +1221,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let category = defaults.string(forKey: "map_\(logicalID)_category") ?? "Learning"
 
             // Right-sized window per app. Main-app `scheduleActivity()` writes
-            // `window_size_<id>` (Learning = 60, Reward = today's daily limit
-            // capped at 240 if unlimited). Default to 60 if missing — backward
-            // compatible with older builds that didn't write the key.
+            // `window_size_<id>` from its `windowSize(for:category:isShielded:)`:
+            //   • 0 → app is shielded or disallowed today; do NOT register thresholds.
+            //   • >0 → use that value as-is (no min/max — caller already capped).
+            // Missing key (older build / never written) → default 60 for safety.
             let storedWindowSize = defaults.integer(forKey: "window_size_\(logicalID)")
-            let appWindow = storedWindowSize > 0 ? max(60, storedWindowSize) : 60
+            if defaults.object(forKey: "window_size_\(logicalID)") != nil && storedWindowSize <= 0 {
+                continue   // explicit 0 from main app — skip this app entirely
+            }
+            let appWindow = storedWindowSize > 0 ? storedWindowSize : 60
             for minuteNumber in (currentMin + 1)...(currentMin + appWindow) {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableHashStr).min.\(minuteNumber)")
                 let event: DeviceActivityEvent
@@ -1464,6 +1468,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         let rewardAppIDs = Set(configs.goalConfigs.map { $0.rewardAppLogicalID })
+        var anyShieldDropped = false
 
         for goalConfig in configs.goalConfigs {
             let shortID = String(goalConfig.rewardAppLogicalID.prefix(12))
@@ -1508,6 +1513,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 currentShields.remove(token)
                 managedSettingsStore.shield.applications = currentShields.isEmpty ? nil : currentShields
                 recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
+                anyShieldDropped = true
                 debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (goalMet, pool=\(pool)min)", defaults: defaults)
 
                 // Layer 3 anchor: track unshield-window for the post-unshield budget filter.
@@ -1540,6 +1546,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
         debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
+
+        // Shield-drop rebuild: while shielded, those apps had 0 thresholds registered
+        // (the kid physically couldn't generate events). Now that one or more have
+        // unshielded, register their full windows so iOS fires threshold events as
+        // the kid uses them. Request a main-app rebuild AND do an extension-side
+        // fast-path rebuild for redundancy. See SMART_THRESHOLD_FILTERING.md
+        // "iOS threshold-count budget".
+        if anyShieldDropped {
+            requestMainAppWindowRebuild(reason: "shield-dropped", defaults: defaults)
+            _ = extensionRebuildSlidingWindow(defaults: defaults)
+        }
     }
 
     /// Check if a reward app's learning goal is met.

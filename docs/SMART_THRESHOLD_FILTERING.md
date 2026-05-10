@@ -3224,3 +3224,78 @@ Cap total registered threshold events at ~480 across all apps. Options to consid
 3. **Whether the registration is the only cause.** Other devices and other days may have hit silent stretches without being over-limit. If silent stretches happen below 500 events too, there's a separate iOS bug at play.
 
 Until we have these answers, this section stays a hypothesis. The flood-detection layer keeps protecting against the worst-case (phantom credit landing on shielded reward apps). The next step is investigation, not yet code.
+
+---
+
+### May 10, 2026 — Budget-Aware Threshold Registration (acting on the hypothesis)
+
+After confirming the windowSize logic and walking through what the budget actually goes to, we acted on the hypothesis with four targeted changes. The principle: **only register thresholds for events that can plausibly fire today.** Any registration for an event that physically cannot occur is pure waste against the iOS ~500 budget.
+
+#### Four sources of "unreachable thresholds" we eliminated
+
+1. **Shielded reward apps.** A blocked app cannot be foregrounded. iOS will never count usage against it. Pre-registering 60–240 thresholds for a shielded reward app costs budget for callbacks that can never fire. → `windowSize` now returns **0** for currently-shielded reward apps. Shield-drop triggers re-registration so they get their full window the moment they become usable.
+
+2. **Disallowed-today apps.** Apps where `dailyLimit.todayLimit == 0` (parent has set today as a no-app day, or marked daily limit = 0 globally) are shielded full-time. Same reasoning. → `windowSize` returns **0** for these too, regardless of category.
+
+3. **Reward window over-provisioning.** The May 6 design sized reward windows to the full daily limit — up to 240 for unlimited apps. But the rebuild infrastructure can extend windows mid-day cheaply. → Reward windows now cap at **`rewardLookaheadCap = 90`** minutes. Daily-limit-bounded windows still respect the limit (60-min limit → 60 thresholds), but anything past 90 is left for rebuild.
+
+4. **Learning window decoupled from the 60-fixed default.** Learning apps were always given 60 thresholds. But a 15-min learning goal means the kid behaviorally stops at 15 min — the extra 45 thresholds rarely fire. → Learning window is now **`max(15, min(goalMinutes + 15, 60))`**. An app with no linked goal defaults to 30.
+
+#### Resulting budget on Amine's iPhone (the reference case)
+
+| App | Category | State | Before | After |
+|---|---|---|---|---|
+| C6DA269B | reward, unlimited | shielded at midnight | 240 | **0** |
+| 642B7130 | reward, 2-hr limit | shielded at midnight | 120 | **0** |
+| 739C4A42 | reward, 2-hr limit | shielded at midnight | 120 | **0** |
+| 93088665 | reward, 2-hr limit | shielded at midnight | 120 | **0** |
+| E8B1C8C6 | learning, 15-min goal | active | 60 | 30 |
+| FAE1D45B | learning, 15-min goal | active | 60 | 30 |
+| BB131A01 | learning, 15-min goal | active | 60 | 30 |
+| **TOTAL midnight** | | | **780** | **90** |
+
+Massive headroom. As reward apps unshield through the day, each costs 60–90 thresholds. The active set grows with the kid's earned progress, never exceeds the budget for typical configurations.
+
+#### Shield-drop re-registration
+
+Without re-registering when a reward app unshields, the now-usable app would have 0 thresholds and iOS wouldn't fire any callbacks. Two trigger points keep this consistent:
+
+- **Main app side (`ScreenTimeService.unblockRewardApps`):** after dropping shields on N apps, kicks off `restartMonitoring(reason: "shield-dropped-N-apps")`. One restart per unblock call regardless of how many apps unshield in that batch — natural debouncing.
+- **Extension side (`checkAndUpdateShields`):** tracks `anyShieldDropped` across the loop. If any shield was removed, calls `requestMainAppWindowRebuild(reason: "shield-dropped")` AND triggers `extensionRebuildSlidingWindow` for redundancy. The extension's self-rebuild is the fast path; the main-app rebuild request is the durable backup.
+
+The window-rebuild restart costs one stop/start cycle. Existing in-extension catch-up handling (Layer 1 SKIP_STALE_FLUSH, SKIP_REGRESSION, last-event-arrival burst detection) handles whatever iOS delivers around the restart.
+
+#### What the extension does with `window_size_<id> = 0`
+
+Previously the extension's self-rebuild path treated `window_size_<id>` as `max(60, value)`, falling back to 60 for missing keys. That logic now distinguishes:
+
+- **Key explicitly set to 0** (main app's "skip this app" signal) → `continue` the loop, don't register any thresholds for this app.
+- **Key missing entirely** (older build never wrote it) → fall back to 60 for safety.
+- **Key set to a positive value** → use as-is (no min/max — main app's `windowSize` already picked the right number).
+
+#### Edge cases worth flagging
+
+1. **Rapid shield drop/re-apply cycles.** If bank fluctuates around 0, a reward app could unshield → restart-1 → re-shield within seconds → restart-2 → unshield → restart-3. Each restart is a stop/start cycle. The Apr 26-27 pooled-bank work already handled the practical case where this happens reliably; the new restart trigger doesn't change that. Worth watching in production logs.
+
+2. **Time-window-only restrictions.** A parent sets allowed window 9am–11am. Outside that window the app is shielded (handled by the existing shield logic). The new `windowSize` returns 0 for shielded apps, so the app naturally gets 0 thresholds outside its window. When the window opens at 9am, the shield drops, restart fires, app gets full window. Same flow as goal-based unshielding.
+
+3. **Per-day disallowed (e.g. Sunday off).** `dailyLimit.todayLimit` reads `dailyLimitsPerDay[weekday]`. If today's value is 0, `windowSize` returns 0 regardless of shield state. At the next midnight rollover when the new day starts and the limit becomes non-zero, the standard midnight registration registers the full window.
+
+4. **Backwards-compat with older main-app builds.** If a device has new extension but old main app (transient install state), the new extension would treat missing `window_size_<id>` as 60 fallback. Old main app would still over-register on its own side. Self-resolves once the main app is updated.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `windowSize(for:category:isShielded:)` — new signature, 0-for-shielded/disallowed logic
+  - `lowestLearningGoalMinutes(for:)` — helper for learning-window sizing
+  - `currentlyShieldedLogicalIDs()` — helper for the snapshot at `scheduleActivity()` time
+  - `scheduleActivity()` — pass `isShielded` to `windowSize`, skip apps where the result is 0
+  - `unblockRewardApps(tokens:)` — trigger `restartMonitoring` after dropping shields
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `extensionRebuildSlidingWindow` — skip apps where `window_size_<id>` is explicitly 0
+  - `checkAndUpdateShields` — track `anyShieldDropped`, trigger window rebuild at end of loop if any shield was dropped
+
+#### Memory / pointer
+
+- The May 6 per-app right-sized window is replaced by this budget-aware version. Both still mirror main app and extension, just with the 0-meaning-skip semantics added.
+- Filter 1.7 (SKIP_SHIELDED-triggered phantom flood lockout) stays in place. It now matters less in practice because the over-budget condition that produced most "phantom" was the deferred-delivery effect of an over-budget schedule. With the budget fixed, the deferred-delivery dumps should reduce dramatically. Filter 1.7 keeps protecting against any residual phantom that arrives on truly shielded apps.
