@@ -505,6 +505,51 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
+        // Filter 1.7: PHANTOM_FLOOD_DETECTOR — cross-app simultaneity check.
+        // A real kid uses one app at a time, so first events for different apps fire
+        // minutes apart (each event needs ≥60s of foreground use). When iOS dumps a
+        // queued backlog after a long silence (phone died/woke, midnight crossing on
+        // a sleepy device, monitoring restart, etc.), it dumps events for ALL monitored
+        // apps simultaneously — that's the flood signature.
+        //
+        // Detection: 3+ distinct tracked apps fire events within a 10-second window.
+        // Once detected, set `phantom_flood_active_until = now + 300s` and reject all
+        // events for any app for that 5-minute window. The flag overrides per-app
+        // Layer 2 verdicts: BUFFER_LEGIT for an app whose event arrived during the
+        // flood window doesn't get to bypass this filter. (May 10, 2026 — see
+        // SMART_THRESHOLD_FILTERING.md "Phantom flood after phone wake".)
+        //
+        // Storage:
+        //   last_event_arrival_<id>     — timestamp of last event arrival (any outcome)
+        //   phantom_flood_active_until  — global; while now < this, block all events
+        let floodActiveUntil = defaults.double(forKey: "phantom_flood_active_until")
+        if floodActiveUntil > nowTimestamp {
+            debugLog("SKIP_FLOOD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — phantom flood window active for \(Int(floodActiveUntil - nowTimestamp))s more", defaults: defaults)
+            Self.logger.notice("SKIP_FLOOD app=\(appID.prefix(8))... remaining=\(Int(floodActiveUntil - nowTimestamp))s")
+            return false
+        }
+        defaults.set(nowTimestamp, forKey: "last_event_arrival_\(appID)")
+        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        var recentDistinctApps = 0
+        for trackedID in trackedAppIDs {
+            let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
+            if arrival > 0 && (nowTimestamp - arrival) <= 10 {
+                recentDistinctApps += 1
+            }
+        }
+        if recentDistinctApps >= 3 {
+            defaults.set(nowTimestamp + 300, forKey: "phantom_flood_active_until")
+            // Clear any open Layer 2 buffers for tracked apps — the buffers were
+            // populated during the flood and would otherwise fire BUFFER_LEGIT later.
+            for trackedID in trackedAppIDs {
+                defaults.removeObject(forKey: "first_event_start_\(trackedID)")
+                defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
+            }
+            debugLog("PHANTOM_FLOOD_DETECTED triggered by appID=\(appID.prefix(8))... — \(recentDistinctApps) distinct apps fired events within 10s, locking out all events for 300s", defaults: defaults)
+            Self.logger.notice("PHANTOM_FLOOD_DETECTED apps=\(recentDistinctApps) lockout=300s")
+            return false
+        }
+
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         Self.logger.notice("FILTER2_ENTRY app=\(appID.prefix(8))... category=\(category) thresh=\(thresholdSeconds)s")
@@ -1332,12 +1377,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 //   • first_event_max_thresh_<id>   — Layer 2 max threshold seen during buffer
                 //   • burst_active_until_<id>       — Layer 2 burst-window for PER_EVENT_CAP bypass
                 //   • shadow_usage_<id>_today       — shadow trust-max-threshold tracker
+                //   • last_event_arrival_<id>       — Filter 1.7 flood detector arrival timestamp
                 //   • usage_<id>_at_unshield        — Layer 3 budget snapshot
                 defaults.removeObject(forKey: "phantom_suspect_\(appID)")
                 defaults.removeObject(forKey: "first_event_start_\(appID)")
                 defaults.removeObject(forKey: "first_event_max_thresh_\(appID)")
                 defaults.removeObject(forKey: "burst_active_until_\(appID)")
                 defaults.removeObject(forKey: "shadow_usage_\(appID)_today")
+                defaults.removeObject(forKey: "last_event_arrival_\(appID)")
                 defaults.removeObject(forKey: "usage_\(appID)_at_unshield")
             }
         }
@@ -1351,6 +1398,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Clear unshield anchor — fresh day starts with no active unshield window.
         defaults.removeObject(forKey: "last_unshield_timestamp")
+
+        // Clear phantom-flood global flag so a flood window doesn't persist across midnight.
+        defaults.removeObject(forKey: "phantom_flood_active_until")
     }
 
     /// Send Darwin notification to main app with sequence tracking for diagnostics

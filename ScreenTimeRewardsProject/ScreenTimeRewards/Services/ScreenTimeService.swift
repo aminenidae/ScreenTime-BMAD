@@ -4658,6 +4658,7 @@ extension ScreenTimeService {
         defaults.removeObject(forKey: "first_event_max_thresh_\(logicalID)")
         defaults.removeObject(forKey: "burst_active_until_\(logicalID)")
         defaults.removeObject(forKey: "shadow_usage_\(logicalID)_today")
+        defaults.removeObject(forKey: "last_event_arrival_\(logicalID)")
         defaults.removeObject(forKey: "usage_\(logicalID)_at_unshield")
 
         #if DEBUG
