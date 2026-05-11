@@ -2103,6 +2103,23 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             }
             return
         }
+
+        // Check 3: Foreground sliding-window refresh (throttled).
+        // Keeps registered windows fresh so a kid who plays past the window top
+        // doesn't end up with iOS going silent. iOS catch-up events on restart
+        // are bounded by SKIP_REGRESSION + Filter 1.7, so no double-credit.
+        // Throttled to once per 30s so rapid background/foreground transitions
+        // don't trigger restart storms.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            let lastRestart = sharedDefaults.double(forKey: "monitoring_restart_timestamp")
+            let elapsed = Date().timeIntervalSince1970 - lastRestart
+            if elapsed > 30 {
+                lifecycleLog("FOREGROUND_REFRESH — \(Int(elapsed))s since last restart, refreshing sliding windows")
+                Task { [weak self] in
+                    await self?.restartMonitoring(reason: "foreground refresh")
+                }
+            }
+        }
     }
 
     /// Refresh usage data from extension's UserDefaults.
