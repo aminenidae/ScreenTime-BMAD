@@ -445,20 +445,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let calendar = Self.calendar
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
-        // SLIDING-WINDOW REBUILD TRIGGER — must run BEFORE any filter that may return false.
-        // The window-exhaustion detector belongs to the window state machine, not to event
-        // crediting. If it lives below the filters, any reject (SKIP_PHANTOM, SKIP_REGRESSION,
-        // SKIP_SHIELDED, buffer hold, etc.) silently disables sliding and iOS goes silent
-        // once the window is consumed. Trigger 5 min before window top so the main app has
-        // time to re-register fresh thresholds.
-        let preFilterThresholdMin = thresholdSeconds / 60
-        let preFilterWindowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
-        if preFilterWindowTopMin > 0 && preFilterThresholdMin >= preFilterWindowTopMin - 5 {
-            debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... min=\(preFilterThresholdMin) top=\(preFilterWindowTopMin) → request main-app rebuild + ext fast-path (pre-filter)", defaults: defaults)
-            requestMainAppWindowRebuild(reason: "window-top-\(appID.prefix(8))", defaults: defaults)
-            extensionRebuildSlidingWindow(defaults: defaults)
-        }
-
         // Filter 0: SKIP_MIDNIGHT — block ALL events between midnight and first scheduleActivity()
         // At midnight, intervalDidStart() fires but scheduleActivity() does NOT. Yesterday's
         // stale thresholds remain; iOS fires catch-ups with cumulative that includes yesterday's
@@ -991,8 +977,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         trackAppID(appID, defaults: defaults)
         defaults.set(nowTimestamp, forKey: "last_recorded_timestamp") // diagnostics
-        // Note: WINDOW_TOP_HIT rebuild trigger fires at the TOP of this function so
-        // it runs even when filters reject the event. See preFilterWindowTopMin above.
+        // Sliding-window rebuild trigger — fires when the kid's RECORDED cumulative
+        // approaches the top of the registered window. State-based (not event-based)
+        // so iOS catch-up bursts after MONITORING_START don't trigger spurious
+        // rebuilds. 60-second debounce per app prevents cascade rebuilds when a
+        // burst of catch-ups arrives in rapid succession (May 10: a single restart
+        // caused 4 rebuilds in 28s, crediting 18 min in that window).
+        let recordedTodayMin = defaults.integer(forKey: "usage_\(appID)_today") / 60
+        let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
+        if windowTopMin > 0 && recordedTodayMin >= windowTopMin - 5 {
+            let rebuildRequestKey = "window_rebuild_request_\(appID)"
+            let lastRequest = defaults.double(forKey: rebuildRequestKey)
+            let elapsed = nowTimestamp - lastRequest
+            if elapsed > 60 {
+                defaults.set(nowTimestamp, forKey: rebuildRequestKey)
+                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → request main-app rebuild + ext fast-path", defaults: defaults)
+                requestMainAppWindowRebuild(reason: "window-top-\(appID.prefix(8))", defaults: defaults)
+                extensionRebuildSlidingWindow(defaults: defaults)
+            } else {
+                debugLog("WINDOW_TOP_HIT_DEBOUNCED appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) — rebuild requested \(Int(elapsed))s ago", defaults: defaults)
+            }
+        }
         return true
     }
 
@@ -1401,6 +1406,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "phantom_recovery_last_arrival_\(appID)")
                 defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(appID)")
                 defaults.removeObject(forKey: "phantom_recovery_count_\(appID)")
+                defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
             }
         }
 
