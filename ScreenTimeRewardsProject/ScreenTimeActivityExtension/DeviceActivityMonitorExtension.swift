@@ -809,9 +809,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
         let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
-        let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
 
-        let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
         // Burst-window bypass: when Layer 2 just accepted a buffered burst as legit, all
         // events that follow within 10s are out-of-order catch-up events from the same
         // iOS dump. Their deltas can legitimately exceed 60s (e.g., iOS dumps min.3 and
@@ -820,6 +818,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // delta lands. SKIP_REGRESSION still protects against duplicate events.
         let burstActiveUntil = defaults.double(forKey: "burst_active_until_\(appID)")
         let isBurstActive = burstActiveUntil > nowTimestamp
+
+        // rawDelta computation:
+        //   - lastThreshold > 0: normal case, delta is the gap (min 60s for safety).
+        //   - lastThreshold == 0 AND isBurstActive: FIRST_EVENT_BUFFER_LEGIT just
+        //     fast-forwarded thresholdSeconds to maxSeen — that value IS the kid's
+        //     real cumulative for the day. Credit it in full (like NEW_DAY does at
+        //     midnight). Without this, the first event of a buffered burst gets
+        //     capped at 60s and we silently lose ~95% of the credit (May 11: Facebook
+        //     credited 4 min instead of 24 min after a single foreground refresh).
+        //   - lastThreshold == 0 AND no burst: conservative first-event default of 60s.
+        let rawDelta: Int
+        if lastThreshold > 0 {
+            rawDelta = max(60, thresholdSeconds - lastThreshold)
+        } else if isBurstActive {
+            rawDelta = thresholdSeconds
+        } else {
+            rawDelta = 60
+        }
+
+        let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
         // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent for
         // 30-60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2s.
         // Layer 2's first-of-day buffer doesn't fire on these (because today>0 and
