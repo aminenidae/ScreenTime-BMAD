@@ -1547,16 +1547,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         debugLog("SHIELD_CHECK: Completed shield update check", defaults: defaults)
 
-        // Shield-drop rebuild: while shielded, those apps had 0 thresholds registered
-        // (the kid physically couldn't generate events). Now that one or more have
-        // unshielded, register their full windows so iOS fires threshold events as
-        // the kid uses them. Request a main-app rebuild AND do an extension-side
-        // fast-path rebuild for redundancy. See SMART_THRESHOLD_FILTERING.md
-        // "iOS threshold-count budget".
-        if anyShieldDropped {
-            requestMainAppWindowRebuild(reason: "shield-dropped", defaults: defaults)
-            _ = extensionRebuildSlidingWindow(defaults: defaults)
-        }
+        // (Shield-drop rebuild trigger removed — May 10 cascade rollback. Was causing
+        // a runaway loop with iOS dumping queued events on each rebuild. The 45-min
+        // BG task will catch unshielded apps eventually. _ = anyShieldDropped silences
+        // the unused-warning while we keep the bookkeeping in place for the next
+        // attempt with proper debouncing.)
+        _ = anyShieldDropped
     }
 
     /// Check if a reward app's learning goal is met.

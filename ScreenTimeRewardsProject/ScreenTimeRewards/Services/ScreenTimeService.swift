@@ -3312,18 +3312,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         print("[ScreenTimeService] Unblocked tokens: \(tokens.map { String($0.hashValue) })")
         #endif
 
-        // Shield-drop restart: a reward app's window is 0 while shielded (no thresholds
-        // registered). Now that it's unshielded, we need to register its full window so
-        // iOS fires threshold events as the kid uses it. The restart is batched per
-        // unblockRewardApps call — one restart regardless of how many apps unshielded.
-        // See SMART_THRESHOLD_FILTERING.md "iOS threshold-count budget".
-        if !tokens.isEmpty {
-            let count = tokens.count
-            Task { [weak self] in
-                guard let self = self else { return }
-                await self.restartMonitoring(reason: "shield-dropped-\(count)-apps")
-            }
-        }
+        // (Shield-drop restart trigger removed — May 10 cascade rollback. Was causing
+        // a runaway loop where iOS dumped queued backlog events on each rebuild, those
+        // events triggered more recording / bank changes / shield drops, which
+        // triggered more rebuilds. The 45-min BG task will eventually re-register
+        // thresholds for unshielded apps, at the cost of up to 45 min of unrecorded
+        // post-unshield usage. Accepting that trade-off until we can debounce safely.)
 
         // Post notification
         NotificationCenter.default.post(
