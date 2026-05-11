@@ -1681,10 +1681,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         content.categoryIdentifier = "learningGoal"
 
         let identifier = "ext_goal_completed_\(rewardAppID)_\(todayKey)"
+        // 1-second trigger instead of nil. DeviceActivityMonitor extensions are
+        // ephemeral — the process terminates synchronously after the callback
+        // returns. `add(request)` is asynchronous; with trigger:nil iOS may not
+        // commit the notification to the delivery queue before the process dies,
+        // and the notification is silently dropped (May 11 confirmed: completion
+        // logged ✅ Scheduled but the banner never appeared until main app launch
+        // triggered the catch-up path). A 1-second TimeInterval trigger forces
+        // iOS to persist the request to its scheduler before the process exits,
+        // and the user-visible delay is imperceptible.
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
         let request = UNNotificationRequest(
             identifier: identifier,
             content: content,
-            trigger: nil // Immediate delivery
+            trigger: trigger
         )
 
         UNUserNotificationCenter.current().add(request) { [weak self] error in
