@@ -639,9 +639,54 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         //                              verdict (legit) or escalation to suspect.
         let phantomSuspectKey = "phantom_suspect_\(appID)"
         if defaults.bool(forKey: phantomSuspectKey) {
-            debugLog("SKIP_PHANTOM_APP appID=\(appID.prefix(8))... app flagged phantom-suspect today — rejecting", defaults: defaults)
-            Self.logger.notice("SKIP_PHANTOM_APP app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
-            return false
+            // Auto-recovery: if 3 events arrive at clean per-minute cadence (50–75s
+            // gap AND threshold +50–75s), the kid is clearly using the app in real
+            // time. Un-flag and credit the current threshold value as recovered usage.
+            // Burst floods don't produce this signature — they fire many events per
+            // second with chaotic threshold ordering.
+            let recoveryArrivalKey = "phantom_recovery_last_arrival_\(appID)"
+            let recoveryThreshKey = "phantom_recovery_last_thresh_\(appID)"
+            let recoveryCountKey = "phantom_recovery_count_\(appID)"
+            let lastArrival = defaults.double(forKey: recoveryArrivalKey)
+            let lastThresh = defaults.integer(forKey: recoveryThreshKey)
+            let gap = lastArrival > 0 ? nowTimestamp - lastArrival : 0
+            let threshDelta = thresholdSeconds - lastThresh
+            let isCleanCadence = lastArrival > 0 && gap >= 50 && gap <= 75 &&
+                                 threshDelta >= 50 && threshDelta <= 75
+            if isCleanCadence {
+                let newCount = defaults.integer(forKey: recoveryCountKey) + 1
+                if newCount >= 3 {
+                    defaults.removeObject(forKey: phantomSuspectKey)
+                    defaults.removeObject(forKey: recoveryArrivalKey)
+                    defaults.removeObject(forKey: recoveryThreshKey)
+                    defaults.removeObject(forKey: recoveryCountKey)
+                    let todayKey = "usage_\(appID)_today"
+                    let totalKey = "usage_\(appID)_total"
+                    let lastThresholdKey = "usage_\(appID)_lastThreshold"
+                    let todayResetKey = "usage_\(appID)_reset"
+                    defaults.set(thresholdSeconds, forKey: todayKey)
+                    defaults.set(thresholdSeconds, forKey: totalKey)
+                    defaults.set(thresholdSeconds, forKey: lastThresholdKey)
+                    defaults.set(startOfToday, forKey: todayResetKey)
+                    defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
+                    debugLog("PHANTOM_SUSPECT_CLEARED appID=\(appID.prefix(8))... 3 clean per-minute events — un-flagging, crediting \(thresholdSeconds)s as recovered usage", defaults: defaults)
+                    Self.logger.notice("PHANTOM_SUSPECT_CLEARED app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+                    return true
+                } else {
+                    defaults.set(nowTimestamp, forKey: recoveryArrivalKey)
+                    defaults.set(thresholdSeconds, forKey: recoveryThreshKey)
+                    defaults.set(newCount, forKey: recoveryCountKey)
+                    debugLog("PHANTOM_RECOVERY_PROGRESS appID=\(appID.prefix(8))... clean event \(newCount)/3 (gap=\(Int(gap))s threshΔ=\(threshDelta)s)", defaults: defaults)
+                    return false
+                }
+            } else {
+                defaults.set(nowTimestamp, forKey: recoveryArrivalKey)
+                defaults.set(thresholdSeconds, forKey: recoveryThreshKey)
+                defaults.set(1, forKey: recoveryCountKey)
+                debugLog("SKIP_PHANTOM_APP appID=\(appID.prefix(8))... app flagged phantom-suspect today — rejecting (gap=\(Int(gap))s threshΔ=\(threshDelta)s)", defaults: defaults)
+                Self.logger.notice("SKIP_PHANTOM_APP app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+                return false
+            }
         }
 
         let layer2_lastThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
@@ -1399,6 +1444,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "shadow_usage_\(appID)_today")
                 defaults.removeObject(forKey: "last_event_arrival_\(appID)")
                 defaults.removeObject(forKey: "usage_\(appID)_at_unshield")
+                defaults.removeObject(forKey: "phantom_recovery_last_arrival_\(appID)")
+                defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(appID)")
+                defaults.removeObject(forKey: "phantom_recovery_count_\(appID)")
             }
         }
 
