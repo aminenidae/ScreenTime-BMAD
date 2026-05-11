@@ -3299,3 +3299,59 @@ Previously the extension's self-rebuild path treated `window_size_<id>` as `max(
 
 - The May 6 per-app right-sized window is replaced by this budget-aware version. Both still mirror main app and extension, just with the 0-meaning-skip semantics added.
 - Filter 1.7 (SKIP_SHIELDED-triggered phantom flood lockout) stays in place. It now matters less in practice because the over-budget condition that produced most "phantom" was the deferred-delivery effect of an over-budget schedule. With the budget fixed, the deferred-delivery dumps should reduce dramatically. Filter 1.7 keeps protecting against any residual phantom that arrives on truly shielded apps.
+
+### May 10, 2026 — Cascade-poisoned phantom-suspect flag → silent windows (Device 1 + Device 2)
+
+#### Symptom
+
+After the May 10 budget-aware threshold registration build (`6616e4a`) and the cascade hotfix (`7eadefb`), Device 1 and Device 2 stopped recording usage entirely. Kid played a learning app for 16 minutes; today's counter stayed at 0. No bank credit. No goal progress.
+
+Extension log showed iOS *was* delivering events at perfectly clean per-minute cadence — 12 consecutive events for E8B1C8C6 between 21:04 and 21:15, every event reading like `[21:05:13] EVENT min=10 currentToday=0s lastThresh=0s` followed by `SKIP_PHANTOM_APP appID=E8B1C8C6... app flagged phantom-suspect today — rejecting`. After 21:15, iOS went completely silent. No events for over an hour.
+
+#### Two compounding bugs
+
+**Bug 1 — sticky `phantom_suspect_<id>` flag was over-blocking.** The May 9 three-layer phantom defense set a 24-hour app-level lockout when Filter 2.7's first-event buffer timed out without a min≤3 anchor. The intent was to reject the burst; the implementation tagged the whole app as untrustworthy for the rest of the day. During the May 10 morning cascade (8:17 AM, 257 monitoring restarts in 4 minutes), iOS legitimately re-fired old events at high minute counts during each restart. The buffer opened, no min≤3 followed (the events were post-restart catchups, not real fresh usage), buffer timed out at 60s, flag was set on E8B1C8C6 and 642B7130. From that moment until midnight, every event on those apps was thrown out — including the kid's actual per-minute usage hours later.
+
+**Bug 2 — `WINDOW_TOP_HIT` rebuild trigger was downstream of the filters.** The trigger that requests a fresh sliding-window registration when the kid approaches the top of the current window lived at the *end* of `setUsageToThreshold` — after every filter. When Bug 1 caused `SKIP_PHANTOM_APP` to return false at the top of the function, the rebuild trigger at the bottom was unreachable. The window for E8B1C8C6 was registered as 1–20 (small learning-app goal × budget-aware sizing). Kid played to min.20, but every threshold event got rejected before WINDOW_TOP_HIT could fire. Window exhausted at min.20. iOS had no more thresholds to fire on. Silence.
+
+**Bug 3 (compounding) — `startMonitoring` skipped re-schedule when iOS reported monitoring active.** Parent opens the main app to try to fix things. `startMonitoring` checks `deviceActivityCenter.activities.contains(activityName)`. iOS says yes (monitoring is technically active — the empty exhausted windows still count). `MONITORING_ALREADY_ACTIVE — skipping redundant startMonitoring`. No re-schedule, no fresh window registration. Catch-22: the only way out of an exhausted window is to re-register, but the launch path won't re-register because monitoring "looks" active.
+
+#### Diagnostic dialogue with user
+
+The user's pushback drove the fix. Initial response was to add an auto-recovery patch (commit `c9cc1d8`) that would un-flag an app after 3 clean per-minute events arrived. The user immediately challenged the *existence* of the flag — "What actually gets flagged is the burst when it's a flood... not the apps!!" — and was correct: the May 9 design layered an app-day lockout on top of the burst-window flood detector (Filter 1.7), and the lockout was the part causing harm. Then the user clarified the deeper issue: "the pbm isn't in the size. it's in the non-sliding... am I mistaken here?" — correctly identifying that even a tiny window slides indefinitely as long as the rebuild trigger fires; the size discussion was a red herring.
+
+#### Fix
+
+Three commits on `refactor/unified-usage-counter`:
+
+1. **`3025425` — remove the sticky `phantom_suspect_<id>` flag mechanism.**
+   - Delete the top-of-function `phantom_suspect_<id>` check (and the May 10 auto-recovery patch from `c9cc1d8`, which became dead code).
+   - In Filter 2.7's buffer-timeout branch, replace `defaults.set(true, forKey: phantomSuspectKey)` with a soft-resume: anchor `lastThreshold` at `maxSeen` and let `SKIP_REGRESSION` take over for subsequent events. No app-day lockout.
+   - Filter 1.7 (burst-anchored cross-app flood detection) is the sole flood defense going forward. A non-burst-shaped "flood" is by definition indistinguishable from real per-minute usage — there's no signal to filter on, and the impact is bounded at 1 min/min anyway, so the absence of the sticky flag is not a meaningful regression.
+   - Existing devices with `phantom_suspect_<id>=true` in UserDefaults are unaffected — nothing reads the key in the new code path. Midnight + orphan cleanup still remove the stale key for hygiene.
+
+2. **`3f750ba` (part 1) — move `WINDOW_TOP_HIT` to the top of `setUsageToThreshold`.** The check now runs before any filter. "Is the window about to exhaust" is a state question about the window machine, not about event crediting. Every event approaching the window top requests a rebuild, regardless of whether the event itself is credited or rejected. Removed the two duplicate copies of the check from the recording paths (NEW_DAY branch and end-of-function).
+
+3. **`3f750ba` (part 2) — always re-schedule on `startMonitoring`.** Drop the `MONITORING_ALREADY_ACTIVE` skip. Parent-initiated `startMonitoring` is an explicit refresh signal; the brief stop/start cost is acceptable and is the only way out of an exhausted-window state when no events are firing to trigger the in-event rebuild.
+
+#### Recovery path for a stuck device
+
+1. Install build with all three commits applied.
+2. Force-quit and reopen the main app. This calls `startMonitoring` → no longer skipped → `scheduleActivity()` runs → fresh sliding windows registered for every monitored app from current cumulative forward.
+3. Resume normal usage. New events fire, get credited (the phantom flag is no longer checked), and the relocated `WINDOW_TOP_HIT` keeps the windows sliding forward indefinitely.
+
+Today's earlier usage on flagged apps is not recoverable — those events were already rejected and iOS will not redeliver. Tomorrow's a clean slate (midnight rollover clears all per-day state).
+
+#### What this teaches about the filter chain
+
+A guard that lives downstream of the filters is a guard that can be silenced by any reject. Anything the system needs to do regardless of whether the event is credited — window-state maintenance, monitoring-health telemetry, sliding-window rebuild requests — belongs at the *top* of the filter chain, not the bottom. The May 9 design put the rebuild trigger in the right *function* but in the wrong *position*; the May 10 incident exposed it.
+
+Similarly: app-day lockouts are a much larger blast radius than burst-window rejections. A burst-window filter that misfires costs you one burst. An app-day flag that misfires costs you the rest of the day. When both options solve the same problem, prefer the smaller blast radius.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `setUsageToThreshold` — phantom_suspect_<id> check deleted (top); pre-filter WINDOW_TOP_HIT added (top); buffer-timeout sticky-flag set replaced with soft-resume; duplicate WINDOW_TOP_HIT removed from NEW_DAY and end-of-function paths.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `startMonitoring(completion:)` — `MONITORING_ALREADY_ACTIVE` skip dropped; always re-schedule on call.
+  - Orphan-cleanup still removes `phantom_suspect_<id>`, `phantom_recovery_*` keys (migration safety).
