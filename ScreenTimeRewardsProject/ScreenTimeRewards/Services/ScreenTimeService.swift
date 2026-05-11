@@ -1638,17 +1638,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             guard let self else { return }
             switch result {
             case .success:
-                // Skip if monitoring is already registered with iOS (e.g., init recovery already started it)
-                if self.isMonitoring && self.deviceActivityCenter.activities.contains(self.activityName) {
-                    self.lifecycleLog("MONITORING_ALREADY_ACTIVE — skipping redundant startMonitoring (iOS confirms registered)")
-                    #if DEBUG
-                    print("[ScreenTimeService] ✅ Monitoring already active at iOS level — skipping redundant start")
-                    #endif
-                    DispatchQueue.main.async {
-                        completion(.success(()))
-                    }
-                    return
-                }
+                // Always re-schedule on explicit startMonitoring — even if iOS reports
+                // monitoring is already active, the registered sliding windows may be
+                // exhausted (kid played past the top). Refresh thresholds unconditionally;
+                // this is parent-initiated, not a per-event call, so the brief
+                // stop/start cost is acceptable.
+                self.lifecycleLog("MONITORING_REFRESH_FORCED — re-scheduling to refresh sliding windows on parent action")
                 print("[ScreenTimeService] ✅ Permission granted, scheduling activity...")
                 do {
                     try self.scheduleActivity()
