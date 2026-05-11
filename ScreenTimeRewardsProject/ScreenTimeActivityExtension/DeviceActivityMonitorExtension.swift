@@ -624,71 +624,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Filter 2.7: PER-APP MIN.1 BUFFER — first-event-of-day phantom defense.
-        // Catches Device 2-class phantom: iOS dumps stale-queue events (min.10+) for apps
-        // the kid never opened today, then trickles in min.1 30+ minutes later. Real
-        // catchups (extension restart while app is being used) deliver min.1 within
-        // hundreds of milliseconds of the first event. The 60-second window cleanly
-        // separates the two regimes (validated against 5 device logs — see
-        // SMART_THRESHOLD_FILTERING.md "May 9–10, 2026").
+        // Filter 2.7: PER-APP MIN.1 BUFFER — first-event-of-day burst gate.
+        // When an app's first event of the day is min>3, wait up to 60s for a min≤3
+        // anchor. If one arrives, fast-forward to the highest threshold seen (legit
+        // catchup). If not, give up the buffer and resume normal processing —
+        // Filter 1.7 (burst-anchored flood detection) is responsible for rejecting
+        // real phantom floods, not this buffer.
         //
         // Storage:
-        //   phantom_suspect_<id>     — sticky Bool; while set, reject all events for
-        //                              this app today. Cleared at midnight.
         //   first_event_start_<id>   — TimeInterval; when buffer opened. Cleared on
-        //                              verdict (legit) or escalation to suspect.
-        let phantomSuspectKey = "phantom_suspect_\(appID)"
-        if defaults.bool(forKey: phantomSuspectKey) {
-            // Auto-recovery: if 3 events arrive at clean per-minute cadence (50–75s
-            // gap AND threshold +50–75s), the kid is clearly using the app in real
-            // time. Un-flag and credit the current threshold value as recovered usage.
-            // Burst floods don't produce this signature — they fire many events per
-            // second with chaotic threshold ordering.
-            let recoveryArrivalKey = "phantom_recovery_last_arrival_\(appID)"
-            let recoveryThreshKey = "phantom_recovery_last_thresh_\(appID)"
-            let recoveryCountKey = "phantom_recovery_count_\(appID)"
-            let lastArrival = defaults.double(forKey: recoveryArrivalKey)
-            let lastThresh = defaults.integer(forKey: recoveryThreshKey)
-            let gap = lastArrival > 0 ? nowTimestamp - lastArrival : 0
-            let threshDelta = thresholdSeconds - lastThresh
-            let isCleanCadence = lastArrival > 0 && gap >= 50 && gap <= 75 &&
-                                 threshDelta >= 50 && threshDelta <= 75
-            if isCleanCadence {
-                let newCount = defaults.integer(forKey: recoveryCountKey) + 1
-                if newCount >= 3 {
-                    defaults.removeObject(forKey: phantomSuspectKey)
-                    defaults.removeObject(forKey: recoveryArrivalKey)
-                    defaults.removeObject(forKey: recoveryThreshKey)
-                    defaults.removeObject(forKey: recoveryCountKey)
-                    let todayKey = "usage_\(appID)_today"
-                    let totalKey = "usage_\(appID)_total"
-                    let lastThresholdKey = "usage_\(appID)_lastThreshold"
-                    let todayResetKey = "usage_\(appID)_reset"
-                    defaults.set(thresholdSeconds, forKey: todayKey)
-                    defaults.set(thresholdSeconds, forKey: totalKey)
-                    defaults.set(thresholdSeconds, forKey: lastThresholdKey)
-                    defaults.set(startOfToday, forKey: todayResetKey)
-                    defaults.set(nowTimestamp, forKey: "usage_\(appID)_modified")
-                    debugLog("PHANTOM_SUSPECT_CLEARED appID=\(appID.prefix(8))... 3 clean per-minute events — un-flagging, crediting \(thresholdSeconds)s as recovered usage", defaults: defaults)
-                    Self.logger.notice("PHANTOM_SUSPECT_CLEARED app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
-                    return true
-                } else {
-                    defaults.set(nowTimestamp, forKey: recoveryArrivalKey)
-                    defaults.set(thresholdSeconds, forKey: recoveryThreshKey)
-                    defaults.set(newCount, forKey: recoveryCountKey)
-                    debugLog("PHANTOM_RECOVERY_PROGRESS appID=\(appID.prefix(8))... clean event \(newCount)/3 (gap=\(Int(gap))s threshΔ=\(threshDelta)s)", defaults: defaults)
-                    return false
-                }
-            } else {
-                defaults.set(nowTimestamp, forKey: recoveryArrivalKey)
-                defaults.set(thresholdSeconds, forKey: recoveryThreshKey)
-                defaults.set(1, forKey: recoveryCountKey)
-                debugLog("SKIP_PHANTOM_APP appID=\(appID.prefix(8))... app flagged phantom-suspect today — rejecting (gap=\(Int(gap))s threshΔ=\(threshDelta)s)", defaults: defaults)
-                Self.logger.notice("SKIP_PHANTOM_APP app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
-                return false
-            }
-        }
-
+        //                              resolution (legit anchor or timeout).
+        //   first_event_max_thresh_<id> — running max threshold seen during buffer.
+        //
+        // Note: the previously-sticky `phantom_suspect_<id>` app-day lockout was
+        // removed on 2026-05-10 — it over-blocked legitimate post-restart usage
+        // for the entire rest of the day. See SMART_THRESHOLD_FILTERING.md.
         let layer2_lastThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
         let layer2_currentToday = defaults.integer(forKey: "usage_\(appID)_today")
         let isFirstEventOfDay = (layer2_lastThreshold == 0 && layer2_currentToday == 0)
@@ -733,12 +683,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 } else {
                     let bufferAge = nowTimestamp - bufferStart
                     if bufferAge > 60 {
-                        // Timeout. No min≤3 ever arrived in the 60-second window. Verdict: phantom.
-                        defaults.set(true, forKey: phantomSuspectKey)
+                        // Timeout. No min≤3 anchor in 60s. Give up the buffer and let
+                        // Filter 1.7 (burst-anchored flood detection) handle real
+                        // phantoms. Anchor lastThreshold at maxSeen so SKIP_REGRESSION
+                        // takes over and subsequent events credit only their delta
+                        // (no bulk credit of the buffered window — we don't have an
+                        // anchor to trust the cumulative).
+                        let maxSeen = defaults.integer(forKey: firstEventMaxThreshKey)
                         defaults.removeObject(forKey: firstEventStartKey)
                         defaults.removeObject(forKey: firstEventMaxThreshKey)
-                        debugLog("PHANTOM_SUSPECT_SET appID=\(appID.prefix(8))... 60s window expired without min≤3 — flagging app as phantom-flooded today", defaults: defaults)
-                        Self.logger.notice("PHANTOM_SUSPECT_SET app=\(appID.prefix(8))... bufferAge=\(Int(bufferAge))s")
+                        defaults.set(maxSeen, forKey: "usage_\(appID)_lastThreshold")
+                        defaults.set(startOfToday, forKey: "usage_\(appID)_reset")
+                        debugLog("BUFFER_TIMEOUT_RESUME appID=\(appID.prefix(8))... no min≤3 in 60s — anchoring lastThreshold=\(maxSeen)s and resuming normal processing (Filter 1.7 catches floods)", defaults: defaults)
+                        Self.logger.notice("BUFFER_TIMEOUT_RESUME app=\(appID.prefix(8))... lastThreshold=\(maxSeen)s")
                         return false
                     } else {
                         // Still in 60-second window. Update the running max so we can
