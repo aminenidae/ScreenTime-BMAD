@@ -1638,12 +1638,22 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             guard let self else { return }
             switch result {
             case .success:
-                // Always re-schedule on explicit startMonitoring — even if iOS reports
-                // monitoring is already active, the registered sliding windows may be
-                // exhausted (kid played past the top). Refresh thresholds unconditionally;
-                // this is parent-initiated, not a per-event call, so the brief
-                // stop/start cost is acceptable.
-                self.lifecycleLog("MONITORING_REFRESH_FORCED — re-scheduling to refresh sliding windows on parent action")
+                // Skip if monitoring is already registered with iOS (e.g., init recovery already started it).
+                // Reverted May 11 (was `force-refresh on every call`): the forced refresh added
+                // ~5–10 extra restarts per day per device, and each restart triggered iOS catch-up
+                // bursts that this codebase exists to prevent. The original silent-window failure
+                // mode the force-refresh was guarding against was already fixed by removing the
+                // sticky `phantom_suspect_<id>` flag (commit 3025425).
+                if self.isMonitoring && self.deviceActivityCenter.activities.contains(self.activityName) {
+                    self.lifecycleLog("MONITORING_ALREADY_ACTIVE — skipping redundant startMonitoring (iOS confirms registered)")
+                    #if DEBUG
+                    print("[ScreenTimeService] ✅ Monitoring already active at iOS level — skipping redundant start")
+                    #endif
+                    DispatchQueue.main.async {
+                        completion(.success(()))
+                    }
+                    return
+                }
                 print("[ScreenTimeService] ✅ Permission granted, scheduling activity...")
                 do {
                     try self.scheduleActivity()
@@ -2104,22 +2114,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return
         }
 
-        // Check 3: Foreground sliding-window refresh (throttled).
-        // Keeps registered windows fresh so a kid who plays past the window top
-        // doesn't end up with iOS going silent. iOS catch-up events on restart
-        // are bounded by SKIP_REGRESSION + Filter 1.7, so no double-credit.
-        // Throttled to once per 30s so rapid background/foreground transitions
-        // don't trigger restart storms.
-        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
-            let lastRestart = sharedDefaults.double(forKey: "monitoring_restart_timestamp")
-            let elapsed = Date().timeIntervalSince1970 - lastRestart
-            if elapsed > 30 {
-                lifecycleLog("FOREGROUND_REFRESH — \(Int(elapsed))s since last restart, refreshing sliding windows")
-                Task { [weak self] in
-                    await self?.restartMonitoring(reason: "foreground refresh")
-                }
-            }
-        }
+        // Note: Check 3 (foreground sliding-window refresh) was REVERTED May 11.
+        // It fired on every scenePhase=.active and produced 5–10 extra restarts
+        // per day on user testing. Each restart triggers an iOS catch-up burst,
+        // and bursts are exactly what SMART_THRESHOLD_FILTERING.md exists to
+        // prevent. The original silent-window failure mode it guarded against
+        // was already fixed by removing the sticky `phantom_suspect_<id>` flag
+        // (commit 3025425) — that's the root cause, not stale windows.
     }
 
     /// Refresh usage data from extension's UserDefaults.
