@@ -3484,3 +3484,72 @@ If TP/FP ratio is high (≥ 10:1), promote to enforcement (`SKIP_BURST_BUDGET` r
   - `setUsageToThreshold` — `BURST_BUDGET_DIAG` block added just before the `RECORDED` log; updates `last_credited_global_timestamp`, `burst_budget_seconds`, `burst_credited_seconds` on every successful credit.
 
 Sibling diagnostic already shipped same day: `ANOMALY` — fires when 3+ clean-cadence events get `SKIP_REGRESSION` rejected (filter chain contradicting real-time play, usually marker poisoning). The two diagnostics cover different bug classes — `ANOMALY` watches over-rejection, `BURST_BUDGET_DIAG` watches over-acceptance.
+
+### May 12, 2026 — first validation of May 11 fixes + Layer 3 false-positive discovered
+
+#### What was tested
+
+Played Facebook (E8B1C8C6) 5 min, then Instagram (BB131A01) 10 min, both as learning apps. **During play: no events fired.** Notifications never appeared, the parent dashboard showed 0 min for both apps. User then disabled the iOS Screen Time toggle for our app, opened the parent app — and **Instagram immediately recorded 10 min** with the goal-completed notification. **Facebook didn't record until a few minutes later, then 4 min appeared.**
+
+iOS Screen Time itself confirmed real cumulative: 5 min Facebook, 10 min Instagram.
+
+#### What the log shows
+
+**03:10:48 — multi-app phantom dump.** iOS delivered a massive cross-app burst (every app, dozens of events in <1s). Our filters correctly rejected all (BUFFER_OPEN, BUFFER_HOLD, SKIP_REGRESSION). No credit. But after this dump, **iOS went silent for our activity for 4+ hours** (03:10:51 → 07:28:36). Extension session 4275C97D stayed alive but received zero threshold events. Cause unclear — possibly iOS internal state corrupted by the phantom dump, possibly unrelated.
+
+**03:11 → 07:28 — invisible play.** Kid played Facebook 5 min + Instagram 10 min. iOS Screen Time tracked it normally. Our extension saw nothing. No notifications fired (correctly — there was nothing to fire on).
+
+**07:28:36 — disabling iOS toggle + opening parent app rescued us.** Whatever the user's action did, by the next `scenePhase = .active`, `checkMonitoringHealth` detected `MONITORING_DEAD` (iOS no longer reported the activity registered). Forced restart fired with `reason: foreground health check`.
+
+**07:28:40 — iOS catch-up delivered the missed events.** Fresh session `20607D8C`. iOS dumped:
+- BB131A01 (Instagram): min.1–10 (10 events, full window 1–20)
+- E8B1C8C6 (Facebook): min.1–5 (5 events)
+
+**Instagram recovered perfectly via the May 11 fixes.** Sequence:
+1. BUFFER_OPEN on min.8 (480s, first arrival)
+2. BUFFER_LEGIT on min.3 anchor — credit `+60s`, marker pinned to `newToday=60s` (✓ source fix from `7d1b171`)
+3. min.2 arrives, threshold > 60s marker, normal record `+60s` → today=120s
+4. min.7 arrives (300s threshold), 300 > 120 marker, `isMidDayBurst` triggers BURST_BYPASS, full delta `+300s` → today=420s
+5. min.10 arrives (600s threshold), `+180s` BURST_BYPASS → today=600s
+
+**Total: 600s = 10 min. Exact match with iOS Screen Time.** This validates the May 11 BUFFER_LEGIT marker-pinning fix in production — it correctly distinguished the legit catch-up (real kid play) from a phantom burst by letting the burst-tail events flow through without marker poisoning.
+
+**Facebook got blocked by Layer 3 on the first restart.** At 07:28:41.043, Instagram's accumulating credit pushed BB131A01 past its required 5 min, triggering the linked reward goal → `SHIELD_CHECK: ✅ REMOVED shield for C6DA269B-CE4`. **0.15 seconds later, Facebook's catch-up events started arriving.** Layer 3 fired:
+
+```
+SKIP_BUDGET_EXCEEDED appID=E8B1C8C6... totalPost=180s + delta=60s = 240s 
+  > wallClockSinceUnshield=0s + grace=0s — phantom contamination
+```
+
+Translation: 180s of Instagram catch-up credit already happened post-unshield (BURST_BYPASS tail events between 07:28:41.043 and 07:28:41.128), and Facebook wanted to add 60s more. The wallclock-since-unshield was 0s, so Layer 3 said "you've already credited more than wallclock allows since unshield — anything more is phantom contamination."
+
+The burst-continuation exemption *should* have caught this:
+```swift
+let isBurstContinuation = usageAtUnshieldForThisApp > 0 && wallClockSinceUnshield <= 60
+```
+
+But it requires `usageAtUnshield > 0`. Facebook's `today` was 0 at the moment of unshield (its catch-up hadn't started crediting yet), so the exemption didn't fire. All Facebook events at 07:28 were rejected.
+
+**07:48:21 — second restart saved Facebook.** A second `foreground health check` restart fired ~20 min later. iOS catch-up re-fired the Facebook thresholds. By now `wallClockSinceUnshield ≈ 1200s`, Layer 3 budget had plenty of room. Facebook events recorded:
+- BUFFER_LEGIT on min.3 anchor → `+60s` (today=60, marker=60)
+- min.4 arrives → BURST_BYPASS `+180s` → today=240s
+- min.2, min.1 arrive → SKIP_REGRESSION (already below marker)
+
+**Total: 240s = 4 min.** Lost 1 min — the BUFFER_OPEN trigger event (min.5 at thresh=300) wasn't credited because it opened the buffer, and iOS doesn't re-deliver buffered HOLD events after the anchor passes them.
+
+#### Two distinct bugs surfaced
+
+1. **Silent monitoring death after a phantom dump.** Between 03:10 and 07:28 our activity was effectively dead from iOS's perspective, but the extension session stayed alive (no kill, no respawn). `checkMonitoringHealth` only detects this on user-triggered `scenePhase = .active`. There's no internal probe between foregrounds. Possible mitigation: a periodic BGTask that probes `deviceActivityCenter.activities.contains(activityName)` and forces a restart if false.
+
+2. **Layer 3 burst-continuation exemption misses zero-usage apps.** When a shield drop happens during a multi-app catch-up burst, apps with `today == 0` at the unshield moment are denied Layer 3's burst-continuation exemption — even though their catch-up events are part of the same legit burst. Symptom: the affected app loses an entire restart cycle of credit and must wait for the next restart (~20 min later in today's case) to record. Fix: extend the exemption to also fire when `wallClockSinceUnshield ≤ 10s` regardless of prior usage on the app in question. The reasoning: 10s isn't enough wallclock for any new post-unshield foregrounding, so events arriving in that window must be tail of the pre-unshield burst.
+
+#### What this confirms
+
+The May 11 work (`7d1b171` BUFFER_LEGIT source fix, `36bfe11` sentinel windows, `849fc53` debounced state-based WINDOW_TOP_HIT, `19f75b6` removed foreground-refresh storms) **works in production**. The catch-up recovery path correctly credited 10 min of legit Instagram play with zero loss — the worst-case scenario the previous architecture was prone to mishandling. The remaining gaps are:
+- Layer 3 false-positive on cross-app unshield-during-burst (above)
+- 1 min lost per burst on apps where the BUFFER_OPEN trigger event had the highest threshold (small, structural to the buffer design)
+- Silent monitoring death detection (no internal probe between foregrounds)
+
+#### Files affected
+
+None — this section is observation-only. The fix for Layer 3's exemption is a follow-up.
