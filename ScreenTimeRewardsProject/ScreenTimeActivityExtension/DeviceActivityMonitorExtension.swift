@@ -730,6 +730,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if lastResetTimestamp >= startOfToday {
             // Same day: threshold must strictly increase (usage is monotonic within a day)
             if thresholdSeconds <= lastThreshold {
+                // Self-consistency diagnostic (no action — logging only).
+                // If events arrive at clean ~60s wallclock cadence AND monotonically-
+                // increasing thresholds AND all get SKIP_REGRESSION rejected, the
+                // filter chain is contradicting reality: that cadence is the
+                // unmistakable signature of real-time play (iOS can't fake it —
+                // queue dumps arrive in milliseconds), so the rejections imply
+                // marker poisoning or similar internal state corruption. Log an
+                // ANOMALY line so the next bug in this class is visible
+                // immediately, not discovered hours later from missing usage.
+                let lastSkipKey = "skip_reg_last_arrival_\(appID)"
+                let lastSkipThreshKey = "skip_reg_last_thresh_\(appID)"
+                let skipCountKey = "skip_reg_consecutive_\(appID)"
+                let lastSkipArrival = defaults.double(forKey: lastSkipKey)
+                let lastSkipThresh = defaults.integer(forKey: lastSkipThreshKey)
+                let wallGap = lastSkipArrival > 0 ? nowTimestamp - lastSkipArrival : 0
+                let threshDelta = thresholdSeconds - lastSkipThresh
+                let isCleanCadence = lastSkipArrival > 0 && wallGap >= 50 && wallGap <= 90 &&
+                                     threshDelta >= 50 && threshDelta <= 150
+                if isCleanCadence {
+                    let newCount = defaults.integer(forKey: skipCountKey) + 1
+                    if newCount == 3 {
+                        debugLog("ANOMALY appID=\(appID.prefix(8))... 3 clean per-minute events rejected (wallGap=\(Int(wallGap))s threshΔ=\(threshDelta)s today=\(defaults.integer(forKey: "usage_\(appID)_today"))s marker=\(lastThreshold)s) — filter chain may be contradicting real-time play; investigate marker poisoning", defaults: defaults)
+                        Self.logger.notice("ANOMALY app=\(appID.prefix(8))... clean cadence rejected, marker=\(lastThreshold)s")
+                    }
+                    defaults.set(nowTimestamp, forKey: lastSkipKey)
+                    defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
+                    defaults.set(newCount, forKey: skipCountKey)
+                } else {
+                    defaults.set(nowTimestamp, forKey: lastSkipKey)
+                    defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
+                    defaults.set(1, forKey: skipCountKey)
+                }
                 debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
                 if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
                 Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
@@ -1433,6 +1465,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(appID)")
                 defaults.removeObject(forKey: "phantom_recovery_count_\(appID)")
                 defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_last_arrival_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_last_thresh_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_consecutive_\(appID)")
             }
         }
 
