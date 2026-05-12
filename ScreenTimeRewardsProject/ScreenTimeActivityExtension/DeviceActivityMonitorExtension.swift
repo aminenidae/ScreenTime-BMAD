@@ -653,20 +653,25 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // were rejected in HOLD and iOS won't redeliver them, so we credit them
                 // here in one shot).
                 if defaults.double(forKey: firstEventStartKey) > 0 {
-                    let maxSeen = defaults.integer(forKey: firstEventMaxThreshKey)
-                    if maxSeen > thresholdSeconds {
-                        debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s maxSeen=\(maxSeen)s — accepting burst, fast-forwarding to maxSeen", defaults: defaults)
-                        thresholdSeconds = maxSeen
-                    } else {
-                        debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — accepting (no higher held)", defaults: defaults)
-                    }
+                    // Anchor arrived. Accept the anchor's actual threshold as-is — do
+                    // NOT fast-forward to maxSeen, and do NOT open a burst window.
+                    //
+                    // Why this changed (May 11): the fast-forward set `lastThreshold`
+                    // to the buffered max (e.g., 1200s = min.20) for a phantom burst
+                    // that included a min≤3 anchor by coincidence. For the rest of
+                    // the day, every legitimate per-minute event (min.1-19) failed
+                    // SKIP_REGRESSION because its threshold was below the phantom
+                    // 1200s. Today's FAE1D45B: 7+ minutes of real play were rejected
+                    // because of a 06:40 phantom burst.
+                    //
+                    // With this change, `lastThreshold` will be set to the anchor's
+                    // own threshold (≤ 180s for min≤3) by the recording flow below.
+                    // Subsequent per-minute events at min.4+ pass cleanly. Tail
+                    // events from the same iOS dump (if they arrive after the
+                    // anchor) credit at PER_EVENT_CAP=60s each through normal flow.
+                    debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — anchor accepted at face value (no fast-forward, no burst window)", defaults: defaults)
                     defaults.removeObject(forKey: firstEventStartKey)
                     defaults.removeObject(forKey: firstEventMaxThreshKey)
-                    // Open a 10-second burst window so this event AND its tail (out-of-order
-                    // catch-up events from the same iOS dump) bypass PER_EVENT_CAP and credit
-                    // their full deltas. Without this, the 60s cap discards 8-10 min of a
-                    // legit catch-up burst (Device 1 May 10 — see SMART_THRESHOLD_FILTERING.md).
-                    defaults.set(nowTimestamp + 10, forKey: "burst_active_until_\(appID)")
                 }
             } else {
                 // Suspicious first event (high threshold). Either open a new buffer or
@@ -683,19 +688,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 } else {
                     let bufferAge = nowTimestamp - bufferStart
                     if bufferAge > 60 {
-                        // Timeout. No min≤3 anchor in 60s. Give up the buffer and let
-                        // Filter 1.7 (burst-anchored flood detection) handle real
-                        // phantoms. Anchor lastThreshold at maxSeen so SKIP_REGRESSION
-                        // takes over and subsequent events credit only their delta
-                        // (no bulk credit of the buffered window — we don't have an
-                        // anchor to trust the cumulative).
-                        let maxSeen = defaults.integer(forKey: firstEventMaxThreshKey)
+                        // Timeout. No min≤3 anchor in 60s — buffered events were
+                        // probably phantom. Set lastThreshold to a small value (60s)
+                        // so subsequent legit per-minute events flow through normally
+                        // and isFirstEventOfDay no longer holds (we don't want to
+                        // re-enter the buffer on the next event). Previously this
+                        // anchored at maxSeen, which had the same poisoning problem
+                        // as BUFFER_LEGIT — the rest of the day's tracking died
+                        // when the phantom maxSeen was high.
                         defaults.removeObject(forKey: firstEventStartKey)
                         defaults.removeObject(forKey: firstEventMaxThreshKey)
-                        defaults.set(maxSeen, forKey: "usage_\(appID)_lastThreshold")
+                        defaults.set(60, forKey: "usage_\(appID)_lastThreshold")
                         defaults.set(startOfToday, forKey: "usage_\(appID)_reset")
-                        debugLog("BUFFER_TIMEOUT_RESUME appID=\(appID.prefix(8))... no min≤3 in 60s — anchoring lastThreshold=\(maxSeen)s and resuming normal processing (Filter 1.7 catches floods)", defaults: defaults)
-                        Self.logger.notice("BUFFER_TIMEOUT_RESUME app=\(appID.prefix(8))... lastThreshold=\(maxSeen)s")
+                        debugLog("BUFFER_TIMEOUT_RESUME appID=\(appID.prefix(8))... no min≤3 in 60s — buffered events discarded, lastThreshold=60s so future per-minute events flow through", defaults: defaults)
+                        Self.logger.notice("BUFFER_TIMEOUT_RESUME app=\(appID.prefix(8))... lastThreshold=60s")
                         return false
                     } else {
                         // Still in 60-second window. Update the running max so we can
@@ -715,17 +721,59 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
         let todayResetKey = "usage_\(appID)_reset"
         let lastResetTimestamp = defaults.double(forKey: todayResetKey)
 
         if lastResetTimestamp >= startOfToday {
             // Same day: threshold must strictly increase (usage is monotonic within a day)
             if thresholdSeconds <= lastThreshold {
-                debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
-                if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
-                Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
-                return false
+                // Auto-recovery: detect lastThreshold poisoning. When a phantom
+                // burst sets lastThreshold high (e.g., 1200s from a buffer-legit
+                // event yesterday's design path), every subsequent legit per-minute
+                // event gets rejected as regression. Signature: 3 events arrive at
+                // ~60s wallclock spacing AND monotonically-increasing threshold —
+                // exactly real-time play. Reset lastThreshold and let the current
+                // event record normally.
+                let lastSkipKey = "skip_reg_last_arrival_\(appID)"
+                let lastSkipThreshKey = "skip_reg_last_thresh_\(appID)"
+                let skipCountKey = "skip_reg_consecutive_\(appID)"
+                let lastSkipArrival = defaults.double(forKey: lastSkipKey)
+                let lastSkipThresh = defaults.integer(forKey: lastSkipThreshKey)
+                let wallGap = lastSkipArrival > 0 ? nowTimestamp - lastSkipArrival : 0
+                let threshDelta = thresholdSeconds - lastSkipThresh
+                let isCleanCadence = lastSkipArrival > 0 && wallGap >= 50 && wallGap <= 90 &&
+                                     threshDelta >= 50 && threshDelta <= 150
+                if isCleanCadence {
+                    let newCount = defaults.integer(forKey: skipCountKey) + 1
+                    if newCount >= 3 {
+                        defaults.removeObject(forKey: lastSkipKey)
+                        defaults.removeObject(forKey: lastSkipThreshKey)
+                        defaults.removeObject(forKey: skipCountKey)
+                        let recoveredLastThresh = max(0, thresholdSeconds - 60)
+                        defaults.set(recoveredLastThresh, forKey: lastThresholdKey)
+                        debugLog("LASTTHRESH_RECOVERY appID=\(appID.prefix(8))... 3 clean per-minute events rejected — lastThresh poisoned (was \(lastThreshold)s), reset to \(recoveredLastThresh)s and crediting current event", defaults: defaults)
+                        Self.logger.notice("LASTTHRESH_RECOVERY app=\(appID.prefix(8))... was=\(lastThreshold)s reset=\(recoveredLastThresh)s")
+                        // Update local var so downstream rawDelta / log lines reflect the recovered value.
+                        lastThreshold = recoveredLastThresh
+                        // Fall through to recording — current event passes against the reset lastThreshold
+                    } else {
+                        defaults.set(nowTimestamp, forKey: lastSkipKey)
+                        defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
+                        defaults.set(newCount, forKey: skipCountKey)
+                        debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (clean cadence \(newCount)/3)", defaults: defaults)
+                        Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold) clean=\(newCount)")
+                        return false
+                    }
+                } else {
+                    defaults.set(nowTimestamp, forKey: lastSkipKey)
+                    defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
+                    defaults.set(1, forKey: skipCountKey)
+                    debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
+                    if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
+                    Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
+                    return false
+                }
             }
         } else {
             // Cross-day: thresholds restart from min.1, just block exact duplicates
@@ -1415,6 +1463,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(appID)")
                 defaults.removeObject(forKey: "phantom_recovery_count_\(appID)")
                 defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_last_arrival_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_last_thresh_\(appID)")
+                defaults.removeObject(forKey: "skip_reg_consecutive_\(appID)")
             }
         }
 
