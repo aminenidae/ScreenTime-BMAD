@@ -939,6 +939,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
+        // Cross-burst budget diagnostic (phantom-flood detector). Tracks aggregate
+        // credits during a catch-up burst vs wallclock since the last "alive" event
+        // (any app). The kid can only use one app at a time, so total credits in a
+        // burst cannot exceed wallclock seconds since monitoring was last firing
+        // real-time events. A new burst starts on a wallclock gap ≥ 5s; subsequent
+        // events within 5s of each other share the same budget.
+        //
+        // Diagnostic-only (no rejection). If this ever logs, we have empirical
+        // evidence that a phantom-flood is sneaking past the existing filters and
+        // we have data to design enforcement on. See SMART_THRESHOLD_FILTERING.md
+        // "May 11, 2026 — burst-budget diagnostic".
+        let lastAliveKey = "last_credited_global_timestamp"
+        let burstBudgetKey = "burst_budget_seconds"
+        let burstCreditedKey = "burst_credited_seconds"
+        let lastAlive = defaults.double(forKey: lastAliveKey)
+        let gapSinceAlive = lastAlive > 0 ? nowTimestamp - lastAlive : 0
+        let isNewBurst = gapSinceAlive >= 5
+        var burstBudget = defaults.integer(forKey: burstBudgetKey)
+        var burstCredited = defaults.integer(forKey: burstCreditedKey)
+        if isNewBurst {
+            burstBudget = Int(gapSinceAlive)
+            burstCredited = 0
+        }
+        let proposedCredited = burstCredited + delta
+        if lastAlive > 0 && proposedCredited > burstBudget {
+            debugLog("BURST_BUDGET_DIAG appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s (wallclock since last alive event). Possible phantom-flood — diagnostic only, no action.", defaults: defaults)
+            Self.logger.notice("BURST_BUDGET_DIAG app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s")
+        }
+        defaults.set(proposedCredited, forKey: burstCreditedKey)
+        defaults.set(burstBudget, forKey: burstBudgetKey)
+        defaults.set(nowTimestamp, forKey: lastAliveKey)
+
         let newToday = currentToday + delta
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(thresholdSeconds)s", defaults: defaults)
         if midnightDiagActive { midnightDiagnosticLog("DIAG_INCREMENT appID=\(appID.prefix(8))... old=\(currentToday)s +\(delta)s = \(newToday)s thresh=\(thresholdSeconds)s lastThresh=\(lastThreshold)s", defaults: defaults) }

@@ -3424,3 +3424,63 @@ The user's repeated correction — *"this is the part I don't understand"* and *
   - `windowSize(for:category:isShielded:)` — shielded reward apps return 5 (sentinel) instead of 0.
   - `startMonitoring(completion:)` — `MONITORING_ALREADY_ACTIVE` skip restored.
   - `checkMonitoringHealth()` — `FOREGROUND_REFRESH` Check 3 removed; back to original two checks (MONITORING_DEAD, MIDNIGHT_PENDING).
+
+### May 11, 2026 — burst-budget diagnostic (`BURST_BUDGET_DIAG`)
+
+#### Premise
+
+User-proposed signal: at any restart-induced or iOS-deferred catch-up burst, the total credit claimed across all apps cannot exceed wall-clock seconds since monitoring was last firing real-time events. The kid uses one app at a time, so aggregate usage is wall-clock-bounded.
+
+Restated: `Σ(credits in current burst) ≤ now − last_credited_global_timestamp`
+
+If the inequality holds, the burst is *physically possible* (kid may have played continuously during a monitoring outage). If it fails, the burst is claiming more usage than wall-clock could have provided — definitionally a flood.
+
+#### Worked examples (today's two bursts)
+
+| Burst | Last credit | Wallclock gap | Total claimed in burst | Verdict |
+|---|---|---|---|---|
+| 06:40:44 (phantom) | BB131A01 RECORDED at 06:37:16 | 3.5 min (210 s) | 4 events × 60 s = 240 s | 240 > 210 → **flood**, by 30 s on the 4th event |
+| 21:30:05 (legit restart catch-up) | BB131A01 RECORDED at 19:50:19 | 100 min (6000 s) | 1 event × 60 s = 60 s | 60 ≪ 6000 → physically possible, allowed |
+
+Both classified correctly. The 06:40 phantom would be flagged on its 4th event (the one that exceeds the 3.5-min wallclock budget).
+
+#### Implementation (diagnostic-only)
+
+State keys (extension UserDefaults, app-group-wide):
+- `last_credited_global_timestamp` (Double) — updated on every successful `RECORDED` for any app
+- `burst_budget_seconds` (Int) — budget for the current burst, set when a new burst starts
+- `burst_credited_seconds` (Int) — running accumulator within the current burst
+
+Logic at recording time (just before the `RECORDED` log line):
+1. Compute `gap = now − last_credited_global_timestamp`
+2. If `gap ≥ 5 s`: this is a new burst. Reset `burst_credited = 0` and set `burst_budget = gap`.
+3. If `gap < 5 s`: continuation of the current burst. Keep existing `burst_budget` and `burst_credited`.
+4. Compute `proposed = burst_credited + delta`. If `proposed > burst_budget`, log:
+   ```
+   BURST_BUDGET_DIAG appID=… burstCredited=Xs + delta=Ys = Zs > budget=Bs
+     (wallclock since last alive event). Possible phantom-flood — diagnostic only.
+   ```
+5. Persist `burst_credited = proposed`, `burst_budget` (unchanged unless new burst), `last_credited_global_timestamp = now`.
+
+No event is rejected — this is observation-only. The point is to verify the signal in production data before bolting on enforcement that could misfire (the old wall-clock cap removed May 9 caused 85% credit loss because it lacked the "burst-scoped" framing).
+
+#### Honest limitations
+
+1. **Long-outage phantoms slip through.** If monitoring was truly silent for 1 hour, the budget allows 60 min of catch-up credit; a phantom claiming up to 60 min wouldn't trigger the diag. The check answers "is this *possible*?" not "did this actually happen?"
+2. **First-event-of-day cases bypass the check.** With `last_credited_global_timestamp = 0` (never set), `gap = 0` and the diag is skipped. The early-morning bursts are the hardest to classify and this approach doesn't help with them.
+3. **5-second burst boundary is heuristic.** iOS catch-up dumps arrive within ~1 second. 5 s gives margin without conflating bursts with real-time per-minute play (60 s gap).
+
+#### When to escalate to enforcement
+
+Once we have a week of data, count:
+- True positives: `BURST_BUDGET_DIAG` lines that correspond to known phantom bursts (confirmed by user or by other signals)
+- False positives: `BURST_BUDGET_DIAG` lines that fire during legitimate catch-ups
+
+If TP/FP ratio is high (≥ 10:1), promote to enforcement (`SKIP_BURST_BUDGET` rejection). Otherwise keep refining the heuristic (burst boundary threshold, grace factor, etc.).
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `setUsageToThreshold` — `BURST_BUDGET_DIAG` block added just before the `RECORDED` log; updates `last_credited_global_timestamp`, `burst_budget_seconds`, `burst_credited_seconds` on every successful credit.
+
+Sibling diagnostic already shipped same day: `ANOMALY` — fires when 3+ clean-cadence events get `SKIP_REGRESSION` rejected (filter chain contradicting real-time play, usually marker poisoning). The two diagnostics cover different bug classes — `ANOMALY` watches over-rejection, `BURST_BUDGET_DIAG` watches over-acceptance.
