@@ -2503,11 +2503,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         switch category {
         case .reward:
-            // Currently shielded reward apps can't produce callbacks — kid can't
-            // foreground a blocked app. Zero thresholds; we'll re-register on
-            // shield drop via `unblockRewardApps`.
+            // Currently shielded reward apps: register a small sentinel window (5
+            // thresholds) instead of zero. The moment the shield drops mid-day,
+            // iOS needs thresholds registered to fire events as the kid starts
+            // playing. With zero thresholds, the kid plays invisibly until the
+            // next scheduleActivity() runs, then iOS dumps a catch-up burst that
+            // we under-credit (May 11: YouTube lost ~20 min this way).
+            //
+            // With 5 thresholds, iOS fires min.1, 2, ... per-minute starting at
+            // unshield. By min.5, WINDOW_TOP_HIT triggers a rebuild and the full
+            // 90-threshold window takes over. Sentinel cost: 5 × N_shielded_apps,
+            // well under iOS's ~500 budget.
             if isShielded {
-                return 0
+                return 5
             }
             guard let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
                 return rewardLookaheadCap

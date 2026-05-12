@@ -809,35 +809,25 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
         let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
+        let rawDelta = (lastThreshold > 0) ? max(60, thresholdSeconds - lastThreshold) : 60
 
+        let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
         // Burst-window bypass: when Layer 2 just accepted a buffered burst as legit, all
         // events that follow within 10s are out-of-order catch-up events from the same
         // iOS dump. Their deltas can legitimately exceed 60s (e.g., iOS dumps min.3 and
         // min.11 within 1s of each other). PER_EVENT_CAP would cap each at 60s and most
         // of the credit would be lost. Bypass the cap during this window so the full
         // delta lands. SKIP_REGRESSION still protects against duplicate events.
+        //
+        // 277a540 (full-credit on first event of buffered burst) was REVERTED May 11.
+        // It helped the legit YouTube catch-up case (where shielded apps had 0
+        // thresholds), but with the 5-threshold shielded sentinel now in place,
+        // that case no longer happens — events fire per-minute from the moment of
+        // unshield. Meanwhile the full-credit fix amplified phantom-burst inflation
+        // by 20× (1 min phantom would become 20 min phantom). Conservative 60s
+        // default for first-event-of-day restored.
         let burstActiveUntil = defaults.double(forKey: "burst_active_until_\(appID)")
         let isBurstActive = burstActiveUntil > nowTimestamp
-
-        // rawDelta computation:
-        //   - lastThreshold > 0: normal case, delta is the gap (min 60s for safety).
-        //   - lastThreshold == 0 AND isBurstActive: FIRST_EVENT_BUFFER_LEGIT just
-        //     fast-forwarded thresholdSeconds to maxSeen — that value IS the kid's
-        //     real cumulative for the day. Credit it in full (like NEW_DAY does at
-        //     midnight). Without this, the first event of a buffered burst gets
-        //     capped at 60s and we silently lose ~95% of the credit (May 11: Facebook
-        //     credited 4 min instead of 24 min after a single foreground refresh).
-        //   - lastThreshold == 0 AND no burst: conservative first-event default of 60s.
-        let rawDelta: Int
-        if lastThreshold > 0 {
-            rawDelta = max(60, thresholdSeconds - lastThreshold)
-        } else if isBurstActive {
-            rawDelta = thresholdSeconds
-        } else {
-            rawDelta = 60
-        }
-
-        let isFirstEventAfterUnlock = (unlockTime > lastEventTime) && (unlockTime > 0)
         // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent for
         // 30-60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2s.
         // Layer 2's first-of-day buffer doesn't fire on these (because today>0 and
