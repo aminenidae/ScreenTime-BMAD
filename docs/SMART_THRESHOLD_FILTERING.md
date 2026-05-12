@@ -3355,3 +3355,72 @@ Similarly: app-day lockouts are a much larger blast radius than burst-window rej
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
   - `startMonitoring(completion:)` — `MONITORING_ALREADY_ACTIVE` skip dropped; always re-schedule on call.
   - Orphan-cleanup still removes `phantom_suspect_<id>`, `phantom_recovery_*` keys (migration safety).
+
+### May 11, 2026 — burst rate spike → surgical revert + BUFFER_LEGIT marker-poisoning
+
+#### Context
+
+The May 10 work fixed the silent-window bug but introduced a regression: bursts went from "very rare edge case" (the historical baseline that motivated this doc) to multiple per day. User flagged this directly: *"we used to have a VERY steady and VERY accurate recording. We were just trying to handle some very rare burst situations."*
+
+Today's monitoring log: 11 forced restarts before 18:11, two of them creating phantom catch-up bursts that hit multiple apps. One of those bursts (FAE1D45B at 06:40:44) silently poisoned the app for the rest of the day — 7+ minutes of legit per-minute play at 20:05–20:11 were rejected.
+
+#### Five fixes shipped today
+
+1. **`19f75b6` — revert `FOREGROUND_REFRESH` + force-restart-on-launch.** The two May 10 commits (`3f750ba` startMonitoring change + `4f263df` checkMonitoringHealth Check 3) added 5–10 extra restarts per day per device. Each restart = iOS catch-up burst = opportunity for phantom inflation. Reverted; restart rate dropped from 30–50/day back to the pre-May-10 baseline of ~10–15/day. The original silent-window bug they were guarding against was already fixed by `3025425` (phantom_suspect removal), so the defense-in-depth was the new problem.
+
+2. **`36bfe11` — 5-threshold sentinel for shielded reward apps + revert `277a540`.** Previously, shielded reward apps got 0 thresholds (rationale: "shielded apps can't be foregrounded, so no events fire"). This ignored the unshield transition: when a shield drops mid-day, iOS starts ticking cumulative but with zero thresholds registered, no events fire — kid plays invisibly until the next `scheduleActivity()` runs. Today's YouTube case: 11 min in hour 6 + 13 min in hour 16 = 24 min real, but only 4 min credited (burst-driven catch-up with PER_EVENT_CAP=60s per event).
+
+   Fix: shielded reward apps now get a 5-threshold sentinel window. iOS fires min.1, 2, 3, 4, 5 per-minute starting at unshield. By min.5, `WINDOW_TOP_HIT` triggers a rebuild and the full 90-threshold window takes over. Sentinel cost: 5 × N_shielded apps, well under iOS's ~500 budget.
+
+   `277a540` (BUFFER_LEGIT credit-full-cumulative-on-first-event, shipped earlier in the day to address the YouTube undercount) was reverted at the same time — with the sentinel in place, the YouTube catch-up case no longer happens at all (events fire per-minute from unshield), and `277a540` would have amplified phantom-burst inflation by 20× in any future occurrence.
+
+3. **`4bcb0ef` — BUFFER paths stop poisoning `lastThreshold`; SKIP_REGRESSION auto-recovery added.** Diagnostic walkthrough on the 20:05 FAE1D45B blackout exposed that both `FIRST_EVENT_BUFFER_LEGIT` (anchor arrived) and `BUFFER_TIMEOUT_RESUME` (anchor never arrived) were anchoring `lastThreshold` at the buffered `maxSeen` value — a phantom-tainted maximum. For the rest of the day, every legit per-minute event with a threshold below `maxSeen` failed `SKIP_REGRESSION` and got rejected.
+
+   Initial fix removed the fast-forward and burst-window in `BUFFER_LEGIT`, and replaced the `BUFFER_TIMEOUT_RESUME` maxSeen anchor with a small `60s` default. Also added a 3-event `SKIP_REGRESSION` auto-recovery (modeled on the May 10 phantom_recovery pattern) so the kid's device could recover from existing poisoning without waiting for midnight.
+
+4. **`7d1b171` — actual source fix; SKIP_REGRESSION recovery removed.** User pushed back on the recovery approach: *"if usage recorded is 1 minute and the marker is set to 1200, that's already the signal we need to lower the marker and match the recorded."* Correct — the right fix is at the source, not a downstream recovery.
+
+   The Apr 30 `LASTTHRESH_HOLD` logic (`newLastThreshold = max(lastThreshold, newToday)`) was already designed for this case ("pin marker to credited high-water-mark on stale catch-up"), but its detection (`rawDelta > perEventCap`) didn't catch `BUFFER_LEGIT` because `rawDelta` is hardcoded to 60 when `lastThreshold == 0`.
+
+   Fix: pass a `fromBufferLegit` flag from Filter 2.7's `BUFFER_LEGIT` branch through to the marker-write site. Take the `LASTTHRESH_HOLD` branch when the flag is set. Marker now equals `newToday` (60s) after `BUFFER_LEGIT` regardless of how high the anchor's or maxSeen threshold was. Subsequent per-minute events at any threshold > 60s pass cleanly. No blackout possible from this path. The 3-event SKIP_REGRESSION recovery from `4bcb0ef` became dead weight and was removed.
+
+5. **The 06:40 phantom burst itself was unavoidable from inside the extension.** iOS dumped queued threshold events for 4 apps within 0.7 seconds, including a min≤3 anchor. We established (with user pushback on the original "multi-app first-event = phantom" idea) that **the multi-app simultaneity signal isn't reliable** — it's consistent with a kid who used 2–3 apps in one hour and then opens the parent app, triggering a legit cross-app catch-up. From inside the filter chain there is no clean signature that distinguishes a phantom queue-dump from a legit cross-app catch-up; both look identical. The remaining defense is `PER_EVENT_CAP=60s`, which caps phantom damage to ~1 min per event. Acceptable floor.
+
+#### Diagnostic exchange (user-driven)
+
+The session's diagnostic frame came from the user, not from log inspection:
+- *"we use to have a VERY steady and VERY accurate recording"* — anchored the search on recent changes, not on the historical filter design.
+- *"the multi-app first-event simultaneity isn't a reliable phantom signal — multiple apps used in an hour produce the same shape"* — killed a false positive filter idea before it shipped.
+- *"if usage recorded is 1 minute and the marker is set to 1200, that's already the signal we need to lower the marker"* — moved the fix from downstream auto-recovery to source.
+- *"we have no recovery in our code, right?"* — confirmed that the marker-poisoning was a latent bug that had been in the codebase for days; it only surfaced when the user's device hit the buffer-legit path enough times to expose it.
+
+#### State table on the user's device at end of session
+
+| App | today | lastThreshold | gap | state |
+|---|---|---|---|---|
+| FAE1D45B (learning) | 60s | 1200s | 19 min | poisoned, dead until midnight |
+| C6DA269B (YouTube / reward) | 660s | 1860s | 20 min | undercounted by 20 min from 16:27 burst, but not stuck (iOS cumulative ≈ 31 min, marker matches) |
+| BB131A01 (learning) | 1620s | 1620s | 0 | clean — Apr 30 hold path caught its burst event correctly |
+| E8B1C8C6 (learning) | 600s | 660s | 60s | clean — burst events were all min ≤ 3 so no fast-forward triggered |
+| 642B7130, 739C4A42, 93088665 | — | — | — | no events today |
+
+Only FAE1D45B is practically broken. Tomorrow's a clean day; the May 11 source fix means new poisoning cannot occur from this path.
+
+#### Architectural lesson
+
+The Apr 30 `LASTTHRESH_HOLD` logic was correct in principle: when iOS's reported cumulative is far ahead of what we credited, the marker should pin to credited usage, not to iOS's claim. But the detection (`rawDelta > perEventCap`) was too narrow — it missed `BUFFER_LEGIT`, which is structurally the same pattern (we credit one anchor minute, iOS's threshold is much higher).
+
+The fix wasn't a new mechanism; it was extending the existing one to fire in both situations. Pattern: **when an existing design handles 80% of a class of bugs, look for the missing 20% by checking which paths bypass the detection — don't bolt on a parallel recovery system.**
+
+The user's repeated correction — *"this is the part I don't understand"* and *"we have no recovery in our code, right?"* — was the right pressure. The 3-event SKIP_REGRESSION recovery was a parallel system that would have lived alongside the Apr 30 logic indefinitely; the source fix collapses both into one branch.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `setUsageToThreshold` — `fromBufferLegit` flag added; `FIRST_EVENT_BUFFER_LEGIT` sets the flag (no longer fast-forwards thresholdSeconds, no longer opens burst window); `BUFFER_TIMEOUT_RESUME` sets `lastThreshold=60s` instead of maxSeen; recording path's marker-write branch takes `max(lastThreshold, newToday)` when `fromBufferLegit || wasStaleCatchup`.
+  - 277a540 rawDelta-on-first-event-of-day full-credit reverted.
+  - Orphan cleanup unchanged.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `windowSize(for:category:isShielded:)` — shielded reward apps return 5 (sentinel) instead of 0.
+  - `startMonitoring(completion:)` — `MONITORING_ALREADY_ACTIVE` skip restored.
+  - `checkMonitoringHealth()` — `FOREGROUND_REFRESH` Check 3 removed; back to original two checks (MONITORING_DEAD, MIDNIGHT_PENDING).
