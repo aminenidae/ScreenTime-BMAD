@@ -4763,9 +4763,6 @@ extension ScreenTimeService {
         defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(logicalID)")
         defaults.removeObject(forKey: "phantom_recovery_count_\(logicalID)")
         defaults.removeObject(forKey: "window_rebuild_request_\(logicalID)")
-        defaults.removeObject(forKey: "skip_reg_last_arrival_\(logicalID)")
-        defaults.removeObject(forKey: "skip_reg_last_thresh_\(logicalID)")
-        defaults.removeObject(forKey: "skip_reg_consecutive_\(logicalID)")
 
         #if DEBUG
         print("[ScreenTimeService] 🧹 Cleaned up extension keys for \(logicalID)")

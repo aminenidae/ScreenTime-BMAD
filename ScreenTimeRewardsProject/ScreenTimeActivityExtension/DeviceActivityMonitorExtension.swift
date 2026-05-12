@@ -433,9 +433,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
     /// All filters applied BEFORE any recording (including day rollover)
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
-        // Shadow as `var` so Layer 2 can fast-forward to the highest threshold seen
-        // in a buffered burst when min≤3 arrives and the burst is accepted as legit.
-        var thresholdSeconds = thresholdSeconds
+        let thresholdSeconds = thresholdSeconds
+        // Flag set inside Filter 2.7 BUFFER_LEGIT branch so the recording code at
+        // the end of the function knows to treat this event as a stale-catch-up:
+        // the marker (`lastThreshold`) must be set to `newToday`, NOT to
+        // `thresholdSeconds`, because BUFFER_LEGIT only credits 60s but iOS's
+        // threshold can be much higher (e.g., 180s for min.3). Without this flag,
+        // the marker gets set to thresholdSeconds and blocks every legit
+        // per-minute event for the rest of the day (May 11 FAE1D45B incident).
+        var fromBufferLegit = false
         let now = Date()
         let nowTimestamp = now.timeIntervalSince1970
         let midnightDiagActive = defaults.bool(forKey: "midnight_diagnostic_active")
@@ -653,25 +659,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // were rejected in HOLD and iOS won't redeliver them, so we credit them
                 // here in one shot).
                 if defaults.double(forKey: firstEventStartKey) > 0 {
-                    // Anchor arrived. Accept the anchor's actual threshold as-is — do
-                    // NOT fast-forward to maxSeen, and do NOT open a burst window.
+                    // Anchor arrived. Credit this event at face value (60s via the
+                    // recording flow below), and signal that the marker should be
+                    // pinned to `newToday`, not to `thresholdSeconds` — see the
+                    // `fromBufferLegit` declaration at the top of this function.
                     //
-                    // Why this changed (May 11): the fast-forward set `lastThreshold`
-                    // to the buffered max (e.g., 1200s = min.20) for a phantom burst
-                    // that included a min≤3 anchor by coincidence. For the rest of
-                    // the day, every legitimate per-minute event (min.1-19) failed
-                    // SKIP_REGRESSION because its threshold was below the phantom
-                    // 1200s. Today's FAE1D45B: 7+ minutes of real play were rejected
-                    // because of a 06:40 phantom burst.
-                    //
-                    // With this change, `lastThreshold` will be set to the anchor's
-                    // own threshold (≤ 180s for min≤3) by the recording flow below.
-                    // Subsequent per-minute events at min.4+ pass cleanly. Tail
-                    // events from the same iOS dump (if they arrive after the
-                    // anchor) credit at PER_EVENT_CAP=60s each through normal flow.
-                    debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — anchor accepted at face value (no fast-forward, no burst window)", defaults: defaults)
+                    // The buffered HOLD events themselves are discarded (iOS will
+                    // not re-deliver them; that's accepted). The point of this
+                    // branch is "an anchor arrived, so credit one minute and let
+                    // future events flow through normally" — not "credit the whole
+                    // buffered range as legit," which is what the old fast-forward
+                    // did and which caused the May 11 FAE1D45B 7-min blackout.
+                    debugLog("FIRST_EVENT_BUFFER_LEGIT appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — anchor accepted, marker will pin to newToday", defaults: defaults)
                     defaults.removeObject(forKey: firstEventStartKey)
                     defaults.removeObject(forKey: firstEventMaxThreshKey)
+                    fromBufferLegit = true
                 }
             } else {
                 // Suspicious first event (high threshold). Either open a new buffer or
@@ -721,59 +723,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
         let lastThresholdKey = "usage_\(appID)_lastThreshold"
-        var lastThreshold = defaults.integer(forKey: lastThresholdKey)
+        let lastThreshold = defaults.integer(forKey: lastThresholdKey)
         let todayResetKey = "usage_\(appID)_reset"
         let lastResetTimestamp = defaults.double(forKey: todayResetKey)
 
         if lastResetTimestamp >= startOfToday {
             // Same day: threshold must strictly increase (usage is monotonic within a day)
             if thresholdSeconds <= lastThreshold {
-                // Auto-recovery: detect lastThreshold poisoning. When a phantom
-                // burst sets lastThreshold high (e.g., 1200s from a buffer-legit
-                // event yesterday's design path), every subsequent legit per-minute
-                // event gets rejected as regression. Signature: 3 events arrive at
-                // ~60s wallclock spacing AND monotonically-increasing threshold —
-                // exactly real-time play. Reset lastThreshold and let the current
-                // event record normally.
-                let lastSkipKey = "skip_reg_last_arrival_\(appID)"
-                let lastSkipThreshKey = "skip_reg_last_thresh_\(appID)"
-                let skipCountKey = "skip_reg_consecutive_\(appID)"
-                let lastSkipArrival = defaults.double(forKey: lastSkipKey)
-                let lastSkipThresh = defaults.integer(forKey: lastSkipThreshKey)
-                let wallGap = lastSkipArrival > 0 ? nowTimestamp - lastSkipArrival : 0
-                let threshDelta = thresholdSeconds - lastSkipThresh
-                let isCleanCadence = lastSkipArrival > 0 && wallGap >= 50 && wallGap <= 90 &&
-                                     threshDelta >= 50 && threshDelta <= 150
-                if isCleanCadence {
-                    let newCount = defaults.integer(forKey: skipCountKey) + 1
-                    if newCount >= 3 {
-                        defaults.removeObject(forKey: lastSkipKey)
-                        defaults.removeObject(forKey: lastSkipThreshKey)
-                        defaults.removeObject(forKey: skipCountKey)
-                        let recoveredLastThresh = max(0, thresholdSeconds - 60)
-                        defaults.set(recoveredLastThresh, forKey: lastThresholdKey)
-                        debugLog("LASTTHRESH_RECOVERY appID=\(appID.prefix(8))... 3 clean per-minute events rejected — lastThresh poisoned (was \(lastThreshold)s), reset to \(recoveredLastThresh)s and crediting current event", defaults: defaults)
-                        Self.logger.notice("LASTTHRESH_RECOVERY app=\(appID.prefix(8))... was=\(lastThreshold)s reset=\(recoveredLastThresh)s")
-                        // Update local var so downstream rawDelta / log lines reflect the recovered value.
-                        lastThreshold = recoveredLastThresh
-                        // Fall through to recording — current event passes against the reset lastThreshold
-                    } else {
-                        defaults.set(nowTimestamp, forKey: lastSkipKey)
-                        defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
-                        defaults.set(newCount, forKey: skipCountKey)
-                        debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (clean cadence \(newCount)/3)", defaults: defaults)
-                        Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold) clean=\(newCount)")
-                        return false
-                    }
-                } else {
-                    defaults.set(nowTimestamp, forKey: lastSkipKey)
-                    defaults.set(thresholdSeconds, forKey: lastSkipThreshKey)
-                    defaults.set(1, forKey: skipCountKey)
-                    debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
-                    if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
-                    Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
-                    return false
-                }
+                debugLog("SKIP_REGRESSION appID=\(appID.prefix(8))... threshold=\(thresholdSeconds) <= lastThreshold=\(lastThreshold) (same day)", defaults: defaults)
+                if midnightDiagActive { midnightDiagnosticLog("DIAG_SKIP_REGRESSION appID=\(appID.prefix(8))... thresh=\(thresholdSeconds) lastThresh=\(lastThreshold) sameDay=true", defaults: defaults) }
+                Self.logger.notice("SKIP_REGRESSION app=\(appID.prefix(8))... thresh=\(thresholdSeconds) <= lastThresh=\(lastThreshold)")
+                return false
             }
         } else {
             // Cross-day: thresholds restart from min.1, just block exact duplicates
@@ -995,9 +955,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // `newToday` keeps `lastThreshold` truthful as "highest credited progression"
         // and re-arms `SKIP_REGRESSION` against any *new* stale flood.
         let wasStaleCatchup = rawDelta > perEventCap
-        if wasStaleCatchup {
+        if wasStaleCatchup || fromBufferLegit {
+            // Pin marker to `newToday` (the actual credited high-water mark) instead
+            // of `thresholdSeconds` (iOS's claimed cumulative, which may be way
+            // ahead of what we credited). Two paths into this branch:
+            //   1. wasStaleCatchup — Apr 30 detection: rawDelta > perEventCap, i.e.,
+            //      iOS jumped further than real time can justify in one event.
+            //   2. fromBufferLegit — Filter 2.7 just credited an anchor that
+            //      followed a high-min burst. We credited 60s but the anchor's
+            //      threshold could be much higher; pinning to newToday prevents
+            //      the marker from blocking real per-minute play later in the day.
             let newLastThreshold = max(lastThreshold, newToday)
-            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(newLastThreshold)s (was \(lastThreshold)s) — stale catch-up (raw=\(rawDelta)s > perEventCap=\(perEventCap)s, credited=\(delta)s)", defaults: defaults)
+            let reason = fromBufferLegit ? "buffer-legit anchor" : "stale catch-up"
+            debugLog("LASTTHRESH_HOLD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s held lastThresh=\(newLastThreshold)s (was \(lastThreshold)s) — \(reason) (raw=\(rawDelta)s perEventCap=\(perEventCap)s credited=\(delta)s)", defaults: defaults)
             defaults.set(newLastThreshold, forKey: lastThresholdKey)
         } else {
             defaults.set(thresholdSeconds, forKey: lastThresholdKey)
@@ -1463,9 +1433,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.removeObject(forKey: "phantom_recovery_last_thresh_\(appID)")
                 defaults.removeObject(forKey: "phantom_recovery_count_\(appID)")
                 defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
-                defaults.removeObject(forKey: "skip_reg_last_arrival_\(appID)")
-                defaults.removeObject(forKey: "skip_reg_last_thresh_\(appID)")
-                defaults.removeObject(forKey: "skip_reg_consecutive_\(appID)")
             }
         }
 
