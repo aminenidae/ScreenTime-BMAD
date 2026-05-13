@@ -155,13 +155,13 @@ struct SettingsTabView: View {
                                 .padding(.horizontal, 4)
                         }
 
-                        // Diagnostics Section — silent diagnostic report upload
-                        // ships in Release. The legacy share-sheet export (which
-                        // exposed raw log files via Files / mail) is now Debug-only
-                        // to avoid leaking the filter chain to non-support contexts.
+                        // Diagnostics Section — Debug-only. The silent diagnostic
+                        // report upload sends extension logs to Firebase, which
+                        // requires a privacy-policy update before it can ship in
+                        // Release. Hide the entire section in Release builds.
+                        #if DEBUG
                         settingsSection(title: "DIAGNOSTICS") {
                             sendDiagnosticReportRow
-                            #if DEBUG
                             extensionLogExportRow
                             diagnosticMappingRow
                             cleanupMappingsRow
@@ -170,8 +170,8 @@ struct SettingsTabView: View {
                             midnightDiagnosticLogRow
                             bgtaskLogRow
                             firebaseFamilySetupRow
-                            #endif
                         }
+                        #endif
 
                     }
                     .padding(.horizontal, 16)
