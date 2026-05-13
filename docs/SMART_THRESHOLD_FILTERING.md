@@ -3541,15 +3541,17 @@ But it requires `usageAtUnshield > 0`. Facebook's `today` was 0 at the moment of
 
 1. **Silent monitoring death after a phantom dump.** Between 03:10 and 07:28 our activity was effectively dead from iOS's perspective, but the extension session stayed alive (no kill, no respawn). `checkMonitoringHealth` only detects this on user-triggered `scenePhase = .active`. There's no internal probe between foregrounds. Possible mitigation: a periodic BGTask that probes `deviceActivityCenter.activities.contains(activityName)` and forces a restart if false.
 
-2. **Layer 3 burst-continuation exemption misses zero-usage apps.** When a shield drop happens during a multi-app catch-up burst, apps with `today == 0` at the unshield moment are denied Layer 3's burst-continuation exemption — even though their catch-up events are part of the same legit burst. Symptom: the affected app loses an entire restart cycle of credit and must wait for the next restart (~20 min later in today's case) to record. Fix: extend the exemption to also fire when `wallClockSinceUnshield ≤ 10s` regardless of prior usage on the app in question. The reasoning: 10s isn't enough wallclock for any new post-unshield foregrounding, so events arriving in that window must be tail of the pre-unshield burst.
+2. **Layer 3 burst-continuation exemption misses zero-usage apps.** When a shield drop happens during a multi-app catch-up burst, apps with `today == 0` at the unshield moment are denied Layer 3's burst-continuation exemption — even though their catch-up events are part of the same legit burst. Symptom: the affected app loses an entire restart cycle of credit and must wait for the next restart (~20 min later in today's case) to record.
+
+   **Fix shipped May 12: scope Layer 3 to reward apps only.** The deeper issue isn't the exemption — it's that Layer 3's reference frame (`last_unshield_timestamp`) is a reward-app concept. Learning apps are never shielded, so "wallclock since the last reward unshield" has no semantic relationship to a learning-app catch-up burst. Today's Facebook rejection was a category error: Layer 3 was measuring a learning app against an unrelated reward-app clock. Learning-app phantom-flood is still covered by Layer 1 (burst-anchored flood detection) and Layer 2 (first-event-of-day buffer), whose reference frames apply correctly to learning apps. Edit: `setUsageToThreshold` now wraps the Layer 3 block in `if isRewardApp` where `rewardAppIDs = Set(shieldConfigs?.goalConfigs.map { $0.rewardAppLogicalID } ?? [])`.
 
 #### What this confirms
 
 The May 11 work (`7d1b171` BUFFER_LEGIT source fix, `36bfe11` sentinel windows, `849fc53` debounced state-based WINDOW_TOP_HIT, `19f75b6` removed foreground-refresh storms) **works in production**. The catch-up recovery path correctly credited 10 min of legit Instagram play with zero loss — the worst-case scenario the previous architecture was prone to mishandling. The remaining gaps are:
-- Layer 3 false-positive on cross-app unshield-during-burst (above)
+- Layer 3 false-positive on cross-app unshield-during-burst — **fixed May 12** (Layer 3 scoped to reward apps only)
 - 1 min lost per burst on apps where the BUFFER_OPEN trigger event had the highest threshold (small, structural to the buffer design)
 - Silent monitoring death detection (no internal probe between foregrounds)
 
 #### Files affected
 
-None — this section is observation-only. The fix for Layer 3's exemption is a follow-up.
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — Layer 3 wrapped in `if isRewardApp` guard. Learning-app events no longer hit the post-unshield budget check.

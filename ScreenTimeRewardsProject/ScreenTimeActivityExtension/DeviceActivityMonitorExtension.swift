@@ -903,8 +903,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // on apps with prior real usage today (e.g., AbacusFlashMath afternoon
         // contamination) which Layer 2 cannot see because lastThreshold > 0.
         // See SMART_THRESHOLD_FILTERING.md "May 9–10, 2026".
+        //
+        // SCOPE (May 12, 2026): Reward apps only. The unshield timestamp is a
+        // reward-app-only concept — it marks when a reward app's shield dropped.
+        // Learning apps are never gated, so "wallclock since unshield" has no
+        // semantic relationship to a learning-app catch-up burst. Applying the
+        // budget to learning apps caused the May 12 Facebook incident: legit
+        // 5-min catch-up burst rejected because Instagram's 10 min of credit
+        // had already filled the budget (and Facebook had usageAtUnshield=0
+        // so the burst-continuation exemption didn't fire). Learning-app
+        // phantom-flood is still covered by Layer 1 (burst-anchored flood
+        // detection) and Layer 2 (first-event-of-day buffer) — their reference
+        // frames (burst window, first-event-of-day) apply correctly to
+        // learning apps.
+        let rewardAppIDs = Set(shieldConfigs?.goalConfigs.map { $0.rewardAppLogicalID } ?? [])
+        let isRewardApp = rewardAppIDs.contains(appID)
         let lastUnshield = defaults.double(forKey: "last_unshield_timestamp")
-        if lastUnshield > 0, lastUnshield <= nowTimestamp {
+        if isRewardApp, lastUnshield > 0, lastUnshield <= nowTimestamp {
             let wallClockSinceUnshield = max(0, Int(nowTimestamp - lastUnshield))
             // Burst-continuation exemption: when an unshield was just triggered by a
             // Layer 2 fast-forward credit, iOS may still be flushing the rest of the
