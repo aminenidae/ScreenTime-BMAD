@@ -656,25 +656,28 @@ class CloudKitSyncService: ObservableObject {
         // a real child's data.
         var successfullyScannedZones: Set<String> = []
 
-        // 3. Fetch records from EACH ChildMonitoring zone using zone changes API
-        // (CKQuery fails because CD_RegisteredDevice fields are not marked QUERYABLE)
+        // 3. Fetch only CD_RegisteredDevice records per zone.
+        // Previously this used CKFetchRecordZoneChangesOperation, which
+        // downloads every record in the zone — 1500+ records per child zone
+        // (daily usage, configs, shields, snapshots, etc.) just to find the
+        // single device record. fetchRegisteredDeviceRecordsInZone uses a
+        // CKQuery filtered to recordType=CD_RegisteredDevice, which returns
+        // 1-2 records per zone instead of 1500+. Massive speedup. Falls
+        // back to the old slow path if the schema doesn't support the query.
         for zone in childMonitoringZones {
             do {
                 #if DEBUG
-                print("[CloudKitSyncService] Fetching records from zone \(zone.zoneID.zoneName) using zone changes...")
+                print("[CloudKitSyncService] Querying CD_RegisteredDevice records in zone \(zone.zoneID.zoneName)...")
                 #endif
 
-                // Use fetchRecordZoneChanges to get all records without needing queryable indexes.
-                // Retry once on transient network errors — a single missed packet was previously
-                // enough to drop a real child from the result silently.
-                let zoneRecords = try await fetchAllRecordsInZoneWithRetry(zoneID: zone.zoneID, database: privateDatabase)
+                let zoneRecords = try await fetchRegisteredDeviceRecordsInZone(zoneID: zone.zoneID, database: privateDatabase)
                 successfullyScannedZones.insert(zone.zoneID.zoneName)
 
                 // Track record count for this zone (used for deduplication - more records = more active)
                 zoneRecordCounts[zone.zoneID.zoneName] = zoneRecords.count
 
                 #if DEBUG
-                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): fetched \(zoneRecords.count) total records")
+                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): fetched \(zoneRecords.count) CD_RegisteredDevice record(s)")
                 #endif
 
                 // Filter for CD_RegisteredDevice records with matching criteria
@@ -799,13 +802,14 @@ class CloudKitSyncService: ObservableObject {
     /// already-present and could never detect them appearing).
     func isChildPairedInZone(zoneID: CKRecordZone.ID) async throws -> Bool {
         let parentDeviceID = DeviceModeManager.shared.deviceID
-        let records = try await fetchAllRecordsInZoneWithRetry(
+        // Type-filtered fetch (1-2 records) instead of all records in zone
+        // (1500+) — keeps each poll iteration sub-second instead of 30s+.
+        let records = try await fetchRegisteredDeviceRecordsInZone(
             zoneID: zoneID,
             database: container.privateCloudDatabase
         )
         return records.contains { record in
-            record.recordType == "CD_RegisteredDevice"
-                && (record["CD_deviceType"] as? String) == "child"
+            (record["CD_deviceType"] as? String) == "child"
                 && (record["CD_parentDeviceID"] as? String) == parentDeviceID
         }
     }
@@ -927,6 +931,54 @@ class CloudKitSyncService: ObservableObject {
             }
 
             database.add(operation)
+        }
+    }
+
+    /// Targeted CKQuery for CD_RegisteredDevice records in a zone.
+    ///
+    /// Previously every fetchLinkedChildDevices iteration downloaded ALL
+    /// records in each zone (1500+ usage / config / snapshot / shield records
+    /// per child) just to extract the single CD_RegisteredDevice record.
+    /// This made the slowest zone in the set dominate wall-clock time:
+    /// ~30s per zone, regardless of parallelization.
+    ///
+    /// `NSPredicate(value: true)` references no fields, so it doesn't depend
+    /// on per-field queryable indexes — only the recordType needs to be
+    /// enumerable, which CloudKit supports for any auto-created Core Data
+    /// type. If the query fails anyway (older schema, etc.), the caller's
+    /// fallback path takes over.
+    private static let registeredDeviceQuerySkipKey = "__registeredDeviceQueryUnsupported__"
+
+    private func fetchRegisteredDeviceRecordsInZone(zoneID: CKRecordZone.ID, database: CKDatabase) async throws -> [CKRecord] {
+        // Skip the fast query if we've learned this session that the CK
+        // schema doesn't support it.
+        if Self.shouldSkipZone(Self.registeredDeviceQuerySkipKey, recordType: "CD_RegisteredDevice") {
+            return try await fetchAllRecordsInZoneWithRetry(zoneID: zoneID, database: database)
+        }
+
+        do {
+            let predicate = NSPredicate(value: true)
+            let query = CKQuery(recordType: "CD_RegisteredDevice", predicate: predicate)
+            let (matches, _) = try await database.records(matching: query, inZoneWith: zoneID)
+            return matches.compactMap { _, result -> CKRecord? in
+                if case .success(let record) = result { return record }
+                return nil
+            }
+        } catch let error as CKError {
+            let msg = error.localizedDescription
+            let isSchemaMiss = msg.localizedCaseInsensitiveContains("not marked queryable")
+                || msg.localizedCaseInsensitiveContains("Did not find record type")
+                || error.code == .invalidArguments
+            if isSchemaMiss {
+                // Once per session — every subsequent zone in this run goes
+                // straight to the slow path without another wasted round-trip.
+                Self.recordSchemaMiss(zone: Self.registeredDeviceQuerySkipKey, recordType: "CD_RegisteredDevice")
+                #if DEBUG
+                print("[CloudKitSyncService] CKQuery for CD_RegisteredDevice unsupported by schema — falling back to zone changes for the rest of this session")
+                #endif
+                return try await fetchAllRecordsInZoneWithRetry(zoneID: zoneID, database: database)
+            }
+            throw error
         }
     }
 
