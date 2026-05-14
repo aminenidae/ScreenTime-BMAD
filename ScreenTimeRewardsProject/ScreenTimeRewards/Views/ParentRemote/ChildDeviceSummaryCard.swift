@@ -97,26 +97,52 @@ struct ChildDeviceSummaryCard: View {
         }
     }
 
+    /// Read today's summary directly from the on-disk per-child cache.
+    ///
+    /// We intentionally DO NOT call `viewModel.loadDeviceSummary` here —
+    /// that path runs through `loadChildData`, which mutates the shared VM's
+    /// `selectedChildDevice` and clears child-specific @Published state.
+    /// With 5 cards appearing concurrently, the cascade thrashed
+    /// `selectedChildDevice` between children, breaking the child-detail
+    /// page's `isVMShowingThisDevice` spinner gate — tap a card, navigate,
+    /// a later card fires and steals the selection, spinner stays on.
+    ///
+    /// The cached `dailySnapshot` already has the totals we display
+    /// (screen-time seconds, earned points). No CK round-trip, no shared
+    /// VM mutation, no contention between cards.
     private func loadSummary() {
-        // Load today's usage summary for this device
-        isLoading = true
-
-        Task {
-            await viewModel.loadDeviceSummary(for: device)
-
-            // Get the loaded summary
-            if let deviceID = device.deviceID,
-               let summary = viewModel.deviceSummaries[deviceID] {
-                await MainActor.run {
-                    self.todayUsage = summary
-                    self.isLoading = false
-                }
-            } else {
-                await MainActor.run {
-                    self.isLoading = false
-                }
-            }
+        guard let deviceID = device.deviceID else {
+            isLoading = false
+            return
         }
+        let parentID = DeviceModeManager.shared.deviceID
+        guard !parentID.isEmpty,
+              let snapshot = ParentDeviceCacheService.shared.loadCachedState(parentID: parentID),
+              let child = snapshot.children.first(where: { $0.deviceID == deviceID }),
+              let daily = child.dailySnapshot else {
+            isLoading = false
+            todayUsage = nil
+            return
+        }
+
+        let totalSeconds = daily.totalLearningSeconds + daily.totalRewardSeconds
+        // App count isn't stored on the daily snapshot — count distinct apps
+        // from cached usage history for today.
+        let todayKey = Calendar.current.startOfDay(for: Date())
+        let todayAppCount = child.dailyUsageHistory?
+            .filter { Calendar.current.startOfDay(for: $0.date) == todayKey && $0.seconds > 0 }
+            .map { $0.logicalID }
+            .reduce(into: Set<String>()) { $0.insert($1) }
+            .count ?? 0
+
+        todayUsage = CategoryUsageSummary(
+            category: "All Apps",
+            totalSeconds: totalSeconds,
+            appCount: todayAppCount,
+            totalPoints: daily.totalEarnedMinutes,
+            apps: []
+        )
+        isLoading = false
     }
 }
 
