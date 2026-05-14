@@ -656,86 +656,110 @@ class CloudKitSyncService: ObservableObject {
         // a real child's data.
         var successfullyScannedZones: Set<String> = []
 
-        // 3. Fetch only CD_RegisteredDevice records per zone.
-        // Previously this used CKFetchRecordZoneChangesOperation, which
-        // downloads every record in the zone — 1500+ records per child zone
-        // (daily usage, configs, shields, snapshots, etc.) just to find the
-        // single device record. fetchRegisteredDeviceRecordsInZone uses a
-        // CKQuery filtered to recordType=CD_RegisteredDevice, which returns
-        // 1-2 records per zone instead of 1500+. Massive speedup. Falls
-        // back to the old slow path if the schema doesn't support the query.
-        for zone in childMonitoringZones {
-            do {
-                #if DEBUG
-                print("[CloudKitSyncService] Querying CD_RegisteredDevice records in zone \(zone.zoneID.zoneName)...")
-                #endif
+        // 3. Fetch only CD_RegisteredDevice records per zone, ALL ZONES IN
+        // PARALLEL via TaskGroup. Previously this loop was sequential, and
+        // when the CKQuery fast path falls back to zone-changes (schema not
+        // queryable in production), each zone takes ~5-6s to download all
+        // 1500+ records. 5 zones sequential = ~30s wall-clock for device
+        // discovery alone. With concurrent fetches, total time collapses to
+        // the slowest single zone (~5-6s).
+        struct ZoneFetchResult {
+            let zoneID: CKRecordZone.ID
+            let zoneOwner: String
+            let records: [CKRecord]
+            let error: Error?
+        }
 
-                let zoneRecords = try await fetchRegisteredDeviceRecordsInZone(zoneID: zone.zoneID, database: privateDatabase)
-                successfullyScannedZones.insert(zone.zoneID.zoneName)
-
-                // Track record count for this zone (used for deduplication - more records = more active)
-                zoneRecordCounts[zone.zoneID.zoneName] = zoneRecords.count
-
-                #if DEBUG
-                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): fetched \(zoneRecords.count) CD_RegisteredDevice record(s)")
-                #endif
-
-                // Filter for CD_RegisteredDevice records with matching criteria
-                for record in zoneRecords {
-                    // Only process CD_RegisteredDevice records
-                    guard record.recordType == "CD_RegisteredDevice" else { continue }
-
-                    let deviceType = record["CD_deviceType"] as? String
-                    let recordParentID = record["CD_parentDeviceID"] as? String
-
+        let zoneResults: [ZoneFetchResult] = await withTaskGroup(of: ZoneFetchResult.self) { group in
+            for zone in childMonitoringZones {
+                let zoneID = zone.zoneID
+                let zoneOwner = zone.zoneID.ownerName
+                group.addTask { [weak self] in
+                    guard let self = self else {
+                        return ZoneFetchResult(zoneID: zoneID, zoneOwner: zoneOwner, records: [], error: nil)
+                    }
                     #if DEBUG
-                    print("[CloudKitSyncService]   Record: \(record.recordID.recordName)")
-                    print("[CloudKitSyncService]     - deviceType: \(deviceType ?? "nil")")
-                    print("[CloudKitSyncService]     - parentDeviceID: \(recordParentID ?? "nil")")
+                    print("[CloudKitSyncService] Querying CD_RegisteredDevice records in zone \(zoneID.zoneName)...")
                     #endif
-
-                    // Match: deviceType == "child" AND parentDeviceID == our parent ID
-                    if deviceType == "child" && recordParentID == parentDeviceID {
-                        let device = convertToRegisteredDevice(record)
-                        device.sharedZoneID = zone.zoneID.zoneName
-                        device.sharedZoneOwner = zone.zoneID.ownerName
-
-                        // Deduplicate by deviceID - keep device from zone with MORE records (more active)
-                        if let deviceID = device.deviceID,
-                           let existingIndex = devices.firstIndex(where: { $0.deviceID == deviceID }) {
-                            let existingDevice = devices[existingIndex]
-                            let existingZoneCount = zoneRecordCounts[existingDevice.sharedZoneID ?? ""] ?? 0
-                            let newZoneCount = zoneRecords.count
-
-                            if newZoneCount > existingZoneCount {
-                                devices[existingIndex] = device
-                                #if DEBUG
-                                print("[CloudKitSyncService]   🔄 Replaced with more active zone: \(device.childName ?? deviceID)")
-                                print("[CloudKitSyncService]      \(zone.zoneID.zoneName) (\(newZoneCount) records) > \(existingDevice.sharedZoneID ?? "?") (\(existingZoneCount) records)")
-                                #endif
-                            } else {
-                                #if DEBUG
-                                print("[CloudKitSyncService]   ⚠️ Skipping less active zone: \(device.childName ?? deviceID) from \(zone.zoneID.zoneName) (\(newZoneCount) records)")
-                                #endif
-                            }
-                        } else {
-                            devices.append(device)
-                            #if DEBUG
-                            print("[CloudKitSyncService]   ✅ Found matching child: \(device.deviceName ?? "unknown") (\(device.deviceID ?? "nil"))")
-                            #endif
-                        }
+                    do {
+                        let records = try await self.fetchRegisteredDeviceRecordsInZone(zoneID: zoneID, database: privateDatabase)
+                        return ZoneFetchResult(zoneID: zoneID, zoneOwner: zoneOwner, records: records, error: nil)
+                    } catch {
+                        return ZoneFetchResult(zoneID: zoneID, zoneOwner: zoneOwner, records: [], error: error)
                     }
                 }
-            } catch let error as CKError where error.code == .zoneNotFound {
-                #if DEBUG
-                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): zone not found (deleted), skipping")
-                #endif
+            }
+            var collected: [ZoneFetchResult] = []
+            for await result in group {
+                collected.append(result)
+            }
+            return collected
+        }
+
+        // Process results sequentially — fast operations, no I/O.
+        for result in zoneResults {
+            if let error = result.error {
+                if let ckError = error as? CKError, ckError.code == .zoneNotFound {
+                    #if DEBUG
+                    print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): zone not found (deleted), skipping")
+                    #endif
+                } else {
+                    #if DEBUG
+                    print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): error fetching - \(error.localizedDescription)")
+                    #endif
+                }
                 continue
-            } catch {
+            }
+
+            let zoneRecords = result.records
+            successfullyScannedZones.insert(result.zoneID.zoneName)
+            zoneRecordCounts[result.zoneID.zoneName] = zoneRecords.count
+
+            #if DEBUG
+            print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): fetched \(zoneRecords.count) CD_RegisteredDevice record(s)")
+            #endif
+
+            for record in zoneRecords {
+                guard record.recordType == "CD_RegisteredDevice" else { continue }
+
+                let deviceType = record["CD_deviceType"] as? String
+                let recordParentID = record["CD_parentDeviceID"] as? String
+
                 #if DEBUG
-                print("[CloudKitSyncService] Zone \(zone.zoneID.zoneName): error fetching - \(error.localizedDescription)")
+                print("[CloudKitSyncService]   Record: \(record.recordID.recordName)")
+                print("[CloudKitSyncService]     - deviceType: \(deviceType ?? "nil")")
+                print("[CloudKitSyncService]     - parentDeviceID: \(recordParentID ?? "nil")")
                 #endif
-                continue
+
+                if deviceType == "child" && recordParentID == parentDeviceID {
+                    let device = convertToRegisteredDevice(record)
+                    device.sharedZoneID = result.zoneID.zoneName
+                    device.sharedZoneOwner = result.zoneOwner
+
+                    if let deviceID = device.deviceID,
+                       let existingIndex = devices.firstIndex(where: { $0.deviceID == deviceID }) {
+                        let existingDevice = devices[existingIndex]
+                        let existingZoneCount = zoneRecordCounts[existingDevice.sharedZoneID ?? ""] ?? 0
+                        let newZoneCount = zoneRecords.count
+
+                        if newZoneCount > existingZoneCount {
+                            devices[existingIndex] = device
+                            #if DEBUG
+                            print("[CloudKitSyncService]   🔄 Replaced with more active zone: \(device.childName ?? deviceID)")
+                            print("[CloudKitSyncService]      \(result.zoneID.zoneName) (\(newZoneCount) records) > \(existingDevice.sharedZoneID ?? "?") (\(existingZoneCount) records)")
+                            #endif
+                        } else {
+                            #if DEBUG
+                            print("[CloudKitSyncService]   ⚠️ Skipping less active zone: \(device.childName ?? deviceID) from \(result.zoneID.zoneName) (\(newZoneCount) records)")
+                            #endif
+                        }
+                    } else {
+                        devices.append(device)
+                        #if DEBUG
+                        print("[CloudKitSyncService]   ✅ Found matching child: \(device.deviceName ?? "unknown") (\(device.deviceID ?? "nil"))")
+                        #endif
+                    }
+                }
             }
         }
 
