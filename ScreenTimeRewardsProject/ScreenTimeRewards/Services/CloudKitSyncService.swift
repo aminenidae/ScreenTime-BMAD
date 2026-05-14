@@ -391,8 +391,149 @@ class CloudKitSyncService: ObservableObject {
 
     // MARK: - Parent Device Methods
 
+    // MARK: - Known Child Zones Cache
+    //
+    // `fetchLinkedChildDevices` enumerates ChildMonitoring-* zones in the parent's
+    // private DB. Over a device's lifetime that DB accumulates many orphan zones
+    // (old test pairings, unpaired children, replaced devices). Scanning all of
+    // them serially is the dominant cause of slow parent-dashboard load.
+    //
+    // The "restrict to known zones" optimization filters the enumeration down to
+    // zones we have already proven contain *our* paired child. The set is
+    // persisted in the app-group UserDefaults so it survives process restarts
+    // and is shared across every entry point that triggers a fetch (subscription
+    // manager, screen-time service, parent view model). Source of truth is the
+    // last successful `fetchLinkedChildDevices` result; Core Data is only
+    // consulted as a fallback because NSPersistentCloudKitContainer's mirror
+    // doesn't carry our `sharedZoneID` field.
+
+    private static let knownChildZonesUDKeyPrefix = "parent_known_child_zones_v1_"
+    private static let orphanCleanupDoneKeyPrefix = "parent_orphan_zone_cleanup_v1_done_"
+    private static let childZoneMappingUDKeyPrefix = "parent_child_zone_mapping_v1_"
+
+    private func knownZonesUDKey(parentDeviceID: String) -> String {
+        Self.knownChildZonesUDKeyPrefix + parentDeviceID
+    }
+
+    private func orphanCleanupUDKey(parentDeviceID: String) -> String {
+        Self.orphanCleanupDoneKeyPrefix + parentDeviceID
+    }
+
+    private func childZoneMappingUDKey(parentDeviceID: String) -> String {
+        Self.childZoneMappingUDKeyPrefix + parentDeviceID
+    }
+
+    /// Returns the cached (zoneName, zoneOwner) pair for a paired child device.
+    /// Used by `populateFromLocalCache` on launch to enrich Core Data rows that
+    /// don't carry the zone info — without it, every per-child data fetch
+    /// (usage, configs, shields, history, snapshot, streaks) falls back to
+    /// scanning every zone in the parent's private DB, multiplying the launch
+    /// cost by ~6× per child.
+    static func cachedZoneInfo(forDeviceID deviceID: String, parentDeviceID: String) -> (zoneName: String, zoneOwner: String)? {
+        guard !deviceID.isEmpty, !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
+              let map = defaults.dictionary(forKey: Self.childZoneMappingUDKeyPrefix + parentDeviceID) as? [String: [String]],
+              let pair = map[deviceID], pair.count == 2 else {
+            return nil
+        }
+        return (pair[0], pair[1])
+    }
+
+    private func saveChildZoneMapping(_ devices: [RegisteredDevice], parentDeviceID: String) {
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+        var map: [String: [String]] = [:]
+        for d in devices {
+            guard let id = d.deviceID, let zone = d.sharedZoneID, let owner = d.sharedZoneOwner else { continue }
+            map[id] = [zone, owner]
+        }
+        defaults.set(map, forKey: childZoneMappingUDKey(parentDeviceID: parentDeviceID))
+    }
+
+    /// Returns the set of ChildMonitoring zone names already known for this parent.
+    /// Reads from app-group UserDefaults first (populated after every successful
+    /// fetch), then falls back to Core Data (where `sharedZoneID` may be nil for
+    /// rows materialized solely by NSPersistentCloudKitContainer). Returns an
+    /// empty set when nothing has ever been cached — callers treat that as
+    /// "fall back to full scan".
+    private func knownChildZoneNames(parentDeviceID: String) -> Set<String> {
+        guard !parentDeviceID.isEmpty else { return Set<String>() }
+
+        if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),
+           let cached = defaults.array(forKey: knownZonesUDKey(parentDeviceID: parentDeviceID)) as? [String],
+           !cached.isEmpty {
+            return Set(cached)
+        }
+
+        let context = PersistenceController.shared.container.viewContext
+        let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        do {
+            let rows = try context.fetch(req)
+            return Set(rows.compactMap { $0.sharedZoneID })
+        } catch {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ knownChildZoneNames Core Data fallback failed: \(error.localizedDescription)")
+            #endif
+            return Set<String>()
+        }
+    }
+
+    /// Persist the canonical set of known zones after a successful fetch.
+    /// Writes to app-group UserDefaults so every entry point (and the next
+    /// launch's cold-start callers) sees the same set immediately.
+    private func saveKnownChildZoneNames(_ zoneNames: Set<String>, parentDeviceID: String) {
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+        defaults.set(Array(zoneNames), forKey: knownZonesUDKey(parentDeviceID: parentDeviceID))
+    }
+
+    /// Coalesces concurrent `fetchLinkedChildDevices` callers (with
+    /// `restrictToKnownZones: true`, the default) onto a single in-flight
+    /// fetch. Different code paths (SubscriptionManager checking the seat
+    /// count, ScreenTimeService syncing web restrictions, ParentRemoteViewModel
+    /// loading the dashboard) routinely fire within milliseconds of each
+    /// other on launch. Without this coalescing each kicks off its own 20+
+    /// -zone enumeration and the log shows two passes interleaved.
+    private var inFlightFetchLinkedChildDevicesTask: Task<[RegisteredDevice], Error>?
+
     /// Fetch linked child devices from private database by querying each ChildMonitoring zone
-    func fetchLinkedChildDevices() async throws -> [RegisteredDevice] {
+    ///
+    /// - Parameter restrictToKnownZones: When `true` (default), only query zones whose
+    ///   IDs are recorded on already-paired RegisteredDevice rows in local Core Data.
+    ///   This skips orphan zones left behind by old test pairings — the parent's
+    ///   private DB can accumulate dozens of stale ChildMonitoring-* zones over
+    ///   time, and scanning them all serially was the dominant cause of multi-minute
+    ///   dashboard load times. Falls back to a full scan if no known zones exist
+    ///   yet (cold start, fresh install). Pairing/discovery flows must pass `false`
+    ///   so a newly-paired child's zone (not yet in local cache) is found.
+    func fetchLinkedChildDevices(restrictToKnownZones: Bool = true) async throws -> [RegisteredDevice] {
+        // Coalesce concurrent callers on the common default path. Pairing/discovery
+        // flows pass `restrictToKnownZones: false` — they expect a fresh full scan
+        // and must not share a result with a restricted in-flight fetch.
+        if restrictToKnownZones, let existing = inFlightFetchLinkedChildDevicesTask {
+            #if DEBUG
+            print("[CloudKitSyncService] Awaiting in-flight fetchLinkedChildDevices")
+            #endif
+            return try await existing.value
+        }
+
+        let task: Task<[RegisteredDevice], Error> = Task { [weak self] in
+            guard let self = self else { return [] }
+            return try await self.performFetchLinkedChildDevices(restrictToKnownZones: restrictToKnownZones)
+        }
+        if restrictToKnownZones {
+            inFlightFetchLinkedChildDevicesTask = task
+        }
+        defer {
+            if restrictToKnownZones {
+                inFlightFetchLinkedChildDevicesTask = nil
+            }
+        }
+        return try await task.value
+    }
+
+    private func performFetchLinkedChildDevices(restrictToKnownZones: Bool) async throws -> [RegisteredDevice] {
         #if DEBUG
         print("[CloudKitSyncService] ===== Fetching Linked Child Devices (CloudKit Sharing) =====")
         print("[CloudKitSyncService] Parent Device ID: \(DeviceModeManager.shared.deviceID)")
@@ -416,7 +557,27 @@ class CloudKitSyncService: ObservableObject {
         }
 
         // 2. Filter to ChildMonitoring zones only
-        let childMonitoringZones = allZones.filter { $0.zoneID.zoneName.hasPrefix("ChildMonitoring-") }
+        let allChildMonitoringZones = allZones.filter { $0.zoneID.zoneName.hasPrefix("ChildMonitoring-") }
+
+        // 3. If restricting to known zones, intersect with the persisted
+        //    known-zones cache. This drops orphan zones from old pairings —
+        //    typically reducing ~20 zones to the 1-5 actually in use.
+        let knownZones = knownChildZoneNames(parentDeviceID: parentDeviceID)
+        let childMonitoringZones: [CKRecordZone]
+        if restrictToKnownZones, !knownZones.isEmpty {
+            childMonitoringZones = allChildMonitoringZones.filter { knownZones.contains($0.zoneID.zoneName) }
+            #if DEBUG
+            let skipped = allChildMonitoringZones.count - childMonitoringZones.count
+            print("[CloudKitSyncService] Restricting to \(childMonitoringZones.count) known zone(s), skipping \(skipped) orphan zone(s)")
+            #endif
+        } else {
+            childMonitoringZones = allChildMonitoringZones
+            #if DEBUG
+            if restrictToKnownZones {
+                print("[CloudKitSyncService] No known zones cached — falling back to full scan (will cache after this run)")
+            }
+            #endif
+        }
 
         #if DEBUG
         print("[CloudKitSyncService] Found \(childMonitoringZones.count) ChildMonitoring zones to query")
@@ -427,6 +588,12 @@ class CloudKitSyncService: ObservableObject {
 
         var devices: [RegisteredDevice] = []
         var zoneRecordCounts: [String: Int] = [:]  // Track record counts per zone for deduplication
+        // Track which zones we successfully scanned (whether they had a matching
+        // device or not). Used by the orphan-cleanup pass to ensure we never
+        // delete a zone that errored — a transient network blip during fetch
+        // would otherwise look identical to "no device here" and could wipe
+        // a real child's data.
+        var successfullyScannedZones: Set<String> = []
 
         // 3. Fetch records from EACH ChildMonitoring zone using zone changes API
         // (CKQuery fails because CD_RegisteredDevice fields are not marked QUERYABLE)
@@ -436,8 +603,11 @@ class CloudKitSyncService: ObservableObject {
                 print("[CloudKitSyncService] Fetching records from zone \(zone.zoneID.zoneName) using zone changes...")
                 #endif
 
-                // Use fetchRecordZoneChanges to get all records without needing queryable indexes
-                let zoneRecords = try await fetchAllRecordsInZone(zoneID: zone.zoneID, database: privateDatabase)
+                // Use fetchRecordZoneChanges to get all records without needing queryable indexes.
+                // Retry once on transient network errors — a single missed packet was previously
+                // enough to drop a real child from the result silently.
+                let zoneRecords = try await fetchAllRecordsInZoneWithRetry(zoneID: zone.zoneID, database: privateDatabase)
+                successfullyScannedZones.insert(zone.zoneID.zoneName)
 
                 // Track record count for this zone (used for deduplication - more records = more active)
                 zoneRecordCounts[zone.zoneID.zoneName] = zoneRecords.count
@@ -509,7 +679,142 @@ class CloudKitSyncService: ObservableObject {
         print("[CloudKitSyncService] ✅ Total: Found \(devices.count) child device(s) across all zones")
         #endif
 
+        // Persist the canonical known-zone set so the next fetch (this launch
+        // or a later one) can take the restricted-zone fast path.
+        //
+        // Two safety conditions: result non-empty (don't clobber a good cache
+        // with a network-blip empty), AND every zone in this scan succeeded
+        // (a partial result would lock subsequent fast-path runs onto the
+        // wrong set and hide a real child whose zone just happened to error
+        // out this time).
+        let freshZoneSet = Set(devices.compactMap { $0.sharedZoneID })
+        let didFullScan = childMonitoringZones.count == allChildMonitoringZones.count
+        let allScansSucceeded = successfullyScannedZones.count == childMonitoringZones.count
+
+        if !freshZoneSet.isEmpty && allScansSucceeded {
+            saveKnownChildZoneNames(freshZoneSet, parentDeviceID: parentDeviceID)
+            saveChildZoneMapping(devices, parentDeviceID: parentDeviceID)
+        } else if !freshZoneSet.isEmpty && !allScansSucceeded {
+            #if DEBUG
+            let failedCount = childMonitoringZones.count - successfullyScannedZones.count
+            print("[CloudKitSyncService] ⏸ Skipping known-zones cache update: \(failedCount) zone(s) failed — keeping previous cache")
+            #endif
+        }
+
+        // One-shot orphan-zone cleanup. Three safety conditions must all hold:
+        //  1. We took the full-scan path (otherwise a not-yet-cached real zone
+        //     would look like an orphan).
+        //  2. EVERY zone in the scan succeeded — a single network error during
+        //     fetch would make a real child's zone look empty, and we must not
+        //     delete it.
+        //  3. We did find at least one real child this run (sanity check that
+        //     CloudKit is reachable and the parent is correctly authenticated).
+        if didFullScan && allScansSucceeded && !freshZoneSet.isEmpty {
+            await deleteOrphanChildMonitoringZonesOnce(
+                keeping: freshZoneSet,
+                parentDeviceID: parentDeviceID,
+                scannedZoneNames: successfullyScannedZones,
+                allZones: allChildMonitoringZones,
+                database: privateDatabase
+            )
+        } else if didFullScan && !allScansSucceeded {
+            #if DEBUG
+            let failedCount = childMonitoringZones.count - successfullyScannedZones.count
+            print("[CloudKitSyncService] ⏸ Skipping orphan cleanup: \(failedCount) zone(s) failed to scan — will retry next launch")
+            #endif
+        }
+
         return devices
+    }
+
+    /// Returns true if the given zone contains a CD_RegisteredDevice record for
+    /// a child paired with this parent. Used by ParentPairingView's polling
+    /// loop to detect when the just-paired child has written their device
+    /// record into the freshly-created zone — querying a single known zone
+    /// instead of full-scanning every zone in the account, which previously
+    /// raced with the pairing itself (the slow full scan finished *after* the
+    /// child had paired, so the polling baseline captured the new child as
+    /// already-present and could never detect them appearing).
+    func isChildPairedInZone(zoneID: CKRecordZone.ID) async throws -> Bool {
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        let records = try await fetchAllRecordsInZoneWithRetry(
+            zoneID: zoneID,
+            database: container.privateCloudDatabase
+        )
+        return records.contains { record in
+            record.recordType == "CD_RegisteredDevice"
+                && (record["CD_deviceType"] as? String) == "child"
+                && (record["CD_parentDeviceID"] as? String) == parentDeviceID
+        }
+    }
+
+    /// One-time cleanup of orphan ChildMonitoring zones in the parent's private
+    /// database. Over time, unpair/re-pair cycles and old test pairings leave
+    /// behind zones we never query but that get enumerated on every fetch — a
+    /// few of these can balloon to thousands of stale records, turning the
+    /// dashboard load into a multi-minute scan. Runs once per parent device
+    /// (UserDefaults flag); subsequent launches skip the work entirely.
+    ///
+    /// A zone is treated as orphan ONLY if we successfully scanned it AND found
+    /// no matching device record. Zones that errored out during scan are
+    /// skipped — we don't know what's inside them, so we cannot safely delete.
+    private func deleteOrphanChildMonitoringZonesOnce(
+        keeping keepZoneNames: Set<String>,
+        parentDeviceID: String,
+        scannedZoneNames: Set<String>,
+        allZones: [CKRecordZone],
+        database: CKDatabase
+    ) async {
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+
+        let doneKey = orphanCleanupUDKey(parentDeviceID: parentDeviceID)
+        if defaults.bool(forKey: doneKey) { return }
+
+        // Orphan = successfully scanned this run AND not one of our real zones.
+        // Never include a zone we failed to read — could be holding real data.
+        let orphans = allZones.filter {
+            scannedZoneNames.contains($0.zoneID.zoneName) && !keepZoneNames.contains($0.zoneID.zoneName)
+        }
+        guard !orphans.isEmpty else {
+            defaults.set(true, forKey: doneKey)
+            return
+        }
+
+        #if DEBUG
+        print("[CloudKitSyncService] 🧹 Orphan cleanup: deleting \(orphans.count) stale ChildMonitoring zone(s)")
+        for z in orphans {
+            print("[CloudKitSyncService]   - \(z.zoneID.zoneName)")
+        }
+        #endif
+
+        var deletedCount = 0
+        for zone in orphans {
+            do {
+                _ = try await database.deleteRecordZone(withID: zone.zoneID)
+                deletedCount += 1
+            } catch let error as CKError where error.code == .zoneNotFound {
+                // Already gone — count as success.
+                deletedCount += 1
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService] ⚠️ Orphan delete failed for \(zone.zoneID.zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+
+        // Mark complete only if we deleted every orphan we found. Partial
+        // failures (network blip) will retry on the next successful fetch.
+        if deletedCount == orphans.count {
+            defaults.set(true, forKey: doneKey)
+            #if DEBUG
+            print("[CloudKitSyncService] ✅ Orphan cleanup complete (\(deletedCount) zone(s) removed)")
+            #endif
+        } else {
+            #if DEBUG
+            print("[CloudKitSyncService] ⚠️ Orphan cleanup partial: \(deletedCount)/\(orphans.count) — will retry next launch")
+            #endif
+        }
     }
 
     /// Fetch all records in a zone using CKFetchRecordZoneChangesOperation
@@ -561,6 +866,40 @@ class CloudKitSyncService: ObservableObject {
 
             database.add(operation)
         }
+    }
+
+    /// Wraps `fetchAllRecordsInZone` with up to 2 retries on transient network
+    /// errors. A single dropped packet during zone enumeration would otherwise
+    /// silently exclude a real child from the result — and (worse) leave that
+    /// child's zone looking like an orphan to the cleanup pass. Permanent
+    /// errors (e.g. zoneNotFound) are rethrown immediately so callers can
+    /// handle them normally.
+    private func fetchAllRecordsInZoneWithRetry(zoneID: CKRecordZone.ID, database: CKDatabase) async throws -> [CKRecord] {
+        let maxAttempts = 3
+        var attempt = 0
+        var lastError: Error?
+
+        while attempt < maxAttempts {
+            attempt += 1
+            do {
+                return try await fetchAllRecordsInZone(zoneID: zoneID, database: database)
+            } catch let error as CKError {
+                lastError = error
+                let transient: Set<CKError.Code> = [
+                    .networkUnavailable, .networkFailure, .serviceUnavailable,
+                    .requestRateLimited, .zoneBusy
+                ]
+                guard transient.contains(error.code), attempt < maxAttempts else { throw error }
+                let backoffSeconds = (error.retryAfterSeconds ?? Double(attempt)) // 1s, 2s, ...
+                #if DEBUG
+                print("[CloudKitSyncService] ↻ Retry \(attempt)/\(maxAttempts - 1) for zone \(zoneID.zoneName) after \(Int(backoffSeconds))s (\(error.code.rawValue))")
+                #endif
+                try? await Task.sleep(nanoseconds: UInt64(backoffSeconds * 1_000_000_000))
+            } catch {
+                throw error
+            }
+        }
+        throw lastError ?? CKError(.internalError)
     }
 
     private func convertToRegisteredDevice(_ record: CKRecord) -> RegisteredDevice {
@@ -2318,6 +2657,16 @@ class CloudKitSyncService: ObservableObject {
 
         // If zone info provided, query ONLY that specific zone (optimization + correctness)
         if let zoneName = zoneID, let ownerName = zoneOwner {
+            // Skip the zone-specific attempt if we've already learned this
+            // session that CD_ShieldState doesn't exist in this zone — avoids
+            // a wasted CK round-trip on every refresh.
+            if Self.shouldSkipZone(zoneName, recordType: "CD_ShieldState") {
+                #if DEBUG
+                print("[CloudKitSyncService] Skipping zone-specific fetch (schema-miss cached this session)")
+                #endif
+                return results
+            }
+
             let specificZoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: ownerName)
 
             #if DEBUG
@@ -2350,10 +2699,22 @@ class CloudKitSyncService: ObservableObject {
                 return results
 
             } catch {
+                let msg = error.localizedDescription
+                // "Did not find record type" means CD_ShieldState doesn't exist
+                // in the CloudKit schema at all — falling back to 33 other
+                // zones produces 33 identical failures and burns CK rate-limit
+                // budget for the rest of the session. Short-circuit instead.
+                if msg.localizedCaseInsensitiveContains("Did not find record type") {
+                    Self.recordSchemaMiss(zone: zoneName, recordType: "CD_ShieldState")
+                    #if DEBUG
+                    print("[CloudKitSyncService] ⚠️ CD_ShieldState record type doesn't exist — returning empty (will skip future zone-specific attempts this session)")
+                    #endif
+                    return results
+                }
                 #if DEBUG
-                print("[CloudKitSyncService] ⚠️ Zone-specific fetch failed, falling back to all zones: \(error.localizedDescription)")
+                print("[CloudKitSyncService] ⚠️ Zone-specific fetch failed, falling back to all zones: \(msg)")
                 #endif
-                // Fall through to all-zone search
+                // Fall through to all-zone search for non-schema errors
             }
         }
 

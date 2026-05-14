@@ -104,17 +104,22 @@ struct ChildUsageDashboardView: View {
             // Only load data on first appearance, not when navigating back from detail views
             guard !hasLoadedInitialData else { return }
             hasLoadedInitialData = true
-            Task {
-                await viewModel.loadLinkedChildDevices()
-                // Drive the initial child load for the page the user landed on.
-                // Per-page ChildUsagePageView.onAppear used to do this, but with a
-                // single shared VM the paged TabView mounts all pages at once; their
-                // concurrent loadChildData calls collided on isLoadingChildData and
-                // only the first (always page 0) ran — leaving the user's actually-
-                // selected child silently un-loaded.
-                if let device = currentDevice {
+            // Kick off the child-data load FIRST so the spinner clears as soon
+            // as the cache restore finishes inside loadChildData. The device-
+            // list refresh happens in a separate task so it can't block the
+            // user's tapped child sitting behind a queued in-flight load.
+            // Per-page ChildUsagePageView.onAppear used to drive this, but
+            // with a single shared VM the paged TabView mounts all pages at
+            // once; their concurrent loadChildData calls collided on
+            // isLoadingChildData and only the first (always page 0) ran —
+            // leaving the user's actually-selected child silently un-loaded.
+            if let device = currentDevice {
+                Task {
                     await viewModel.loadChildData(for: device)
                 }
+            }
+            Task {
+                await viewModel.loadLinkedChildDevices()
             }
         }
     }

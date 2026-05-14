@@ -81,6 +81,25 @@ class DevicePairingService: ObservableObject {
     private let customZoneID = CKRecordZone.ID(zoneName: "PairingZone", ownerName: CKCurrentUserDefaultName)
     private let cloudKitSync = CloudKitSyncService.shared
 
+    /// Synchronously read the current paired-child count from local Core Data.
+    /// NSPersistentCloudKitContainer mirrors CD_RegisteredDevice records into
+    /// Core Data, so the local count tracks CloudKit truth without requiring a
+    /// fresh CK fetch. Used for the pairing-limit gate — calling
+    /// `fetchLinkedChildDevices()` there would await any in-flight refresh
+    /// (e.g. a slow pull-refresh still running) and could leave the
+    /// "Generating QR code…" spinner stuck indefinitely.
+    private func localPairedChildCount() -> Int {
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        guard !parentDeviceID.isEmpty else { return 0 }
+        let context = PersistenceController.shared.container.viewContext
+        let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        // Dedupe by deviceID — NSPersistentCloudKitContainer can mirror the
+        // same record into multiple rows after pair/unpair/repair cycles.
+        let rows = (try? context.fetch(req)) ?? []
+        return Set(rows.compactMap { $0.deviceID }).count
+    }
+
     /// Check if CloudKit is available and configured
     func checkCloudKitAvailability() async -> Bool {
         do {
@@ -297,28 +316,12 @@ class DevicePairingService: ObservableObject {
             throw PairingError.soloCannotPair
         }
 
-        // Check subscription limit - this also verifies CloudKit availability
+        // Limit check uses local Core Data (mirrored from CloudKit) instead of
+        // a fresh CK fetch — see `localPairedChildCount()` doc.
+        let currentChildCount = localPairedChildCount()
         #if DEBUG
-        print("[DevicePairingService] 🔵 Fetching linked child devices to check limit...")
+        print("[DevicePairingService] ✅ Current child count (local): \(currentChildCount)")
         #endif
-
-        let currentChildCount: Int
-        do {
-            currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
-            #if DEBUG
-            print("[DevicePairingService] ✅ CloudKit available. Current child count: \(currentChildCount)")
-            #endif
-        } catch let error as CKError where error.code == .notAuthenticated {
-            #if DEBUG
-            print("[DevicePairingService] ❌ CloudKit not authenticated")
-            #endif
-            throw PairingError.networkError(error)
-        } catch {
-            #if DEBUG
-            print("[DevicePairingService] ❌ CloudKit error: \(error)")
-            #endif
-            throw PairingError.networkError(error)
-        }
 
         guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
             #if DEBUG
@@ -723,13 +726,12 @@ class DevicePairingService: ObservableObject {
                 userInfo: [NSLocalizedDescriptionKey: "Please complete subscription setup before pairing."]))
         }
 
-        // Check device limit using CloudKit
-        let currentChildCount: Int
-        do {
-            currentChildCount = try await cloudKitSync.fetchLinkedChildDevices().count
-        } catch {
-            throw PairingError.networkError(error)
-        }
+        // Limit check uses local Core Data (mirrored from CloudKit) instead of
+        // a fresh CK fetch — see `localPairedChildCount()` doc.
+        let currentChildCount = localPairedChildCount()
+        #if DEBUG
+        print("[DevicePairingService] ✅ Current child count (local): \(currentChildCount)")
+        #endif
 
         guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
             throw PairingError.deviceLimitReached

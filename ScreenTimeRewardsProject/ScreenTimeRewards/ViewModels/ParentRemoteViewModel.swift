@@ -856,6 +856,22 @@ class ParentRemoteViewModel: ObservableObject {
             return seenIDs.insert(id).inserted
         }
 
+        // Enrich each local row with sharedZoneID/sharedZoneOwner from the
+        // CloudKitSyncService cache. Core Data rows mirrored by
+        // NSPersistentCloudKitContainer don't carry these fields, but every
+        // per-child data fetch (usage, configs, shields, history, snapshot,
+        // streaks) needs them to do a fast zone-specific query — without
+        // enrichment each falls back to an all-zone scan (33 zones × 6 fetch
+        // types × N children) on every launch. This pulls the cache populated
+        // by the last successful fetchLinkedChildDevices.
+        for device in deduped {
+            guard let id = device.deviceID,
+                  device.sharedZoneID == nil,
+                  let pair = CloudKitSyncService.cachedZoneInfo(forDeviceID: id, parentDeviceID: parentID) else { continue }
+            device.sharedZoneID = pair.zoneName
+            device.sharedZoneOwner = pair.zoneOwner
+        }
+
         linkedChildDevices = deduped
 
         #if DEBUG
@@ -1241,13 +1257,21 @@ class ParentRemoteViewModel: ObservableObject {
             // Validate that each child's zone still exists
             await validateChildPairings()
 
-            // If no device is selected and we have devices, select the first one
+            // If no device is selected and we have devices, mark the first one
+            // as the default selection. Do NOT trigger a data load here — the
+            // surfacing view (Family Dashboard cards, or ChildUsageDashboardView's
+            // onAppear, or pull-to-refresh) owns its own loadChildData call.
+            // Auto-loading here caused refreshData to run two full per-child
+            // fetch sequences back-to-back (this one + refreshData's explicit
+            // call) on every pull-refresh — a ~3-minute round-trip.
             if selectedChildDevice == nil, let firstDevice = linkedChildDevices.first {
                 #if DEBUG
                 print("[ParentRemoteViewModel] Auto-selecting first device: \(firstDevice.deviceID ?? "nil")")
                 #endif
                 selectedChildDevice = firstDevice
-                await loadChildData(for: firstDevice)
+                // Paint from cache so the dashboard shows last-known data while
+                // the surfacing view kicks off its own CK refresh.
+                selectAndRestoreFromCache(firstDevice)
             }
         } catch {
             #if DEBUG
@@ -1401,31 +1425,11 @@ class ParentRemoteViewModel: ObservableObject {
         }
     }
 
-    /// Load usage data and configurations for a specific child device
-    func loadChildData(for device: RegisteredDevice) async {
-        // Latest-request-wins: if a load is already in flight, record this request
-        // as pending instead of dropping it. The in-flight load will pick it up at
-        // the end (see tail of this function). Avoid overwriting pending with the
-        // SAME device — that's just a redundant request for the active load.
-        if isLoadingChildData {
-            if pendingChildLoad?.deviceID != device.deviceID,
-               selectedChildDevice?.deviceID != device.deviceID {
-                pendingChildLoad = device
-                #if DEBUG
-                print("[ParentRemoteViewModel] Queued pendingChildLoad for \(device.deviceID ?? "?") while load in flight")
-                #endif
-            }
-            return
-        }
-
-        isLoadingChildData = true
-        pendingChildLoad = nil
-        errorMessage = nil
-
-        // Clear state that's definitely device-specific before restoring cache. Cache restore
-        // below will repopulate what we have for the target device; anything it doesn't
-        // populate (streaks, usage records from previous 7 days, etc.) needs to stay empty
-        // until CK returns.
+    /// Reset every published property that scopes to one child to its empty/zero
+    /// initial state. Called whenever the selected child changes so the
+    /// dashboard never momentarily displays the previous child's data behind a
+    /// loading mask.
+    private func clearChildSpecificState() {
         pendingConfigUpdates.removeAll()
         childLearningAppsFullConfig = []
         childRewardAppsFullConfig = []
@@ -1442,41 +1446,102 @@ class ParentRemoteViewModel: ObservableObject {
         categorySummaries = []
         dailySummaries = []
         appConfigurations = []
+    }
 
+    /// Update the selected device, clear state, and restore the device's cached
+    /// state synchronously. Used both when a load starts fresh AND when a new
+    /// click arrives during an in-flight load — in the latter case it lets the
+    /// dashboard paint the tapped child's last-known data immediately instead
+    /// of waiting (with a stuck spinner) for the in-flight load to finish.
+    private func selectAndRestoreFromCache(_ device: RegisteredDevice) {
         selectedChildDevice = device
-
-        // Cache-first restore. Populates childDailySnapshot, history, configs, and
-        // shield states for the target device so the dashboard shows last-known data
-        // while the CK refresh runs. Without this, every child click flashes 0 until
-        // the full fetch lands (multi-second lag reported in logs). Downstream
-        // computed properties (`todayTotals`, `aggregatedDailyTotals`, `fallbackEarnedMinutes`)
-        // all derive from `childDailyUsageHistory` + `childDailySnapshot`, which we
-        // just restored, so the dashboard renders correctly from cache.
+        clearChildSpecificState()
         if let deviceID = device.deviceID {
             restoreCachedChildState(deviceID: deviceID)
         }
+    }
+
+    /// Load usage data and configurations for a specific child device
+    func loadChildData(for device: RegisteredDevice) async {
+        // Latest-request-wins: if a load is already in flight, record this request
+        // as pending so the in-flight load picks it up at the end (see tail of
+        // this function). Avoid overwriting pending with the SAME device —
+        // that's just a redundant request for the active load.
+        if isLoadingChildData {
+            if pendingChildLoad?.deviceID != device.deviceID,
+               selectedChildDevice?.deviceID != device.deviceID {
+                pendingChildLoad = device
+
+                // Paint the tapped device immediately. Without this the
+                // ChildUsagePageView spinner stays on (it's gated by
+                // selectedChildDevice == device) until the in-flight load
+                // finishes — that load is for a different child, so the user
+                // is effectively staring at a spinner waiting for somebody
+                // else's data. The fetch we just queued will overwrite cache
+                // with fresh CK data when it eventually runs; in the
+                // meantime, in-flight writes for the *previous* device are
+                // gated by `applyIfCurrent` below so they can't pollute the
+                // newly-painted view.
+                selectAndRestoreFromCache(device)
+
+                #if DEBUG
+                print("[ParentRemoteViewModel] Queued pendingChildLoad for \(device.deviceID ?? "?") (UI swapped to cached state)")
+                #endif
+            }
+            return
+        }
+
+        isLoadingChildData = true
+        pendingChildLoad = nil
+        errorMessage = nil
+
+        // Set selected device, clear state, restore cache — see selectAndRestoreFromCache
+        // doc. Downstream computed properties (`todayTotals`, `aggregatedDailyTotals`,
+        // `fallbackEarnedMinutes`) derive from `childDailyUsageHistory` +
+        // `childDailySnapshot`, which the cache restores, so the dashboard
+        // paints from cache while CK refresh runs in the background.
+        selectAndRestoreFromCache(device)
         
+        // Capture target deviceID so we can drop writes if the user clicks
+        // a different child mid-fetch. The early-return path above also
+        // updates selectedChildDevice optimistically, so a stale write here
+        // would otherwise paint *this* device's CK data into the new device's
+        // currently-displayed view.
+        let targetDeviceID = device.deviceID
+
         do {
             // Load usage records for the last 7 days
             let calendar = Calendar.current
             let endDate = Date()
             let startDate = calendar.date(byAdding: .day, value: -7, to: endDate)!
             let dateRange = DateInterval(start: startDate, end: endDate)
-            
+
             // Use the new CloudKit-based method to fetch usage data directly from shared zones
             // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
-            usageRecords = try await cloudKitService.fetchChildUsageDataFromCloudKit(
+            let fetchedUsage = try await cloudKitService.fetchChildUsageDataFromCloudKit(
                 deviceID: device.deviceID ?? "",
                 dateRange: dateRange,
                 zoneID: device.sharedZoneID,
                 zoneOwner: device.sharedZoneOwner
             )
-            
+            guard selectedChildDevice?.deviceID == targetDeviceID else {
+                #if DEBUG
+                print("[ParentRemoteViewModel] Dropping superseded write for \(targetDeviceID ?? "?")")
+                #endif
+                isLoadingChildData = false
+                if let pending = pendingChildLoad {
+                    pendingChildLoad = nil
+                    await loadChildData(for: pending)
+                }
+                return
+            }
+            usageRecords = fetchedUsage
+
             // Aggregate records by category
             await MainActor.run {
                 self.categorySummaries = aggregateByCategory(self.usageRecords)
             }
-            
+
             // Load daily summaries for the last 7 days in a single ranged Core Data fetch
             // (replaces the prior 7-iteration loop that issued 7 separate NSFetchRequests)
             let summariesContext = PersistenceController.shared.container.viewContext
@@ -1489,16 +1554,24 @@ class ParentRemoteViewModel: ObservableObject {
             )
             summariesRequest.sortDescriptors = [NSSortDescriptor(key: "date", ascending: false)]
             dailySummaries = (try? summariesContext.fetch(summariesRequest)) ?? []
-            
+
             // Load app configurations for the selected child device
             let context = PersistenceController.shared.container.viewContext
             let fetchRequest: NSFetchRequest<AppConfiguration> = AppConfiguration.fetchRequest()
             fetchRequest.predicate = NSPredicate(format: "deviceID == %@", device.deviceID ?? "")
-            
+
             appConfigurations = try context.fetch(fetchRequest)
 
             // Also load child app configurations from CloudKit
             await loadChildAppConfigurations(for: device)
+            guard selectedChildDevice?.deviceID == targetDeviceID else {
+                isLoadingChildData = false
+                if let pending = pendingChildLoad {
+                    pendingChildLoad = nil
+                    await loadChildData(for: pending)
+                }
+                return
+            }
 
             // Load child streak records from CloudKit
             await loadChildStreakRecords(for: device)
@@ -1632,6 +1705,18 @@ class ParentRemoteViewModel: ObservableObject {
             let historyByApp = Dictionary(grouping: usageHistory) { $0.logicalID }
 
             await MainActor.run {
+                // If the user clicked away to a different child while these CK
+                // fetches were running, drop the writes — `loadChildData`'s
+                // early-return path already painted the new child's cached
+                // state, and overwriting it with this device's data would
+                // surface the wrong numbers under the new child's name.
+                guard self.selectedChildDevice?.deviceID == deviceID else {
+                    #if DEBUG
+                    print("[ParentRemoteViewModel] Dropping superseded config write for \(deviceID)")
+                    #endif
+                    return
+                }
+
                 // Basic AppConfiguration entities
                 self.childLearningApps = learning
                 self.childRewardApps = reward

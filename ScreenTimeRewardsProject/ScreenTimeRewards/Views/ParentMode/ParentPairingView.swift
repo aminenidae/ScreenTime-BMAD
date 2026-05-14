@@ -24,6 +24,10 @@ struct ParentPairingView: View {
     // Polling for new child device
     @State private var isPollingForChild = false
     @State private var initialChildCount = 0
+    /// The zone we just created for the new child. Polling watches this
+    /// specific zone for a CD_RegisteredDevice record instead of full-scanning
+    /// the entire account — see DevicePairingService.isChildPairedInZone doc.
+    @State private var pendingPairingZoneID: CKRecordZone.ID?
     @Environment(\.dismiss) private var dismiss
 
     enum CloudKitStatus: Equatable {
@@ -415,12 +419,13 @@ struct ParentPairingView: View {
             print("[ParentPairingView] 🔵 Using secure (Firebase-validated) pairing...")
             #endif
 
-            let (_, qrData, _, _) = try await pairingService.createSecurePairingSession()
+            let (_, qrData, _, newZoneID) = try await pairingService.createSecurePairingSession()
 
             if let ciImage = pairingService.generateQRCodeImage(from: qrData) {
                 await MainActor.run {
                     self.qrCodeImage = convertCIImageToUIImage(ciImage)
                     self.isGenerating = false
+                    self.pendingPairingZoneID = newZoneID
                     self.startPollingForNewChild()
                 }
                 #if DEBUG
@@ -446,6 +451,7 @@ struct ParentPairingView: View {
                 await MainActor.run {
                     self.qrCodeImage = convertCIImageToUIImage(ciImage)
                     self.isGenerating = false
+                    self.pendingPairingZoneID = zoneID
                     self.startPollingForNewChild()
                 }
                 #if DEBUG
@@ -532,21 +538,26 @@ struct ParentPairingView: View {
     private func startPollingForNewChild() {
         isPollingForChild = true
 
-        Task {
-            // Capture initial child count
-            let cloudKitSync = CloudKitSyncService.shared
-            let startCount = (try? await cloudKitSync.fetchLinkedChildDevices().count) ?? 0
-            initialChildCount = startCount
-
+        guard let zoneID = pendingPairingZoneID else {
             #if DEBUG
-            print("[ParentPairingView] 🔄 Starting polling for new child device. Initial count: \(startCount)")
+            print("[ParentPairingView] ⚠️ No pending pairing zone — polling cannot start")
             #endif
+            isPollingForChild = false
+            return
+        }
+
+        #if DEBUG
+        print("[ParentPairingView] 🔄 Starting polling for new child device in zone \(zoneID.zoneName)")
+        #endif
+
+        Task {
+            let cloudKitSync = CloudKitSyncService.shared
 
             // Poll every 2 seconds for up to 5 minutes (150 attempts)
             for attempt in 1...150 {
                 try? await Task.sleep(nanoseconds: 2_000_000_000) // 2 seconds
 
-                // Check if polling was cancelled
+                // Check if polling was cancelled (view dismissed)
                 guard isPollingForChild else {
                     #if DEBUG
                     print("[ParentPairingView] 🛑 Polling cancelled")
@@ -554,19 +565,20 @@ struct ParentPairingView: View {
                     return
                 }
 
-                // Fetch current child count
-                let currentCount = (try? await cloudKitSync.fetchLinkedChildDevices().count) ?? 0
+                // Targeted single-zone check. We created this zone seconds ago;
+                // it's either empty (child hasn't paired yet) or contains one
+                // CD_RegisteredDevice for the matching parent (child paired).
+                let paired = (try? await cloudKitSync.isChildPairedInZone(zoneID: zoneID)) ?? false
 
                 #if DEBUG
                 if attempt % 10 == 0 {
-                    print("[ParentPairingView] 🔄 Poll attempt \(attempt): \(currentCount) children (started with \(startCount))")
+                    print("[ParentPairingView] 🔄 Poll attempt \(attempt): paired=\(paired)")
                 }
                 #endif
 
-                if currentCount > startCount {
-                    // SUCCESS - new child detected!
+                if paired {
                     #if DEBUG
-                    print("[ParentPairingView] ✅ New child device detected! Closing view...")
+                    print("[ParentPairingView] ✅ New child device detected in zone \(zoneID.zoneName)! Closing view...")
                     #endif
 
                     await MainActor.run {
