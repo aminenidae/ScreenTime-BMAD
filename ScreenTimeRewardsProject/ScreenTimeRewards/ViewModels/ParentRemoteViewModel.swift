@@ -1456,25 +1456,39 @@ class ParentRemoteViewModel: ObservableObject {
         appConfigurations = []
     }
 
+    /// Tracks which device the child-specific @Published state currently
+    /// belongs to. Updated only by `selectAndRestoreFromCache`. Used to
+    /// detect "data is already this device's — no need to clear+restore"
+    /// vs "data is a different device's — must clear+restore". We can't
+    /// use `selectedChildDevice` for this because views set it
+    /// synchronously on tap (before this function runs) to fix the
+    /// spinner-gate timing.
+    private var childStateOwnerDeviceID: String?
+
     /// Update the selected device, clear state, and restore the device's cached
-    /// state synchronously. Used both when a load starts fresh AND when a new
-    /// click arrives during an in-flight load — in the latter case it lets the
-    /// dashboard paint the tapped child's last-known data immediately instead
-    /// of waiting (with a stuck spinner) for the in-flight load to finish.
+    /// state synchronously.
     ///
-    /// No-ops if the device is already selected — clearing+restoring the same
-    /// device fires ~20 objectWillChange events for nothing, and the
-    /// SwiftUI re-render cascade can briefly flip the child-detail page's
-    /// `isVMShowingThisDevice` spinner gate to false.
+    /// No-ops if the state already belongs to this device — clearing and
+    /// restoring the same device fires ~20 objectWillChange events for
+    /// nothing, and the SwiftUI re-render cascade can briefly flip the
+    /// child-detail page's `isVMShowingThisDevice` spinner gate to false.
     private func selectAndRestoreFromCache(_ device: RegisteredDevice) {
-        if selectedChildDevice?.deviceID == device.deviceID, !childLearningAppsFullConfig.isEmpty || !childRewardAppsFullConfig.isEmpty {
-            // Already showing this device with non-empty cached state — nothing to do.
+        if childStateOwnerDeviceID == device.deviceID,
+           !childLearningAppsFullConfig.isEmpty || !childRewardAppsFullConfig.isEmpty {
+            // State already belongs to this device with non-empty cached
+            // content — nothing to do.
+            if selectedChildDevice?.deviceID != device.deviceID {
+                selectedChildDevice = device
+            }
             return
         }
         selectedChildDevice = device
         clearChildSpecificState()
         if let deviceID = device.deviceID {
             restoreCachedChildState(deviceID: deviceID)
+            childStateOwnerDeviceID = deviceID
+        } else {
+            childStateOwnerDeviceID = nil
         }
     }
 
