@@ -497,6 +497,51 @@ class CloudKitSyncService: ObservableObject {
     /// -zone enumeration and the log shows two passes interleaved.
     private var inFlightFetchLinkedChildDevicesTask: Task<[RegisteredDevice], Error>?
 
+    /// Timestamp of the last successful restricted-zone fetch. Used by the
+    /// freshness short-circuit below — repeat callers within the freshness
+    /// window get a synthesized result from local Core Data + cached zone
+    /// mapping instead of round-tripping CloudKit. Cleared on cold launch
+    /// so the first call of each session still validates against CK.
+    private var lastSuccessfulFetchAt: Date?
+    private static let fetchFreshnessWindow: TimeInterval = 30  // seconds
+
+    /// Synthesize the linked-children list from local Core Data + the
+    /// deviceID→zone mapping cache, without any CloudKit round-trip.
+    /// NSPersistentCloudKitContainer keeps RegisteredDevice rows mirrored to
+    /// CK in near-real-time; for the typical case (repeat callers within a
+    /// few seconds of each other, page-swipe refreshes, etc.) this is the
+    /// same result we'd get from a full scan — without paying the network
+    /// cost of downloading thousands of unrelated records per zone.
+    /// Returns nil if any device row is missing its zone mapping (caller
+    /// must fall back to a real CK fetch in that case).
+    private func synthesizeLinkedChildDevicesFromLocal() -> [RegisteredDevice]? {
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        guard !parentDeviceID.isEmpty else { return nil }
+        let context = PersistenceController.shared.container.viewContext
+        let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
+        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        guard let rows = try? context.fetch(req), !rows.isEmpty else { return nil }
+
+        // Dedupe by deviceID — NSPersistentCloudKitContainer can mirror the
+        // same record into multiple rows after pair/unpair/repair cycles.
+        var seen = Set<String>()
+        var deduped: [RegisteredDevice] = []
+        for row in rows {
+            guard let id = row.deviceID, seen.insert(id).inserted else { continue }
+            // Enrich from cache; if any device is missing its zone mapping,
+            // we don't trust the synthesis — fall back to a real CK fetch.
+            if row.sharedZoneID == nil || row.sharedZoneOwner == nil {
+                guard let pair = Self.cachedZoneInfo(forDeviceID: id, parentDeviceID: parentDeviceID) else {
+                    return nil
+                }
+                row.sharedZoneID = pair.zoneName
+                row.sharedZoneOwner = pair.zoneOwner
+            }
+            deduped.append(row)
+        }
+        return deduped
+    }
+
     /// Fetch linked child devices from private database by querying each ChildMonitoring zone
     ///
     /// - Parameter restrictToKnownZones: When `true` (default), only query zones whose
@@ -508,6 +553,22 @@ class CloudKitSyncService: ObservableObject {
     ///   yet (cold start, fresh install). Pairing/discovery flows must pass `false`
     ///   so a newly-paired child's zone (not yet in local cache) is found.
     func fetchLinkedChildDevices(restrictToKnownZones: Bool = true) async throws -> [RegisteredDevice] {
+        // Freshness short-circuit: if we successfully fetched within the
+        // freshness window AND the caller accepts cached data (restricted
+        // path), synthesize the result from local Core Data + cached zone
+        // mapping. Avoids re-downloading thousands of records per zone for
+        // every refresh, swipe, or seat-count check. Pairing/discovery flows
+        // (restrictToKnownZones=false) always bypass.
+        if restrictToKnownZones,
+           let last = lastSuccessfulFetchAt,
+           Date().timeIntervalSince(last) < Self.fetchFreshnessWindow,
+           let synthesized = synthesizeLinkedChildDevicesFromLocal() {
+            #if DEBUG
+            print("[CloudKitSyncService] Freshness short-circuit: returning \(synthesized.count) device(s) from local cache (last fetch \(Int(Date().timeIntervalSince(last)))s ago)")
+            #endif
+            return synthesized
+        }
+
         // Coalesce concurrent callers on the common default path. Pairing/discovery
         // flows pass `restrictToKnownZones: false` — they expect a fresh full scan
         // and must not share a result with a restricted in-flight fetch.
@@ -694,6 +755,7 @@ class CloudKitSyncService: ObservableObject {
         if !freshZoneSet.isEmpty && allScansSucceeded {
             saveKnownChildZoneNames(freshZoneSet, parentDeviceID: parentDeviceID)
             saveChildZoneMapping(devices, parentDeviceID: parentDeviceID)
+            lastSuccessfulFetchAt = Date()
         } else if !freshZoneSet.isEmpty && !allScansSucceeded {
             #if DEBUG
             let failedCount = childMonitoringZones.count - successfullyScannedZones.count

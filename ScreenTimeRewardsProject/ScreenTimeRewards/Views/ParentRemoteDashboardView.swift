@@ -351,7 +351,9 @@ struct ParentRemoteDashboardView: View {
 
         await viewModel.loadLinkedChildDevices()
         if let device = viewModel.selectedChildDevice ?? singleDevice {
-            await viewModel.loadChildData(for: device)
+            // Pull-to-refresh and explicit refresh button bypass the per-child
+            // throttle so the user actually gets fresh data.
+            await viewModel.loadChildData(for: device, forceRefresh: true)
         }
         lastRefreshEpoch = Date().timeIntervalSince1970
     }

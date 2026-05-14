@@ -91,7 +91,8 @@ struct ChildUsageDashboardView: View {
                 Button(action: {
                     Task {
                         if let device = currentDevice {
-                            await viewModel.loadChildData(for: device)
+                            // Explicit refresh button — bypass per-child throttle.
+                            await viewModel.loadChildData(for: device, forceRefresh: true)
                         }
                     }
                 }) {
@@ -184,7 +185,7 @@ struct ChildUsagePageView: View {
                     ChildHomeTabView(
                         viewModel: viewModel,
                         device: device,
-                        onRefresh: { await viewModel.loadChildData(for: device) }
+                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
                     )
                     .tag(0)
 
@@ -195,7 +196,7 @@ struct ChildUsagePageView: View {
                         usageRecords: isVMShowingThisDevice ? viewModel.usageRecords : [],
                         historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
                         onConfigUpdated: { viewModel.updateAppConfig($0) },
-                        onRefresh: { await viewModel.loadChildData(for: device) }
+                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
                     )
                     .tag(1)
 
@@ -208,7 +209,7 @@ struct ChildUsagePageView: View {
                         historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
                         childLearningApps: isVMShowingThisDevice ? viewModel.childLearningAppsFullConfig : [],
                         onConfigUpdated: { viewModel.updateAppConfig($0) },
-                        onRefresh: { await viewModel.loadChildData(for: device) }
+                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
                     )
                     .tag(2)
 

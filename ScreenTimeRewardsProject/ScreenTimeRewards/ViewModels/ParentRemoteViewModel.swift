@@ -808,6 +808,14 @@ class ParentRemoteViewModel: ObservableObject {
     private static let observerRefetchMinInterval: TimeInterval = 60
     private var lastObserverTriggeredFetchAt: Date?
 
+    /// Per-child fetch throttle. Tracks when we last successfully loaded each
+    /// child's CK data. Repeat calls within the window (e.g. carousel swipes,
+    /// re-mount of a tab) skip the CK fetch entirely and rely on cached
+    /// state restored from disk. Pull-to-refresh and explicit refresh button
+    /// taps pass `forceRefresh: true` to bypass.
+    private static let perChildFreshnessWindow: TimeInterval = 30
+    private var lastChildLoadAt: [String: Date] = [:]
+
     init() {
         setupCloudKitNotifications()
         populateFromLocalCache()
@@ -1461,8 +1469,28 @@ class ParentRemoteViewModel: ObservableObject {
         }
     }
 
-    /// Load usage data and configurations for a specific child device
-    func loadChildData(for device: RegisteredDevice) async {
+    /// Load usage data and configurations for a specific child device.
+    ///
+    /// - Parameter forceRefresh: When false (default), a recent successful
+    ///   load for the same device (within the per-child freshness window)
+    ///   skips the CK fetch and serves from cache. Pull-to-refresh and the
+    ///   refresh button should pass true.
+    func loadChildData(for device: RegisteredDevice, forceRefresh: Bool = false) async {
+        // Per-child freshness short-circuit. Skips redundant CK fetches when
+        // the user is swiping between children that were just loaded. Cache
+        // restore still happens via selectAndRestoreFromCache so the dashboard
+        // paints with last-known data immediately.
+        if !forceRefresh,
+           let deviceID = device.deviceID,
+           let last = lastChildLoadAt[deviceID],
+           Date().timeIntervalSince(last) < Self.perChildFreshnessWindow,
+           !isLoadingChildData {
+            #if DEBUG
+            print("[ParentRemoteViewModel] Throttled CK load for \(deviceID.prefix(8))… (last load \(Int(Date().timeIntervalSince(last)))s ago) — serving from cache")
+            #endif
+            selectAndRestoreFromCache(device)
+            return
+        }
         // Latest-request-wins: if a load is already in flight, record this request
         // as pending so the in-flight load picks it up at the end (see tail of
         // this function). Avoid overwriting pending with the SAME device —
@@ -1516,18 +1544,33 @@ class ParentRemoteViewModel: ObservableObject {
             let startDate = calendar.date(byAdding: .day, value: -7, to: endDate)!
             let dateRange = DateInterval(start: startDate, end: endDate)
 
-            // Use the new CloudKit-based method to fetch usage data directly from shared zones
-            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
-            let fetchedUsage = try await cloudKitService.fetchChildUsageDataFromCloudKit(
+            // Fire usage, configs, streaks, and extension sync IN PARALLEL.
+            // Previously these ran sequentially after each other, adding ~15-20s
+            // per child to dashboard load. Each branch handles its own writes
+            // (configs/streaks already write via MainActor.run; usage writes
+            // here after the await). All branches share the same device-
+            // mismatch guard so a user-swipe mid-fetch still drops stale writes.
+            async let usageTask = cloudKitService.fetchChildUsageDataFromCloudKit(
                 deviceID: device.deviceID ?? "",
                 dateRange: dateRange,
                 zoneID: device.sharedZoneID,
                 zoneOwner: device.sharedZoneOwner
             )
+            async let configsTaskVoid: Void = loadChildAppConfigurations(for: device)
+            async let streakTaskVoid: Void = loadChildStreakRecords(for: device)
+            async let extSyncTaskVoid: Void = loadExtensionSyncStatus(for: device)
+
+            // Await usage first because we need it for the local Core Data
+            // summaries query below. The other three tasks continue running
+            // in parallel; we await them at the end.
+            let fetchedUsage = try await usageTask
             guard selectedChildDevice?.deviceID == targetDeviceID else {
                 #if DEBUG
                 print("[ParentRemoteViewModel] Dropping superseded write for \(targetDeviceID ?? "?")")
                 #endif
+                // Let the other parallel tasks finish (their writes are also
+                // gated by selectedChildDevice; they'll no-op).
+                _ = await (configsTaskVoid, streakTaskVoid, extSyncTaskVoid)
                 isLoadingChildData = false
                 if let pending = pendingChildLoad {
                     pendingChildLoad = nil
@@ -1562,22 +1605,15 @@ class ParentRemoteViewModel: ObservableObject {
 
             appConfigurations = try context.fetch(fetchRequest)
 
-            // Also load child app configurations from CloudKit
-            await loadChildAppConfigurations(for: device)
-            guard selectedChildDevice?.deviceID == targetDeviceID else {
-                isLoadingChildData = false
-                if let pending = pendingChildLoad {
-                    pendingChildLoad = nil
-                    await loadChildData(for: pending)
-                }
-                return
+            // Wait for the other three CK tasks to finish before declaring
+            // the load complete. They're still running in parallel from above.
+            _ = await (configsTaskVoid, streakTaskVoid, extSyncTaskVoid)
+
+            // Stamp the per-child freshness timestamp so subsequent swipes
+            // within the throttle window skip the CK refresh.
+            if let did = device.deviceID {
+                lastChildLoadAt[did] = Date()
             }
-
-            // Load child streak records from CloudKit
-            await loadChildStreakRecords(for: device)
-
-            // Load extension sync status for diagnostics
-            await loadExtensionSyncStatus(for: device)
         } catch {
             print("[ParentRemoteViewModel] Error loading child data: \(error)")
             handleCloudKitError(error)
@@ -1613,32 +1649,46 @@ class ParentRemoteViewModel: ObservableObject {
         #endif
 
         do {
-            // Fetch basic configurations (for backward compatibility)
-            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
-            let configs = try await cloudKitService.fetchChildAppConfigurations(
+            // Fire all 5 CK queries in parallel via `async let`. Previously
+            // these ran sequentially — for one child that meant 5 sequential
+            // round-trips (configs → fullConfigs → shieldStates → history →
+            // snapshot), adding ~10-15s to dashboard load. With async let the
+            // total wall-clock time is the SLOWEST single query, not the sum.
+            async let configsTask = cloudKitService.fetchChildAppConfigurations(
                 deviceID: deviceID,
                 zoneID: device.sharedZoneID,
                 zoneOwner: device.sharedZoneOwner
             )
+            async let fullConfigsTask = cloudKitService.fetchChildAppConfigurationsFullDTO(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+            async let shieldStatesTask = cloudKitService.fetchChildShieldStates(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+            async let usageHistoryTask = cloudKitService.fetchChildDailyUsageHistory(
+                deviceID: deviceID,
+                daysToFetch: 30,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+            async let snapshotTask = cloudKitService.fetchChildDailySnapshot(
+                deviceID: deviceID,
+                zoneID: device.sharedZoneID,
+                zoneOwner: device.sharedZoneOwner
+            )
+
+            let configs = try await configsTask
+            let fullConfigs = try await fullConfigsTask
+            let shieldStates = try await shieldStatesTask
+            let usageHistory = try await usageHistoryTask
+            let snapshot = try await snapshotTask
 
             #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(configs.count) app configurations from CloudKit")
-            #endif
-
-            // Filter into learning and reward categories.
-            // Case-insensitive parse so legacy lowercase records still partition correctly.
-            let learning = configs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
-            let reward = configs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
-
-            // Also fetch full DTOs with schedule/goals/streaks
-            // Use zone-specific query if zone info available (optimization)
-            let fullConfigs = try await cloudKitService.fetchChildAppConfigurationsFullDTO(
-                deviceID: deviceID,
-                zoneID: device.sharedZoneID,
-                zoneOwner: device.sharedZoneOwner
-            )
-
-            #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(fullConfigs.count) full app configurations (DTOs)")
             for dto in fullConfigs {
                 print("[ParentRemoteViewModel]   App: \(dto.displayName) | Category: \(dto.category)")
@@ -1651,55 +1701,26 @@ class ParentRemoteViewModel: ObservableObject {
                     print("[ParentRemoteViewModel]       Linked Apps: \(dto.linkedLearningApps.count) (\(dto.unlockMode.displayName))")
                 }
             }
-            #endif
-
-            // Filter full DTOs into learning and reward categories.
-            // Case-insensitive parse so legacy lowercase records still partition correctly.
-            let learningFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
-            let rewardFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
-
-            // Fetch shield states for reward apps
-            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
-            let shieldStates = try await cloudKitService.fetchChildShieldStates(
-                deviceID: deviceID,
-                zoneID: device.sharedZoneID,
-                zoneOwner: device.sharedZoneOwner
-            )
-
-            #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(shieldStates.count) shield states")
             for (logicalID, state) in shieldStates {
                 print("[ParentRemoteViewModel]   \(state.rewardAppDisplayName ?? logicalID): \(state.isUnlocked ? "UNLOCKED" : "BLOCKED")")
             }
-            #endif
-
-            // Fetch daily usage history (last 30 days)
-            // Pass zone info for zone-specific query (avoids querying stale/orphaned zones)
-            let usageHistory = try await cloudKitService.fetchChildDailyUsageHistory(
-                deviceID: deviceID,
-                daysToFetch: 30,
-                zoneID: device.sharedZoneID,
-                zoneOwner: device.sharedZoneOwner
-            )
-
-            #if DEBUG
             print("[ParentRemoteViewModel] Fetched \(usageHistory.count) daily usage history records")
-            #endif
-
-            // Fetch daily snapshot with pre-calculated earnedMinutes
-            let snapshot = try await cloudKitService.fetchChildDailySnapshot(
-                deviceID: deviceID,
-                zoneID: device.sharedZoneID,
-                zoneOwner: device.sharedZoneOwner
-            )
-
-            #if DEBUG
             if let snapshot = snapshot {
                 print("[ParentRemoteViewModel] Fetched daily snapshot: earned=\(snapshot.totalEarnedMinutes)m")
             } else {
                 print("[ParentRemoteViewModel] No daily snapshot available")
             }
             #endif
+
+            // Filter into learning and reward categories.
+            // Case-insensitive parse so legacy lowercase records still partition correctly.
+            let learning = configs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
+            let reward = configs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
+
+            // Filter full DTOs into learning and reward categories.
+            let learningFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .learning && $0.isEnabled }
+            let rewardFull = fullConfigs.filter { AppUsage.AppCategory.parse($0.category) == .reward && $0.isEnabled }
 
             // Group history by app logicalID
             let historyByApp = Dictionary(grouping: usageHistory) { $0.logicalID }
@@ -1842,6 +1863,9 @@ class ParentRemoteViewModel: ObservableObject {
             let summary = ChildStreakSummary(deviceID: deviceID, records: streakRecords)
 
             await MainActor.run {
+                // Drop write if user swiped to a different child mid-fetch.
+                // See loadChildAppConfigurations guard for rationale.
+                guard self.selectedChildDevice?.deviceID == deviceID else { return }
                 self.childStreakRecords = streakRecords
                 self.childStreakSummary = summary
             }
@@ -1891,6 +1915,8 @@ class ParentRemoteViewModel: ObservableObject {
             let status = ExtensionSyncStatusDTO(from: record)
 
             await MainActor.run {
+                // Drop write if user swiped to a different child mid-fetch.
+                guard self.selectedChildDevice?.deviceID == deviceID else { return }
                 self.extensionSyncStatus = status
             }
 
