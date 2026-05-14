@@ -350,9 +350,15 @@ struct ParentRemoteDashboardView: View {
         }
 
         await viewModel.loadLinkedChildDevices()
-        if let device = viewModel.selectedChildDevice ?? singleDevice {
-            // Pull-to-refresh and explicit refresh button bypass the per-child
-            // throttle so the user actually gets fresh data.
+        // Only force a per-child load on EXPLICIT refresh (pull-to-refresh,
+        // refresh button). On `isAuto: true` (app launch / scenePhase active)
+        // the user is on the Family Dashboard — cards render their tiles
+        // from the on-disk cache. Triggering a full per-child load here
+        // would clear+restore @Published vars for the auto-selected child,
+        // cascading objectWillChange events that linger if the user then
+        // taps into a child page. Let ChildUsageDashboardView.onAppear own
+        // its own loadChildData when the user actually navigates.
+        if !isAuto, let device = viewModel.selectedChildDevice ?? singleDevice {
             await viewModel.loadChildData(for: device, forceRefresh: true)
         }
         lastRefreshEpoch = Date().timeIntervalSince1970
