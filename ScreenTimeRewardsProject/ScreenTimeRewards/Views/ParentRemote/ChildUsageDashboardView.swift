@@ -45,12 +45,13 @@ struct ChildUsageDashboardView: View {
                 // Trigger data reload when user swipes to a different child device
                 guard newIndex >= 0 && newIndex < devices.count else { return }
                 let device = devices[newIndex]
-                // Synchronously reflect the user's swipe in the VM so the
-                // spinner gate (isVMShowingThisDevice) matches this page
-                // from the first render. loadChildData updates this later
-                // via selectAndRestoreFromCache, but that async hop is
-                // long enough for SwiftUI to render a stuck spinner first.
-                viewModel.selectedChildDevice = device
+                // Synchronously swap both selectedChildDevice AND the cached
+                // child-specific @Published state. Setting only the selection
+                // here would open the spinner gate while the data arrays still
+                // hold the previous child's data — visible as wrong-child
+                // content under the tapped child's header. The sync restore
+                // makes both line up before SwiftUI re-evaluates the body.
+                viewModel.selectAndRestoreFromCacheSync(device)
                 Task {
                     await viewModel.loadChildData(for: device)
                 }
@@ -121,14 +122,13 @@ struct ChildUsageDashboardView: View {
             // isLoadingChildData and only the first (always page 0) ran —
             // leaving the user's actually-selected child silently un-loaded.
             if let device = currentDevice {
-                // Synchronously set selectedChildDevice so the spinner gate
-                // (isVMShowingThisDevice) sees a match from frame 1. Without
-                // this, the page mounts with the previous selectedChildDevice
-                // (e.g., the auto-selected first child), the spinner shows,
-                // and the async loadChildData below doesn't update
-                // selectedChildDevice until after the first render — visible
-                // as a stuck "Loading {tapped child}…" overlay.
-                viewModel.selectedChildDevice = device
+                // Synchronously bring up the tapped child's last-known state
+                // BEFORE SwiftUI evaluates the page body. Setting only the
+                // selection here would open the spinner gate while the data
+                // arrays still hold the previous child's data — visible as
+                // wrong-child content. selectAndRestoreFromCacheSync updates
+                // both selection AND state in one synchronous step.
+                viewModel.selectAndRestoreFromCacheSync(device)
                 Task {
                     await viewModel.loadChildData(for: device)
                 }

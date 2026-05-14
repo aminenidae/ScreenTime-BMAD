@@ -880,7 +880,12 @@ class ParentRemoteViewModel: ObservableObject {
             device.sharedZoneOwner = pair.zoneOwner
         }
 
-        linkedChildDevices = deduped
+        // Sort deterministically by deviceID so the card layout stays stable
+        // across local-cache → CK-fetch transitions. Without this, the carousel
+        // re-shuffled the moment the CK fetch returned (different array order
+        // from a different source), changing the position of each child's
+        // card under the user's finger.
+        linkedChildDevices = deduped.sorted { ($0.deviceID ?? "") < ($1.deviceID ?? "") }
 
         #if DEBUG
         let dropped = localDevices.count - deduped.count
@@ -1245,7 +1250,11 @@ class ParentRemoteViewModel: ObservableObject {
         }
 
         do {
-            linkedChildDevices = try await cloudKitService.fetchLinkedChildDevices()
+            // Sort by deviceID — same order populateFromLocalCache uses, so
+            // the carousel layout doesn't reshuffle when the CK fetch
+            // replaces the local-cache placeholder array.
+            let fetched = try await cloudKitService.fetchLinkedChildDevices()
+            linkedChildDevices = fetched.sorted { ($0.deviceID ?? "") < ($1.deviceID ?? "") }
 
             #if DEBUG
             print("[ParentRemoteViewModel] Loaded \(linkedChildDevices.count) child devices")
@@ -1464,6 +1473,18 @@ class ParentRemoteViewModel: ObservableObject {
     /// synchronously on tap (before this function runs) to fix the
     /// spinner-gate timing.
     private var childStateOwnerDeviceID: String?
+
+    /// Public entry point that synchronously swaps both `selectedChildDevice`
+    /// and the child-specific @Published state to the given device. Used
+    /// by views (e.g. `ChildUsageDashboardView.onAppear`,
+    /// `.onChange(currentIndex)`) on user navigation so the spinner gate
+    /// AND the underlying data both reflect the user's tap before any
+    /// async CK refresh runs. Without this, the gate opens to the new
+    /// child while the @Published arrays still hold the previous child's
+    /// data — visible as "tapped X, dashboard shows Y".
+    func selectAndRestoreFromCacheSync(_ device: RegisteredDevice) {
+        selectAndRestoreFromCache(device)
+    }
 
     /// Update the selected device, clear state, and restore the device's cached
     /// state synchronously.
