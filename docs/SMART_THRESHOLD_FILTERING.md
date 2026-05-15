@@ -3555,3 +3555,98 @@ The May 11 work (`7d1b171` BUFFER_LEGIT source fix, `36bfe11` sentinel windows, 
 #### Files affected
 
 - `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — Layer 3 wrapped in `if isRewardApp` guard. Learning-app events no longer hit the post-unshield budget check.
+
+### May 14, 2026 — Schedule-edit refresh trigger + brief shield gap surfaced
+
+Two findings from a same-day test on the child device:
+
+1. **`saveSchedule()` now triggers a sliding-window rebuild** — fix landed in `AppScheduleService.saveSchedule()` and `saveSchedules()`. Closes a class of bugs where a mid-day daily-limit change had no effect on tracking until the next midnight rebuild.
+2. **A pre-existing OS-level shield clear is exposed by the same save flow** — not caused by today's fix, but now easier to reproduce. Documented for follow-up.
+
+#### Bug 1: Daily-limit edit didn't re-register thresholds
+
+**Symptom.** Reward app `2207A02D` (Block Blast) was used for 42 minutes after its shield dropped. Zero usage was recorded; the 30-min daily-limit re-shield never fired.
+
+**Root cause.** `windowSize(for:category:isShielded:)` returns 0 when `schedule.dailyLimits.todayLimit == 0`. The midnight `scheduleActivity()` writes `window_size_<id>=0` for that app and skips threshold registration entirely. Later in the day the parent changed the limit from 0 to 30 in the UI, but the existing `saveSchedule()` only:
+
+1. Updated the in-memory schedule
+2. Persisted to disk
+3. Wrote per-app extension keys via `saveScheduleForExtension(config)`
+4. Pushed refreshed goal configs via `syncGoalConfigsToExtension()`
+
+Nothing in that chain re-runs the tripwire layout. So `window_size_<id>` stayed at 0 until the next midnight, iOS had no events to fire, and `checkAndBlockIfRewardTimeExhausted` never had a chance to enforce the new 30-min cap.
+
+The extension's `extensionRebuildSlidingWindow()` also defers to the stored `window_size_<id>` (lines ~1337–1341 of the extension): the rule is "key present, value 0 → skip this app entirely." So even the next time the extension's window-top-hit / midnight rebuild fired, this app was still excluded.
+
+**Why a second test device worked under "the same" sequence.** The second device had a different history — daily limit went **120 → 0 → 30**. At midnight `scheduleActivity()` ran while the limit was 120, so `window_size_<id>` was written as 120 (well above the 30-min play session). The kid's session fit inside the existing window and recorded correctly even though the limit then dropped to 0 and bounced back to 30. The bug only manifests when **midnight wrote 0** and the limit later became non-zero.
+
+**Fix.** In `AppScheduleService.saveSchedule()` (and the `saveSchedules()` batch path), after the existing four steps, kick off an explicit restart:
+
+```swift
+if ScreenTimeService.shared.isMonitoring {
+    Task { @MainActor in
+        await ScreenTimeService.shared.restartMonitoring(reason: "schedule edited")
+    }
+}
+```
+
+This re-runs `scheduleActivity()` with the new limit in hand, which overwrites the stale `window_size_<id>=0` to a real number and registers tripwires for the rest of the day.
+
+**Why this trigger is safe (unlike the May 10 shield-drop trigger).** The May 10 cascade rollback removed an *extension-side* shield-drop → restart trigger because shield drops can fire many times per minute in feedback loops (drop → catch-ups dump → events → bank changes → another drop). The `saveSchedule()` path fires only when a human taps Save in the parent UI. It can't loop.
+
+**Test result (May 14, child device).** After the build with the fix:
+1. User edited Block Blast's daily limit (re-saved 30 min).
+2. `MONITORING_RESTART — reason: schedule edited` fired within ~1s of the save.
+3. New tripwire layout for `2207A02D`: `range=1-60 (60 thresholds)`.
+4. iOS dumped catch-up events for the kid's existing 42 min of play. Filter chain processed them cleanly — no contamination of other apps.
+5. `BANK_BREAKDOWN historical=47min todayEarned=60min todayUsed=42min`. Correct credit.
+6. `DAILY_LIMIT_BLOCK: 2207A02D-939... used=42min >= limit=30min` — the re-shield finally fired. Subsequent threshold events were `SKIP_SHIELDED`. ✓
+
+**Files affected.**
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift` — `saveSchedule()` and `saveSchedules()` now trigger `restartMonitoring(reason: "schedule edited")` when monitoring is active. No-op on the parent device (no active monitoring there).
+
+#### Bug 2 (pre-existing, NOT introduced today): brief OS-level shield clear during sync
+
+**Symptom.** Immediately after the save, the user was able to open dailyLimit=0 reward apps directly on the child device. The shields were truly gone at the OS level — not a stale UI. They were back about 3 seconds later (after Block Blast's catch-up events triggered `checkAndBlockIfRewardTimeExhausted`, which re-applied the missing dailyLimit=0 shields via `DAILY_ZERO_BLOCK`).
+
+**This is the same pattern as the day's earlier 18:08:45 DAILY_ZERO_BLOCK burst** — eleven dailyLimit=0 shields had been missing on the OS until usage activity triggered the extension's safety net to re-apply them. That happened hours before any of today's saveSchedule work. The fix exposed it because Block Blast's post-save catch-up events landed quickly enough for the user to notice the gap.
+
+**Root cause (likely).** `ScreenTimeService.currentlyShielded` is a `Set<ApplicationToken>` initialized to `[]` on every app launch. The OS-level shields persist across launches, but the in-memory copy doesn't. Both `blockRewardApps` and `unblockRewardApps` use the in-memory copy as source of truth and overwrite the OS state:
+
+```swift
+// blockRewardApps
+currentlyShielded.formUnion(tokens)
+managedSettingsStore.shield.applications = currentlyShielded
+
+// unblockRewardApps
+currentlyShielded.subtract(tokens)
+managedSettingsStore.shield.applications = currentlyShielded
+```
+
+If `currentlyShielded == []` at app launch and `unblockRewardApps(X)` runs before any `blockRewardApps` has populated the in-memory copy, then:
+
+- `[].subtract(X)` → still `[]`
+- `managedSettingsStore.shield.applications = []` → **every shield on the device is cleared**
+
+The window for this is small (`BlockingCoordinator.syncAllRewardApps` calls block-then-unblock back-to-back, and the extension's safety net re-applies dailyLimit=0 shields within ~3 s when any usage event fires), but it's not zero. Today's user happened to test fast enough to hit it.
+
+**Fix idea (not implemented this session).** Make both functions read the OS state authoritatively, modify, and write back — instead of trusting the in-memory copy:
+
+```swift
+var os = managedSettingsStore.shield.applications ?? Set()
+os.subtract(tokens)          // or formUnion(tokens) for block
+managedSettingsStore.shield.applications = os.isEmpty ? nil : os
+currentlyShielded = os       // resync
+```
+
+Or: hydrate `currentlyShielded` from `managedSettingsStore.shield.applications` at `ScreenTimeService.init` so the in-memory copy is never empty when shields exist on the OS.
+
+**Decision.** Documented for follow-up. Not fixing in this session — the safety net catches it within seconds via `checkAndBlockIfRewardTimeExhausted`, and the user wanted to ship the saveSchedule fix without bundling.
+
+#### Files affected (today's session)
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift` (Bug 1 fix only)
+
+
+docs/SILENT_PUSH_MONITORING_REFRESH.md

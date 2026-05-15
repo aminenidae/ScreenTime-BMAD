@@ -126,6 +126,17 @@ class AppScheduleService: ObservableObject {
                 ScreenTimeService.shared.syncGoalConfigsToExtension()
             }
         }
+
+        // Sliding-window tripwires are sized from `dailyLimits.todayLimit` at the
+        // moment `scheduleActivity()` last ran. A mid-day limit change (e.g. 0 → 30)
+        // leaves `window_size_<id>` stale until next midnight, so iOS fires no
+        // events and the extension can't shield on cap-reached. Refresh now.
+        // Only fires when monitoring is active (no-op on the parent device).
+        if ScreenTimeService.shared.isMonitoring {
+            Task { @MainActor in
+                await ScreenTimeService.shared.restartMonitoring(reason: "schedule edited")
+            }
+        }
     }
 
     /// Delete a schedule configuration
@@ -221,6 +232,14 @@ class AppScheduleService: ObservableObject {
         if hasLinkedApps {
             Task { @MainActor in
                 ScreenTimeService.shared.syncGoalConfigsToExtension()
+            }
+        }
+
+        // Refresh sliding-window tripwires once for the whole batch — see saveSchedule()
+        // for the rationale. One restart covers every config in `configs`.
+        if ScreenTimeService.shared.isMonitoring {
+            Task { @MainActor in
+                await ScreenTimeService.shared.restartMonitoring(reason: "schedules edited (batch)")
             }
         }
     }
