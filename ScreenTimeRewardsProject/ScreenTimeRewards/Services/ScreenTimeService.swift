@@ -3241,11 +3241,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let startTime = Date()
         #endif
 
-        // BF-2 FIX: Change from assignment to formUnion to properly add tokens to existing set
-        // Previously: currentlyShielded = tokens (which replaced the entire set)
-        // Now: currentlyShielded.formUnion(tokens) (which adds tokens to existing set)
-        currentlyShielded.formUnion(tokens)
-        managedSettingsStore.shield.applications = currentlyShielded
+        // Read the OS-level shield set as source of truth, then merge tokens in.
+        // The in-memory `currentlyShielded` resets to [] on every launch, but iOS-level
+        // shields persist — so trusting in-memory here can drop pre-existing shields the
+        // moment we assign back. See May 14 Xcode trace where CloudKit config sync wiped
+        // every shield via unblock-with-empty-in-memory. Source-of-truth read fixes both
+        // sides symmetrically.
+        var osShieldSet = managedSettingsStore.shield.applications ?? Set()
+        osShieldSet.formUnion(tokens)
+        managedSettingsStore.shield.applications = osShieldSet.isEmpty ? nil : osShieldSet
+        currentlyShielded = osShieldSet
 
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)
@@ -3319,11 +3324,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         let startTime = Date()
         #endif
 
-        // Remove from currently shielded
-        currentlyShielded.subtract(tokens)
-
-        // Update ManagedSettings
-        managedSettingsStore.shield.applications = currentlyShielded
+        // Read the OS-level shield set as source of truth, then remove tokens.
+        // See blockRewardApps for the rationale — in-memory `currentlyShielded` starts
+        // empty on every launch, so subtract-then-assign would clear every OS shield.
+        var osShieldSet = managedSettingsStore.shield.applications ?? Set()
+        osShieldSet.subtract(tokens)
+        managedSettingsStore.shield.applications = osShieldSet.isEmpty ? nil : osShieldSet
+        currentlyShielded = osShieldSet
 
         #if DEBUG
         let elapsed = Date().timeIntervalSince(startTime)

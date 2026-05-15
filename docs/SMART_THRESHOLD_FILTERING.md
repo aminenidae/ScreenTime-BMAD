@@ -3649,22 +3649,23 @@ In this trace there were ~38 successive "Currently shielded: 0 apps" lines as th
 
 The same call sites exist in `AppUsageViewModel.swift:2093` (unlock-via-points) and `:2752` (remove-app), so any user action that calls those before block has seeded the in-memory copy hits the same wipe.
 
-**Fix idea (not implemented this session).** Make both functions read the OS state authoritatively, modify, and write back — instead of trusting the in-memory copy:
+**Fix shipped (later in the same session).** Both `blockRewardApps` and `unblockRewardApps` now read the OS-level shield set as their source of truth before modifying it, then write the result back and resync the in-memory copy:
 
 ```swift
-var os = managedSettingsStore.shield.applications ?? Set()
-os.subtract(tokens)          // or formUnion(tokens) for block
-managedSettingsStore.shield.applications = os.isEmpty ? nil : os
-currentlyShielded = os       // resync
+var osShieldSet = managedSettingsStore.shield.applications ?? Set()
+osShieldSet.subtract(tokens)          // or formUnion(tokens) for block
+managedSettingsStore.shield.applications = osShieldSet.isEmpty ? nil : osShieldSet
+currentlyShielded = osShieldSet       // resync in-memory with what we just wrote
 ```
 
-Or: hydrate `currentlyShielded` from `managedSettingsStore.shield.applications` at `ScreenTimeService.init` so the in-memory copy is never empty when shields exist on the OS.
+This makes the operations symmetric and idempotent against in-memory drift. The empty-in-memory case can no longer wipe the OS set, because the OS set itself is what we read, modify, and write back.
 
-**Decision.** Documented for follow-up. Not fixing in this session — the safety net catches it within seconds via `checkAndBlockIfRewardTimeExhausted`, and the user wanted to ship the saveSchedule fix without bundling.
+`syncRewardAppShields` is intentionally left as-is — its contract is "replace ALL shields with this set," so the assign-then-write pattern is correct there.
 
 #### Files affected (today's session)
 
-- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift` (Bug 1 fix only)
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift` — Bug 1 fix (mid-day limit edit triggers tripwire refresh).
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` — Bug 2 fix (`blockRewardApps` and `unblockRewardApps` read OS shield set as source of truth).
 
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
