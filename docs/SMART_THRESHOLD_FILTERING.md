@@ -3667,5 +3667,131 @@ This makes the operations symmetric and idempotent against in-memory drift. The 
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift` — Bug 1 fix (mid-day limit edit triggers tripwire refresh).
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift` — Bug 2 fix (`blockRewardApps` and `unblockRewardApps` read OS shield set as source of truth).
 
+### May 14, 2026 — Double-restart phantom flood + restart-window shadow
+
+#### Incident
+
+Device with expired subscription, accessed via the DEBUG-only "Activate Dev Subscription" path (`SubscriptionLockoutView.swift:96`). One device out of 5 — the only one with this code path active in production.
+
+At 22:00:18 a legitimate `WINDOW_TOP_HIT` for 2D4AEC4E triggered the main-app rebuild route (`MONITORING_RESTART — reason: extension window-rebuild request: window-top-2D4AEC4E`). Three seconds later, at 22:00:21, the dev-subscription-bypass path fired a second full restart (`MONITORING_RESTART — reason: dev subscription bypass`). Between 22:00:23 and 22:00:28, iOS dumped a merged catch-up replay of every cumulative threshold for all 8 apps:
+
+| App | Before kill | After 5s burst | Phantom |
+|---|---|---|---|
+| 6B46A5C3 (reward) | 0 min | 52 min | **+52 min** |
+| B9FC27B5 (reward) | 0 min | 59 min | **+59 min** |
+| 3E3FE0D5 (learning) | 0 min | 30 min | **+30 min** |
+| C70B0647 | 76 min | 106 min | +30 min |
+| 2D4AEC4E | 166 min | 186 min | +20 min |
+| 4AF106C2 | 87 min | 105 min | +18 min |
+| 16CB572C | 16 min | 33 min | +17 min |
+
+Total: **226 minutes (3.8 hours)** of phantom credit in a 5-second window. `BURST_BUDGET_DIAG` correctly detected the violation (proposed=13260s vs budget=521s wallclock) but is wired as "diagnostic only, no action" — it observed the flood without blocking it.
+
+#### Why the existing filters didn't catch it
+
+1. **`SKIP_FLOOD` (Filter 1.7) is shielded-reward-app-anchored.** It only arms when a shielded reward app fires inside a burst. Both reward apps were unshielded at 22:00 (goals were met hours earlier), so the trigger never engaged.
+2. **`isMidDayBurst` (`PER_EVENT_CAP` bypass) is structurally vulnerable to post-restart replays.** The condition `(now - lastEventTime) < 5s` is true for every event after the first one of an iOS catch-up dump — exactly when those events are most suspect. Once the first event records (capped at 60s), every subsequent event for that app within 5s bypasses the cap and credits full delta.
+3. **`FIRST_EVENT_BUFFER` (Filter 2.7) opened too quickly.** Normally an iOS replay delivers a min≤3 anchor 30+ seconds into the queue. The double restart's merged replay delivered the anchor at 2.5s — buffer accepted, gate opened, flood through.
+
+#### Mid-day burst is NOT what BURST_BYPASS was designed for
+
+The `isMidDayBurst` path was added to recover legit credit when iOS goes silent for 30-60 minutes mid-day and then dumps a backlog of real per-minute events in 1-2 seconds. Real legit dumps don't accumulate hours of threshold range — they accumulate minutes. The current rule conflates "two events arrived within 5 s of each other" with "this is a legit catch-up I should fully credit." That holds for legit dumps but breaks catastrophically for iOS-replay-after-restart bursts, where the threshold range is the full cumulative history.
+
+#### Why the device matters
+
+The 4 production devices restart monitoring once per `WINDOW_TOP_HIT` and they're fine. The dev-bypass device gets a *second* restart from `SubscriptionLockoutView.activateDevSubscription` running `restartMonitoring(reason: "dev subscription bypass", force: true)` 3s after the legitimate first one. That second restart is what merges iOS's queues and produces the flood.
+
+#### Old shadow removed (May 10 trust-max-threshold tracker)
+
+The May 10 shadow tracker recorded `max(threshold)` per app to compare what a "trust iOS's cumulative as ground truth" model would have credited. Verdict from production data: shadow inflated on every phantom day (SHADOW_BREAKDOWN routinely showed +30-60 min vs real). The simpler trust-max model is unsafe — we keep the layered model. Tracker no longer providing actionable signal; deleted to reclaim the slot.
+
+Keys removed:
+- `shadow_usage_<id>_today` — per-app max threshold ever seen today
+- `SHADOW_ADVANCE` log entry (per-event diagnostic)
+- `SHADOW_BREAKDOWN` log entry (per-bank-calc diagnostic)
+
+Removed from both `DeviceActivityMonitorExtension.swift` (write/read sites + midnight cleanup) and `ScreenTimeService.swift` (per-app cleanup).
+
+#### New shadow installed (restart-window per-app threshold-snapshot)
+
+User-proposed rule: when monitoring restarts, only the *triggering* app should receive events; events for other apps must advance past their pre-restart `lastThreshold` or be rejected as iOS replay artifacts. For 10 seconds after every restart, log what this rule WOULD reject without actually rejecting.
+
+State keys (UserDefaults, app-group-wide):
+- `shadow_restart_snap_timestamp` (Double) — when the restart fired
+- `shadow_restart_reason` (String) — e.g. `"window-top-2D4AEC4E"`, `"dev subscription bypass"`, `"midnight-ext-rebuild"`
+- `shadow_restart_trigger_app_prefix` (String) — 8-char hex prefix if the reason names a triggering app, else `""`
+- `shadow_restart_thresh_snap_<id>` (Int) — each tracked app's `usage_<id>_lastThreshold` at snapshot time
+
+Snapshot is written at the **start** of every restart path:
+- Main app: `ScreenTimeService.restartMonitoring(reason:force:)` — parses `"window-top-XXXXXXXX"` from the reason string to extract the trigger prefix. Empty prefix for non-app-triggered restarts (dev bypass, midnight refresh, foreground health check, etc.).
+- Extension: `extensionRebuildSlidingWindow(defaults:triggerAppID:reason:)` — takes the triggering app as a parameter. Call sites updated: midnight rebuild (`triggerAppID: nil`), `MAPPING_RECOVERED` (the recovered app), `WINDOW_TOP_HIT` (the hitting app).
+
+Shadow check in `shouldRecordEvent` (placed early in the filter chain, right after `SKIP_STALE_FLUSH`, runs only when `ageSinceRestart < 10s`):
+
+```
+if shadowTriggerPrefix.isEmpty                    → "no-trigger-app"      (would reject)
+else if appID.prefix(8) == shadowTriggerPrefix    → triggering app        (would accept)
+else if thresholdSeconds <= shadowSnap            → "stale-replay-snap=Xs"(would reject)
+else                                              → new threshold for non-triggering app (would accept)
+```
+
+When the rule would reject, the log line is:
+```
+SHADOW_RESTART_REJECT appID=XXXXXXXX... thresh=Ys reason=… triggerApp=…
+  ageSinceRestart=Ns restartReason=… — diagnostic only
+```
+
+No event is dropped. The existing filter chain still runs in full.
+
+#### Worked example against the 22:00 flood
+
+For the double restart at 22:00:18 + 22:00:21:
+- The shadow would have captured `lastThreshold` per app and `trigger=2D4AEC4E` on the first restart, then overwritten to `trigger=""` (no app context) on the second.
+- All 22:00:23–28 events would have shadow-rejected as `no-trigger-app`, because the second restart's trigger is empty.
+- Expected SHADOW_RESTART_REJECT count: ~80+ rejections in 5 seconds, matching the BURST_BYPASS / FIRST_EVENT_BUFFER_LEGIT volume that actually fired.
+
+That's the validation signal: if the SHADOW_RESTART_REJECT volume in tomorrow's logs matches the phantom-credit volume we're seeing today, the rule is safe to promote to enforcement.
+
+#### Why this is better than what we have
+
+- **`SKIP_FLOOD`** requires a shielded reward app in the burst. Doesn't fire when reward apps are unshielded (goal met). This rule doesn't require that signal.
+- **`BURST_BUDGET_DIAG`** observes aggregate violations but doesn't act, and has no per-event verdict — it can't tell you *which* event to reject.
+- **`isMidDayBurst` cap bypass** is the actual leak; this rule is positioned to override it at restart-time without breaking legit mid-day dumps (which don't cross a restart boundary).
+
+#### Honest limitations
+
+1. **Two restarts within 10 s confuses the snapshot.** The second restart overwrites the first's snapshot. In the 22:00 case, the second overwrite has `trigger=""`, which is actually more conservative (reject everything) than the first's `trigger=2D4AEC4E`. Lucky in this case; needs cleanup logic if we promote.
+2. **10-second window is heuristic.** iOS catch-up dumps land in 1-2 s; 10 s gives generous margin. Could be shrunk to 5 s if data shows no legit credit lost.
+3. **`MAPPING_RECOVERED` may misfire.** That path fires when an unknown event name is recovered to a logical app — the rebuild context is "this app just had an event," not "this app is being actively used." The snapshot would correctly treat that event as legit (triggerApp matches) and reject replay events for the other apps. Should be safe, but worth watching the SHADOW_RESTART_REJECT log for that case.
+
+#### When to escalate to enforcement
+
+Once we have a week of data:
+- True positives: SHADOW_RESTART_REJECT lines that fire during known phantom bursts (correlate with `BURST_BUDGET_DIAG` violations, with EXTENSION_KILLED timestamps, with user-reported phantom credit)
+- False positives: SHADOW_RESTART_REJECT lines that fire during legit credit (a real event got rejected — would have caused undercount)
+
+Target TP/FP ratio ≥ 20:1 before promoting. The rule's failure mode is undercount on cross-app restart-window credit, bounded by per-app wallclock-since-last-event — small budget, low risk.
+
+#### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - Removed `SHADOW_ADVANCE` per-event block and `shadow_usage_<id>_today` write site.
+  - Removed `SHADOW_BREAKDOWN` bank-calc block.
+  - Added `SHADOW_RESTART_REJECT` shadow-check block at the position formerly occupied by `SHADOW_ADVANCE`.
+  - `extensionRebuildSlidingWindow` signature: added `triggerAppID: String? = nil, reason: String = "extension-fast-path"` parameters; snapshot logic at function start.
+  - Call sites: midnight rebuild, `MAPPING_RECOVERED`, `WINDOW_TOP_HIT` — pass trigger app + reason.
+  - Midnight cleanup: replaced `shadow_usage_<id>_today` removal with `shadow_restart_thresh_snap_<id>` removal.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `restartMonitoring(reason:force:)` — snapshot logic at function start (parses `window-top-XXXXXXXX` from reason for trigger prefix).
+  - Per-app cleanup: replaced `shadow_usage_<id>_today` removal with `shadow_restart_thresh_snap_<id>` removal.
+
+#### Sibling action recommended (not yet done)
+
+The `SubscriptionLockoutView.activateDevSubscription` path calls `restartMonitoring(force: true)` on what's already a working monitoring session. Even outside of dev-bypass, any path that fires a redundant `restartMonitoring` within seconds of another one risks the same merge-the-iOS-queue flood pattern. Two options:
+1. Add a debounce: skip `restartMonitoring` if one completed in the last 10 s (with `force: true` override available for emergencies).
+2. Remove the dev-subscription `restartMonitoring` call entirely — subscription tier activation shouldn't need a fresh threshold registration.
+
+Either change would have prevented the 22:00 incident without needing the shadow → enforcement path at all. Worth doing in parallel with the shadow data collection.
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md

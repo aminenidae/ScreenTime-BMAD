@@ -2178,6 +2178,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         lifecycleLog("MONITORING_RESTART — reason: \(reason)")
 
+        // Shadow snapshot (May 14, 2026): capture pre-restart lastThreshold per app + the
+        // restart's triggering app (if any). The extension uses this for 10s after the
+        // restart to log SHADOW_RESTART_REJECT for stale-replay events that would be
+        // rejected if this rule were enforced. Diagnostic-only — no rejection.
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            let triggerPrefix: String
+            if let range = reason.range(of: "window-top-") {
+                triggerPrefix = String(reason[range.upperBound...].prefix(8))
+            } else {
+                triggerPrefix = ""
+            }
+            sharedDefaults.set(reason, forKey: "shadow_restart_reason")
+            sharedDefaults.set(triggerPrefix, forKey: "shadow_restart_trigger_app_prefix")
+            sharedDefaults.set(Date().timeIntervalSince1970, forKey: "shadow_restart_snap_timestamp")
+            let trackedAppIDs = sharedDefaults.stringArray(forKey: "tracked_app_ids") ?? []
+            for trackedID in trackedAppIDs {
+                let snap = sharedDefaults.integer(forKey: "usage_\(trackedID)_lastThreshold")
+                sharedDefaults.set(snap, forKey: "shadow_restart_thresh_snap_\(trackedID)")
+            }
+        }
+
         // Clear any pending window-rebuild flag — `scheduleActivity()` (called below
         // via stopMonitoring/start) re-registers the full sliding window, satisfying
         // the request regardless of which path triggered the restart.
@@ -4763,7 +4784,7 @@ extension ScreenTimeService {
         defaults.removeObject(forKey: "first_event_start_\(logicalID)")
         defaults.removeObject(forKey: "first_event_max_thresh_\(logicalID)")
         defaults.removeObject(forKey: "burst_active_until_\(logicalID)")
-        defaults.removeObject(forKey: "shadow_usage_\(logicalID)_today")
+        defaults.removeObject(forKey: "shadow_restart_thresh_snap_\(logicalID)")
         defaults.removeObject(forKey: "last_event_arrival_\(logicalID)")
         defaults.removeObject(forKey: "usage_\(logicalID)_at_unshield")
         defaults.removeObject(forKey: "phantom_recovery_last_arrival_\(logicalID)")

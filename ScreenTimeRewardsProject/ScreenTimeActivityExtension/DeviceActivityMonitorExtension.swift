@@ -241,7 +241,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                 // Attempt extension-side rebuild: register fresh 1-60 thresholds at midnight.
                 // iOS cumulative is 0 at midnight, so no catch-ups fire — safe to startMonitoring().
-                let rebuildSuccess = extensionRebuildSlidingWindow(defaults: defaults)
+                let rebuildSuccess = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: nil, reason: "midnight-ext-rebuild")
                 if rebuildSuccess {
                     midnightDiagnosticLog("MIDNIGHT_EXT_REBUILD_OK — fresh 1-60 thresholds registered, no MIDNIGHT_PENDING needed", defaults: defaults)
                     lifecycleLog("MIDNIGHT_EXT_REBUILD — extension registered fresh thresholds at midnight", defaults: defaults)
@@ -358,7 +358,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(appID, forKey: mapIdKey)
             defaults.set(category, forKey: "map_\(eventName)_category")
             debugLog("MAPPING_RECOVERED event=\(eventName) appID=\(appID.prefix(8))... — backfilled via stable-hash, forcing window rebuild", defaults: defaults)
-            extensionRebuildSlidingWindow(defaults: defaults)
+            extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "mapping-recovered")
         } else {
             debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
             return false
@@ -495,19 +495,32 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Shadow tracker (May 10, 2026): record what the "trust max threshold" model
-        // would have credited, in parallel with the real filter chain. Updated for every
-        // event that passes Filter 1.5 (basic validity + stale-flush guard), regardless
-        // of whether downstream filters accept it. Compare against real `usage_<id>_today`
-        // via SHADOW_BREAKDOWN log entries. If shadow tracks real usage closely without
-        // phantom inflation, we can shed PER_EVENT_CAP / Layer 3 / SKIP_REGRESSION
-        // complexity. If shadow inflates on phantom days, we keep the layered model.
-        let shadowKey = "shadow_usage_\(appID)_today"
-        let shadowOld = defaults.integer(forKey: shadowKey)
-        if thresholdSeconds > shadowOld {
-            defaults.set(thresholdSeconds, forKey: shadowKey)
-            if thresholdSeconds - shadowOld > 60 {
-                debugLog("SHADOW_ADVANCE appID=\(appID.prefix(8))... old=\(shadowOld)s new=\(thresholdSeconds)s — trust-max would credit +\(thresholdSeconds - shadowOld)s vs real +60s cap", defaults: defaults)
+        // Shadow tracker (May 14, 2026): restart-window per-app threshold-snapshot rule.
+        // Hypothesis: when monitoring restarts, only the restart's triggering app should
+        // receive events; events for other apps must either advance past the pre-restart
+        // lastThreshold or be rejected as iOS replay artifacts. For 10s after every restart,
+        // log what this rule WOULD reject without actually rejecting. Compare SHADOW_RESTART_REJECT
+        // log volume to real BURST_BYPASS / RECORDED entries to size the protection before
+        // promoting to enforcement.
+        let shadowSnapTs = defaults.double(forKey: "shadow_restart_snap_timestamp")
+        let shadowAge = shadowSnapTs > 0 ? nowTimestamp - shadowSnapTs : Double.greatestFiniteMagnitude
+        if shadowAge < 10 {
+            let shadowTriggerPrefix = defaults.string(forKey: "shadow_restart_trigger_app_prefix") ?? ""
+            let shadowSnap = defaults.integer(forKey: "shadow_restart_thresh_snap_\(appID)")
+            let appPrefix = String(appID.prefix(8))
+            let shadowReason: String?
+            if shadowTriggerPrefix.isEmpty {
+                shadowReason = "no-trigger-app"
+            } else if appPrefix == shadowTriggerPrefix {
+                shadowReason = nil
+            } else if thresholdSeconds <= shadowSnap {
+                shadowReason = "stale-replay-snap=\(shadowSnap)s"
+            } else {
+                shadowReason = nil
+            }
+            if let reason = shadowReason {
+                let restartReason = defaults.string(forKey: "shadow_restart_reason") ?? "?"
+                debugLog("SHADOW_RESTART_REJECT appID=\(appPrefix)... thresh=\(thresholdSeconds)s reason=\(reason) triggerApp=\(shadowTriggerPrefix.isEmpty ? "none" : shadowTriggerPrefix) ageSinceRestart=\(Int(shadowAge))s restartReason=\(restartReason) — diagnostic only", defaults: defaults)
             }
         }
 
@@ -1098,7 +1111,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(nowTimestamp, forKey: rebuildRequestKey)
                 debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → request main-app rebuild + ext fast-path", defaults: defaults)
                 requestMainAppWindowRebuild(reason: "window-top-\(appID.prefix(8))", defaults: defaults)
-                extensionRebuildSlidingWindow(defaults: defaults)
+                extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "window-top-\(appID.prefix(8))")
             } else {
                 debugLog("WINDOW_TOP_HIT_DEBOUNCED appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) — rebuild requested \(Int(elapsed))s ago", defaults: defaults)
             }
@@ -1292,7 +1305,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     ///
     /// Safety: SKIP_REGRESSION blocks duplicate burst events post-restart.
     @discardableResult
-    private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults) -> Bool {
+    private nonisolated func extensionRebuildSlidingWindow(defaults: UserDefaults, triggerAppID: String? = nil, reason: String = "extension-fast-path") -> Bool {
         guard let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids"),
               !trackedAppIDs.isEmpty else {
             debugLog("EXT_REBUILD_SKIP — no tracked_app_ids", defaults: defaults)
@@ -1301,6 +1314,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         let todayDateString = Self.dayDateFormatter.string(from: Date())
         let now = Date().timeIntervalSince1970
+
+        // Shadow snapshot (May 14, 2026): capture pre-rebuild lastThreshold per app +
+        // triggering app prefix. shouldRecordEvent() consults this for 10s post-restart
+        // to log SHADOW_RESTART_REJECT for events that the per-app filter rule would
+        // reject. Diagnostic-only — no enforcement.
+        let triggerPrefix = triggerAppID.map { String($0.prefix(8)) } ?? ""
+        defaults.set(reason, forKey: "shadow_restart_reason")
+        defaults.set(triggerPrefix, forKey: "shadow_restart_trigger_app_prefix")
+        defaults.set(now, forKey: "shadow_restart_snap_timestamp")
+        for trackedID in trackedAppIDs {
+            let snap = defaults.integer(forKey: "usage_\(trackedID)_lastThreshold")
+            defaults.set(snap, forKey: "shadow_restart_thresh_snap_\(trackedID)")
+        }
 
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var newWindowTops: [String: Int] = [:]
@@ -1498,14 +1524,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 //   • first_event_start_<id>        — Layer 2 buffer-open timestamp
                 //   • first_event_max_thresh_<id>   — Layer 2 max threshold seen during buffer
                 //   • burst_active_until_<id>       — Layer 2 burst-window for PER_EVENT_CAP bypass
-                //   • shadow_usage_<id>_today       — shadow trust-max-threshold tracker
+                //   • shadow_restart_thresh_snap_<id> — restart-window shadow snapshot
                 //   • last_event_arrival_<id>       — Filter 1.7 flood detector arrival timestamp
                 //   • usage_<id>_at_unshield        — Layer 3 budget snapshot
                 defaults.removeObject(forKey: "phantom_suspect_\(appID)")
                 defaults.removeObject(forKey: "first_event_start_\(appID)")
                 defaults.removeObject(forKey: "first_event_max_thresh_\(appID)")
                 defaults.removeObject(forKey: "burst_active_until_\(appID)")
-                defaults.removeObject(forKey: "shadow_usage_\(appID)_today")
+                defaults.removeObject(forKey: "shadow_restart_thresh_snap_\(appID)")
                 defaults.removeObject(forKey: "last_event_arrival_\(appID)")
                 defaults.removeObject(forKey: "usage_\(appID)_at_unshield")
                 defaults.removeObject(forKey: "phantom_recovery_last_arrival_\(appID)")
@@ -2125,26 +2151,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             todayUsed += (inputs.todaySecondsByLogicalID[goal.rewardAppLogicalID] ?? 0) / 60
         }
         debugLog("BANK_BREAKDOWN historical=\(historical)min todayEarned=\(todayEarned)min todayUsed=\(todayUsed)min raw=\(historical + todayEarned - todayUsed)min", defaults: defaults)
-
-        // SHADOW_BREAKDOWN: same calculation, but using shadow_usage_<id>_today (max
-        // threshold ever seen today) instead of usage_<id>_today (real credited value).
-        // Shows what the bank would have looked like if we trusted iOS's threshold value
-        // as ground truth. Compare against BANK_BREAKDOWN above to evaluate whether the
-        // simpler trust-max model is safe to switch to. (May 10, 2026.)
-        var shadowEarned = 0
-        for (learningID, threshold) in lowestThresholdByLearningID {
-            let shadowSecs = defaults.integer(forKey: "shadow_usage_\(learningID)_today")
-            let usageMin = shadowSecs / 60
-            guard usageMin >= threshold else { continue }
-            let r = inputs.ratioByLearningLogicalID[learningID] ?? 1.0
-            shadowEarned += Int(Double(usageMin) * r)
-        }
-        var shadowUsed = 0
-        for goal in inputs.goalConfigs {
-            let shadowSecs = defaults.integer(forKey: "shadow_usage_\(goal.rewardAppLogicalID)_today")
-            shadowUsed += shadowSecs / 60
-        }
-        debugLog("SHADOW_BREAKDOWN historical=\(historical)min shadowEarned=\(shadowEarned)min shadowUsed=\(shadowUsed)min raw=\(historical + shadowEarned - shadowUsed)min — trust-max model (real Earned=\(todayEarned)min Used=\(todayUsed)min, diff Earned=\(shadowEarned - todayEarned)min Used=\(shadowUsed - todayUsed)min)", defaults: defaults)
 
         return BankCalculator.computeBank(inputs)
     }
