@@ -3612,7 +3612,7 @@ This re-runs `scheduleActivity()` with the new limit in hand, which overwrites t
 
 **This is the same pattern as the day's earlier 18:08:45 DAILY_ZERO_BLOCK burst** — eleven dailyLimit=0 shields had been missing on the OS until usage activity triggered the extension's safety net to re-apply them. That happened hours before any of today's saveSchedule work. The fix exposed it because Block Blast's post-save catch-up events landed quickly enough for the user to notice the gap.
 
-**Root cause (likely).** `ScreenTimeService.currentlyShielded` is a `Set<ApplicationToken>` initialized to `[]` on every app launch. The OS-level shields persist across launches, but the in-memory copy doesn't. Both `blockRewardApps` and `unblockRewardApps` use the in-memory copy as source of truth and overwrite the OS state:
+**Root cause (confirmed by Xcode console log `Shield-log.rtf`).** `ScreenTimeService.currentlyShielded` is a `Set<ApplicationToken>` initialized to `[]` on every app launch. The OS-level shields persist across launches, but the in-memory copy doesn't. Both `blockRewardApps` and `unblockRewardApps` use the in-memory copy as source of truth and overwrite the OS state:
 
 ```swift
 // blockRewardApps
@@ -3624,12 +3624,30 @@ currentlyShielded.subtract(tokens)
 managedSettingsStore.shield.applications = currentlyShielded
 ```
 
-If `currentlyShielded == []` at app launch and `unblockRewardApps(X)` runs before any `blockRewardApps` has populated the in-memory copy, then:
+If `currentlyShielded == []` and `unblockRewardApps([oneToken])` runs:
 
-- `[].subtract(X)` → still `[]`
+- `[].subtract([oneToken])` → still `[]`
 - `managedSettingsStore.shield.applications = []` → **every shield on the device is cleared**
 
-The window for this is small (`BlockingCoordinator.syncAllRewardApps` calls block-then-unblock back-to-back, and the extension's safety net re-applies dailyLimit=0 shields within ~3 s when any usage event fires), but it's not zero. Today's user happened to test fast enough to hit it.
+**Reproduced in the Xcode log immediately after the schedule-edit save.** A CloudKit config-application loop fires `ScreenTimeService+CloudKit.swift:125` once per reward app — `self.unblockRewardApps(tokens: [token])` — for each config whose `blockingEnabled = false`. Every call clears the entire device:
+
+```
+[ScreenTimeService] Applying CloudKit config for Minecraft Education
+[ScreenTimeService] 🔓 Unblocking 1 reward apps
+[ScreenTimeService] ✅ Shield removed from 1 apps in 0.03 seconds
+[ScreenTimeService] Currently shielded: 0 apps           ← all OS shields wiped
+[ScreenTimeService] Unblocked tokens: ["-1100874669032874096"]
+
+[ScreenTimeService] Applying CloudKit config for Apple TV
+[ScreenTimeService] 🔓 Unblocking 1 reward apps
+[ScreenTimeService] Currently shielded: 0 apps           ← cleared again
+[ScreenTimeService] Unblocked tokens: ["-369869253263232451"]
+... (repeats 12+ times)
+```
+
+In this trace there were ~38 successive "Currently shielded: 0 apps" lines as the CloudKit config queue drained — that's the window the user opened reward apps in. The extension's `checkAndBlockIfRewardTimeExhausted` then re-applied dailyLimit=0 shields when Block Blast's catch-up events arrived, which is why the user found shields intact when they came back to check.
+
+The same call sites exist in `AppUsageViewModel.swift:2093` (unlock-via-points) and `:2752` (remove-app), so any user action that calls those before block has seeded the in-memory copy hits the same wipe.
 
 **Fix idea (not implemented this session).** Make both functions read the OS state authoritatively, modify, and write back — instead of trusting the in-memory copy:
 
