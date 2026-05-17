@@ -24,8 +24,6 @@ struct ParentSettingsView: View {
     @State private var showingNotificationSettings = false
     @State private var showingAbout = false
     @State private var showingChangePIN = false
-    @State private var isRefreshingTracking = false
-    @State private var trackingRefreshFeedback: String?
 
     var body: some View {
         NavigationView {
@@ -149,27 +147,6 @@ struct ParentSettingsView: View {
                 iconColor: .red
             ) {
                 showingWebRestrictions = true
-            }
-
-            settingsButton(
-                icon: isRefreshingTracking ? "arrow.triangle.2.circlepath" : "arrow.clockwise",
-                title: "Refresh Tracking",
-                subtitle: trackingRefreshFeedback ?? "Slide the tracking window forward for all apps",
-                iconColor: .blue
-            ) {
-                guard !isRefreshingTracking else { return }
-                isRefreshingTracking = true
-                trackingRefreshFeedback = "Refreshing…"
-                Task {
-                    await ScreenTimeService.shared.restartMonitoring(
-                        reason: "parent_settings_refresh_button",
-                        force: true
-                    )
-                    await MainActor.run {
-                        isRefreshingTracking = false
-                        trackingRefreshFeedback = "Refreshed just now"
-                    }
-                }
             }
         }
     }

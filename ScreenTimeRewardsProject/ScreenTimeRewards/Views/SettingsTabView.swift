@@ -47,6 +47,9 @@ struct SettingsTabView: View {
     @State private var firebaseFamilyResult: String = ""
     @State private var isCreatingFirebaseFamily = false
 
+    @State private var isRefreshingTracking = false
+    @State private var trackingRefreshFeedback: String?
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
@@ -136,6 +139,7 @@ struct SettingsTabView: View {
 
                         // General Section
                         settingsSection(title: "GENERAL") {
+                            refreshTrackingRow
                             notificationSettingsRow
                             helpSupportRow
                             aboutRow
@@ -833,6 +837,63 @@ private extension SettingsTabView {
                 Text("Change PIN")
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+    }
+
+    var refreshTrackingRow: some View {
+        Button(action: {
+            guard !isRefreshingTracking else { return }
+            isRefreshingTracking = true
+            trackingRefreshFeedback = "Refreshing…"
+            Task {
+                await ScreenTimeService.shared.restartMonitoring(
+                    reason: "settings_refresh_tracking_button",
+                    force: true
+                )
+                await MainActor.run {
+                    isRefreshingTracking = false
+                    trackingRefreshFeedback = "Refreshed just now"
+                }
+            }
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.blue.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: isRefreshingTracking ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
+                        .font(.system(size: 20))
+                        .foregroundColor(.blue)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Refresh Tracking")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    if let feedback = trackingRefreshFeedback {
+                        Text(feedback)
+                            .font(.system(size: 12))
+                            .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                    }
+                }
 
                 Spacer()
 
