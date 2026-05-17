@@ -4443,5 +4443,115 @@ Not for routine use — the auto-slide via `WINDOW_TOP_HIT` handles healthy case
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Views/SettingsTabView.swift` — added `refreshTrackingRow` to the GENERAL section, state vars `isRefreshingTracking` / `trackingRefreshFeedback`
 - `ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentMode/ParentSettingsView.swift` — reverted the misplaced earlier addition (this view is the remote parent device, not the child)
 
+---
+
+## May 17, 2026 — Burst Quarantine-and-Judge (SHADOW design)
+
+> **Status: SHADOW SHIPPED on `refactor/unified-usage-counter`.** No credit-behavior changes. Pure observation — logs `SHADOW_BURST_JUDGE` at every burst close so we can evaluate the rule against real device traffic for several days before promoting to enforcement.
+
+### Motivation
+
+Today's Device 2 test (May 17 log, 16:46:51-57) proved that the per-event `SKIP_BURST_BUDGET` filter still rejects ~9 min of legit catch-up after the refresh + 2-min play. The catch-up dump delivered iOS thresholds 209-223 for Roblox in 4 seconds. The first 2 events credited (today: 208 → 212), the remaining ~10 events rejected because the per-event wall-clock budget exhausts inside the burst.
+
+The CEO's framing pointed at the structural fix: **iOS doesn't lie about which thresholds it has fired. The MAX threshold seen in a burst IS the kid's cumulative play at that moment.** If we can confidently qualify the burst as legit (vs phantom flood), we can set today = max_threshold and recover the full catch-up.
+
+The existing filter chain makes per-event decisions, which can't see the burst as a whole. This design captures the burst, evaluates qualification signals at close, and (in enforcement mode, later) credits or rejects the burst as one unit.
+
+### Burst definition
+
+A **burst** is a sequence of threshold events where each event arrives within 5 seconds of the previous one (across all apps — bursts can be multi-app, e.g., when monitoring resumes after a silent period during which the kid used several apps). The burst ends when 5 or more seconds pass without a new event.
+
+Detection is asymmetric — we observe the **start** when an event arrives after a 5s+ gap, but we only know the burst **ended** when the next event arrives after a 5s+ gap. So the close-log fires on the FIRST event of the NEXT burst, not at the actual end timestamp.
+
+For shadow purposes this latency is acceptable; we still capture the data.
+
+### What we capture per burst
+
+Global:
+- Burst start timestamp, last-event timestamp, duration
+- Total events across all apps
+- Apps involved (CSV)
+- Time since last `EXTENSION_KILLED` (for the kill-density signal)
+
+Per app:
+- Event count in burst
+- Max threshold value seen (`min.X`)
+- Min threshold value seen (for sequentiality signal)
+- `currentToday` at first appearance of this app in burst (cold-start signal if 0)
+- Growth = max_threshold - today_at_start (in minutes)
+- Wall-clock since this app's last unshield (in minutes)
+- What current code actually did (the live `today` value at burst close)
+- What the rule WOULD have set: `max_threshold × 60`
+- Delta: `would_set - actual` (the recovery we'd have made)
+
+### Qualification signals (computed at burst close)
+
+| Signal | Rule | Fail signature |
+|---|---|---|
+| `COLD_START_HIGH` | Any app with `today_at_start = 0` AND `max_threshold > min.30` | Phantom: cold start with implausibly high threshold |
+| `GROWTH_VS_UNSHIELD` | Per app, `growth_min ≤ wallclock_since_unshield_min × 1.1` | Growth exceeds the time the app has been unshielded today |
+| `KILL_DENSITY` (Phase 2) | Extension kills in 30s preceding burst start | Many kills = phantom-flood-shaped instability |
+
+Initial shadow only computes `COLD_START_HIGH` and `GROWTH_VS_UNSHIELD`. Kill density needs a ring buffer and can be added once we see how the simpler signals behave across devices.
+
+### Verdict (shadow only — no action)
+
+- `legit` if all signals pass — rule WOULD set `today = max_threshold × 60` per app
+- `phantom` if any signal fails — rule WOULD reject the burst
+
+The shadow logs the verdict and the *would-have-been* today value but does NOT change actual credit. Existing per-event filters continue to govern actual recording.
+
+### Shadow log format
+
+One line per burst close (fires on the next event after 5s+ silence):
+
+```
+SHADOW_BURST_JUDGE dur=<seconds>s events=<n> apps=<n>
+  timeSinceKill=<seconds>s
+  signals=[COLD_START_HIGH=<pass|fail> GROWTH_VS_UNSHIELD=<pass|fail>]
+  verdict=<legit|phantom>
+  details=[<appID8>:evs=<n>:max=min.<n>:start_today=<n>min:growth=<n>min:cold=<bool>:unshield_age=<n>min:would_set=<n>min:actual=<n>min:delta=<±n>min | ...]
+```
+
+Compact enough to scan across hundreds of bursts/day, detailed enough to tune signal thresholds.
+
+### Expected signal behavior on known scenarios
+
+| Scenario | COLD_START_HIGH | GROWTH_VS_UNSHIELD | Verdict | Truth |
+|---|---|---|---|---|
+| Roblox 16:46 (legit catch-up, today=208 → max=223) | pass (today>0) | pass (15min growth, 8h unshield budget) | **legit** | ✓ legit, would credit +11 min |
+| Device 1 May 16 phantom (cold-start min.66+) | **fail** (cold, high min) | (per-app may also fail) | **phantom** | ✓ phantom, correctly blocked |
+| Today's 10:01 reward catch-up (3 apps cold-start, max 9/23/52) | **fail** (52 > 30 from cold) | (depends on unshield age) | **phantom** | Ambiguous — current code also rejected |
+| Normal per-minute play (single event, today>0) | pass | pass | **legit** | ✓ trivial single-event "burst" |
+
+The 3-app cold-start case at 10:01 is the trickiest — could be legit catch-up OR phantom. The shadow will flag it as `phantom` (conservative). If logs over the next few days show such patterns being LEGIT (kid genuinely played multiple games while monitoring was silent), we'll need a different signal to distinguish.
+
+### What to analyze in the shadow data
+
+After 2-3 days of shadow logs from multiple devices:
+
+1. **Recovery potential:** how often does `verdict=legit` have a positive `delta` (would-have-credited more than actual)? Sum the deltas — that's the credit we'd recover.
+2. **False positives (would over-credit):** any `verdict=legit` with `delta > +30min`? Inspect — could be phantom slipping through the signals.
+3. **False negatives (would under-credit):** any `verdict=phantom` that looks clearly legit on inspection (sequential threshold values, no kill density, kid was demonstrably using the app)? Tune the signal thresholds.
+4. **Signal value distribution:** what fraction of bursts trip each signal? If `COLD_START_HIGH` trips on 90% of legit catch-ups, the rule is too tight; tune the threshold (e.g., min.30 → min.60).
+
+### Promotion to enforcement (later)
+
+Once shadow data confirms:
+- `legit` verdicts reliably correspond to recoverable credit
+- `phantom` verdicts reliably correspond to actual phantom-flood shapes
+- Signal thresholds are calibrated
+
+Replace per-event `SKIP_BURST_BUDGET` accumulation with: at burst close, if verdict=legit, set today = max(today, max_threshold × 60) per app; if verdict=phantom, reject the burst (no per-event salvage).
+
+Until then: existing filters govern actual recording; shadow is observation-only.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - Added `shadowBurstTrack`, `shadowBurstEmit`, `shadowBurstReset` helpers
+  - `recordUsageEfficiently` now calls `shadowBurstTrack` after the `EVENT` log line, before the filter chain
+  - `init()` writes `ext_last_kill_timestamp` when `EXTENSION_KILLED` is detected (for the kill-density signal even though not yet computed)
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md

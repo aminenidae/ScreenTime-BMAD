@@ -159,6 +159,141 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(log, forKey: "midnight_diagnostic_log")
     }
 
+    // MARK: - Shadow Burst Tracker (May 17, 2026)
+    // Captures per-burst data for the proposed "trust max threshold on legit
+    // catch-up" rule. Pure observation — no credit-behavior changes.
+    // At burst close (next event after 5s+ gap), emits SHADOW_BURST_JUDGE with
+    // per-app max threshold, growth, qualification signals, and what the rule
+    // WOULD have set today to vs what it actually is.
+    // See SMART_THRESHOLD_FILTERING.md "May 17 — Burst Quarantine-and-Judge".
+
+    private nonisolated func shadowBurstTrack(
+        appID: String,
+        thresholdSeconds: Int,
+        nowTimestamp: TimeInterval,
+        defaults: UserDefaults
+    ) {
+        let lastEventGlobal = defaults.double(forKey: "shadow_burst_last_event_ts")
+        let gap = lastEventGlobal > 0 ? nowTimestamp - lastEventGlobal : 999.0
+
+        // If gap > 5s, previous burst has closed — emit log and reset state
+        if gap > 5.0 && lastEventGlobal > 0 {
+            shadowBurstEmit(nowTimestamp: nowTimestamp, defaults: defaults)
+            shadowBurstReset(defaults: defaults)
+        }
+
+        // Burst start timestamp (set once per burst)
+        if defaults.double(forKey: "shadow_burst_start_ts") == 0 {
+            defaults.set(nowTimestamp, forKey: "shadow_burst_start_ts")
+        }
+        defaults.set(nowTimestamp, forKey: "shadow_burst_last_event_ts")
+
+        // Total event count across all apps in this burst
+        defaults.set(defaults.integer(forKey: "shadow_burst_total_events") + 1,
+                     forKey: "shadow_burst_total_events")
+
+        // Per-app: count, max, min, today-at-start snapshot
+        let countKey = "shadow_burst_count_\(appID)"
+        let isFirstForApp = defaults.integer(forKey: countKey) == 0
+        defaults.set(defaults.integer(forKey: countKey) + 1, forKey: countKey)
+
+        let maxKey = "shadow_burst_max_thresh_\(appID)"
+        if thresholdSeconds > defaults.integer(forKey: maxKey) {
+            defaults.set(thresholdSeconds, forKey: maxKey)
+        }
+
+        let minKey = "shadow_burst_min_thresh_\(appID)"
+        let curMin = defaults.integer(forKey: minKey)
+        if curMin == 0 || thresholdSeconds < curMin {
+            defaults.set(thresholdSeconds, forKey: minKey)
+        }
+
+        if isFirstForApp {
+            // Snapshot today value when this app first appears in burst — for cold-start signal
+            let todayAtStart = defaults.integer(forKey: "usage_\(appID)_today")
+            defaults.set(todayAtStart, forKey: "shadow_burst_today_at_start_\(appID)")
+
+            // Add to apps CSV
+            let appsCSV = defaults.string(forKey: "shadow_burst_apps_csv") ?? ""
+            let updated = appsCSV.isEmpty ? appID : appsCSV + "," + appID
+            defaults.set(updated, forKey: "shadow_burst_apps_csv")
+        }
+    }
+
+    private nonisolated func shadowBurstEmit(nowTimestamp: TimeInterval, defaults: UserDefaults) {
+        let startTs = defaults.double(forKey: "shadow_burst_start_ts")
+        let endTs = defaults.double(forKey: "shadow_burst_last_event_ts")
+        let dur = endTs - startTs
+        let totalEvents = defaults.integer(forKey: "shadow_burst_total_events")
+        let appsCSV = defaults.string(forKey: "shadow_burst_apps_csv") ?? ""
+        let apps = appsCSV.split(separator: ",").map(String.init)
+
+        let lastKill = defaults.double(forKey: "ext_last_kill_timestamp")
+        let timeSinceLastKill = lastKill > 0 ? Int(nowTimestamp - lastKill) : -1
+
+        var anyColdStartHigh = false
+        var anyGrowthOverBudget = false
+        var appDetails: [String] = []
+
+        for appID in apps {
+            let count = defaults.integer(forKey: "shadow_burst_count_\(appID)")
+            let maxThresh = defaults.integer(forKey: "shadow_burst_max_thresh_\(appID)")
+            let todayAtStart = defaults.integer(forKey: "shadow_burst_today_at_start_\(appID)")
+            let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
+            let unshieldAgeSec = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
+            let unshieldAgeMin = unshieldAgeSec > 0 ? unshieldAgeSec / 60 : -1
+
+            let maxMin = maxThresh / 60
+            let todayAtStartMin = todayAtStart / 60
+            let growthMin = max(0, maxMin - todayAtStartMin)
+            let isColdStart = todayAtStart == 0
+
+            // Signal A: cold start + high threshold = suspicious phantom signature
+            if isColdStart && maxMin > 30 {
+                anyColdStartHigh = true
+            }
+
+            // Signal B: growth vs unshield budget (reward apps have meaningful unshield time)
+            if unshieldAgeMin > 0 {
+                let budgetWithGrace = unshieldAgeMin + (unshieldAgeMin / 10)
+                if growthMin > budgetWithGrace {
+                    anyGrowthOverBudget = true
+                }
+            }
+
+            // What the rule WOULD do vs current state
+            let actualToday = defaults.integer(forKey: "usage_\(appID)_today")
+            let actualTodayMin = actualToday / 60
+            let wouldSetMin = maxMin
+            let deltaMin = wouldSetMin - actualTodayMin
+
+            appDetails.append("\(appID.prefix(8)):evs=\(count):max=min.\(maxMin):start_today=\(todayAtStartMin)min:growth=\(growthMin)min:cold=\(isColdStart):unshield_age=\(unshieldAgeMin)min:would_set=\(wouldSetMin)min:actual=\(actualTodayMin)min:delta=\(deltaMin >= 0 ? "+" : "")\(deltaMin)min")
+        }
+
+        let coldStartSignal = anyColdStartHigh ? "fail" : "pass"
+        let growthSignal = anyGrowthOverBudget ? "fail" : "pass"
+        let verdict = (coldStartSignal == "pass" && growthSignal == "pass") ? "legit" : "phantom"
+
+        debugLog("SHADOW_BURST_JUDGE dur=\(String(format: "%.1f", dur))s events=\(totalEvents) apps=\(apps.count) timeSinceKill=\(timeSinceLastKill)s signals=[COLD_START_HIGH=\(coldStartSignal) GROWTH_VS_UNSHIELD=\(growthSignal)] verdict=\(verdict) details=[\(appDetails.joined(separator: " | "))]", defaults: defaults)
+    }
+
+    private nonisolated func shadowBurstReset(defaults: UserDefaults) {
+        let appsCSV = defaults.string(forKey: "shadow_burst_apps_csv") ?? ""
+        let apps = appsCSV.split(separator: ",").map(String.init)
+
+        defaults.set(0.0, forKey: "shadow_burst_start_ts")
+        defaults.set(0.0, forKey: "shadow_burst_last_event_ts")
+        defaults.set(0, forKey: "shadow_burst_total_events")
+        defaults.removeObject(forKey: "shadow_burst_apps_csv")
+
+        for appID in apps {
+            defaults.removeObject(forKey: "shadow_burst_count_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_max_thresh_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_min_thresh_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_today_at_start_\(appID)")
+        }
+    }
+
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
@@ -173,6 +308,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 let batCtx = batteryContextString(defaults: defaults)
                 if let lastSessionID = lastSessionID, lastSessionID != Self.sessionID {
                     lifecycleLog("EXTENSION_KILLED — new session detected (was: \(lastSessionID), now: \(Self.sessionID)) \(batCtx)", defaults: defaults)
+                    // Shadow burst-judge: record kill timestamp for the KILL_DENSITY signal.
+                    // See SMART_THRESHOLD_FILTERING.md "May 17 — Burst Quarantine-and-Judge".
+                    defaults.set(Date().timeIntervalSince1970, forKey: "ext_last_kill_timestamp")
                 }
                 defaults.set(Self.sessionID, forKey: "ext_last_session_id")
                 lifecycleLog("EXTENSION_INIT session=\(Self.sessionID) \(batCtx)", defaults: defaults)
@@ -374,6 +512,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         debugLog("EVENT appID=\(appID.prefix(8))... min=\(thresholdMinutes) currentToday=\(currentToday)s lastThresh=\(currentThreshold)s", defaults: defaults)
 
         Self.logger.notice("EVENT app=\(appID.prefix(8))... min=\(thresholdMinutes) today=\(currentToday)s lastThresh=\(currentThreshold)s")
+
+        // Shadow burst-judge tracker — captures per-burst data for the proposed
+        // "trust max threshold on legit catch-up" rule. No credit-behavior changes;
+        // observation only. Logs SHADOW_BURST_JUDGE at burst close.
+        // See SMART_THRESHOLD_FILTERING.md "May 17 — Burst Quarantine-and-Judge".
+        shadowBurstTrack(
+            appID: appID,
+            thresholdSeconds: thresholdSeconds,
+            nowTimestamp: Date().timeIntervalSince1970,
+            defaults: defaults
+        )
 
         // Decode shield configs ONCE — used by filter chain (shielded app check) and post-recording shield updates
         let shieldConfigs: ExtensionShieldConfigsMinimal? = {
