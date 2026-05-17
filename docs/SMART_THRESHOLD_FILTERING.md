@@ -4391,5 +4391,57 @@ A new `BURST_BYPASS` reason `normal-recovery` is logged when this path credits m
 
 - `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `perEventCap` in normal-delivery branch changed from `60` to `Int.max`; comment block updated; `BURST_BYPASS` log path now also covers the normal-recovery case with reason tag.
 
+---
+
+## May 17, 2026 — Manual "Refresh Tracking" button (sliding-window unstick)
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Settings → GENERAL → Refresh Tracking. Calls `restartMonitoring(force: true)` which calls `scheduleActivity()` — re-registers the sliding window for every monitored app starting from the current `usage_<id>_today` value.
+
+### Why a button was needed
+
+Two design properties combined to create a stuck state on Device 2 today:
+
+1. **The launch path skips re-registration when monitoring is alive.** `ScreenTimeService.swift:553-556` — if iOS confirms `activityName` is registered, the launch logs `MONITORING_ALIVE — skipping restart (app launch)` and returns. This is intentional: calling `startMonitoring()` redundantly causes iOS to fire catch-up events for ALL cumulative daily usage (phantom-flood vector documented earlier in this doc).
+
+2. **The auto-rebuild trigger reads recorded today, not iOS-reported threshold.** `DeviceActivityMonitorExtension.swift:1112-1114` — `WINDOW_TOP_HIT` fires when `recordedTodayMin >= windowTopMin - 5`. If recording falls behind iOS's actual cumulative (e.g., today=120 stuck while iOS internally tracks 145+), `recordedTodayMin` never reaches the trigger threshold and no slide happens.
+
+Result: kid's actual cumulative passes the registered window top, iOS exhausts thresholds and goes silent, recording stays dead for the rest of the day. Today's Roblox: 2h 15min of silence after 11:53 AM.
+
+The natural unstick paths (BGTask refresh every 45 min, schedule edit, force-quit) are all hands-off or slow. A user-facing manual trigger gives the parent a way to recover immediately when they notice today is behind Screen Time.
+
+### Where it lives
+
+Child device, parent mode: **Settings → GENERAL → Refresh Tracking** (just above Notifications). Single tap. Subtitle flips "Refreshing… → Refreshed just now" within ~1s.
+
+`ParentSettingsView` (the *remote* parent device's settings) was initially chosen but reverted — recording state lives on the child device, so the button must trigger `restartMonitoring` on the same device.
+
+### What it does
+
+```swift
+ScreenTimeService.shared.restartMonitoring(reason: "settings_refresh_tracking_button", force: true)
+```
+
+Inside:
+1. `stopMonitoring()` — tears down the current `DeviceActivity` session
+2. `scheduleActivity()` — for every monitored app, reads `usage_<id>_today`, registers thresholds `(currentMinutes+1)...(currentMinutes+90)`
+3. iOS dumps catch-up events for any thresholds the kid has already crossed since the previous window's top
+4. Those events arrive in a tight burst → `isMidDayBurst` → `BURST_BYPASS` → full credit
+5. `today` snaps forward to the iOS-internal cumulative (bounded by `SKIP_BURST_BUDGET` against wall-clock since last alive event)
+
+For today's Roblox example: today=120 → registers min.121-210 → iOS catch-up dumps for 121, 122, …, real_cumulative → today jumps to ~210+ in 1-2 seconds.
+
+### When to use it
+
+- Today's recorded value is visibly behind iOS Screen Time
+- After installing a new build that needs a fresh window
+- Debugging extension behavior
+
+Not for routine use — the auto-slide via `WINDOW_TOP_HIT` handles healthy cases. This is a manual override for stuck states.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/SettingsTabView.swift` — added `refreshTrackingRow` to the GENERAL section, state vars `isRefreshingTracking` / `trackingRefreshFeedback`
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Views/ParentMode/ParentSettingsView.swift` — reverted the misplaced earlier addition (this view is the remote parent device, not the child)
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
