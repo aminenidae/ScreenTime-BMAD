@@ -2515,39 +2515,40 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     private func windowSize(for logicalID: String, category: AppUsage.AppCategory, isShielded: Bool) -> Int {
         let unlimitedSentinel = 1440 // matches DailyLimits.unlimited
         let rewardLookaheadCap = 90
-
-        // Disallowed today: per-day limit is 0 (or "no app today"). Zero thresholds.
-        if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
-           schedule.dailyLimits.todayLimit == 0 {
-            return 0
-        }
+        let shieldedSentinel = 5
 
         switch category {
         case .reward:
-            // Currently shielded reward apps: register a small sentinel window (5
-            // thresholds) instead of zero. The moment the shield drops mid-day,
-            // iOS needs thresholds registered to fire events as the kid starts
-            // playing. With zero thresholds, the kid plays invisibly until the
-            // next scheduleActivity() runs, then iOS dumps a catch-up burst that
-            // we under-credit (May 11: YouTube lost ~20 min this way).
-            //
-            // With 5 thresholds, iOS fires min.1, 2, ... per-minute starting at
-            // unshield. By min.5, WINDOW_TOP_HIT triggers a rebuild and the full
-            // 90-threshold window takes over. Sentinel cost: 5 × N_shielded_apps,
-            // well under iOS's ~500 budget.
+            // Shield state is the source of truth for "can the kid use this today" —
+            // the shield-drop path can unshield mid-day regardless of what the
+            // schedule's todayLimit field says. So a reward app NEVER gets 0
+            // thresholds: at minimum we register the 5-min sentinel so iOS can
+            // fire events the moment the shield comes off. This closes the May 16
+            // Device 2 gap where `schedule.dailyLimits.todayLimit == 0` short-
+            // circuited the windowSize logic before reaching the sentinel branch
+            // (3h 27min of legitimate usage on app 2146685D went unrecorded).
             if isShielded {
-                return 5
+                return shieldedSentinel
             }
             guard let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
                 return rewardLookaheadCap
             }
             let todayLimit = schedule.dailyLimits.todayLimit
             if todayLimit == unlimitedSentinel { return rewardLookaheadCap }
-            return max(60, min(todayLimit, rewardLookaheadCap))
+            if todayLimit > 0 { return max(60, min(todayLimit, rewardLookaheadCap)) }
+            // todayLimit == 0 here means the schedule says "off today" — but the
+            // shield path may still unshield this app (data drift between the
+            // schedule's dailyLimits and goalConfig.todayDailyLimit). Register
+            // the sentinel as a safety net.
+            return shieldedSentinel
         default:
-            // Learning: size to lowest linked-goal threshold + 15-min buffer.
-            // Apps with no linked goal (parent has them as "learning" but they're
-            // not wired into any reward's requirements) get a modest 30-threshold default.
+            // Learning: the todayLimit==0 short-circuit still applies — a learning
+            // app marked off today has no shield-drop pathway that could activate
+            // it mid-day, so 0 thresholds is the correct answer.
+            if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
+               schedule.dailyLimits.todayLimit == 0 {
+                return 0
+            }
             let goalMin = lowestLearningGoalMinutes(for: logicalID)
             if goalMin > 0 {
                 return max(15, min(goalMin + 15, 60))

@@ -967,17 +967,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Cross-burst budget diagnostic (phantom-flood detector). Tracks aggregate
+        // Cross-burst budget filter (phantom-flood enforcement). Tracks aggregate
         // credits during a catch-up burst vs wallclock since the last "alive" event
         // (any app). The kid can only use one app at a time, so total credits in a
         // burst cannot exceed wallclock seconds since monitoring was last firing
         // real-time events. A new burst starts on a wallclock gap ≥ 5s; subsequent
         // events within 5s of each other share the same budget.
         //
-        // Diagnostic-only (no rejection). If this ever logs, we have empirical
-        // evidence that a phantom-flood is sneaking past the existing filters and
-        // we have data to design enforcement on. See SMART_THRESHOLD_FILTERING.md
-        // "May 11, 2026 — burst-budget diagnostic".
+        // May 16, 2026 — Promoted from diagnostic to enforcement. Device 1 evidence:
+        // 96s wall-clock gap before flood, ~300,000s of credit proposed in the burst
+        // — 3000× over budget. Enforcement rejects the event. Legit catch-up dumps
+        // stay under budget because real usage matches wall-clock by construction
+        // (30 min silence → 30×60s credit = 1800s = budget). Audit the SKIP_BURST_BUDGET
+        // log volume against legit-usage scenarios in tomorrow's logs.
         let lastAliveKey = "last_credited_global_timestamp"
         let burstBudgetKey = "burst_budget_seconds"
         let burstCreditedKey = "burst_credited_seconds"
@@ -992,8 +994,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         let proposedCredited = burstCredited + delta
         if lastAlive > 0 && proposedCredited > burstBudget {
-            debugLog("BURST_BUDGET_DIAG appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s (wallclock since last alive event). Possible phantom-flood — diagnostic only, no action.", defaults: defaults)
-            Self.logger.notice("BURST_BUDGET_DIAG app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s")
+            debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s (wallclock since last alive event) — phantom-flood reject", defaults: defaults)
+            Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s")
+            // Don't update burstCredited/lastAlive — rejecting this event means it
+            // never happened from the budget's perspective. The burst budget keeps
+            // its current value so subsequent events in the same burst are still
+            // compared against the original wallclock window.
+            defaults.set(burstBudget, forKey: burstBudgetKey)
+            return false
         }
         defaults.set(proposedCredited, forKey: burstCreditedKey)
         defaults.set(burstBudget, forKey: burstBudgetKey)
@@ -1657,6 +1665,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 recordUnlockState(rewardAppLogicalID: goalConfig.rewardAppLogicalID, defaults: defaults)
                 anyShieldDropped = true
                 debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (goalMet, pool=\(pool)min)", defaults: defaults)
+
+                // May 16, 2026 — sentinel-window upgrade on shield drop. The shielded
+                // reward app had `window_size_<id> = 5` (the sentinel). Now that it's
+                // playable, expand to the full reward window so the next extension
+                // fast-path rebuild registers a 90-threshold window instead of
+                // another 5-sentinel. Without this, WINDOW_TOP_HIT cascades every 60s
+                // (re-registering 5 thresholds at a time) until the main app's
+                // restartMonitoring eventually catches up. The kid never loses events
+                // but the cascade is wasteful and stresses the extension memory budget.
+                // Pairing: the main app's `windowSize(for:category:isShielded:)`
+                // returns the same 90 when scheduleActivity next runs — values align.
+                defaults.set(90, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
 
                 // Layer 3 anchor: track unshield-window for the post-unshield budget filter.
                 // Snapshot all monitored apps' usage_<id>_today at this moment. If we're

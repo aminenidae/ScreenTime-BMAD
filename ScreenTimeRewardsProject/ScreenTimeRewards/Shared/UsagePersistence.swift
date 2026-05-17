@@ -12,20 +12,30 @@ final class UsagePersistence {
 
     typealias LogicalAppID = String
 
-    /// Represents usage summary for a single calendar day
+    /// Represents usage summary for a single calendar day.
+    ///
+    /// `rewardMinutesEarned` (May 16, 2026 — Device 3 ratio-lock fix): the reward
+    /// minutes credited for this day's learning, frozen at the moment the day is
+    /// archived using the ratio that was active on that day. Once set, this value
+    /// is immutable — ratio changes thereafter cannot rewrite history. Optional
+    /// for backward compatibility with rows written before the field existed;
+    /// readers fall back to `seconds × current-ratio` when nil (during the migration
+    /// window before backfill runs).
     struct DailyUsageSummary: Codable, Equatable {
         let date: Date   // Normalized to start-of-day
         var seconds: Int
         var points: Int
         var hourlySeconds: [Int]?  // Optional: 24-hour breakdown [0-23]
         var hourlyPoints: [Int]?   // Optional: 24-hour breakdown [0-23]
+        var rewardMinutesEarned: Int?  // Frozen at archive time; nil for pre-May 16 rows
 
-        init(date: Date, seconds: Int, points: Int, hourlySeconds: [Int]? = nil, hourlyPoints: [Int]? = nil) {
+        init(date: Date, seconds: Int, points: Int, hourlySeconds: [Int]? = nil, hourlyPoints: [Int]? = nil, rewardMinutesEarned: Int? = nil) {
             self.date = Calendar.current.startOfDay(for: date)
             self.seconds = seconds
             self.points = points
             self.hourlySeconds = hourlySeconds
             self.hourlyPoints = hourlyPoints
+            self.rewardMinutesEarned = rewardMinutesEarned
         }
     }
 
@@ -142,12 +152,82 @@ final class UsagePersistence {
         // Migrate hourly data for existing apps on first load
         migrateHourlyDataIfNeeded()
 
+        // May 16, 2026 — Device 3 ratio-lock migration. Backfill rewardMinutesEarned
+        // on existing dailyHistory rows and reset bank baselines poisoned by
+        // retroactive ratio recomputation. Runs once per device.
+        ratioLockMigrationIfNeeded()
+
         #if DEBUG
         if userDefaults == nil {
             print("[UsagePersistence] ⚠️ Failed to access App Group: \(appGroupIdentifier)")
         } else {
             print("[UsagePersistence] ✅ Loaded \(cachedApps.count) apps, \(cachedTokenMappings.count) token mappings")
         }
+        #endif
+    }
+
+    // MARK: - Ratio-Lock Migration (May 16, 2026 — Device 3 fix)
+
+    private let ratioLockMigrationKey = "ratio_lock_migration_v1"
+
+    /// Backfill `rewardMinutesEarned` on legacy dailyHistory rows AND clear any bank
+    /// baseline that's obviously poisoned by the pre-fix retroactive ratio bug.
+    ///
+    /// Runs exactly once per device, gated by `ratio_lock_migration_v1` in shared
+    /// UserDefaults. After this runs, all future archives store rewardMinutesEarned
+    /// at archive time using the day's active ratio, and read sites prefer the
+    /// stored value over read-time multiplication.
+    ///
+    /// Poisoned-baseline heuristic: any bank baseline ≥ 1440 minutes (24 hours) is
+    /// almost certainly the product of a retroactive ratio inflation, since real
+    /// earnings can rarely exceed 24 hours of accumulated reward time on a child
+    /// device. Clearing the baseline forces the next read to bootstrap fresh from
+    /// the newly-backfilled (and now ratio-locked) dailyHistory.
+    private func ratioLockMigrationIfNeeded() {
+        guard let defaults = userDefaults else { return }
+        guard !defaults.bool(forKey: ratioLockMigrationKey) else { return }
+
+        var rowsBackfilled = 0
+        var mutatedApps = 0
+        for (logicalID, var app) in cachedApps {
+            var didMutate = false
+            for index in app.dailyHistory.indices {
+                if app.dailyHistory[index].rewardMinutesEarned != nil { continue }
+                let row = app.dailyHistory[index]
+                if let earned = Self.computeRewardMinutesEarned(
+                    logicalID: logicalID,
+                    category: app.category,
+                    seconds: row.seconds,
+                    day: row.date
+                ) {
+                    app.dailyHistory[index].rewardMinutesEarned = earned
+                    rowsBackfilled += 1
+                    didMutate = true
+                }
+            }
+            if didMutate {
+                cachedApps[logicalID] = app
+                mutatedApps += 1
+            }
+        }
+        if mutatedApps > 0 {
+            persistApps()
+        }
+
+        // Clear poisoned bank baseline if present.
+        let existingBaseline = defaults.integer(forKey: bankBaselineMinutesKey)
+        let baselinePoisonedThresholdMinutes = 1440
+        if existingBaseline >= baselinePoisonedThresholdMinutes {
+            defaults.removeObject(forKey: bankBaselineMinutesKey)
+            defaults.removeObject(forKey: bankBaselineDateKey)
+            #if DEBUG
+            print("[UsagePersistence] 🧹 Ratio-lock migration cleared poisoned baseline (was \(existingBaseline)m). Next bank read will re-bootstrap from backfilled history.")
+            #endif
+        }
+
+        defaults.set(true, forKey: ratioLockMigrationKey)
+        #if DEBUG
+        print("[UsagePersistence] 🔒 Ratio-lock migration complete: backfilled \(rowsBackfilled) rows across \(mutatedApps) apps")
         #endif
     }
 
@@ -270,6 +350,69 @@ final class UsagePersistence {
         return (totalSeconds, totalPoints)
     }
 
+    /// Compute the reward minutes earned for a day being archived into dailyHistory.
+    /// Frozen at archive time using the ratio active on the archived day — once
+    /// stored on the row, immune to later ratio edits. (May 16, 2026 — Device 3
+    /// ratio-lock fix.)
+    ///
+    /// Reads versions directly from shared UserDefaults so this can be called from
+    /// any concurrency context without hopping to AppScheduleService's MainActor.
+    /// Storage key/format must stay aligned with `AppScheduleService.persistVersions`.
+    ///
+    /// Returns nil for reward-category apps (which contribute to "used", not "earned"),
+    /// or when there is no usable schedule version for the day. Read site falls back
+    /// to `seconds × current-ratio` only for nil rows (legacy data written before
+    /// this field existed).
+    static func computeRewardMinutesEarned(
+        logicalID: String,
+        category: String,
+        seconds: Int,
+        day: Date
+    ) -> Int? {
+        // Only learning apps earn. Reward usage is "used", not "earned".
+        guard category.lowercased() == "learning" else { return nil }
+        guard seconds > 0 else { return 0 }
+        let dayKey = AppScheduleVersion.dayKey(for: day)
+        let ratio = lookupRatioFromSharedDefaults(logicalID: logicalID, dayKey: dayKey)
+        return Int(Double(seconds) * ratio) / 60
+    }
+
+    /// Resolve the schedule version ratio for `(logicalID, dayKey)` by reading the
+    /// versions blob persisted by `AppScheduleService.persistVersions()`. Returns
+    /// 1.0 if no matching version is found.
+    ///
+    /// IMPORTANT: storage key + JSON shape must mirror `AppScheduleService.versionsKey`
+    /// and the `[AppScheduleVersion]` flat-array format. If either side changes,
+    /// update both.
+    private static func lookupRatioFromSharedDefaults(logicalID: String, dayKey: String) -> Double {
+        guard let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else {
+            return 1.0
+        }
+        guard let data = defaults.data(forKey: "AppScheduleVersions") else {
+            return 1.0
+        }
+        let allVersions: [AppScheduleVersion]
+        do {
+            allVersions = try JSONDecoder().decode([AppScheduleVersion].self, from: data)
+        } catch {
+            return 1.0
+        }
+        var appVersions: [AppScheduleVersion] = []
+        for v in allVersions where v.logicalID == logicalID {
+            appVersions.append(v)
+        }
+        appVersions.sort { $0.effectiveFromDay < $1.effectiveFromDay }
+        var active: AppScheduleVersion? = nil
+        for v in appVersions {
+            if v.effectiveFromDay <= dayKey {
+                active = v
+            } else {
+                break
+            }
+        }
+        return active?.ratio ?? 1.0
+    }
+
     /// Calculate cumulative remaining minutes from all historical data (excluding today).
     ///
     /// Two-layer model:
@@ -350,8 +493,15 @@ final class UsagePersistence {
             for summary in app.dailyHistory where summary.date >= baselineDate {
                 let dayKey = AppScheduleVersion.dayKey(for: summary.date)
                 if isHistoryRowAbsorbed(logicalID: logicalID, dayKey: dayKey, in: absorbed) { continue }
-                let ratio = ratioForDay(logicalID, dayKey)
-                deltaEarnedSeconds += Int(Double(summary.seconds) * ratio)
+                // May 16, 2026 — ratio-lock. Prefer the rewardMinutesEarned value
+                // frozen at archive time. Only fall back to seconds×ratio for
+                // legacy rows written before the field existed.
+                if let stored = summary.rewardMinutesEarned {
+                    deltaEarnedSeconds += stored * 60
+                } else {
+                    let ratio = ratioForDay(logicalID, dayKey)
+                    deltaEarnedSeconds += Int(Double(summary.seconds) * ratio)
+                }
             }
         }
 
@@ -398,9 +548,15 @@ final class UsagePersistence {
         for logicalID in learningIDs {
             if let app = cachedApps[logicalID] {
                 for summary in app.dailyHistory {
-                    let dayKey = AppScheduleVersion.dayKey(for: summary.date)
-                    let ratio = ratioForDay(logicalID, dayKey)
-                    earnedSeconds += Int(Double(summary.seconds) * ratio)
+                    // May 16, 2026 — prefer frozen rewardMinutesEarned over read-time
+                    // ratio multiplication (Device 3 ratio-lock fix).
+                    if let stored = summary.rewardMinutesEarned {
+                        earnedSeconds += stored * 60
+                    } else {
+                        let dayKey = AppScheduleVersion.dayKey(for: summary.date)
+                        let ratio = ratioForDay(logicalID, dayKey)
+                        earnedSeconds += Int(Double(summary.seconds) * ratio)
+                    }
                 }
             }
         }
@@ -583,12 +739,19 @@ final class UsagePersistence {
             // Archive previous day's usage before resetting
             if app.todaySeconds > 0 || app.todayPoints > 0 {
                 let previousDay = calendar.startOfDay(for: app.lastResetDate)
+                let earnedAtArchive = Self.computeRewardMinutesEarned(
+                    logicalID: logicalID,
+                    category: app.category,
+                    seconds: app.todaySeconds,
+                    day: previousDay
+                )
                 let summary = DailyUsageSummary(
                     date: previousDay,
                     seconds: app.todaySeconds,
                     points: app.todayPoints,
                     hourlySeconds: app.todayHourlySeconds,  // ✅ Archive hourly data
-                    hourlyPoints: app.todayHourlyPoints     // ✅ Archive hourly data
+                    hourlyPoints: app.todayHourlyPoints,    // ✅ Archive hourly data
+                    rewardMinutesEarned: earnedAtArchive
                 )
                 app.dailyHistory.append(summary)
 
@@ -702,7 +865,18 @@ final class UsagePersistence {
 
             // Archive previous day's usage if there was any
             if app.todaySeconds > 0 || app.todayPoints > 0 {
-                let summary = DailyUsageSummary(date: app.lastResetDate, seconds: app.todaySeconds, points: app.todayPoints)
+                let earnedAtArchive = Self.computeRewardMinutesEarned(
+                    logicalID: logicalID,
+                    category: app.category,
+                    seconds: app.todaySeconds,
+                    day: app.lastResetDate
+                )
+                let summary = DailyUsageSummary(
+                    date: app.lastResetDate,
+                    seconds: app.todaySeconds,
+                    points: app.todayPoints,
+                    rewardMinutesEarned: earnedAtArchive
+                )
                 app.dailyHistory.append(summary)
 
                 // Cleanup: Keep only last 30 days
@@ -749,7 +923,18 @@ final class UsagePersistence {
                 // Only archive to history if this looks like stale data
                 // (i.e., lastResetDate == today but no actual usage events happened today)
                 // For safety, we archive all non-zero data to history before resetting
-                let summary = DailyUsageSummary(date: app.lastResetDate, seconds: app.todaySeconds, points: app.todayPoints)
+                let earnedAtArchive = Self.computeRewardMinutesEarned(
+                    logicalID: logicalID,
+                    category: app.category,
+                    seconds: app.todaySeconds,
+                    day: app.lastResetDate
+                )
+                let summary = DailyUsageSummary(
+                    date: app.lastResetDate,
+                    seconds: app.todaySeconds,
+                    points: app.todayPoints,
+                    rewardMinutesEarned: earnedAtArchive
+                )
                 app.dailyHistory.append(summary)
 
                 // Cleanup: Keep only last 30 days

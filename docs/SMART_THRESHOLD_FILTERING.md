@@ -3793,5 +3793,357 @@ The `SubscriptionLockoutView.activateDevSubscription` path calls `restartMonitor
 
 Either change would have prevented the 22:00 incident without needing the shadow → enforcement path at all. Worth doing in parallel with the shadow data collection.
 
+---
+
+## May 16, 2026 — Quarantine-and-judge architecture (PROPOSED, not yet implemented)
+
+> **Status: design captured for future implementation.** Awaiting multi-device log analysis before coding. Do not implement until additional device logs (beyond `ext-log-2026-05-16.log`) have been reviewed to confirm the symptom set generalizes.
+
+### Today's incident
+
+`ext-log-2026-05-16.log`, 14:16:39 → 14:16:47 (8.6 seconds). The extension restarted at 14:15:27 because learning app `BB131A01` hit the top of its 60-min event window (`WINDOW_TOP_HIT` rebuild path, May 10). Roughly 53 seconds after `MONITORING_START`, iOS dumped a flood of phantom threshold events across 7 apps — including 4 reward apps that **had zero real usage today**. The first event for `739C4A42`, `93088665`, and `C6DA269B` arrived at min.68, min.69, and min.66 respectively, from a cold start (`currentToday=0s lastThresh=0s`).
+
+The flood attempted to credit ~83 hours of phantom usage in 8 seconds. Per-app attempted credit:
+- `642B7130` (reward): **+32.5 hours** attempted
+- `739C4A42` (reward): **+27.7 hours** attempted
+- `C6DA269B` (reward): **+22.5 hours** attempted
+
+### What the existing filters did
+
+- **`SKIP_BUDGET_EXCEEDED` (reward-only wall-clock budget)** caught ~83 hours of impossible reward-app claims across 231 events. Worked as designed.
+- **`SHADOW_RESTART_REJECT` (May 14 shadow)** flagged 106 events as "would reject if enforced," but had a structural blind spot: it can only reject events whose threshold ≤ pre-restart snapshot. For apps with **zero usage at restart time** (snap = 0), no threshold value can be ≤ 0, so the rule passes every phantom. The 4 reward apps that took the worst damage had snap=0 and the shadow filter was structurally blind to them on the initial dump.
+- **`BURST_BYPASS` (mid-day-burst 5-second rule)** is what actually credited the leaked events. The rule itself was operating correctly — the failure was upstream: the **first** phantom event was accepted as a normal first-event-of-day with 60s credit, which set `lastEventTime` to the flood timestamp. Every subsequent phantom arrived within ~100-250 ms, triggering the back-to-back rule, which lifted the 60s cap and credited the full delta.
+
+### Actual damage that reached the database
+
+After all existing filters: ~164 minutes (2h 44m) of phantom credit across 7 apps. Breakdown:
+
+| App | Category | Phantom credited |
+|---|---|---|
+| `93088665` | Reward | +90 min |
+| `BB131A01` | Learning | +20 min |
+| `E8B1C8C6` | Learning | +20 min |
+| `FAE1D45B` | Learning | +19 min |
+| `C6DA269B` | Reward | +13 min |
+| `642B7130` | Reward | +1 min |
+| `739C4A42` | Reward | +1 min |
+
+Two structural gaps:
+1. **First reward app of any flood gets no budget protection** — `93088665` took 90 min because the per-day wall-clock budget hadn't been "used up" yet; it ate budget room before later events tripped the filter.
+2. **Learning apps have no budget filter at all** (by design — `wallClockSinceUnshield` is a reward-app concept). The 3 learning apps took a combined 59 minutes of inflation with nothing downstream of `BURST_BYPASS` to stop them.
+
+### The principle
+
+> **iOS doesn't selectively malfunction. When the symptoms of a phantom flood are present, every event received during the flood window is non-legitimate — reward or learning, trigger app or not, all rejected.**
+
+A single impossibility anywhere in the burst proves the entire burst is untrustworthy. No partial salvage, no "the trigger app's events looked clean so credit those."
+
+### Architectural shift: quarantine-and-judge
+
+The current architecture filters events one-at-a-time as they arrive. Each filter votes in isolation, and damage lands on the books before the collective shape of the flood becomes visible. The proposed model inverts the order of operations:
+
+1. **Detect flood-start.** Open a flood window whenever events start arriving in a tight burst (back-to-back, fast).
+2. **Hold, don't credit, during the window.** Primary safety filters that *block* still run (`SKIP_MIDNIGHT`, `SKIP_REGRESSION`, `SKIP_SHIELDED`). Credit-granting filters (`BURST_BYPASS`, full-delta paths, normal recording) are deferred. Events go into a buffer with their threshold, app, and arrival time. **No sub-filter posts credit until the window closes.**
+3. **Close the window** on a quiet gap (≥5s of no new events) or a max duration.
+4. **Judge the buffer as a whole.**
+
+### Symptom set (confirmed)
+
+Only two symptoms qualify as "iOS is going crazy" signals:
+
+1. **Aggregate impossibility.** Sum the proposed credit across **all apps** in the buffer. Compare against wall-clock seconds since the *last legitimately recorded event for any app* (not per-app — the kid has one set of hands, so the budget is global). If the total exceeds that wall-clock budget plus jitter grace, the buffer is non-legit.
+
+   *Today's example: last legit recorded event was `BB131A01 +60s` at 14:15:03. Flood starts at 14:16:39 — wall-clock budget ≈ 96 seconds. Total proposed credit across the buffer was ~300,000 seconds. 300,000s > 96s by 3,000× → reject everything.*
+
+2. **Per-app impossibility.** Any single app whose cumulative claim in the buffer exceeds its wall-clock-since-midnight budget. Catches the cold-start-on-dormant-app case (an app claiming 32 hours when only 14 hours of the day have elapsed).
+
+### Symptom set (explicitly rejected)
+
+- **Multi-app simultaneity.** N+ apps firing events within X seconds of each other is **not** a symptom. Legitimate catch-up dumps on iPad-9th-gen-class devices look exactly like this — multiple apps that were genuinely being used in the background, all flushed by iOS at once. This pattern alone cannot distinguish phantom from legit; drop it.
+
+### Verdict, applied to the whole window
+
+- **Any symptom present →** reject every event in the buffer. All apps. Reward and learning. Trigger app too. No exceptions.
+- **No symptoms →** release the buffer through normal recording (deferred credit lands at window close).
+
+### Why this beats lockout-on-trip
+
+A "lockout when budget filter is breached" approach is **reactive**: the flood starts, the first N events leak through before the lockout trips, and the leaked events stay on the books. Today that pattern would have lost the 90 min on `93088665` regardless.
+
+Quarantine-and-judge is **preventive**: nothing posts to the database until the whole window has been seen and judged. The 90 min wouldn't have leaked because no credit would have been recorded for `93088665` during the window — it was always going to be reassessed at window close.
+
+### Open design questions (defer to implementation)
+
+1. **What triggers "open the window"?** Options: (a) every restart for a fixed N seconds, (b) any event arriving within 5s of a prior event (mirrors current `isMidDayBurst` detection), (c) event count threshold in a sliding window. Likely (b) — symmetric with how the existing filters detect bursts.
+2. **What's the max window duration?** Avoid pathological "burst that never ends" cases. Probably 15-30 seconds hard cap.
+3. **What's the jitter grace on aggregate budget?** Current `SKIP_BUDGET_EXCEEDED` uses 10%. Same value likely works here.
+4. **Where in the chain does buffering happen?** Inside `shouldRecordEvent`, or wrap it. Must integrate cleanly with `SKIP_REGRESSION` (which still runs) and the unified-usage-counter write path.
+5. **What about events that arrive during the post-window release phase?** If we're flushing the buffer at 14:16:48 and a new event arrives at 14:16:48.5, does it join the next buffer or attach to the closing one? Probably: any event within 5s of the last buffered event extends the window.
+6. **What's the rejection signal in the buffer?** A single per-app or aggregate verdict, or per-event? Per the principle, it's all-or-nothing for the buffer — verdict is single.
+
+### What needs to happen before implementing
+
+1. **Analyze additional device logs.** This design is built on `ext-log-2026-05-16.log` plus the May 14 double-restart shadow data. Confirm the symptom set generalizes by checking floods from other devices/scenarios. In particular:
+   - iPad 9th-gen mid-day legitimate catch-up dumps (must NOT trip the symptoms)
+   - Post-midnight catch-up bursts (different reference frame — wall-clock since last event resets at midnight)
+   - Restart-induced floods on devices with a mix of active and dormant apps
+2. **Confirm the "last legit event for any app" reference frame.** Specifically: is wall-clock since the last legit *global* event always the right denominator, or are there edge cases (e.g., first usage of the day, post-foreground-restart) where it produces wrong verdicts?
+3. **Decide co-existence with `SKIP_BUDGET_EXCEEDED`.** The reward-only budget filter overlaps with symptom #1. Either keep it as a per-event early-reject (cheap, catches the obvious cases) or fold it into the buffer judgment.
+4. **Decide the fate of `BURST_BYPASS`.** Under quarantine-and-judge, the mid-day-burst rule is no longer in the critical path — the buffer judgment supersedes it. Either remove it or keep it as a post-window credit-allocation rule (decide per-event credit only after the buffer is judged legit).
+
+When all logs have been reviewed and the symptom set confirmed, write the implementation plan as a new section below this one.
+
+---
+
+## May 16, 2026 — Sentinel-bypass: shielded reward app records 0 min of real usage (Device 2)
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Reward apps now always get at least the 5-threshold sentinel; shield-drop in the extension also upgrades `window_size_<id>` from 5 → 90 so the next rebuild registers a real window.
+
+### Symptom
+
+Device 2 (`ext-log-2026-05-16 2.log`): reward app `2146685D` was used by the kid for **3h 27min of real time** today. The extension recorded **0 minutes**. Same fate for `FFE4B73B` (27 min real → 0 recorded) and likely other reward apps that unshielded mid-day.
+
+### Root cause: two code paths disagreed about "is this app usable today"
+
+Two independent reads of "daily limit" for the same app on the same day returned different answers:
+
+| Code path | Reads from | Said about `2146685D` |
+|---|---|---|
+| `DeviceActivityMonitorExtension.checkAndUpdateShields` (decides whether to drop a shield) | `goalConfig.todayDailyLimit()` | **non-zero** — "usable today, goal met, drop shield" → shield removed at 11:32:34 |
+| `ScreenTimeService.windowSize(for:category:isShielded:)` (decides how many thresholds to register) | `AppScheduleService.shared.getSchedule(...).dailyLimits.todayLimit` | **0** — "no access today" → register 0 thresholds |
+
+The shield dropped (kid could play). No thresholds were registered (iOS had nothing to fire). Kid played the unshielded app for hours. The extension never received a single event for it.
+
+### Why the May 11 sentinel fix didn't help
+
+`windowSize` already contains a 5-min sentinel rule for shielded reward apps (`ScreenTimeService.swift:2538-2540`):
+
+```swift
+case .reward:
+    if isShielded {
+        return 5   // sentinel — fire min.1-5 the moment shield drops
+    }
+```
+
+The intent: a shielded reward app keeps 5 thresholds registered so the moment its shield drops, iOS can start firing events without waiting for the next `scheduleActivity()`.
+
+But this rule is **gated behind an earlier short-circuit** (`ScreenTimeService.swift:2520-2523`):
+
+```swift
+if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
+   schedule.dailyLimits.todayLimit == 0 {
+    return 0
+}
+```
+
+For `2146685D`, that early gate returned 0. Control never reached the sentinel. The fix exists; it's just unreachable for apps the schedule data thinks are "off today."
+
+### Evidence in the log
+
+Midnight `MONITORING_START — events=85` registered windows for only **4 of 16 tracked apps**:
+
+```
+[00:10:12] SLIDING_WINDOW 6F773493... range=1-30 (30 thresholds)
+[00:10:12] SLIDING_WINDOW B0EF6284... range=1-20 (20 thresholds)
+[00:10:12] SLIDING_WINDOW 2207A02D... range=1-5  (5 thresholds — sentinel, ✓)
+[00:10:12] SLIDING_WINDOW 709612CC... range=1-30 (30 thresholds)
+```
+
+The other 12 apps — including `2146685D` and `FFE4B73B` — have **no `SLIDING_WINDOW` log entry** because `windowSize` returned 0 and they were skipped entirely.
+
+Yet at 11:32:34 the extension's shield-check ran for the same app and decided it was usable:
+
+```
+[11:32:34] SHIELD_CHECK: ✅ REMOVED shield for 2146685D-503 (goalMet, pool=383min)
+```
+
+Shield off, no thresholds, kid plays, recording fails silently for 5h 45min — until the cascade-restart storm at 17:17:35 finally registered fresh windows for these apps. By that point all the real usage was historical and unrecoverable.
+
+### The fix
+
+Make the shielded-sentinel branch the dominant gate for reward apps, not an early-exit. The schedule's `todayLimit == 0` should be treated as a **cap**, not a kill switch, for reward-category apps.
+
+Sketch (`ScreenTimeService.windowSize`):
+
+```swift
+switch category {
+case .reward:
+    // Reward apps: shield state IS the source of truth for "usable today."
+    // Don't let stale schedule data short-circuit threshold registration —
+    // if the shield path thinks this app might unshield today, iOS must
+    // have thresholds registered so the catch-up doesn't go unrecorded.
+    if isShielded {
+        return 5   // sentinel — always registered, no early-exit can bypass it
+    }
+    let cap = rewardLookaheadCap
+    if let schedule = AppScheduleService.shared.getSchedule(for: logicalID) {
+        let limit = schedule.dailyLimits.todayLimit
+        if limit == unlimitedSentinel { return cap }
+        if limit > 0 { return max(60, min(limit, cap)) }
+        // limit == 0 here means the schedule says "off today" — but the shield
+        // path may still unshield this app. Register the sentinel to stay safe.
+        return 5
+    }
+    return cap   // no schedule → full window
+
+default:
+    // Learning unchanged: the todayLimit==0 short-circuit still applies (a
+    // learning app off today has no shield path that could activate it
+    // mid-day, so 0 thresholds is the correct answer).
+    if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
+       schedule.dailyLimits.todayLimit == 0 {
+        return 0
+    }
+    let goalMin = lowestLearningGoalMinutes(for: logicalID)
+    if goalMin > 0 { return max(15, min(goalMin + 15, 60)) }
+    return 30
+}
+```
+
+Change in plain terms: **a reward app never gets zero thresholds.** It gets either the sentinel (5) or its capped window — whichever the shield state implies. The early kill-switch only fires for learning apps where there is no shield-drop pathway to recover.
+
+### Secondary fix: stop the data drift
+
+The deeper issue is that `goalConfig.todayDailyLimit()` and `schedule.dailyLimits.todayLimit` returned different values for the same app on the same day. Even with the sentinel fix, parallel storage means the two paths can disagree on other dimensions (downtime windows, weekly limits, parent edits). Both readers should pull from one canonical record. Until that's done, the sentinel fix is the safety net.
+
+Possible drift causes worth investigating:
+1. Parent edited the schedule mid-day; CloudKit sync updated `goalConfig` but not `dailyLimits` (or vice versa).
+2. The two structures were authored at different times and never reconciled.
+3. A migration left old `dailyLimits` records with stale values that don't match the live goal config.
+
+### Files to touch when implementing
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/ScreenTimeService.swift`
+  - `windowSize(for:category:isShielded:)` — restructure as above.
+- (Investigation, no code yet) — find the writer(s) of `goalConfig.todayDailyLimit` and `schedule.dailyLimits.todayLimit` and confirm whether they should share storage.
+
+### Validation
+
+- Force a shielded reward app to have `schedule.dailyLimits.todayLimit == 0`.
+- Confirm `MONITORING_START — events=N` includes 5 sentinel thresholds for that app (currently it skips it entirely).
+- Drop the shield mid-day, confirm iOS fires events from min.1 onward, recorded normally.
+
+---
+
+## May 16, 2026 — Historical-bank inflation from retroactive ratio change (Device 3)
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** `DailyUsageSummary` now carries an immutable `rewardMinutesEarned` field frozen at archive time. One-time migration backfills existing rows and clears any bank baseline ≥ 24h (poisoned by the pre-fix retroactive recompute).
+
+### Symptom
+
+Device 3 (`Device 3 logs/ext-log-2026-05-15 2.log`): the kid's Time Bank `historical` value jumped from **92 min to 1692 min** in a single process restart at 08:36 on May 15, with **zero usage in between**. By the next day the value was 1752 min (~29 hours). User confirmed the kid never earned anywhere close to that.
+
+### What the logs prove (math from the logs only — no theory)
+
+| Day | Learning use logged | Earned credited (live) | Effective ratio |
+|---|---|---|---|
+| May 13 | `ACCE5205` 8 min | `todayEarned=80min` (end-of-day) | **80 ÷ 8 = 10×** |
+| May 14 | `ACCE5205` 78 min + `91580636` 2 min = **80 min** | `todayEarned=0min` (live credit path didn't fire — separate failure) | n/a (nothing credited) |
+| May 15 08:36 | none | historical jumped **+1600 min** | **1600 ÷ 80 = 20×** |
+
+The +1600-minute jump equals **exactly** May 14's 80 minutes of learning use times a **20× ratio**. That is twice the **10× ratio** that produced May 13's live earnings two days earlier.
+
+Conclusion the logs force: a ratio change from 10× to 20× was applied **retroactively** to May 14's previously-uncredited learning minutes when the bank baseline recomputed at 08:36 on May 15.
+
+### Why the existing protections didn't help
+
+Two layers were built to prevent exactly this:
+
+1. **`versionActive` / `effectiveFromDay` versioning** (`AppScheduleService.versionActive`): historical days are supposed to resolve to the ratio that was active *on that day*, not the current ratio. `decideEffectiveFromDay` writes new ratios with `effectiveFromDay = today` (or `tomorrow` if the kid has already used the app today).
+2. **Bank baseline freeze** (`UsagePersistence.getHistoricalRemainingMinutes`, `bankBaselineMinutesKey`): on upgrade, the historical bank is computed once and frozen. Only dailyHistory rows dated *after* the freeze contribute to the delta. Past days can't be recomputed.
+
+Both layers depend on having a **correct historical version record** to begin with. That record gets created in exactly one place: `seedInitialVersionsIfNeeded` — the one-time migration that runs on first upgrade.
+
+The seed function creates one entry per goal config with `effectiveFromDay = "1970-01-01"`, using **whatever the live ratio is at the moment the migration runs.** If the parent changed the ratio *before* the seed migration ran on this device, the seed entry preserves the **new** ratio as if it had been in effect since 1970. Every historical day then resolves to the new ratio. The bank-baseline freeze runs against this poisoned seed and locks the inflated total in as the new floor.
+
+Device 3's math is consistent with this exact path:
+- Seed migration ran after the parent changed ratio from 10× to 20×.
+- `versionActive(May 14)` returns 20× (the seeded "since 1970" entry).
+- May 14's 80 learning minutes get re-priced at 20× → +1600 credited.
+- Bank baseline freezes at the inflated total.
+
+The system isn't broken — it just had nothing to protect, because the historical record was already wrong before any protection ran.
+
+### Chosen fix: Option 1 — store ratio on each `dailyHistory` row
+
+Stop computing `earnedMinutes = learningSeconds × ratioLookup(day)` at read time. Instead, persist `earnedMinutes` on the dailyHistory row itself, at the moment the day's earnings are finalized. Ratio changes thereafter can't touch the value because there's no ratio multiplication happening at read time.
+
+Each completed day's `dailyHistory` row carries the **final reward minutes earned**, computed once using the ratio that was active during the day's learning. From that point forward, the row is a constant. No version lookup, no recomputation, no possibility of retroactive inflation.
+
+### Implementation outline (when ready to build)
+
+1. **Data model change.** Add `rewardMinutesEarned: Int` to the `dailyHistory` row (or whatever model represents per-app per-day summary). This replaces the read-time `Int(Double(summary.seconds) * ratio)` computation. The existing `seconds` field stays — it's the raw learning usage, still useful for audits and the today-row's live computation.
+2. **Write site.** At midnight (or whenever a day is archived from "today's live counter" to "historical row"), compute that day's earned reward minutes once, using `versionActive(logicalID, on: dayKey)` for the ratio that was active *on that day*, and persist the result on the row. After this write, the row is immutable.
+3. **Read site.** `UsagePersistence.getHistoricalRemainingMinutes` and `legacyFullHistoryRemainingMinutes` change from `Int(Double(summary.seconds) * ratio)` to `summary.rewardMinutesEarned`. Drop the `ratioForDay` closure entirely from these paths.
+4. **Migration for existing rows.** For any pre-existing `dailyHistory` row without `rewardMinutesEarned` populated, do a one-time backfill using the *best available* ratio:
+   - First preference: `versionActive(logicalID, on: dayKey)`.
+   - If versionActive returns the synthetic "1970" seed (which we now know may be poisoned), the backfill is still the best we have — but the baseline-freeze that follows locks any wrongness in only once, and never again. This is acceptable as long as we don't *amplify* it by running the lookup repeatedly across future ratio changes.
+   - Devices that have already taken the inflation on the chin (like Device 3) need either a manual baseline reset OR an opt-in "recompute from raw seconds at default 1× ratio" path. Pick based on how aggressive the recovery should be.
+5. **Delete obsolete code paths.** Once write+read sites use the stored field, `legacyFullHistoryRemainingMinutes` and the `ratioForDay` closure can shrink to a single read field. Keep the migration code until all devices are confirmed migrated, then remove.
+
+### Validation
+
+- Set ratio to 5×, run learning use for 10 min → confirm dailyHistory row stores `rewardMinutesEarned = 50`.
+- Change ratio to 30× via parent edit.
+- Read historical bank → confirm the prior day's contribution is still **50 min**, not 300 min.
+- Add a new day of usage → confirm only the new day uses the 30× rate; old day stays at 50.
+
+### Why this is structurally better than the current design
+
+The current design treats `dailyHistory` as a *raw materials* record (learning seconds) and reconstructs reward minutes on demand using a separate version table. That's two sources of truth that must stay in sync. They didn't.
+
+Option 1 treats `dailyHistory` as a *settled receipt* — the reward minutes earned that day are part of the row itself, not derived from anything else. Once written, it cannot be retroactively rewritten by anything: not a parent edit, not a seeded version, not a baseline freeze running at the wrong moment.
+
+### Files to touch when implementing
+
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Shared/UsagePersistence.swift`
+  - Add `rewardMinutesEarned` to the dailyHistory row model.
+  - Change `getHistoricalRemainingMinutes` and `legacyFullHistoryRemainingMinutes` to read the stored field directly.
+  - Add backfill migration for pre-existing rows.
+- `ScreenTimeRewardsProject/ScreenTimeRewards/Services/AppScheduleService.swift`
+  - `versionActive` and `ratio(logicalID:on:)` stay — still needed for **today's** live earnings (where the day-+1 effective-from rule applies). Just no longer used for historical days.
+- Whatever code path archives "today" into the dailyHistory at midnight — this is the write site that needs to call `versionActive(on: dayBeingArchived)` and persist the resulting reward minutes.
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - The `PENDING_ARCHIVE` path at midnight may be the relevant write site, or there may be a separate main-app archive worker. Confirm during implementation.
+
+---
+
+## May 16, 2026 — `SKIP_BURST_BUDGET`: cross-burst wallclock filter promoted to enforcement
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Promoted from diagnostic-only (`BURST_BUDGET_DIAG`) to actual rejection (`SKIP_BURST_BUDGET`).
+
+### What changed
+
+`DeviceActivityMonitorExtension.shouldRecordEvent` had a cross-burst budget check (`BURST_BUDGET_DIAG`) that tracked aggregate credits across events arriving within 5 seconds of each other and compared them against wallclock seconds since the last "alive" (successfully recorded) event. The check was logged but never enforced. Promoted to enforcement (`return false`) — phantom-flood events whose proposed credit exceeds wall-clock-since-last-event are now dropped at this stage.
+
+### The rule, in one line
+
+> *Total credits accumulated within a burst (events arriving <5s apart) cannot exceed the wall-clock seconds that elapsed between the burst-start and the previous successfully-recorded event for any app.*
+
+A new burst begins when ≥5 seconds have passed since the last credited event. At that moment, `burst_budget_seconds = nowTimestamp − last_credited_global_timestamp`. Subsequent events within 5s of each other share that budget. Each event's `delta` accumulates against `burst_credited_seconds`; when `proposedCredited > burstBudget`, the event is rejected.
+
+When an event is rejected, `burst_credited_seconds` and `last_credited_global_timestamp` are NOT advanced — the rejected event "never happened" from the budget's perspective. Subsequent events in the same burst are still compared against the original wallclock window. (Otherwise a single phantom would expand the budget and unblock the rest of the flood.)
+
+### What it catches vs misses
+
+Catches:
+- **Device 1 flood (May 16):** 96-second gap before the burst → 96-second budget. First flood event credits +60s (under budget). Second event tries +300s — proposed 360s > 96s — rejected. All subsequent flood events also rejected. The 80+ hours of attempted phantom credit goes nowhere.
+
+Misses (acknowledged limitation):
+- **Device 2 flood (May 16):** 3h 34min gap before the burst → 12,866-second budget. Total proposed credit ~6,360s fits comfortably under the budget. Rule passes the entire flood. A different defense will be needed for the "phantom burst after long silence" shape — the full quarantine-and-judge design captured earlier in this doc covers half of that and needs more work.
+
+### Why it's safe
+
+For a legitimate iPad-9th-gen-class catch-up dump: iOS goes silent for N minutes while the kid uses an app; when the system catches up, events fire in a tight burst (1-2s) with cumulative real usage ≈ N minutes. Wall-clock budget = N×60s. Proposed credit = N×60s. Equal, under budget, passes. The rule is structured so legit catch-ups whose total credit matches wall-clock can never be wrongly rejected.
+
+### What to watch in production logs
+
+- `SKIP_BURST_BUDGET appID=… burstCredited=Xs + delta=Ys = Zs > budget=Bs` — every rejection logs verbatim. If these fire during scenarios where the kid was demonstrably using an app, that's a false-reject and the rule needs adjusting.
+- Volume should be near-zero on devices with no phantom flood activity; spike high on devices hit by the Device 1 flood shape.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `shouldRecordEvent` cross-burst block: log line renamed `BURST_BUDGET_DIAG → SKIP_BURST_BUDGET`, `return false` added on budget breach, lastAlive/burstCredited not updated on reject.
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
