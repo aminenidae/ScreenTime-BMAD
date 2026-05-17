@@ -847,18 +847,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return true
         }
 
-        // Per-event 60 s cap: each iOS threshold represents at most 1 minute of new
-        // progression. Relaxed on the first event after a shield drop — the kid may
-        // have legitimately played multiple minutes before iOS fired its first
-        // threshold; the relaxation is bounded by elapsed-since-unlock. Subsequent
-        // in-burst events advance lastEventTime past unlockTime, so the cap drops
-        // back to 60 s.
+        // Per-event cap: governs how much credit a single threshold event can post.
+        // Branches:
+        //   - in-burst (catch-up dump or buffered Layer 2 burst) → Int.max, trust iOS
+        //   - first-event-after-unlock → wall-clock since unlock (bounded by elapsed)
+        //   - normal delivery → Int.max, trust threshold value, SKIP_BURST_BUDGET
+        //     downstream bounds against wall-clock since last alive event
+        //
+        // The normal-delivery branch used to be a hard 60s cap. That rule threw away
+        // recoverable credit any time iOS fired a threshold that advanced past our
+        // recorded today (false rejects, extension kills, deferred batch flushes
+        // — May 17 Device 2: Roblox today stuck at 120 min while iOS internally
+        // tracked 145+ min). Trusting the threshold value in normal mode lets the
+        // very next legit event close any gap automatically; SKIP_BURST_BUDGET
+        // (now with jitter grace) catches single phantoms with inflated thresholds.
         //
         // Defense in depth (kept unchanged):
         //   - SKIP_MIDNIGHT (Filter 0) — blocks cross-day stale flushes.
         //   - SKIP_REGRESSION — blocks duplicates and out-of-order regressions.
         //   - lastThreshold high-water-mark anchor (May 1) — flood can't poison
         //     subsequent SKIP_REGRESSION decisions.
+        //   - SKIP_BURST_BUDGET — bounds credit against wall-clock since last alive.
         let currentToday = defaults.integer(forKey: todayKey)
         let lastEventTime = defaults.double(forKey: "ext_usage_\(appID)_timestamp")
         let unlockTime = defaults.double(forKey: "ext_unlock_\(appID)_timestamp")
@@ -898,14 +907,25 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         } else if isFirstEventAfterUnlock {
             perEventCap = max(60, Int(nowTimestamp - unlockTime))
         } else {
-            perEventCap = 60
+            // NORMAL DELIVERY: iOS calmly fires one threshold event per minute of real
+            // play. The threshold value IS ground truth for cumulative play time —
+            // when iOS fires min.197 and our today is 120, the missing 77 minutes are
+            // real (lost to false rejects, extension kills, or deferred batches).
+            // Trust the threshold value and let SKIP_BURST_BUDGET downstream gate the
+            // result against wall-clock since the last alive event. Physical-
+            // impossibility cases (single phantom claiming 80 min with only 60s of
+            // wall-clock budget) still get rejected there.
+            perEventCap = Int.max
         }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
             let unlockAge = unlockTime > 0 ? Int(nowTimestamp - unlockTime) : -1
             debugLog("PER_EVENT_CAP appID=\(appID.prefix(8))... raw=\(rawDelta)s capped=\(delta)s perEvent=\(perEventCap)s unlockAge=\(unlockAge)s \(batteryContextString(defaults: defaults))", defaults: defaults)
-        } else if (isBurstActive || isMidDayBurst) && rawDelta > 60 {
-            let reason = isBurstActive ? "buffer-legit" : "mid-day-burst"
+        } else if rawDelta > 60 {
+            let reason: String
+            if isBurstActive { reason = "buffer-legit" }
+            else if isMidDayBurst { reason = "mid-day-burst" }
+            else { reason = "normal-recovery" }
             debugLog("BURST_BYPASS appID=\(appID.prefix(8))... raw=\(rawDelta)s credited=\(delta)s — \(reason), full delta", defaults: defaults)
         }
 

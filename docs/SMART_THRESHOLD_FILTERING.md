@@ -4332,5 +4332,64 @@ The May 16 promotion to enforcement was shipped without checking whether normal 
 
 - `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — added `jitterGrace` to the SKIP_BURST_BUDGET comparison in `shouldRecordEvent`. Log line now includes `grace=Xs` for diagnosis.
 
+---
+
+## May 17, 2026 — Threshold-value high-water-mark recovery (normal-delivery branch)
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Removed the 60s hard cap on `PER_EVENT_CAP` in the normal-delivery branch. iOS threshold value is now trusted as ground truth for cumulative play; SKIP_BURST_BUDGET bounds the credit against wall-clock since last alive event.
+
+### Motivation
+
+After the jitter-grace fix, false rejects should be rare — but any single reject still permanently dropped a minute of real play because the next normal event was capped at 60s of credit. A kid who lost 3 minutes to false rejects had no way to recover them; today stayed 3 min behind iOS's cumulative forever.
+
+The CEO's framing of the rule: *"iOS fires min.197 as a NORMAL usage recording. My app checks: today is at 120 min. iOS is calmly delivering min.197 — I must have lost some legit usage. Correct today's recorded usage."*
+
+### The change
+
+`DeviceActivityMonitorExtension.swift:895-911`. The normal-delivery branch of `perEventCap` was a hard `60`. Changed to `Int.max`:
+
+```swift
+} else {
+    // NORMAL DELIVERY: iOS calmly fires one threshold event per minute of real
+    // play. The threshold value IS ground truth for cumulative play time —
+    // when iOS fires min.197 and our today is 120, the missing 77 minutes are
+    // real (lost to false rejects, extension kills, or deferred batches).
+    perEventCap = Int.max
+}
+```
+
+The credit becomes `delta = thresholdSeconds - lastThreshold`, which makes `newToday = thresholdSeconds`. Today snaps to whatever iOS reports.
+
+### Safety
+
+SKIP_BURST_BUDGET is now the single safety net for credit-vs-wall-clock. Run-through:
+
+| Scenario | rawDelta | wall-clock gap | New credit | SKIP_BURST_BUDGET verdict | Result |
+|---|---|---|---|---|---|
+| Normal +1 min | 60 | ~60s | 60 | passes | unchanged ✓ |
+| Recover 3 missed minutes (continuous play) | 240 | 240s | 240 | passes (budget≥240) | recovers ✓ |
+| Phantom claim 80 min, kid quit 60s ago | 4800 | 60s | 4800 proposed | rejects (budget=66 vs 4800) | blocked ✓ |
+| Phantom claim equal to wall-clock | wall-clock-bound | wall-clock | matches | passes | accepts (indistinguishable from real) |
+| Catch-up burst | various | <5s | full | already in burst branch | unchanged ✓ |
+
+The last row is an acknowledged limit: a phantom event whose claimed credit happens to exactly equal wall-clock since the last credit is structurally indistinguishable from continuous real play. The same limitation existed before this change.
+
+### What this recovers
+
+Any historical recording that drifted below iOS's cumulative due to:
+- SKIP_BURST_BUDGET false rejects (jitter-grace fix mostly closes the cause; this fix closes the recovery path)
+- Extension kills mid-burst (lost minutes during the kill window)
+- iOS deferred batch flushes (events held until process restart)
+
+After this change, the very next legit threshold event closes the gap automatically. No long silent stretches building up. Today's Roblox pattern would have self-corrected: at 11:23 the kid's true cumulative was ~140 min, iOS fired min.140, today would have jumped 120 → 140 in one step instead of staying stuck.
+
+### Log signal
+
+A new `BURST_BYPASS` reason `normal-recovery` is logged when this path credits more than 60s in normal delivery. Volume should match the frequency of past recording gaps; rare but meaningful when it fires.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `perEventCap` in normal-delivery branch changed from `60` to `Int.max`; comment block updated; `BURST_BYPASS` log path now also covers the normal-recovery case with reason tag.
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
