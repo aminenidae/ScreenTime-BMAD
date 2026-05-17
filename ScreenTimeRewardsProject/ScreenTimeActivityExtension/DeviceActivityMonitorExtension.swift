@@ -1056,15 +1056,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         } else if isFirstEventAfterUnlock {
             perEventCap = max(60, Int(nowTimestamp - unlockTime))
         } else {
-            // NORMAL DELIVERY: iOS calmly fires one threshold event per minute of real
-            // play. The threshold value IS ground truth for cumulative play time —
-            // when iOS fires min.197 and our today is 120, the missing 77 minutes are
-            // real (lost to false rejects, extension kills, or deferred batches).
-            // Trust the threshold value and let SKIP_BURST_BUDGET downstream gate the
-            // result against wall-clock since the last alive event. Physical-
-            // impossibility cases (single phantom claiming 80 min with only 60s of
-            // wall-clock budget) still get rejected there.
-            perEventCap = Int.max
+            // NORMAL DELIVERY: cap = wall-clock since last event for this app
+            // (minimum 60s for jitter). Bounded by what wall-clock physically allows.
+            //
+            // May 17, 2026 — the original "trust the iOS threshold value" change
+            // (Int.max cap) created a catastrophic stuck loop: when iOS fired
+            // min.236 after we lost the catch-up (today=212), raw=1440s but
+            // SKIP_BURST_BUDGET's wall-clock budget was only ~60s. The 1440s
+            // got rejected EVERY 60 seconds for the entire afternoon — `lastThresh`
+            // never advanced, recovery never happened, kid lost 59 min.
+            //
+            // The bounded cap recovers gradually: every event credits min(raw,
+            // wall-clock), advancing `lastThresh` each time. After 24 normal
+            // per-minute events, today catches up to where iOS is. SKIP_BURST_BUDGET
+            // never trips on cap-bounded credit because the cap mirrors its budget.
+            perEventCap = max(60, Int(nowTimestamp - lastEventTime))
         }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
