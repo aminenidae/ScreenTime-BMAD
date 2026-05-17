@@ -149,11 +149,13 @@ struct RewardsTabView: View {
                 .interactiveDismissDisabled(true)  // Prevent swipe-to-dismiss during tutorial
             } else {
                 // Normal config sheet
+                let otherRewardSnapshots = viewModel.rewardSnapshots.filter { $0.logicalID != data.snapshot.logicalID }
                 AppConfigurationSheet(
                     token: data.snapshot.token,
                     appName: data.snapshot.displayName,
                     appType: .reward,
                     learningSnapshots: viewModel.learningSnapshots,
+                    otherRewardAppNames: otherRewardSnapshots.map { displayName(for: $0) },
                     configuration: Binding(
                         get: { data.config },
                         set: { newConfig in
@@ -165,6 +167,13 @@ struct RewardsTabView: View {
                         viewModel.blockRewardApps()
                         configSheetData = nil
                         propagateLocalScheduleEditToParent()
+                    },
+                    onSaveApplyToAll: { savedConfig in
+                        applyConfigToAllRewardApps(
+                            sourceConfig: savedConfig,
+                            otherSnapshots: otherRewardSnapshots
+                        )
+                        configSheetData = nil
                     },
                     onCancel: {
                         configSheetData = nil
@@ -272,6 +281,42 @@ struct RewardsTabView: View {
     /// AppConfiguration record set (including scheduleConfigJSON, linkedAppsJSON,
     /// streakSettingsJSON) to the parent's shared zone. No-op when the device
     /// isn't paired.
+    /// Best-effort display name (falls back to a placeholder so the alert always has readable text).
+    private func displayName(for snapshot: RewardAppSnapshot) -> String {
+        let trimmed = snapshot.displayName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Unnamed app" : trimmed
+    }
+
+    /// Fan out the source config to all other reward apps. Each target keeps its own
+    /// logicalID; every other field is copied. Batched via `saveSchedules` so the
+    /// monitoring restart fires once for the whole set.
+    private func applyConfigToAllRewardApps(
+        sourceConfig: AppScheduleConfiguration,
+        otherSnapshots: [RewardAppSnapshot]
+    ) {
+        var batch: [AppScheduleConfiguration] = [sourceConfig]
+        for snapshot in otherSnapshots {
+            let copy = AppScheduleConfiguration(
+                logicalID: snapshot.logicalID,
+                allowedTimeWindow: sourceConfig.allowedTimeWindow,
+                dailyTimeWindows: sourceConfig.dailyTimeWindows,
+                useAdvancedTimeWindowConfig: sourceConfig.useAdvancedTimeWindowConfig,
+                dailyLimits: sourceConfig.dailyLimits,
+                isEnabled: sourceConfig.isEnabled,
+                useAdvancedDayConfig: sourceConfig.useAdvancedDayConfig,
+                linkedLearningApps: sourceConfig.linkedLearningApps,
+                unlockMode: sourceConfig.unlockMode,
+                streakSettings: sourceConfig.streakSettings,
+                ratioLearningMinutes: sourceConfig.ratioLearningMinutes,
+                rewardMinutesEarned: sourceConfig.rewardMinutesEarned
+            )
+            batch.append(copy)
+        }
+        try? scheduleService.saveSchedules(batch)
+        viewModel.blockRewardApps()
+        propagateLocalScheduleEditToParent()
+    }
+
     private func propagateLocalScheduleEditToParent() {
         guard DeviceModeManager.shared.isChildDevice,
               !DevicePairingService.shared.getPairedParents().isEmpty else { return }

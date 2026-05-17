@@ -17,10 +17,12 @@ struct AppConfigurationSheet: View {
     let appName: String
     let appType: AppType
     let learningSnapshots: [LearningAppSnapshot]  // For reward apps: available learning apps to link
+    let otherRewardAppNames: [String]  // Display names of other reward apps for the "apply to all" alert
     @Environment(\.colorScheme) private var colorScheme // Added for AppTheme.background and AppTheme.appCard
 
     @Binding var configuration: AppScheduleConfiguration
     let onSave: (AppScheduleConfiguration) -> Void
+    let onSaveApplyToAll: ((AppScheduleConfiguration) -> Void)?
     let onCancel: () -> Void
 
     /// Optional binding to trigger scrolling to a specific section
@@ -29,24 +31,30 @@ struct AppConfigurationSheet: View {
     @State private var localConfig: AppScheduleConfiguration
     @State private var isFullDayAccess: Bool
     @State private var showRatioDecreaseConfirm: Bool = false
+    @State private var applyToAllRewardApps: Bool = false
+    @State private var showApplyToAllConfirm: Bool = false
 
     init(
         token: ApplicationToken,
         appName: String,
         appType: AppType,
         learningSnapshots: [LearningAppSnapshot] = [],  // Default to empty for learning apps
+        otherRewardAppNames: [String] = [],
         configuration: Binding<AppScheduleConfiguration>,
         scrollToSection: Binding<AppConfigSection?> = .constant(nil),
         onSave: @escaping (AppScheduleConfiguration) -> Void,
+        onSaveApplyToAll: ((AppScheduleConfiguration) -> Void)? = nil,
         onCancel: @escaping () -> Void
     ) {
         self.token = token
         self.appName = appName
         self.appType = appType
         self.learningSnapshots = learningSnapshots
+        self.otherRewardAppNames = otherRewardAppNames
         self._configuration = configuration
         self._scrollToSection = scrollToSection
         self.onSave = onSave
+        self.onSaveApplyToAll = onSaveApplyToAll
         self.onCancel = onCancel
 
         // Initialize local state
@@ -170,6 +178,16 @@ struct AppConfigurationSheet: View {
                             )
                             .id("config_streak_section")
                             .tutorialTarget("config_streak")
+
+                            // Apply-to-all section (reward apps only, when sibling reward apps exist
+                            // and the host view provided a fan-out callback).
+                            if onSaveApplyToAll != nil && !otherRewardAppNames.isEmpty {
+                                Rectangle()
+                                    .fill(AppTheme.brandedText(for: colorScheme).opacity(0.1))
+                                    .frame(height: 1)
+
+                                applyToAllSection
+                            }
                         }
 
                         Spacer(minLength: 40)
@@ -207,6 +225,8 @@ struct AppConfigurationSheet: View {
                         // earned, so this dialog is informational, not a warning.
                         if appType == .learning && proposedRatioChanged {
                             showRatioDecreaseConfirm = true
+                        } else if appType == .reward && applyToAllRewardApps && onSaveApplyToAll != nil {
+                            showApplyToAllConfirm = true
                         } else {
                             onSave(localConfig)
                         }
@@ -225,7 +245,61 @@ struct AppConfigurationSheet: View {
             } message: {
                 Text(ratioChangeMessage)
             }
+            .alert(applyToAllAlertTitle, isPresented: $showApplyToAllConfirm) {
+                Button("Cancel", role: .cancel) { }
+                Button("Apply") {
+                    onSaveApplyToAll?(localConfig)
+                }
+            } message: {
+                Text(applyToAllAlertMessage)
+            }
         }
+    }
+
+    private var applyToAllAlertTitle: String {
+        let count = otherRewardAppNames.count
+        return "Apply to \(count) other reward app\(count == 1 ? "" : "s")?"
+    }
+
+    private var applyToAllAlertMessage: String {
+        "This will replace settings on: \(otherRewardAppNames.joined(separator: ", "))."
+    }
+
+    private var applyToAllSection: some View {
+        VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
+            HStack(spacing: AppTheme.Spacing.tiny) {
+                Image(systemName: "square.stack.3d.up.fill")
+                    .font(.system(size: 14))
+                    .foregroundColor(accentColor)
+
+                Text("Apply to Other Apps")
+                    .font(.system(size: 12, weight: .semibold))
+                    .tracking(1)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+            }
+
+            Toggle(isOn: $applyToAllRewardApps) {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Apply to all other reward apps")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    Text("Copies these settings to \(otherRewardAppNames.count) other reward app\(otherRewardAppNames.count == 1 ? "" : "s")")
+                        .font(.system(size: 11))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+            }
+            .tint(accentColor)
+        }
+        .padding(AppTheme.Spacing.regular)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                .fill(accentColor.opacity(0.08))
+                .overlay(
+                    RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                        .stroke(accentColor.opacity(0.15), lineWidth: 1)
+                )
+        )
     }
 
     /// True when the proposed effective ratio differs from the saved one.

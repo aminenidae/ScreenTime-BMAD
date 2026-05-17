@@ -346,11 +346,13 @@ struct RewardAppDetailView: View {
             loadUsageData()
         }
         .sheet(item: $configSheetData) { data in
+            let otherRewardSnapshots = viewModel.rewardSnapshots.filter { $0.logicalID != data.snapshot.logicalID }
             AppConfigurationSheet(
                 token: data.snapshot.token,
                 appName: data.snapshot.displayName,
                 appType: .reward,
                 learningSnapshots: viewModel.learningSnapshots,
+                otherRewardAppNames: otherRewardSnapshots.map { otherDisplayName(for: $0) },
                 configuration: Binding(
                     get: { data.config },
                     set: { newConfig in
@@ -362,6 +364,13 @@ struct RewardAppDetailView: View {
                     viewModel.blockRewardApps()
                     configSheetData = nil
                     propagateLocalScheduleEditToParent()
+                },
+                onSaveApplyToAll: { savedConfig in
+                    applyConfigToAllRewardApps(
+                        sourceConfig: savedConfig,
+                        otherSnapshots: otherRewardSnapshots
+                    )
+                    configSheetData = nil
                 },
                 onCancel: {
                     configSheetData = nil
@@ -574,6 +583,42 @@ struct RewardAppDetailView: View {
             persistedUsage = service.usagePersistence.app(for: logicalID)
             history = persistedUsage?.dailyHistory ?? []
         }
+    }
+
+    /// Best-effort display name for an "other reward app" — falls back to a
+    /// placeholder so the alert always has readable text.
+    private func otherDisplayName(for snapshot: RewardAppSnapshot) -> String {
+        let trimmed = snapshot.displayName.trimmingCharacters(in: .whitespaces)
+        return trimmed.isEmpty ? "Unnamed app" : trimmed
+    }
+
+    /// Fan out `sourceConfig` to every other reward app: same fields, new logicalID.
+    /// Batched via `saveSchedules` so monitoring restarts once for the whole set.
+    private func applyConfigToAllRewardApps(
+        sourceConfig: AppScheduleConfiguration,
+        otherSnapshots: [RewardAppSnapshot]
+    ) {
+        var batch: [AppScheduleConfiguration] = [sourceConfig]
+        for snap in otherSnapshots {
+            let copy = AppScheduleConfiguration(
+                logicalID: snap.logicalID,
+                allowedTimeWindow: sourceConfig.allowedTimeWindow,
+                dailyTimeWindows: sourceConfig.dailyTimeWindows,
+                useAdvancedTimeWindowConfig: sourceConfig.useAdvancedTimeWindowConfig,
+                dailyLimits: sourceConfig.dailyLimits,
+                isEnabled: sourceConfig.isEnabled,
+                useAdvancedDayConfig: sourceConfig.useAdvancedDayConfig,
+                linkedLearningApps: sourceConfig.linkedLearningApps,
+                unlockMode: sourceConfig.unlockMode,
+                streakSettings: sourceConfig.streakSettings,
+                ratioLearningMinutes: sourceConfig.ratioLearningMinutes,
+                rewardMinutesEarned: sourceConfig.rewardMinutesEarned
+            )
+            batch.append(copy)
+        }
+        try? scheduleService.saveSchedules(batch)
+        viewModel.blockRewardApps()
+        propagateLocalScheduleEditToParent()
     }
 
     /// After a local schedule edit on the child's parent-mode, push the new
