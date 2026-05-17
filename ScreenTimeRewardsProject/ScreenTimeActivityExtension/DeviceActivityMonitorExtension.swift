@@ -974,12 +974,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // real-time events. A new burst starts on a wallclock gap ≥ 5s; subsequent
         // events within 5s of each other share the same budget.
         //
-        // May 16, 2026 — Promoted from diagnostic to enforcement. Device 1 evidence:
-        // 96s wall-clock gap before flood, ~300,000s of credit proposed in the burst
-        // — 3000× over budget. Enforcement rejects the event. Legit catch-up dumps
-        // stay under budget because real usage matches wall-clock by construction
-        // (30 min silence → 30×60s credit = 1800s = budget). Audit the SKIP_BURST_BUDGET
-        // log volume against legit-usage scenarios in tomorrow's logs.
+        // May 17, 2026 — Jitter grace added (`max(5s, 10% of budget)`). The May 16
+        // enforcement rejected ~1 in 4 normal per-minute events because iOS
+        // schedules thresholds for "every 60s of cumulative play" but its real
+        // delivery cadence is 58–62s with no guarantee. Two consecutive legit
+        // events at gap=59s produced proposed=60s > budget=59s → reject. Real
+        // device logs (Device 2 May 17) showed this firing every few minutes for
+        // hours, cascading into silent recording death. The grace is small enough
+        // that the Device 1 flood (proposed 300,000s vs budget 96s) is still
+        // rejected by 3000×, but absorbs sub-5-second timing jitter.
         let lastAliveKey = "last_credited_global_timestamp"
         let burstBudgetKey = "burst_budget_seconds"
         let burstCreditedKey = "burst_credited_seconds"
@@ -993,9 +996,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             burstCredited = 0
         }
         let proposedCredited = burstCredited + delta
-        if lastAlive > 0 && proposedCredited > burstBudget {
-            debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s (wallclock since last alive event) — phantom-flood reject", defaults: defaults)
-            Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s")
+        let jitterGrace = max(5, burstBudget / 10)
+        if lastAlive > 0 && proposedCredited > burstBudget + jitterGrace {
+            debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s + grace=\(jitterGrace)s (wallclock since last alive event) — phantom-flood reject", defaults: defaults)
+            Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s grace=\(jitterGrace)s")
             // Don't update burstCredited/lastAlive — rejecting this event means it
             // never happened from the budget's perspective. The burst budget keeps
             // its current value so subsequent events in the same burst are still

@@ -4145,5 +4145,192 @@ For a legitimate iPad-9th-gen-class catch-up dump: iOS goes silent for N minutes
 
 - `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — `shouldRecordEvent` cross-burst block: log line renamed `BURST_BUDGET_DIAG → SKIP_BURST_BUDGET`, `return false` added on budget breach, lastAlive/burstCredited not updated on reject.
 
+---
+
+## May 16, 2026 — Phantom flood after long silence: signal hunt for Device 2 shape
+
+> **Status: analysis only — no new enforcement implemented.** Three candidate signals rejected as structurally indistinguishable from legit catch-up. One signal (Signal B — extension churn) deferred for calibration against confirmed legit-catch-up logs before any enforcement.
+
+### The shape `SKIP_BURST_BUDGET` doesn't catch
+
+The `SKIP_BURST_BUDGET` rule shipped earlier in the day catches the Device 1 flood (tight 96-second pre-flood gap → 96-second budget → instant phantom rejection) but **passes the Device 2 flood**:
+
+- Last globally credited event before the Device 2 flood: 13:42:32 (`2207A02D`).
+- Flood starts: 17:16:58. Wall-clock since last credited event: 12,866 s.
+- Total burst credit proposed: ~5,400 s across 5 BURST_BYPASS events.
+- 5,400 < 12,866 → rule passes the entire flood.
+
+The 3.5-hour pre-flood silence gave the burst a generous budget that absorbed the inflation. ~104 minutes of phantom credit landed on `709612CC` and `2207A02D` despite the new enforcement.
+
+### Full event table (`ext-log-2026-05-16 2.log`, 17:16:57 → 17:17:25)
+
+Last RECORDED for each app before the flood:
+- `709612CC`: 11:32:34, newToday=900 s (15 min real).
+- `2207A02D`: 13:42:32, newToday=1260 s (21 min real).
+- `B0EF6284`, `6F773493`: never (first usage today).
+
+| # | Time | App | iOS min | Pre: today / lastThresh | Path | Δ proposed | Δ credited | Gap-since-last-record-for-THIS-app | Δ ÷ gap |
+|---|---|---|---|---|---|---|---|---|---|
+| 1 | 17:16:57.276 | 709612CC | 19 | 900 s / 900 s | normal cap | +60 s | **+60 s** | 5h 44min (20,663 s) | 0.003× |
+| 2 | 17:16:58.151 | 2207A02D | 93 | 1260 s / 1260 s | normal cap | +60 s | **+60 s** | 3h 34min (12,866 s) | 0.005× |
+| 3 | 17:16:58.883 | 709612CC | 24 | 960 s / 960 s | **BURST_BYPASS** | +480 s | **+480 s** | **1.6 s** | **300×** |
+| 4 | 17:16:59.736 | 709612CC | 45 | 1440 s / 1440 s | **BURST_BYPASS** | +1260 s | **+1260 s** | **0.8 s** | **1,575×** |
+| 5 | 17:17:01.622 | 2207A02D | 56 | 1320 s / 1320 s | **BURST_BYPASS** | +2040 s | **+2040 s** | **3.5 s** | **583×** |
+| 6 | 17:17:02.290 | 2207A02D | 70 | 3360 s / 3360 s | **BURST_BYPASS** | +840 s | **+840 s** | **0.7 s** | **1,200×** |
+| 7 | 17:17:03.197 | 2207A02D | 97 | 4200 s / 4200 s | **BURST_BYPASS** | +1620 s | **+1620 s** | **0.9 s** | **1,800×** |
+
+**Total phantom inflation that landed:** `709612CC` +29 min, `2207A02D` +75 min → ~104 min credited that shouldn't have been.
+
+### Process context — the kill cascade
+
+The flood is entwined with an extension-process churn loop. **7 `EXTENSION_KILLED` events fired in 28 seconds** through the flood window (kept going to 21+ within the next minute). Battery state crossed `unplugged:69% → charging:64%` mid-cascade, so battery is *not* the cause. The churn pattern:
+
+1. Event arrives → extension records → `WINDOW_TOP_HIT` triggers a rebuild request.
+2. Rebuild executes (`startMonitoring`) → iOS spawns new extension session, delivers queued events to it.
+3. New session receives burst → memory pressure against the 6 MB extension limit → iOS terminates.
+4. Spawned again → more queued events → terminated again. Repeat.
+
+The kills are a **symptom of the flood**, not its cause. But the kill *density* is structurally distinct from any normal pattern and is the basis for the only signal that survived this analysis (Signal B below).
+
+### Signals considered and rejected
+
+For each candidate, the test is: does the signal distinguish a phantom flood from a legit iPad-9th-gen-class catch-up dump (silent for 30+ min while the kid genuinely used the app, then iOS flushes the backlog in 1-2 seconds)? If both cases produce the same signature, the signal can't be used — it would reject real usage.
+
+#### Signal A — per-app Δ ÷ wall-clock-since-previous-event ratio — REJECTED
+
+**Rule:** compare each proposed delta against the wall-clock seconds since the previous event for the same app. Reject if the ratio implies physical impossibility.
+
+**Why it fails:** legit catch-up dumps arrive in tight bursts where each event lands milliseconds after the previous one. After the first event records, every subsequent event has a tiny per-app gap and a normal delta — same shape as a phantom flood:
+
+| Scenario | Event #1 (after silence) | Event #2 (≤1 s later) |
+|---|---|---|
+| Phantom (Device 2) | +60 s over 3h 34min — ratio 0.005× — PASS | +2040 s over 3.5 s — ratio 583× — would reject |
+| Legit catch-up (kid played 30 min silently) | +60 s over 30 min — ratio 0.03× — PASS | +60 s over 0.5 s — ratio 120× — **would reject (wrong)** |
+
+The math identifies both as impossible. Cannot tell them apart. Rule would under-count real usage every time iOS delivers a legit catch-up dump.
+
+#### Signal C — threshold-value monotonicity within a burst — REJECTED
+
+**Rule:** track the highest threshold value (e.g. min.93 = 5580 s) iOS has fired for each app today. Within a tight burst, reject any event whose threshold value is *below* the highest seen — that's iOS replaying out-of-order.
+
+**Why it fails:** iOS catch-up delivery is documented (in this doc, earlier sections) to be non-deterministically ordered. Legit catch-up dumps fire events for min.30, min.45, min.32, min.50 in random order. Rejecting "backwards" events would drop legit data in every catch-up.
+
+#### Signal D — distrust events for ~5 s after every `EXTENSION_KILLED` — REJECTED
+
+**Rule:** treat the post-restart settle window as suspect. Reject big-jump events arriving immediately after a session change.
+
+**Why it fails:** legit catch-up dumps are *delivered exactly* in the post-restart window — that's how iOS flushes its backlog when a new monitoring session starts. The events that arrive in this window in a legit case ARE the real usage being credited belatedly. Rejecting them = losing real data.
+
+### Signal B — extension-kill frequency — DEFERRED, NEEDS CALIBRATION
+
+**Rule:** count `EXTENSION_KILLED` events in a sliding window (e.g. last 30 s). If the count exceeds a threshold (e.g. ≥3), treat the next N seconds of events as untrustworthy and reject the `BURST_BYPASS` path entirely.
+
+**Why this one might work structurally:** unlike A/C/D, this isn't about event timing or threshold values at all — it's about the *system state*. A healthy device sees rare process kills. The Device 2 flood saw 7 kills in 28 s (and 21+ in the next minute). That density is structurally different from a routine catch-up.
+
+**Why it's deferred, not implemented:**
+
+1. **No known-legit reference.** We don't yet have a confirmed-legitimate iPad-9th-gen catch-up log with its kill count. Memory notes mention iPad-9th-gen-class devices "frequently go silent for 30–60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2 s" but doesn't quantify kill density during such legit bursts.
+2. **iPad-9th-gen catch-ups CAN cause natural extension churn** under memory pressure (the same 6 MB hard limit applies whether the catch-up is real or phantom). A legit big catch-up might cause 2–3 kills naturally. We need to know if the legit ceiling is meaningfully below the flood floor (the Device 2 flood's 7 kills in 28 s).
+3. **Threshold needs data.** The "≥3 kills in 30 s" example above is illustrative, not validated. Setting it too low rejects legit catch-ups; too high lets floods through.
+
+**Test plan before promoting Signal B to enforcement:**
+
+1. **Gather logs from devices that exhibit confirmed-legit large catch-up bursts** (kid actively used app, was foreground, iOS was simply slow to deliver). For each such burst:
+   - Count `EXTENSION_KILLED` events in the 30 s preceding the burst and the 60 s after.
+   - Record the max sustained kills-per-minute during the burst.
+2. **Compare against Device 1 + Device 2 flood densities** (already known: 28-second window with 7 kills on Device 2; Device 1 kill density to be measured).
+3. **Set the threshold** at the lowest value that separates the two populations with margin. If the populations overlap, Signal B fails too and we'd need an entirely different approach.
+4. **Ship as diagnostic-only first** — log `SHADOW_EXT_CHURN` events that *would* reject if enforced. Compare a week of those against known-good and known-bad days before flipping to actual rejection.
+
+### What this leaves us with for the Device 2 shape
+
+Until Signal B is calibrated, the Device 2 phantom flood is **unmitigated** in the current build. The protections that DO ship help peripherally:
+- `rewardMinutesEarned` ratio-lock (Tier 2) ensures any phantom credit that lands can't be later inflated further by ratio changes.
+- `windowSize` sentinel guarantee (Tier 1) means the kid won't *lose* legit usage during shield-drop windows even when the flood code path stays vulnerable.
+- `SKIP_BURST_BUDGET` (Option A) catches the *tight-silence* flood shape (Device 1).
+
+The "long-silence-then-flood" shape (Device 2) remains a known gap. Open question: collect kill-density data from upcoming logs to evaluate whether Signal B can close it without breaking legit catch-ups.
+
+### Files to touch when Signal B is promoted
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — add `EXTENSION_KILLED` ring buffer (last N events in shared UserDefaults), check density at the top of `shouldRecordEvent`, gate `BURST_BYPASS` path on the density check.
+
+### Honest acknowledgement
+
+Signal A and Signal C were initially presented in conversation as plausible defenses. On closer analysis (May 16, 2026), both turn out to share the same structural flaw as the existing burst-budget rule: legit catch-ups and phantom floods produce mathematically identical signatures. Only Signal B (system-state heuristic, not event-timing math) has a structural difference, and even that needs empirical validation before shipping.
+
+---
+
+## May 17, 2026 — `SKIP_BURST_BUDGET` rejected normal per-minute play (jitter grace added)
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Added `jitterGrace = max(5s, burstBudget / 10)` to the comparison. Without grace the rule rejected ~1 in 4 normal sequential threshold events whenever iOS scheduling jitter put the inter-event gap at 58–59s instead of 60–62s.
+
+### Symptom
+
+Device 2 (`ext-log-2026-05-17.log`): kid played Roblox for **3h 39min** per iOS Screen Time. App recorded **2h 0min** (`usage_2146685D_today=7200s` exactly). 99 minutes missing.
+
+### Root cause
+
+The May 16 promotion of `SKIP_BURST_BUDGET` from diagnostic to enforcement compared every event's proposed credit against `burstBudget` (= wallclock since last credited event) with zero tolerance. iOS schedules a threshold event per 60 s of cumulative play, but actual delivery cadence is 58–62 s with no guarantee. When jitter put the gap at 59.3 s:
+
+- `delta = 60` (one minute of new usage)
+- `burstBudget = Int(59.3) = 59`
+- `proposedCredited = 60 > 59` → **REJECT**
+
+This fired on every sequential pair of legit events that happened to land sub-60s apart.
+
+### Evidence in the log
+
+Learning app `709612CC`, first 8 minutes of normal foreground play, no flood, no catch-up:
+
+```
+08:15:55  min.1  RECORDED
+08:16:57  min.2  RECORDED  (gap 62.7s)
+08:17:57  min.3  REJECTED  (gap 59.3s → budget=59 vs delta=60 → over by 1s)
+08:18:55  min.4  RECORDED  (gap 118s)
+08:23:32  min.5  RECORDED
+08:24:33  min.6  RECORDED  (gap 60.9s)
+08:25:33  min.7  REJECTED  (gap 59.9s)
+08:28:39  min.8  RECORDED  (gap 186s)
+```
+
+Across the full day on Roblox: 86 SKIP_BURST_BUDGET rejects. Overshoot distribution:
+
+| Overshoot | Count | Verdict |
+|---|---|---|
+| ≤5 s | 30 | False positive — normal jitter |
+| 6–30 s | 6 | Likely false positive — catch-up tail |
+| 31–120 s | 25+ | Mixed — wave-2 of legit catch-up dumps |
+| >120 s | 25+ | Phantom-flood detection working correctly |
+
+### Cascading silent death
+
+Lost credits cause our `today` counter to fall behind iOS's actual cumulative. The window-rebuild trigger (`WINDOW_TOP_HIT`) checks our `today` value. With `today` stuck at 120 min while iOS internally tracked 145+ min, the registered window (top = min.145) exhausted before `today` reached the rebuild trigger. From 11:53:09 onward iOS had no thresholds to fire — recording went silent for 2h 15min while the kid kept playing.
+
+This is the same cascade shape as the May 9 "NEW_DAY lastThreshold poisoning" but triggered by a different upstream cause.
+
+### Fix
+
+Add `jitterGrace = max(5, burstBudget / 10)` and compare `proposedCredited > burstBudget + jitterGrace`. Behavior across scenarios:
+
+| Scenario | proposed | budget | grace | Verdict |
+|---|---|---|---|---|
+| Normal jitter (today's false positives) | 60 s | 59 s | 5 s | passes (60 ≤ 64) |
+| Normal jitter (worst case) | 60 s | 55 s | 5 s | passes (60 ≤ 60) |
+| Device 1 phantom flood (May 16) | 300,000 s | 96 s | 9 s | rejects (300000 > 105) |
+| Device 2 single-wave overshoot | 60 s | 10 s | 5 s | rejects (60 > 15) — still need Fix B for multi-wave catch-up |
+
+### What the grace doesn't fix
+
+Multi-wave catch-up dumps where iOS delivers a 25-min backlog across 4 waves separated by 5–10 s pauses each. The first wave credits its full share; subsequent waves get tiny per-wave budgets and get rejected. Today's 09:28 dump credited 24 of ~50 catch-up minutes for this reason. Separate fix needed: WINDOW_TOP_HIT should also trigger on iOS-reported threshold value, not just our recorded `today`, so the window keeps sliding even when credit lags.
+
+### Honest acknowledgement
+
+The May 16 promotion to enforcement was shipped without checking whether normal per-minute events would survive the comparison. The intent was "catch the Device 1 80-hour flood"; the structural blast radius was "reject ~25% of all normal play on every device when scheduling jitter is unfavorable." The grace fix is the minimum patch to stop the bleeding; the multi-wave problem is a separate next step.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift` — added `jitterGrace` to the SKIP_BURST_BUDGET comparison in `shouldRecordEvent`. Log line now includes `grace=Xs` for diagnosis.
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
