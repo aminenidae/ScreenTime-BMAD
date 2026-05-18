@@ -139,7 +139,6 @@ struct SettingsTabView: View {
 
                         // General Section
                         settingsSection(title: "GENERAL") {
-                            refreshTrackingRow
                             notificationSettingsRow
                             helpSupportRow
                             aboutRow
@@ -165,6 +164,7 @@ struct SettingsTabView: View {
                         // Release. Hide the entire section in Release builds.
                         #if DEBUG
                         settingsSection(title: "DIAGNOSTICS") {
+                            refreshTrackingRow
                             sendDiagnosticReportRow
                             extensionLogExportRow
                             diagnosticMappingRow
