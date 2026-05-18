@@ -692,14 +692,46 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         //
         // Storage:
         //   last_event_arrival_<id>     — timestamp of last event arrival (any outcome)
-        //   phantom_flood_active_until  — global; while now < this, block all events
+        //   phantom_flood_active_until  — global; lockout window active when now < this
+        //
+        // May 17, 2026 — Two scope refinements:
+        // 1. Track every event arrival (move update BEFORE the lockout check), so the
+        //    burst-context check below sees accurate timing even during the lockout.
+        // 2. Lockout now only rejects burst-shaped events. Single isolated events
+        //    arriving at normal cadence during a lockout BYPASS — phantom floods are
+        //    burst-shaped by structural definition; isolated 60s-cadence events are
+        //    not phantom (Device 3 May 17: legit app EC532D21 lost 7 min of credit
+        //    because SKIP_FLOOD blocked its normal-cadence events during a misfire).
+        let myAppLastArrival = defaults.double(forKey: "last_event_arrival_\(appID)")
+        defaults.set(nowTimestamp, forKey: "last_event_arrival_\(appID)")
+
         let floodActiveUntil = defaults.double(forKey: "phantom_flood_active_until")
         if floodActiveUntil > nowTimestamp {
-            debugLog("SKIP_FLOOD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — phantom flood window active for \(Int(floodActiveUntil - nowTimestamp))s more", defaults: defaults)
-            Self.logger.notice("SKIP_FLOOD app=\(appID.prefix(8))... remaining=\(Int(floodActiveUntil - nowTimestamp))s")
-            return false
+            // Burst-context check: is this event part of a tight burst?
+            // - own app: prior event within 5s (this event is a follow-up in a burst)
+            // - other apps: any tracked app had an event within 5s
+            // If neither, this is an isolated event and the lockout doesn't apply.
+            var isInBurst = false
+            if myAppLastArrival > 0 && (nowTimestamp - myAppLastArrival) <= 5 {
+                isInBurst = true
+            } else {
+                let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                for trackedID in trackedAppIDs where trackedID != appID {
+                    let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
+                    if arrival > 0 && (nowTimestamp - arrival) <= 5 {
+                        isInBurst = true
+                        break
+                    }
+                }
+            }
+            if isInBurst {
+                debugLog("SKIP_FLOOD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — phantom flood window active for \(Int(floodActiveUntil - nowTimestamp))s more (in burst)", defaults: defaults)
+                Self.logger.notice("SKIP_FLOOD app=\(appID.prefix(8))... remaining=\(Int(floodActiveUntil - nowTimestamp))s in-burst")
+                return false
+            }
+            // else: isolated event during lockout — bypass
+            debugLog("SKIP_FLOOD_BYPASS appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — flood window active but event is isolated (not part of a burst), trusting", defaults: defaults)
         }
-        defaults.set(nowTimestamp, forKey: "last_event_arrival_\(appID)")
 
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
@@ -739,13 +771,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                             }
                         }
                         if otherAppsRecent >= 1 {
-                            defaults.set(nowTimestamp + 300, forKey: "phantom_flood_active_until")
+                            // May 17, 2026 — Lockout shortened 300s → 30s. Real phantom
+                            // floods last 1–2 seconds (Device 1 May 16: 80h of phantom in 2s).
+                            // A 30s window suppresses the tail (out-of-order replays after
+                            // the burst settles) without blocking unrelated normal-cadence
+                            // usage. The burst-shape gating on SKIP_FLOOD above is the
+                            // primary defense; this duration is the secondary safety margin.
+                            defaults.set(nowTimestamp + 30, forKey: "phantom_flood_active_until")
                             for trackedID in trackedAppIDs {
                                 defaults.removeObject(forKey: "first_event_start_\(trackedID)")
                                 defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
                             }
-                            debugLog("PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=\(appID.prefix(8))... + \(otherAppsRecent) other app(s) within 10s — burst is phantom, locking out 300s, clearing all open buffers", defaults: defaults)
-                            Self.logger.notice("PHANTOM_FLOOD_DETECTED via SKIP_SHIELDED otherApps=\(otherAppsRecent) lockout=300s")
+                            debugLog("PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=\(appID.prefix(8))... + \(otherAppsRecent) other app(s) within 10s — burst is phantom, locking out 30s, clearing all open buffers", defaults: defaults)
+                            Self.logger.notice("PHANTOM_FLOOD_DETECTED via SKIP_SHIELDED otherApps=\(otherAppsRecent) lockout=30s")
                         }
                         return false
                     }
@@ -842,13 +880,41 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // evaluate an existing one.
                 let bufferStart = defaults.double(forKey: firstEventStartKey)
                 if bufferStart == 0 {
-                    // No buffer open. Start one. Reject this event (it's the high-min trigger),
-                    // but remember its threshold so we can fast-forward if a low-min arrives.
-                    defaults.set(nowTimestamp, forKey: firstEventStartKey)
-                    defaults.set(thresholdSeconds, forKey: firstEventMaxThreshKey)
-                    debugLog("FIRST_EVENT_BUFFER_OPEN appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — waiting up to 60s for min≤3", defaults: defaults)
-                    Self.logger.notice("FIRST_EVENT_BUFFER_OPEN app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
-                    return false
+                    // May 17, 2026 — Burst-context gate: only open buffer if this
+                    // event is part of a burst. Isolated single events at normal
+                    // cadence are trusted as legit catch-up (kid started using a new
+                    // app; we missed earlier minutes because window wasn't registered
+                    // or extension was restarted). Phantom floods always arrive as
+                    // bursts, so the buffer's protection still applies in those cases.
+                    //
+                    // Without this gate, a kid starting a new app post-restart loses
+                    // all credit until a low-min companion event arrives (which won't,
+                    // because they're already past min.3 in real cumulative).
+                    var inBurst = false
+                    let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                    for trackedID in trackedAppIDs where trackedID != appID {
+                        let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
+                        if arrival > 0 && (nowTimestamp - arrival) <= 5 {
+                            inBurst = true
+                            break
+                        }
+                    }
+                    if !inBurst {
+                        debugLog("FIRST_EVENT_TRUST appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — isolated event (no other apps in burst), trusting as legit catch-up", defaults: defaults)
+                        Self.logger.notice("FIRST_EVENT_TRUST app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+                        // Fall through to recording: rawDelta=60 (lastThresh=0 case)
+                        // credits a conservative 60s; subsequent per-minute events
+                        // credit 60s each via normal flow, gradually catching up.
+                    } else {
+                        // No buffer open AND in burst context. Start one. Reject this
+                        // event (the high-min trigger), but remember its threshold so we
+                        // can fast-forward if a low-min companion arrives.
+                        defaults.set(nowTimestamp, forKey: firstEventStartKey)
+                        defaults.set(thresholdSeconds, forKey: firstEventMaxThreshKey)
+                        debugLog("FIRST_EVENT_BUFFER_OPEN appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — in burst, waiting up to 60s for min≤3", defaults: defaults)
+                        Self.logger.notice("FIRST_EVENT_BUFFER_OPEN app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
+                        return false
+                    }
                 } else {
                     let bufferAge = nowTimestamp - bufferStart
                     if bufferAge > 60 {

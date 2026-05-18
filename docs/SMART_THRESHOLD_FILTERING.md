@@ -4664,5 +4664,84 @@ A single isolated phantom event arriving in normal cadence with a high threshold
   - `SKIP_BURST_BUDGET` rejection condition: `if lastAlive > 0 && proposed > budget + grace` → `if isMidDayBurst && lastAlive > 0 && proposed > budget + grace`
   - Comments updated to reflect new scope
 
+---
+
+## May 17, 2026 — `SKIP_FLOOD` and `FIRST_EVENT_BUFFER` scoped to bursts only
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** Same scoping philosophy as `SKIP_BURST_BUDGET`: phantom defenses apply only when events arrive in burst patterns. Normal-cadence isolated events bypass.
+
+### Why this was needed
+
+Device 3, 22:24–22:31: kid started using learning app `EC532D21` (cold start, currentToday=0) shortly after the PHANTOM_FLOOD_DETECTED misfire at 22:23:36 locked out all events for 300s. iOS fired min.1, 2, 3, 4 at clean 60-second cadence (textbook normal recording). Every event was rejected:
+
+| Event | Time | What killed it |
+|---|---|---|
+| min.1 | 22:25:14 | `SKIP_FLOOD` — global lockout still active |
+| min.2 | 22:26:14 | `SKIP_FLOOD` — global lockout still active |
+| min.3 | 22:27:13 | `SKIP_FLOOD` — global lockout still active |
+| min.4 | 22:28:11 | `SKIP_FLOOD` — global lockout still active |
+| min.5 | 22:29:14 | `FIRST_EVENT_BUFFER_OPEN` — high threshold, waited for low-min companion |
+| min.6 | 22:30:12 | `FIRST_EVENT_BUFFER_HOLD` — companion never arriving (rejected earlier) |
+| min.7 | 22:31:12 | `BUFFER_TIMEOUT_RESUME` — 60s elapsed, all buffered events discarded |
+
+7 minutes of legit play, 0 credited. The pattern that all rejections share: normal 60s cadence (not burst), single app, isolated.
+
+### User framing (the same complaint that drove the SKIP_BURST_BUDGET scoping)
+
+> *"our normal recorded usage (the one that fires every 60s) is STILL being filtered by filters destined to bursts only."*
+
+Phantom incidents in our log history are ALWAYS burst-shaped (many events in <5s). Normal-cadence single events have never been a phantom source. Applying burst-defense filters to normal events causes losses without preventing any real phantom.
+
+### The three changes
+
+1. **`SKIP_FLOOD` lockout duration: 300s → 30s.** Real phantom floods last 1–2 seconds (Device 1 May 16: 80h of attempted phantom credit in 2 seconds). A 30s window suppresses the burst tail without blocking legitimate post-flood usage. 5 minutes was always excessive.
+
+2. **`SKIP_FLOOD` scoped to burst-shaped events.** During an active lockout, an event is only rejected if:
+   - This app's own previous event arrived within 5s (it's a burst follow-up), OR
+   - Any other tracked app had an event within 5s (multi-app burst pattern)
+
+   Isolated events arriving in normal cadence during the lockout bypass with `SKIP_FLOOD_BYPASS` log. Phantom floods never look like isolated events.
+
+3. **`FIRST_EVENT_BUFFER_OPEN` scoped to burst-shaped events.** When the first event of day for an app has a high threshold (>min.3), the buffer only opens if another tracked app had a recent event (≤5s). Isolated cold-start events are trusted as legit catch-up — they represent a kid who started using a new app, and iOS missed the early thresholds (because window wasn't registered, extension restart, deferred batch, etc.).
+
+   New log marker: `FIRST_EVENT_TRUST` when the gate bypasses.
+
+### Mechanical change to event-arrival tracking
+
+Moved `defaults.set(nowTimestamp, forKey: "last_event_arrival_<id>")` to BEFORE the `SKIP_FLOOD` check (was after). This ensures the burst-context check sees accurate timing even during a lockout — without this, the timestamps would freeze the moment lockout starts and the gate couldn't distinguish "ongoing burst" from "isolated post-burst event."
+
+The prior timestamp is captured into `myAppLastArrival` before the update, so the burst-context check uses the prior value (correct "did this event arrive close to the previous one" semantic).
+
+### Behavior trace for EC532D21 (under new logic)
+
+| Event | Time | Burst check | Filter outcome | Credit |
+|---|---|---|---|---|
+| min.1 | 22:25:14 | last other-app event was 22:24:04 (70s ago) → not in burst | SKIP_FLOOD bypassed; FIRST_EVENT_BUFFER bypassed (thresh ≤ 180); falls through to recording | +60s |
+| min.2 | 22:26:14 | not in burst | SKIP_FLOOD bypassed; normal flow | +60s |
+| min.3 | 22:27:13 | not in burst | SKIP_FLOOD bypassed; normal flow | +60s |
+| min.4 | 22:28:11 | not in burst | SKIP_FLOOD bypassed; normal flow | +60s |
+| min.5 | 22:29:14 | not in burst | normal flow | +60s |
+| min.6 | 22:30:12 | not in burst | normal flow | +60s |
+| min.7 | 22:31:12 | not in burst | normal flow | +60s |
+
+**7 events credited, today=420s = 7 min. All legit play recovered.**
+
+### Trace for Device 1 phantom flood (under new logic — protection preserved)
+
+The May 16 flood was 100+ events in <2 seconds. With new gating:
+- First event of any phantom app: not in burst yet (no prior recents) → bypasses lockout. **One event leaks per app.**
+- Every subsequent event: in burst (previous event within milliseconds) → SKIP_FLOOD applies as before.
+- Net leak: at most N events × max-per-event-credit, bounded by other filters (FIRST_EVENT_BUFFER for cold-start, SKIP_BUDGET_EXCEEDED for reward-app post-unshield budget).
+
+Roughly equivalent to the pre-fix behavior in actual flood scenarios. The change only relaxes the chain in cases where there is no actual flood.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - Moved `last_event_arrival_<id>` update before the `SKIP_FLOOD` check
+  - Added burst-context gate around the `SKIP_FLOOD` rejection (new `SKIP_FLOOD_BYPASS` log marker)
+  - Reduced PHANTOM_FLOOD lockout from 300s to 30s
+  - Added burst-context gate around `FIRST_EVENT_BUFFER_OPEN` (new `FIRST_EVENT_TRUST` log marker)
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
