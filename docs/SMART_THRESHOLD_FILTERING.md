@@ -4615,5 +4615,54 @@ Both are non-trivial: the filter has real production value (caught Device 1's Ma
 3. See if the shadow's signal set (`COLD_START_HIGH` + `GROWTH_VS_UNSHIELD`) catches the same true-positives as the May 10 heuristic without the false-positive on Device 3's scenario
 4. If shadow signals are cleaner, the eventual fix may be to retire the May 10 heuristic and replace with the burst-judge
 
+---
+
+## May 17, 2026 — `SKIP_BURST_BUDGET` scoped to bursts only
+
+> **Status: SHIPPED on `refactor/unified-usage-counter`.** The filter now only rejects when `isMidDayBurst` is true (event within 5s of previous). Single isolated events trust the iOS threshold value directly. Normal-mode `perEventCap` restored to `Int.max`.
+
+### Why the scope was wrong
+
+The May 16 enforcement applied SKIP_BURST_BUDGET to every event regardless of whether it was part of a burst. The user's pushback after a full day of testing crystallized it:
+
+> *"What I don't understand is why do we apply the filter for a normal usage recording. Our issues have always been related to bursts. I don't remember having complained about normal usage recording before."*
+
+He's right. Every phantom incident in our log history (Device 1 May 16, May 9-10 floods, multi-wave catch-up dumps) is a **burst** by structural definition — many events arriving within seconds. Single isolated events at normal 60s cadence have never been a phantom source.
+
+The filter's "wall-clock since last credited event" budget makes sense for a tight burst (kid genuinely couldn't have played 10 hours in 96 seconds). It's wrong for a single isolated event arriving after a legitimate gap — the kid may have played during that gap, iOS just delivered the threshold now.
+
+### The two changes
+
+1. **`perEventCap` normal-delivery branch:** `max(60, wall-clock since last event)` → `Int.max`. Trust the iOS threshold value for isolated events. The wall-clock cap was a workaround for the unscoped budget filter; with that filter scoped, the cap is no longer needed.
+
+2. **`SKIP_BURST_BUDGET` rejection:** wrapped in `if isMidDayBurst`. Single events (gap >5s from previous) always pass; events within 5s of each other accumulate against the burst budget as before.
+
+### Behavior matrix
+
+| Scenario | Before | After |
+|---|---|---|
+| Normal per-minute play (60s gaps) | passed (with jitter grace) | passes (no filter) |
+| Recovery after gap (single event with raw=24min) | **rejected** (Device 2 stuck loop) | passes, full credit, lastThresh advances |
+| Catch-up burst (4 events in 2s after 8h gap) | first event passes, subsequent accumulate budget | unchanged — burst still gated |
+| Device 1 phantom flood (100s events in 2s after 96s gap) | first event passes budget; subsequent accumulate and reject | first event passes (no scope); subsequent gated by burst budget |
+| Single isolated phantom event with continuation pattern | rejected if delta > wall-clock | **would pass** — residual risk, none observed in logs |
+
+### Residual risk
+
+A single isolated phantom event arriving in normal cadence with a high threshold value for a non-cold-start app would now slip through. We have no log evidence this pattern exists in production — phantom floods are always burst-shaped. Acceptable.
+
+### What this fixes from today's testing
+
+- **Device 2's 17:00–17:56 stuck loop:** every per-minute event would credit cleanly. today recovers to ~iOS cumulative within minutes instead of waiting for the next external trigger.
+- **Device 4's first-burst wave:** unchanged (already worked correctly via existing BURST_BYPASS).
+- **Device 4's second-burst rejection (~89 min loss):** still happens — second wave events are within 5s of each other, so SKIP_BURST_BUDGET still gates them. The burst-judge shadow is the eventual fix for that case.
+
+### Files touched
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`
+  - `perEventCap` normal-delivery branch: `max(60, Int(nowTimestamp - lastEventTime))` → `Int.max`
+  - `SKIP_BURST_BUDGET` rejection condition: `if lastAlive > 0 && proposed > budget + grace` → `if isMidDayBurst && lastAlive > 0 && proposed > budget + grace`
+  - Comments updated to reflect new scope
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md

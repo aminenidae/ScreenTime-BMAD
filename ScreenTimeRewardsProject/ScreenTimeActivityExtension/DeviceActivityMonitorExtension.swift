@@ -1056,21 +1056,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         } else if isFirstEventAfterUnlock {
             perEventCap = max(60, Int(nowTimestamp - unlockTime))
         } else {
-            // NORMAL DELIVERY: cap = wall-clock since last event for this app
-            // (minimum 60s for jitter). Bounded by what wall-clock physically allows.
+            // NORMAL DELIVERY (single isolated event, not part of a burst): trust
+            // the iOS threshold value. SKIP_BURST_BUDGET below now only gates
+            // confirmed bursts (events <5s apart) — single isolated events are
+            // historically always legit (phantom floods come as bursts, never as
+            // single isolated events). When iOS calmly fires min.236 and our
+            // recorded today is 212, the missing 24 min is real catch-up of past
+            // play; credit the full delta in one shot, lastThresh advances, kid
+            // continues normally.
             //
-            // May 17, 2026 — the original "trust the iOS threshold value" change
-            // (Int.max cap) created a catastrophic stuck loop: when iOS fired
-            // min.236 after we lost the catch-up (today=212), raw=1440s but
-            // SKIP_BURST_BUDGET's wall-clock budget was only ~60s. The 1440s
-            // got rejected EVERY 60 seconds for the entire afternoon — `lastThresh`
-            // never advanced, recovery never happened, kid lost 59 min.
-            //
-            // The bounded cap recovers gradually: every event credits min(raw,
-            // wall-clock), advancing `lastThresh` each time. After 24 normal
-            // per-minute events, today catches up to where iOS is. SKIP_BURST_BUDGET
-            // never trips on cap-bounded credit because the cap mirrors its budget.
-            perEventCap = max(60, Int(nowTimestamp - lastEventTime))
+            // The previous wall-clock cap was a workaround for the unscoped
+            // SKIP_BURST_BUDGET filter; with that filter now scoped to bursts only,
+            // we can trust the threshold value as originally intended.
+            perEventCap = Int.max
         }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
@@ -1149,15 +1147,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // real-time events. A new burst starts on a wallclock gap ≥ 5s; subsequent
         // events within 5s of each other share the same budget.
         //
-        // May 17, 2026 — Jitter grace added (`max(5s, 10% of budget)`). The May 16
-        // enforcement rejected ~1 in 4 normal per-minute events because iOS
-        // schedules thresholds for "every 60s of cumulative play" but its real
-        // delivery cadence is 58–62s with no guarantee. Two consecutive legit
-        // events at gap=59s produced proposed=60s > budget=59s → reject. Real
-        // device logs (Device 2 May 17) showed this firing every few minutes for
-        // hours, cascading into silent recording death. The grace is small enough
-        // that the Device 1 flood (proposed 300,000s vs budget 96s) is still
-        // rejected by 3000×, but absorbs sub-5-second timing jitter.
+        // May 17, 2026 — Scope narrowed to **bursts only** (`isMidDayBurst` true).
+        // The previous "apply to every event" implementation broke normal
+        // single-event recording: when iOS fires min.236 in normal cadence after
+        // a 14-min gap, the implied credit (24 min) exceeded the wall-clock
+        // budget (14 min), causing rejection. Every subsequent normal event hit
+        // the same reject (Device 2 May 17: 59 min lost in a stuck loop).
+        //
+        // The right scope: phantom floods ARE bursts by structural definition
+        // (many events in <5s). Single isolated events have never been a
+        // phantom source in our logs. So gate the rejection on isMidDayBurst —
+        // the first event of any potential burst (gap >5s from previous) always
+        // passes; subsequent events within 5s of each other share the accumulated
+        // budget. State (burst budget / credited) is tracked on every event so
+        // the second-event-onward check has the right reference.
+        //
+        // Jitter grace (max 5s, 10% of budget) preserved from the May 17 earlier
+        // fix — absorbs sub-5s scheduling jitter inside bursts.
         let lastAliveKey = "last_credited_global_timestamp"
         let burstBudgetKey = "burst_budget_seconds"
         let burstCreditedKey = "burst_credited_seconds"
@@ -1172,7 +1178,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         let proposedCredited = burstCredited + delta
         let jitterGrace = max(5, burstBudget / 10)
-        if lastAlive > 0 && proposedCredited > burstBudget + jitterGrace {
+        if isMidDayBurst && lastAlive > 0 && proposedCredited > burstBudget + jitterGrace {
             debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... burstCredited=\(burstCredited)s + delta=\(delta)s = \(proposedCredited)s > budget=\(burstBudget)s + grace=\(jitterGrace)s (wallclock since last alive event) — phantom-flood reject", defaults: defaults)
             Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... proposed=\(proposedCredited)s budget=\(burstBudget)s grace=\(jitterGrace)s")
             // Don't update burstCredited/lastAlive — rejecting this event means it
