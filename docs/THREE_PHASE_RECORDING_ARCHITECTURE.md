@@ -278,10 +278,50 @@ Multi-day testing across Devices 1, 2, 3, 4, A, B, C. Confirm:
 
 ## Status checklist
 
-- [x] Architecture doc (this file)
-- [ ] Phase A extraction
-- [ ] Phase B classifier
-- [ ] Phase C-iso fast path
-- [ ] Phase C-burst buffer + settlement
-- [ ] Dead-code removal
-- [ ] Multi-device test pass
+- [x] Architecture doc (this file) — commit `d7b805a`
+- [x] Step 2: Phase A section markers (no behavior change) — commit `df7eb38`
+- [x] Step 3a: Phase B classifier in SHADOW mode — commit `611f1e2`
+- [ ] Step 3a validation: multi-event burst observed in shadow logs (partial — see below)
+- [ ] Step 3b: promote isolated routing to new fast path
+- [ ] Step 4: Phase C-burst buffer + settlement
+- [ ] Step 5: dead-code removal
+- [ ] Step 6: multi-device test pass
+
+---
+
+## Shadow validation log (2026-05-18)
+
+Branch: `feat/three-phase-recording-architecture`. Shadow classifier shipped 2026-05-18 ~15:06.
+
+### Validated
+
+| Scenario | Evidence | Verdict |
+|----------|----------|---------|
+| Normal per-minute play classifies as `isolated` | 15:08–15:31, 15 events across two apps (C6DA269B, E8B1C8C6), all `context=isolated` | ✅ |
+| iOS jitter doesn't false-trigger burst | Gap=42s at 15:12:47 classified `isolated` (well above 30s window) | ✅ — 30s window has safe margin |
+| Single duplicate re-delivery after extension kill classifies as `burst` | 15:27:55→15:27:56: same threshold=2340s re-delivered 0.5s later, classified `burst gap=0s`. SKIP_REGRESSION caught the duplicate in legacy path. | ✅ |
+| Long gap classifies as `isolated` | 15:08:53 gap=382s, 15:23:54 gap=455s — first events after extension deaths, classified `isolated` | ✅ |
+
+### Pending validation
+
+| Scenario | Why we haven't seen it | Plan |
+|----------|------------------------|------|
+| Multi-event catch-up dump (3+ events arriving 1-2s apart) | Test sessions so far: app played AFTER restart, not during extension downtime → no queued events to flush | Let extension die naturally during active play (battery drain test in progress) |
+| Multi-app phantom flood (Device C scenario) | No phantom flood occurred during today's test session | Wait for natural occurrence or replay Device C log against new logic |
+
+### Observations not yet acted on
+
+- **Concurrent event processing at 15:15:25**: two events for C6DA269B arrived 0.3s apart in the new extension session (post-kill). Both read the same `last_credited_global_timestamp` (giving identical `gap=97s`) because the first hadn't written its updated value before the second started reading. Classification was the same for both (`isolated`), and the first was correctly rejected as duplicate (SKIP_REGRESSION). Not a problem in this case, but worth noting: in a Phase C-burst world where the buffer mutates state, concurrent events may need a lock or atomic compare-and-swap on the burst buffer. Defer until we see it cause a real issue.
+
+---
+
+## Decision log
+
+### 2026-05-18 — Shadow first before active routing
+Original plan (Step 3 in doc): land classifier and divert isolated routing in one commit. Revised to ship shadow-only (Step 3a) first, then promote in a separate commit (Step 3b) once shadow logs confirm correct classification. Rationale: kids are actively using the app on test devices; a misclassified routing change is hard to undo mid-day. Cost is one extra commit; benefit is zero behavior change during validation.
+
+### 2026-05-18 — 30s burst window (not 5s, not 50s)
+Original code used 5s — tuned for iOS-flush-batch latency, not for "what's normal cadence". CEO pushed back: normal events fire at ~60s, so anything below 60s is suspicious. Widened to 30s as a conservative middle ground (15-25s margin below 60s cadence). Today's shadow data validates the choice: gaps as low as 42s correctly classified as isolated. If we'd picked 50s, the 42s event would have been false-tagged as burst.
+
+### 2026-05-18 — Section markers, not function extraction, for Step 2
+Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helper. Revised to add prominent section markers in place without moving code. Rationale: extraction would change inline state-write ordering (e.g., `last_event_arrival_<id>` is updated at the top of the to-be-removed SKIP_FLOOD filter and reading it from a different position could change the burst-context behavior of OTHER filters). Extraction lands once Phase B is active and the legacy filters are being removed (Step 5).
