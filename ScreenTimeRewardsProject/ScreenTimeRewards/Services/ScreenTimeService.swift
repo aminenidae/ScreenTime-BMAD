@@ -1332,12 +1332,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         if !calendar.isDate(persistedApp.lastResetDate, inSameDayAs: today) {
                             // Day changed - archive previous day's data before resetting
                             if persistedApp.todaySeconds > 0 || persistedApp.todayPoints > 0 {
+                                // May 18, 2026 — freeze rewardMinutesEarned at archive
+                                // (see drainPendingArchives for the same fix and rationale).
+                                let earnedMinutes = UsagePersistence.computeRewardMinutesEarned(
+                                    logicalID: persistedApp.logicalID,
+                                    category: persistedApp.category,
+                                    seconds: persistedApp.todaySeconds,
+                                    day: persistedApp.lastResetDate
+                                )
                                 let summary = UsagePersistence.DailyUsageSummary(
                                     date: persistedApp.lastResetDate,
                                     seconds: persistedApp.todaySeconds,
                                     points: persistedApp.todayPoints,
                                     hourlySeconds: persistedApp.todayHourlySeconds,
-                                    hourlyPoints: persistedApp.todayHourlyPoints
+                                    hourlyPoints: persistedApp.todayHourlyPoints,
+                                    rewardMinutesEarned: earnedMinutes
                                 )
                                 persistedApp.dailyHistory.append(summary)
 
@@ -1451,10 +1460,23 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 calendar.isDate($0.date, inSameDayAs: archiveDay)
             }
             if !alreadyArchived {
+                // May 18, 2026 — set rewardMinutesEarned at archive time using the
+                // day's active ratio. Without this, the row is written with nil and
+                // the bank-balance read falls back to seconds × current-ratio (the
+                // exact bug the May 16 ratio-lock fix was meant to prevent). Device
+                // observed today: −101 min carry-over because yesterday's learning
+                // rows archived with nil and were re-computed against the wrong ratio.
+                let earnedMinutes = UsagePersistence.computeRewardMinutesEarned(
+                    logicalID: logicalID,
+                    category: persistedApp.category,
+                    seconds: seconds,
+                    day: archiveDay
+                )
                 let summary = UsagePersistence.DailyUsageSummary(
                     date: archiveDay,
                     seconds: seconds,
-                    points: 0
+                    points: 0,
+                    rewardMinutesEarned: earnedMinutes
                 )
                 persistedApp.dailyHistory.append(summary)
                 if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
