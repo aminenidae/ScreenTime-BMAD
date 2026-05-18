@@ -616,6 +616,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
         // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE B — Burst classification (SHADOW MODE)                    │
+        // │ Computes the new architecture's classification on every event   │
+        // │ arrival but does NOT change routing. Used to validate the 30s   │
+        // │ window against real device events before flipping the routing.  │
+        // │ Promote to active routing in a follow-up commit once shadow     │
+        // │ logs confirm the classification matches expectations.           │
+        // │                                                                 │
+        // │ See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md Phase B.         │
+        // └─────────────────────────────────────────────────────────────────┘
+        let phaseB_lastCreditedGlobal = defaults.double(forKey: "last_credited_global_timestamp")
+        let phaseB_gap = phaseB_lastCreditedGlobal > 0
+            ? nowTimestamp - phaseB_lastCreditedGlobal
+            : Double.greatestFiniteMagnitude
+        let phaseB_context = phaseB_gap < 30 ? "burst" : "isolated"
+        let phaseB_gapStr = phaseB_gap == Double.greatestFiniteMagnitude ? "∞" : "\(Int(phaseB_gap))s"
+        debugLog("PHASE_B_SHADOW appID=\(appID.prefix(8))... context=\(phaseB_context) gap=\(phaseB_gapStr) thresh=\(thresholdSeconds)s — classification only, routing unchanged", defaults: defaults)
+
+        // ┌─────────────────────────────────────────────────────────────────┐
         // │ PHASE A — Hard rejects (no burst context required)              │
         // │ These filters reject events on physical or logical impossibility│
         // │ regardless of whether the event is part of a burst.             │

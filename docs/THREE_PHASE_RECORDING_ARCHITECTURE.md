@@ -220,8 +220,15 @@ We will land this incrementally, not in one giant commit.
 ### Step 2 — Phase A extraction.
 Move the existing hard-reject filters into `passesHardRejects(...)`. Strip the burst-context gating that some have added. Build, run, verify on test devices.
 
-### Step 3 — Phase B classifier + Phase C-iso.
-Add the classifier function. Wire it into `setUsageToThreshold`. For now, BURST events fall through to existing burst-handling code (we don't activate Phase C-burst yet). ISOLATED events take the new fast path. Build, run, compare against existing logs.
+### Step 3a — Phase B classifier in SHADOW mode.
+Add the classifier at the top of `setUsageToThreshold`. Log every event arrival with its classification (`burst` or `isolated`) and the gap from `last_credited_global_timestamp`. **Routing is unchanged.** Run for a full day on test devices and verify:
+- Normal per-minute play classifies as `isolated`.
+- Multi-event catch-up bursts classify as `burst`.
+- Multi-app phantom cascades (Device C scenario) classify as `burst`.
+- Roblox sliding-window recovery (single high-threshold event after silence) classifies as `isolated`.
+
+### Step 3b — Promote isolated routing.
+Once shadow logs confirm classification correctness, divert ISOLATED events to the new fast path: trust threshold, credit `max(60, threshold - lastThreshold)`, skip the legacy per-event-cap branching and SKIP_BURST_BUDGET. BURST events continue to fall through to existing burst-handling code until Step 4 replaces it.
 
 ### Step 4 — Phase C-burst buffer + settlement.
 Add the buffer storage. Replace the per-event burst-handling code with buffer-add. Implement settlement on next event entry. Build, run, validate flood detection on Device C log replay.
