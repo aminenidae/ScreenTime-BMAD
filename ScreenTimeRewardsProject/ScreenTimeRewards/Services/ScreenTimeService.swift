@@ -2643,6 +2643,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         // blocked); shield drops trigger re-registration via `unblockRewardApps`.
         let shieldedIDs = currentlyShieldedLogicalIDs()
 
+        // Read pinned-apps set early — needed for the threshold-registration loop
+        // below. Pinned apps register with includesPastActivity:false, which means
+        // iOS counts NEW play from the restart moment (not cumulative since midnight).
+        // For these apps, thresholds must start at min.1 (not currentMinutes+1)
+        // so the kid's next minute of play fires the lowest threshold, instead of
+        // being silently uncounted until they reach currentMinutes+1 of NEW play
+        // (Device 3 May 17: kid played 8 min after Refresh Tracking on a pinned
+        // learning app, today=8 → window registered 9-28 → iOS needed 9 new min →
+        // nothing fired, all 8 min lost).
+        let startOfTodayEpochForPin = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        let pinnedAppsTodayForRegistration: Set<String> = {
+            guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+                  sharedDefaults.double(forKey: "pinned_apps_today_date") >= startOfTodayEpochForPin else {
+                return []
+            }
+            return Set(sharedDefaults.stringArray(forKey: "pinned_apps_today") ?? [])
+        }()
+        let firstCallNewlyAddedForRegistration: Set<String> = Set(appTemplates.keys).subtracting(previouslyTrackedIDs)
+        // Effective pin set for THIS registration call: existing pins + newly added apps
+        let effectivePinnedForRegistration = pinnedAppsTodayForRegistration.union(firstCallNewlyAddedForRegistration)
+
         // Rebuild monitoredEvents with sliding window per app
         var newMonitoredEvents: [DeviceActivityEvent.Name: MonitoredEvent] = [:]
         var totalSkipped = 0
@@ -2661,7 +2682,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             if appWindow <= 0 {
                 continue
             }
-            let minutesToRegister = Array((currentMinutes + 1)...(currentMinutes + appWindow))
+            // For pinned apps, register from min.1 (iOS counts new-since-restart).
+            // For unpinned apps, register from currentMinutes+1 (iOS counts cumulative-since-midnight).
+            let isPinnedForRegistration = effectivePinnedForRegistration.contains(logicalID)
+            let windowStart = isPinnedForRegistration ? 1 : (currentMinutes + 1)
+            let windowEnd = windowStart + appWindow - 1
+            let minutesToRegister = Array(windowStart...windowEnd)
 
             for minuteNumber in minutesToRegister {
                 let eventName = DeviceActivityEvent.Name("usage.app.\(stableAppID).min.\(minuteNumber)")
