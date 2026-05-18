@@ -1122,19 +1122,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         } else if isFirstEventAfterUnlock {
             perEventCap = max(60, Int(nowTimestamp - unlockTime))
         } else {
-            // NORMAL DELIVERY (single isolated event, not part of a burst): trust
-            // the iOS threshold value. SKIP_BURST_BUDGET below now only gates
-            // confirmed bursts (events <5s apart) — single isolated events are
-            // historically always legit (phantom floods come as bursts, never as
-            // single isolated events). When iOS calmly fires min.236 and our
-            // recorded today is 212, the missing 24 min is real catch-up of past
-            // play; credit the full delta in one shot, lastThresh advances, kid
-            // continues normally.
+            // NORMAL DELIVERY: cap = wall-clock since this app's last event.
+            // Bounds credit at what time physically allows for THIS app.
             //
-            // The previous wall-clock cap was a workaround for the unscoped
-            // SKIP_BURST_BUDGET filter; with that filter now scoped to bursts only,
-            // we can trust the threshold value as originally intended.
-            perEventCap = Int.max
+            // May 18, 2026 — REVERTED the Int.max trust-threshold variant.
+            // Device C (May 18 morning) hit a multi-app phantom flood during an
+            // extension-kill cascade: 5 EXTENSION_KILLED in 25 seconds, iOS
+            // dumped phantom events across 16 apps. Each app's events were spaced
+            // >5s apart (so isMidDayBurst=false per-app, SKIP_BURST_BUDGET
+            // skipped), but globally it was a phantom flood. Int.max credited
+            // raw deltas of 2700-5280s = 45-88 min phantom per app, hundreds of
+            // minutes of total inflation.
+            //
+            // The wall-clock-per-app cap bounds each event to what time allows.
+            // For the Device 2 stuck-loop case (single legit recovery), the cap
+            // grows with the gap-since-last-event so recovery still happens
+            // gradually. Multi-app cascade flood: each app's credit is bounded
+            // by its own short wall-clock window even if iOS sends huge deltas.
+            perEventCap = max(60, Int(nowTimestamp - lastEventTime))
         }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
