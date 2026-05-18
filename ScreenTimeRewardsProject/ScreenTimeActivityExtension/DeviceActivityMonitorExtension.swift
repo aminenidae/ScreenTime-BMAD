@@ -578,9 +578,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     }
 
 
-    /// Record +60s per valid event with robust filter chain
-    /// Filter order: restart window → per-app cooldown → min threshold → shielded app → threshold progression
-    /// All filters applied BEFORE any recording (including day rollover)
+    /// Record +60s per valid event with robust filter chain.
+    ///
+    /// ARCHITECTURE (migration in progress — see docs/THREE_PHASE_RECORDING_ARCHITECTURE.md):
+    ///
+    ///   PHASE A — Hard rejects (no burst context required)
+    ///     SKIP_MIDNIGHT, SKIP_INVALID, SKIP_STALE_FLUSH, SKIP_PIN_REPLAY,
+    ///     SKIP_SHIELDED, SKIP_REGRESSION
+    ///
+    ///   LEGACY filters (to be removed after Phase B+C land)
+    ///     SKIP_FLOOD, FIRST_EVENT_BUFFER, PHANTOM_FLOOD_DETECTED trigger,
+    ///     SKIP_BURST_BUDGET, isMidDayBurst per-event-cap branching
+    ///
+    ///   PHASE B — Classify isolated vs burst (to be added)
+    ///   PHASE C — Route (isolated → credit; burst → buffer + settle)
+    ///
+    /// Current code reflects the pre-migration filter chain. Section markers
+    /// below identify which existing filters belong to which phase, but no
+    /// code has been moved yet.
     private nonisolated func setUsageToThreshold(appID: String, thresholdSeconds: Int, defaults: UserDefaults, shieldConfigs: ExtensionShieldConfigsMinimal?) -> Bool {
         let thresholdSeconds = thresholdSeconds
         // Flag set inside Filter 2.7 BUFFER_LEGIT branch so the recording code at
@@ -599,6 +614,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Compute calendar values once for use in both filters and recording
         let calendar = Self.calendar
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE A — Hard rejects (no burst context required)              │
+        // │ These filters reject events on physical or logical impossibility│
+        // │ regardless of whether the event is part of a burst.             │
+        // └─────────────────────────────────────────────────────────────────┘
 
         // Filter 0: SKIP_MIDNIGHT — block ALL events between midnight and first scheduleActivity()
         // At midnight, intervalDidStart() fires but scheduleActivity() does NOT. Yesterday's
@@ -644,6 +665,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ DIAGNOSTIC — shadow trackers (no enforcement)                   │
+        // │ Logging-only paths used to evaluate candidate rules before      │
+        // │ promoting them to enforcement. Stays as-is across phases.       │
+        // └─────────────────────────────────────────────────────────────────┘
+
         // Shadow tracker (May 14, 2026): restart-window per-app threshold-snapshot rule.
         // Hypothesis: when monitoring restarts, only the restart's triggering app should
         // receive events; events for other apps must either advance past the pre-restart
@@ -672,6 +699,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 debugLog("SHADOW_RESTART_REJECT appID=\(appPrefix)... thresh=\(thresholdSeconds)s reason=\(reason) triggerApp=\(shadowTriggerPrefix.isEmpty ? "none" : shadowTriggerPrefix) ageSinceRestart=\(Int(shadowAge))s restartReason=\(restartReason) — diagnostic only", defaults: defaults)
             }
         }
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ LEGACY — burst-aware filters (TO BE REMOVED)                    │
+        // │ These filters do their own burst-context detection with their   │
+        // │ own time windows (5s, 10s). After Phase B+C land, this whole    │
+        // │ block is replaced by the burst classifier + settlement logic.   │
+        // │ Kept in place during migration; do not extend.                  │
+        // └─────────────────────────────────────────────────────────────────┘
 
         // Filter 1.7: PHANTOM_FLOOD_LOCKOUT — once a flood has been detected
         // (by Filter 2's SKIP_SHIELDED-in-burst trigger below), a global flag locks
@@ -732,6 +767,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // else: isolated event during lockout — bypass
             debugLog("SKIP_FLOOD_BYPASS appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — flood window active but event is isolated (not part of a burst), trusting", defaults: defaults)
         }
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE A (continued) — SKIP_SHIELDED                             │
+        // │ A reward app whose shield is currently up cannot be in use.     │
+        // │ This is a physical-impossibility check; no burst context        │
+        // │ required for the reject decision. The PHANTOM_FLOOD_DETECTED    │
+        // │ side-effect uses burst context — that piece moves into Phase C  │
+        // │ settlement after migration.                                     │
+        // └─────────────────────────────────────────────────────────────────┘
 
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
@@ -810,6 +854,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE A (continued) — SKIP_PIN_REPLAY                           │
+        // │ Wall-clock impossibility check for newly-pinned apps.           │
+        // └─────────────────────────────────────────────────────────────────┘
+
         // Filter 2.5: SKIP_PIN_REPLAY — wall-clock anchor for newly-added apps.
         // Apr 25 evidence (E54C1C9E, ext-log-2026-04-25.log): iOS fires backed-up threshold
         // events for cumulative usage that occurred BEFORE registration, even when the app
@@ -829,6 +878,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 return false
             }
         }
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ LEGACY — FIRST_EVENT_BUFFER (TO BE REMOVED)                     │
+        // │ First-event-of-day burst gate with 5s burst window and 60s hold.│
+        // │ Replaced after migration by Phase C burst settlement, which     │
+        // │ makes max-threshold-per-app a first-class concept.              │
+        // └─────────────────────────────────────────────────────────────────┘
 
         // Filter 2.7: PER-APP MIN.1 BUFFER — first-event-of-day burst gate.
         // When an app's first event of the day is min>3, wait up to 60s for a min≤3
@@ -947,6 +1003,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE A (continued) — SKIP_REGRESSION                           │
+        // │ Threshold monotonicity. Same-day thresholds must strictly       │
+        // │ increase; cross-day blocks exact duplicates only.               │
+        // └─────────────────────────────────────────────────────────────────┘
+
         // Filter 3: Threshold progression
         // Same day: cumulative usage only grows, so thresholds must strictly increase
         // Cross-day: thresholds restart from min.1, just block exact duplicates
@@ -1005,6 +1067,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE C (legacy form) — credit + budget checks                  │
+        // │ Current code applies per-event caps and burst-budget checks     │
+        // │ inline. After migration this becomes:                           │
+        // │   - isolated events: trust threshold, credit immediately        │
+        // │   - burst events: buffer, settle on next isolated event         │
+        // │                                                                 │
+        // │ SKIP_BUDGET_EXCEEDED (reward-app post-unshield wallclock check) │
+        // │ stays — it's a physical-impossibility check, not burst-context. │
+        // └─────────────────────────────────────────────────────────────────┘
 
         let todayKey = "usage_\(appID)_today"
         let totalKey = "usage_\(appID)_total"
