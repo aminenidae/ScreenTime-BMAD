@@ -1105,25 +1105,34 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // default for first-event-of-day restored.
         let burstActiveUntil = defaults.double(forKey: "burst_active_until_\(appID)")
         let isBurstActive = burstActiveUntil > nowTimestamp
-        // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent for
-        // 30-60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2s.
-        // Layer 2's first-of-day buffer doesn't fire on these (because today>0 and
-        // lastThreshold>0). Detect the burst via timing across ALL apps: if any
-        // monitored app fired a credited event within 5 seconds, this event is part
-        // of the same iOS flush. Bypass PER_EVENT_CAP so legit catch-up minutes aren't
+        // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent
+        // mid-day, then iOS dumps a backlog of catch-up events at well-below-cadence
+        // gaps. Layer 2's first-of-day buffer doesn't fire on these (because today>0
+        // and lastThreshold>0). Detect via timing across ALL apps: if any monitored
+        // app fired a credited event within the burst window, this event is part of
+        // the same iOS flush. Bypass PER_EVENT_CAP so legit catch-up minutes aren't
         // capped at 60s each. SKIP_REGRESSION still blocks duplicates and out-of-order
         // regressions, and SKIP_BURST_BUDGET below bounds aggregate burst credit by
         // wall-clock since the burst began.
         //
+        // BURST WINDOW = 30s (was 5s).
+        // Normal per-minute recording fires at ~60s cadence. Events arriving at
+        // 6s/10s/20s/30s gaps are NOT normal — they're catch-ups or phantoms. The
+        // 5s window only caught tight iOS-flush batches and let through cascades
+        // spread over a few seconds per event. 30s gives a comfortable margin
+        // below the 60s normal cadence; legit cross-app events still arrive
+        // >30s apart in practice (kid foregrounds one app at a time, and only
+        // the foregrounded app accumulates threshold seconds).
+        //
         // May 18, 2026 — CROSS-APP burst window (was same-app).
         // Device C (May 18 morning) hit a multi-app phantom flood during an
         // extension-kill cascade: 5 EXTENSION_KILLED in 25 seconds, iOS dumped
-        // phantom events across 16 apps. Each app's own previous event was >5s ago
-        // (so the per-app `lastEventTime` check returned isMidDayBurst=false),
+        // phantom events across 16 apps. Each app's own previous event was >5s ago,
         // but cross-app the events were 1-3s apart — clearly one iOS flush.
         // Using the global `last_credited_global_timestamp` catches this.
+        let burstWindowSeconds: TimeInterval = 30
         let lastCreditedGlobal = defaults.double(forKey: "last_credited_global_timestamp")
-        let isMidDayBurst = lastCreditedGlobal > 0 && (nowTimestamp - lastCreditedGlobal) < 5
+        let isMidDayBurst = lastCreditedGlobal > 0 && (nowTimestamp - lastCreditedGlobal) < burstWindowSeconds
         let perEventCap: Int
         if isBurstActive || isMidDayBurst {
             perEventCap = Int.max
@@ -1216,8 +1225,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // credits during a catch-up burst vs wallclock since the last "alive" event
         // (any app). The kid can only use one app at a time, so total credits in a
         // burst cannot exceed wallclock seconds since monitoring was last firing
-        // real-time events. A new burst starts on a wallclock gap ≥ 5s; subsequent
-        // events within 5s of each other share the same budget.
+        // real-time events. A new burst starts on a wallclock gap ≥ `burstWindowSeconds`
+        // (30s); events within the burst window share the same budget. Aligned with
+        // `isMidDayBurst` above so burst classification and budget reset agree.
         //
         // May 17, 2026 — Scope narrowed to **bursts only** (`isMidDayBurst` true).
         // The previous "apply to every event" implementation broke normal
@@ -1241,7 +1251,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let burstCreditedKey = "burst_credited_seconds"
         let lastAlive = defaults.double(forKey: lastAliveKey)
         let gapSinceAlive = lastAlive > 0 ? nowTimestamp - lastAlive : 0
-        let isNewBurst = gapSinceAlive >= 5
+        let isNewBurst = gapSinceAlive >= burstWindowSeconds
         var burstBudget = defaults.integer(forKey: burstBudgetKey)
         var burstCredited = defaults.integer(forKey: burstCreditedKey)
         if isNewBurst {
