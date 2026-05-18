@@ -1108,38 +1108,39 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Mid-day burst detection: iPad 9th-gen-class devices frequently go silent for
         // 30-60 minutes mid-day, then iOS dumps a backlog of catch-up events in 1-2s.
         // Layer 2's first-of-day buffer doesn't fire on these (because today>0 and
-        // lastThreshold>0). Detect the burst via timing: if the previous recorded event
-        // for this app arrived within 5 seconds, this event is part of the same iOS
-        // flush. Bypass PER_EVENT_CAP so legit catch-up minutes aren't capped at 60s
-        // each. SKIP_REGRESSION still blocks duplicates and out-of-order regressions.
-        // Note: the very first event of a mid-day burst still gets capped (we can't
-        // know it's a burst until a second event confirms within 5s). Subsequent
-        // events bypass — recovers most of the credit at the cost of 60s on the head.
-        let isMidDayBurst = lastEventTime > 0 && (nowTimestamp - lastEventTime) < 5
+        // lastThreshold>0). Detect the burst via timing across ALL apps: if any
+        // monitored app fired a credited event within 5 seconds, this event is part
+        // of the same iOS flush. Bypass PER_EVENT_CAP so legit catch-up minutes aren't
+        // capped at 60s each. SKIP_REGRESSION still blocks duplicates and out-of-order
+        // regressions, and SKIP_BURST_BUDGET below bounds aggregate burst credit by
+        // wall-clock since the burst began.
+        //
+        // May 18, 2026 — CROSS-APP burst window (was same-app).
+        // Device C (May 18 morning) hit a multi-app phantom flood during an
+        // extension-kill cascade: 5 EXTENSION_KILLED in 25 seconds, iOS dumped
+        // phantom events across 16 apps. Each app's own previous event was >5s ago
+        // (so the per-app `lastEventTime` check returned isMidDayBurst=false),
+        // but cross-app the events were 1-3s apart — clearly one iOS flush.
+        // Using the global `last_credited_global_timestamp` catches this.
+        let lastCreditedGlobal = defaults.double(forKey: "last_credited_global_timestamp")
+        let isMidDayBurst = lastCreditedGlobal > 0 && (nowTimestamp - lastCreditedGlobal) < 5
         let perEventCap: Int
         if isBurstActive || isMidDayBurst {
             perEventCap = Int.max
         } else if isFirstEventAfterUnlock {
             perEventCap = max(60, Int(nowTimestamp - unlockTime))
         } else {
-            // NORMAL DELIVERY: cap = wall-clock since this app's last event.
-            // Bounds credit at what time physically allows for THIS app.
+            // NORMAL ISOLATED EVENT: trust the iOS threshold value.
+            // No burst context (no app — including this one — fired within 5s
+            // globally) and not the first event after an unshield. This is an
+            // isolated event in the normal per-minute recording cadence, where
+            // iOS's reported threshold reflects actual cumulative usage.
             //
-            // May 18, 2026 — REVERTED the Int.max trust-threshold variant.
-            // Device C (May 18 morning) hit a multi-app phantom flood during an
-            // extension-kill cascade: 5 EXTENSION_KILLED in 25 seconds, iOS
-            // dumped phantom events across 16 apps. Each app's events were spaced
-            // >5s apart (so isMidDayBurst=false per-app, SKIP_BURST_BUDGET
-            // skipped), but globally it was a phantom flood. Int.max credited
-            // raw deltas of 2700-5280s = 45-88 min phantom per app, hundreds of
-            // minutes of total inflation.
-            //
-            // The wall-clock-per-app cap bounds each event to what time allows.
-            // For the Device 2 stuck-loop case (single legit recovery), the cap
-            // grows with the gap-since-last-event so recovery still happens
-            // gradually. Multi-app cascade flood: each app's credit is bounded
-            // by its own short wall-clock window even if iOS sends huge deltas.
-            perEventCap = max(60, Int(nowTimestamp - lastEventTime))
+            // The cross-app `isMidDayBurst` check above catches phantom-flood
+            // cascades (multiple apps firing in quick succession after an
+            // extension kill). Solo phantom events outside any burst window
+            // have not historically been a problem in our logs.
+            perEventCap = Int.max
         }
         let delta = max(0, min(rawDelta, perEventCap))
         if delta < rawDelta {
