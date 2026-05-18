@@ -4553,5 +4553,67 @@ Until then: existing filters govern actual recording; shadow is observation-only
   - `recordUsageEfficiently` now calls `shadowBurstTrack` after the `EVENT` log line, before the filter chain
   - `init()` writes `ext_last_kill_timestamp` when `EXTENSION_KILLED` is detected (for the kill-density signal even though not yet computed)
 
+---
+
+## May 17, 2026 — `PHANTOM_FLOOD_DETECTED` misfires on legit post-refresh catch-up (Device 3)
+
+> **Status: KNOWN ISSUE, NOT FIXED.** Documented for tomorrow's investigation. The May 10 phantom-flood detector (lines 685-748 in `DeviceActivityMonitorExtension.swift`) wrongly locked out 5 minutes of legitimate Roblox catch-up on Device 3 after a `Refresh Tracking` button tap.
+
+### What happened
+
+Device 3 (`Device 3 logs/ext-log-2026-05-17 2.log`): Roblox today was stuck at **72 min**. iOS Screen Time reported **277 min** of actual play. User tapped Refresh Tracking at 19:20:11. Expected: today recovers to ≈240+ min via catch-up dump + shield-enforcement at the limit.
+
+Actual final today: **145 min** (recovered 73 min, then catch-up got cut short by the phantom-flood lockout). 132 min permanently lost.
+
+### Timeline
+
+| Time | Event |
+|---|---|
+| 19:20:11 | `MONITORING_RESTART` triggered by `settings_refresh_tracking_button` |
+| 19:20:13 | `MONITORING_START` registers fresh sliding windows for all 16 apps |
+| 19:20:27.222 | **Recovery worked:** Roblox `BURST_BYPASS normal-recovery raw=4380s credited=4380s` → today 72 → **145 min** ✓ |
+| 19:20:27.508-935 | iOS dumps out-of-order catch-up events for Roblox (min.132, 136, 133, 150, 152…). All `SKIP_SHIELDED` (Roblox still shielded — goal not met / bank empty). |
+| 19:20:27.936 | `EVENT appID=C9DD7583... min=3 currentToday=0s lastThresh=0s` — a *different* shielded reward app fires a cold-start event |
+| 19:20:27.979 | `PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=C9DD7583... + 1 other app(s) within 10s — burst is phantom, locking out 300s` |
+| 19:20:28 → 19:25:27 | `SKIP_FLOOD` rejects every subsequent event globally (93 rejections in the log, but iOS likely dumped many more that didn't get logged) |
+
+### Root cause
+
+The May 10 `PHANTOM_FLOOD_DETECTED` heuristic (`DeviceActivityMonitorExtension.swift:725-748`):
+
+> *"A verifiably-shielded app cannot produce legit events — the kid physically can't use a blocked app. If this event arrived within a burst (any other tracked app has had an event in the last 10s), the burst itself is phantom: lock out all events for 5 minutes."*
+
+The assumption — "shielded app event MUST be phantom" — is wrong in catch-up scenarios. When `scheduleActivity()` re-registers windows, iOS legitimately dumps queued threshold crossings that occurred BEFORE the app was shielded. Those events arrive AFTER the shield is up, and they trip the heuristic.
+
+The action — 300s **global** lockout across all apps — turns a single false-positive into a catastrophic catch-up failure for unrelated apps.
+
+### Why it didn't fire before today
+
+Two preconditions had to combine:
+1. A device with a shielded reward app that has cold-start cumulative behavior (`currentToday=0`, fresh window registration → iOS catches up from somewhere)
+2. The refresh happens while iOS still has queued thresholds from before the shield went up
+
+Pre-Refresh-Tracking button, the only path to trigger a fresh `scheduleActivity` was the auto-rebuild (debounced and conservative). The new button makes it easy to hit, which exposed this latent issue.
+
+### Two candidate fixes (NOT IMPLEMENTED — for tomorrow)
+
+**Option A — narrow the trigger:** Only declare phantom flood when the SKIP_SHIELDED event has BOTH `currentToday=0` (cold start) AND `thresholdSeconds > 1800` (>30 min). Today's C9DD7583 was min.3 from cold start — small/plausible, shouldn't trigger. Device 1's May 16 floods had cold-start AND massive thresholds — would still trigger.
+
+**Option B — narrow the action:** Instead of 300s GLOBAL lockout, only lock out the specific phantom-source app. Roblox (which had legitimate prior usage and just credited 73 real minutes) would continue recovering. This requires changing `phantom_flood_active_until` from a global key to a per-app key.
+
+Both are non-trivial: the filter has real production value (caught Device 1's May 16 80-hour flood). Tomorrow's testing with shadow burst data should help calibrate the signals before any change.
+
+### Files involved
+
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift:696-700` — `SKIP_FLOOD` check at top of filter chain
+- `ScreenTimeRewardsProject/ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift:733-749` — `PHANTOM_FLOOD_DETECTED` trigger logic
+
+### What to do tomorrow
+
+1. Pull fresh logs from Devices 1, 2, 3 with the shadow-burst-judge data (commit `ba10efe`)
+2. Cross-reference `SHADOW_BURST_JUDGE` lines with any `PHANTOM_FLOOD_DETECTED` events
+3. See if the shadow's signal set (`COLD_START_HIGH` + `GROWTH_VS_UNSHIELD`) catches the same true-positives as the May 10 heuristic without the false-positive on Device 3's scenario
+4. If shadow signals are cleaner, the eventual fix may be to retire the May 10 heuristic and replace with the burst-judge
+
 
 docs/SILENT_PUSH_MONITORING_REFRESH.md
