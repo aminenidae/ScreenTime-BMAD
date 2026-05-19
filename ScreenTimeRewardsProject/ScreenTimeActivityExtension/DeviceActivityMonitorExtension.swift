@@ -294,61 +294,72 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    // MARK: - Phase B+C shadow: buffer events, settle on silence (5s window)
+    // MARK: - Phase B+C ACTIVE: buffer events, settle on silence (5s window)
     //
-    // See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md for the model. The
-    // shadow logs what the new architecture WOULD credit / reject without
-    // changing actual routing. Compare SHADOW_SETTLE_* outcomes against
-    // legacy RECORDED / SKIP_* lines to validate before promotion.
+    // See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md for the model.
+    // Every event arrives, passes Phase A hard rejects, then goes into the
+    // buffer. When a new event arrives ≥5s after the previous one, settlement
+    // runs on the prior batch: single event = isolated (credit), multi-event
+    // = burst (flood-vs-legit). Credit is applied via applyCredit() which
+    // writes the same UserDefaults keys the legacy recording path used.
 
-    private struct ShadowBufferEntry: Codable {
+    private struct BufferEntry: Codable {
         let appID: String
         let thresholdSeconds: Int
         let arrivalTime: TimeInterval
         let baselineLastThreshold: Int   // app's lastThreshold at insertion
     }
 
-    private static let shadowBurstWindow: TimeInterval = 5
+    private static let burstWindowSeconds: TimeInterval = 5
 
-    private nonisolated func shadowBufferProcess(appID: String, thresholdSeconds: Int, now: TimeInterval, defaults: UserDefaults) {
-        var buffer = readShadowBuffer(defaults: defaults)
+    /// Process an event arrival. Returns true if settlement applied any credit
+    /// (in which case the caller should notify the main app). Returns false if
+    /// the event was buffered with no settlement, or settlement rejected the
+    /// batch as a flood.
+    private nonisolated func bufferProcessActive(appID: String, thresholdSeconds: Int, now: TimeInterval, defaults: UserDefaults) -> Bool {
+        var buffer = readEventBuffer(defaults: defaults)
+        var creditedAnything = false
 
-        // Settle previous batch if its last event was ≥5s ago.
-        if let lastEntry = buffer.last, (now - lastEntry.arrivalTime) >= Self.shadowBurstWindow {
-            shadowSettle(buffer: buffer, now: now, defaults: defaults)
+        // Settle the prior batch if it's been silent for ≥5s.
+        if let lastEntry = buffer.last, (now - lastEntry.arrivalTime) >= Self.burstWindowSeconds {
+            creditedAnything = settleBatch(buffer: buffer, now: now, defaults: defaults)
             buffer.removeAll()
         }
 
-        // Snapshot global baseline when starting a new batch.
+        // Snapshot the global pre-burst baseline when starting a new batch.
         if buffer.isEmpty {
             let baselineGlobal = defaults.double(forKey: "last_credited_global_timestamp")
-            defaults.set(baselineGlobal, forKey: "shadow_burst_baseline_global_ts")
+            defaults.set(baselineGlobal, forKey: "burst_baseline_global_ts")
         }
 
         let appBaseline = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
-        buffer.append(ShadowBufferEntry(
+        buffer.append(BufferEntry(
             appID: appID,
             thresholdSeconds: thresholdSeconds,
             arrivalTime: now,
             baselineLastThreshold: appBaseline
         ))
-        writeShadowBuffer(buffer, defaults: defaults)
+        writeEventBuffer(buffer, defaults: defaults)
 
-        debugLog("SHADOW_BUFFER appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferSize=\(buffer.count) — pending settlement", defaults: defaults)
+        debugLog("BUFFERED appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferSize=\(buffer.count) — awaiting settlement", defaults: defaults)
+        return creditedAnything
     }
 
-    private nonisolated func shadowSettle(buffer: [ShadowBufferEntry], now: TimeInterval, defaults: UserDefaults) {
-        guard !buffer.isEmpty else { return }
+    /// Run the settlement decision on a batch. Returns true if any credit was applied.
+    private nonisolated func settleBatch(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) -> Bool {
+        guard !buffer.isEmpty else { return false }
 
-        // Single-event batch → isolated → would credit.
+        // Single-event batch → ISOLATED → credit.
         if buffer.count == 1 {
             let entry = buffer[0]
-            let wouldCredit = max(60, entry.thresholdSeconds - entry.baselineLastThreshold)
-            debugLog("SHADOW_SETTLE_ISO appID=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s baseline=\(entry.baselineLastThreshold)s wouldCredit=\(wouldCredit)s", defaults: defaults)
-            return
+            let delta = max(60, entry.thresholdSeconds - entry.baselineLastThreshold)
+            applyCredit(appID: entry.appID, delta: delta, newThreshold: entry.thresholdSeconds, now: entry.arrivalTime, defaults: defaults)
+            debugLog("SETTLE_ISO appID=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s baseline=\(entry.baselineLastThreshold)s credited=\(delta)s", defaults: defaults)
+            Self.logger.notice("SETTLE_ISO app=\(entry.appID.prefix(8))... credited=\(delta)s")
+            return true
         }
 
-        // Multi-event batch → burst. Group by app, compute max threshold + min baseline per app.
+        // Multi-event batch → BURST. Compute per-app max threshold + min baseline.
         var perApp: [String: (maxThresh: Int, minBaseline: Int, count: Int)] = [:]
         for entry in buffer {
             if let existing = perApp[entry.appID] {
@@ -362,42 +373,80 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // Aggregate claim across all apps.
+        // Aggregate claim across all apps in the batch.
         var totalClaim = 0
         for (_, stats) in perApp {
-            let claim = max(0, stats.maxThresh - stats.minBaseline)
-            totalClaim += claim
+            totalClaim += max(0, stats.maxThresh - stats.minBaseline)
         }
 
-        let baselineGlobal = defaults.double(forKey: "shadow_burst_baseline_global_ts")
+        // Wallclock budget = time from the previous credit (any app) to the first event of this burst.
+        let baselineGlobal = defaults.double(forKey: "burst_baseline_global_ts")
         let firstEventTime = buffer[0].arrivalTime
-        let wallclock = baselineGlobal > 0 ? max(0, Int(firstEventTime - baselineGlobal)) : Int(firstEventTime - buffer[buffer.count - 1].arrivalTime)
+        let wallclock = baselineGlobal > 0 ? max(0, Int(firstEventTime - baselineGlobal)) : 0
         let grace = max(60, wallclock / 10)
 
-        // Summary of apps in the batch.
         let appsDesc = perApp.map { (id, s) in
             "\(id.prefix(8))(n=\(s.count) max=\(s.maxThresh)s baseline=\(s.minBaseline)s)"
         }.sorted().joined(separator: ", ")
 
         if totalClaim > wallclock + grace {
-            debugLog("SHADOW_SETTLE_FLOOD eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — would REJECT all. apps: \(appsDesc)", defaults: defaults)
-        } else {
-            debugLog("SHADOW_SETTLE_LEGIT eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — would credit per-app max. apps: \(appsDesc)", defaults: defaults)
+            debugLog("SETTLE_FLOOD eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — REJECTED all. apps: \(appsDesc)", defaults: defaults)
+            Self.logger.notice("SETTLE_FLOOD events=\(buffer.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
+            return false
         }
+
+        // Legit catch-up → credit per-app max in one shot.
+        var anyCredited = false
+        for (appID, stats) in perApp {
+            let delta = max(0, stats.maxThresh - stats.minBaseline)
+            if delta > 0 {
+                applyCredit(appID: appID, delta: delta, newThreshold: stats.maxThresh, now: now, defaults: defaults)
+                anyCredited = true
+            }
+        }
+        debugLog("SETTLE_LEGIT eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — credited per-app max. apps: \(appsDesc)", defaults: defaults)
+        Self.logger.notice("SETTLE_LEGIT events=\(buffer.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
+        return anyCredited
     }
 
-    private nonisolated func readShadowBuffer(defaults: UserDefaults) -> [ShadowBufferEntry] {
-        guard let data = defaults.data(forKey: "shadow_buffer_json") else { return [] }
-        return (try? JSONDecoder().decode([ShadowBufferEntry].self, from: data)) ?? []
+    /// Apply credit for one app: update usage_today, lastThreshold, and global timestamps.
+    /// Keeps the storage contract that legacy code expected — main app reads usage_<id>_today.
+    private nonisolated func applyCredit(appID: String, delta: Int, newThreshold: Int, now: TimeInterval, defaults: UserDefaults) {
+        let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+        let newToday = currentToday + delta
+        defaults.set(newToday, forKey: "usage_\(appID)_today")
+        defaults.set(newThreshold, forKey: "usage_\(appID)_lastThreshold")
+        defaults.set(now, forKey: "usage_\(appID)_modified")
+        // Per-day reset anchor — ensures cross-day logic in legacy code stays consistent.
+        let startOfToday = Self.calendar.startOfDay(for: Date(timeIntervalSince1970: now)).timeIntervalSince1970
+        defaults.set(startOfToday, forKey: "usage_\(appID)_reset")
+
+        // Update the global "last credited" anchor used by future burst-baseline snapshots.
+        defaults.set(now, forKey: "last_credited_global_timestamp")
+
+        // ext_ keys — totals and timestamps the main app and other code may read.
+        let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
+        defaults.set(currentTotal + delta, forKey: "ext_usage_\(appID)_total")
+        defaults.set(now, forKey: "ext_usage_\(appID)_timestamp")
+
+        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(newThreshold)s", defaults: defaults)
+        Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(newThreshold)s (via settle)")
+
+        defaults.set(now, forKey: "last_recorded_timestamp")
     }
 
-    private nonisolated func writeShadowBuffer(_ buffer: [ShadowBufferEntry], defaults: UserDefaults) {
+    private nonisolated func readEventBuffer(defaults: UserDefaults) -> [BufferEntry] {
+        guard let data = defaults.data(forKey: "event_buffer_json") else { return [] }
+        return (try? JSONDecoder().decode([BufferEntry].self, from: data)) ?? []
+    }
+
+    private nonisolated func writeEventBuffer(_ buffer: [BufferEntry], defaults: UserDefaults) {
         if buffer.isEmpty {
-            defaults.removeObject(forKey: "shadow_buffer_json")
+            defaults.removeObject(forKey: "event_buffer_json")
             return
         }
         if let data = try? JSONEncoder().encode(buffer) {
-            defaults.set(data, forKey: "shadow_buffer_json")
+            defaults.set(data, forKey: "event_buffer_json")
         }
     }
 
@@ -721,17 +770,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Compute calendar values once for use in both filters and recording
         let calendar = Self.calendar
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
-
-        // ┌─────────────────────────────────────────────────────────────────┐
-        // │ PHASE B+C — Shadow buffer + settle-on-silence                   │
-        // │ Buffer every event. When the next event arrives ≥5s after the   │
-        // │ previous buffer event, settle the previous batch (single event  │
-        // │ = isolated, multi-event = burst → flood-vs-legit). Logs what    │
-        // │ the new architecture WOULD credit. Routing unchanged.           │
-        // │                                                                 │
-        // │ See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md Phase B+C.       │
-        // └─────────────────────────────────────────────────────────────────┘
-        shadowBufferProcess(appID: appID, thresholdSeconds: thresholdSeconds, now: nowTimestamp, defaults: defaults)
 
         // ┌─────────────────────────────────────────────────────────────────┐
         // │ PHASE A — Hard rejects (no burst context required)              │
@@ -1184,18 +1222,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // ═══════════ PASSED ALL FILTERS — proceed to record ═══════════
+        // ═══════════ PASSED ALL FILTERS — route to buffer + settle ═══════════
 
         // ┌─────────────────────────────────────────────────────────────────┐
-        // │ PHASE C (legacy form) — credit + budget checks                  │
-        // │ Current code applies per-event caps and burst-budget checks     │
-        // │ inline. After migration this becomes:                           │
-        // │   - isolated events: trust threshold, credit immediately        │
-        // │   - burst events: buffer, settle on next isolated event         │
+        // │ PHASE B+C — ACTIVE buffer + settle on silence (5s window)       │
+        // │ Promoted from shadow on 2026-05-18. Every event that survives   │
+        // │ Phase A goes into the buffer; settlement runs when the next     │
+        // │ event arrives ≥5s after the previous buffer event. Single-event │
+        // │ batch = isolated (credit). Multi-event batch = burst → flood    │
+        // │ vs legit decision.                                              │
         // │                                                                 │
-        // │ SKIP_BUDGET_EXCEEDED (reward-app post-unshield wallclock check) │
-        // │ stays — it's a physical-impossibility check, not burst-context. │
+        // │ See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md.                 │
+        // │                                                                 │
+        // │ The legacy recording code below is now unreachable — left in    │
+        // │ place for the migration window; will be removed in Step 5.      │
         // └─────────────────────────────────────────────────────────────────┘
+        let creditedAtSettle = bufferProcessActive(
+            appID: appID,
+            thresholdSeconds: thresholdSeconds,
+            now: nowTimestamp,
+            defaults: defaults
+        )
+        return creditedAtSettle
+
+        // ─── LEGACY recording path (UNREACHABLE — kept for migration window) ───
 
         let todayKey = "usage_\(appID)_today"
         let totalKey = "usage_\(appID)_total"
