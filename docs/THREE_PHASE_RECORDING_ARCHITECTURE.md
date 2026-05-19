@@ -126,6 +126,22 @@ Until we wait the full window after the event, we can't be sure it's isolated. A
 
 **What "settle" decides — Phase C below.**
 
+### How the buffer actually behaves (mechanics)
+
+The buffer is stored in UserDefaults as `event_buffer_json`. A few non-obvious properties of this design:
+
+1. **It survives extension kills and process restarts.** The buffer is on disk (UserDefaults app group), not in process memory. If the extension dies and a new session wakes up, the buffer is still there with whatever was in it before. The new session reads it and continues from where the old one left off.
+
+2. **Settlement is lazy — it only runs when a new event arrives.** The extension is event-driven; it doesn't have a timer. So a buffer can sit unprocessed for hours if no new event for any app arrives. The next event for ANY app — Instagram, Facebook, a learning app — will trigger settlement of whatever's in the buffer (if the gap to the last buffer entry is ≥ 5s).
+
+3. **A rejected (flood) settle still clears the buffer.** When `settleBatch` returns false (flood), the local `buffer.removeAll()` runs in `bufferProcessActive` and the cleared buffer is written back. The events that were in the buffer are gone; iOS does not redeliver them unless thresholds are re-registered.
+
+4. **But events CAN accumulate if iOS re-fires them.** When the sliding window gets rebuilt (via `SETTLE_REBUILD_REQUEST` or main-app `scheduleActivity`), iOS registers fresh thresholds for the same minute marks the kid has already crossed. iOS will fire those threshold events again on the next extension wake — effectively replaying the same usage. Those re-fired events go back into the buffer. If the next settle is still a flood, they get rejected again; if it's not, they finally credit. This is why the May 19 afternoon log showed Facebook events buffered, rejected, re-buffered, rejected, over multiple rebuilds — the events represented real usage iOS had observed, but our old flood logic kept marking them phantom.
+
+5. **A single triggering event for one app can settle a buffer full of another app's events.** The settlement trigger is "≥ 5s gap from last buffer entry." It doesn't care which app caused the trigger. So an Instagram event arriving after 5+ seconds of silence will settle whatever apps' events are sitting in the buffer at that moment.
+
+The May 19 18:27 sequence: Facebook had 19 events sitting in the buffer from earlier afternoon (kept getting flood-rejected). The user opened Instagram, an Instagram event arrived, gap from last buffer entry was > 5s → settlement ran on the Facebook batch → with the new "trust iOS max threshold" logic, the 19 Facebook events credited as legit catch-up to 33 min. THEN the Instagram event went into the (now empty) buffer.
+
 ---
 
 ## Phase C — Settle the batch
