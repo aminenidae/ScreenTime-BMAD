@@ -2104,7 +2104,27 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Check if monitoring is registered with iOS and restart if dead.
     /// Safe to call frequently — smart threshold filtering prevents catch-up floods.
     func checkMonitoringHealth() {
-        guard isMonitoring else { return }
+        // Health check should run whenever the persisted "monitoring should be active"
+        // flag is true — even if the in-memory `isMonitoring` flag disagrees (which
+        // happens after the main app gets killed and warm-restarted by iOS: the
+        // persisted flag survives, the in-memory flag doesn't).
+        let persistedActive = UserDefaults(suiteName: appGroupIdentifier)?
+            .bool(forKey: "wasMonitoringActive") ?? false
+
+        if !isMonitoring && !persistedActive {
+            // Truly no monitoring expected — nothing to check. Log so we can tell from
+            // the lifecycle log whether the function ran or not.
+            lifecycleLog("MONITORING_HEALTH_SKIPPED — isMonitoring=false persistedActive=false (no monitoring configured)")
+            return
+        }
+
+        if !isMonitoring && persistedActive {
+            // In-memory flag is stale (process was killed and warm-restarted, etc.).
+            // Trust the persisted flag and continue the health check below.
+            lifecycleLog("MONITORING_HEALTH_REPAIRING — isMonitoring=false but persistedActive=true (in-memory flag lost, repairing)")
+            isMonitoring = true
+        }
+
         let activities = deviceActivityCenter.activities
 
         // Check 1: Monitoring dead at OS level
