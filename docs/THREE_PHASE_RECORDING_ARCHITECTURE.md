@@ -14,8 +14,12 @@ The CEO's mental model is cleaner:
 
 > Before we decide to credit or disregard a usage, we FIRST need to qualify the conditions this event got received in.
 >
-> - Single event (no events before or after ~50s): legit, no doubt → credit.
+> - Single event (no events before or after ~5s): legit, no doubt → credit.
 > - Burst event: run filters to assess → legit catch-up → credit max threshold per app; flood → reject everything.
+
+**The definition of a burst is pure timing — multiple events arriving close together, irrespective of which app fired them.** Same-app vs cross-app framing is wrong: the kid only uses one app at a time during real-time play, so anything that looks like multiple events clustered together (regardless of source) is either iOS catching up or iOS phantom-flooding. It is never normal play.
+
+**No event is credited the moment it arrives.** Every event is held briefly and waits to see if more events follow within the burst window. Only after the window of silence has elapsed do we settle the batch and decide what to credit.
 
 This document specifies an architecture that matches that model.
 
@@ -42,30 +46,36 @@ This document specifies an architecture that matches that model.
                                    │ pass
                                    ▼
 ┌──────────────────────────────────────────────────────────────┐
-│ PHASE B — Classify context (single decision, single window)  │
-│   Gap from last_credited_global_timestamp                    │
-│     < 30s  → BURST                                           │
-│     ≥ 30s  → ISOLATED                                        │
+│ PHASE B — Buffer + lazy settlement trigger                   │
 │                                                              │
-│   Also: settle any previously-open burst whose gap to now    │
-│   is ≥ 30s. The burst is "done" — evaluate it.               │
-└─────────┬────────────────────────────────────────┬───────────┘
-          │ ISOLATED                               │ BURST
-          ▼                                        ▼
-┌────────────────────────┐  ┌──────────────────────────────────┐
-│ PHASE C-iso — Credit   │  │ PHASE C-burst — Buffer           │
-│ Trust iOS threshold.   │  │ Add this event to in-flight      │
-│ Credit immediately.    │  │ burst buffer. Don't credit yet.  │
-│ Update lastThreshold.  │  │                                  │
-└────────────────────────┘  │ Burst settles on NEXT event with │
-                            │ gap ≥ 30s, OR a separate         │
-                            │ scheduled settlement check.      │
-                            │                                  │
-                            │ Settlement decision:             │
-                            │   Flood signature → reject all   │
-                            │   Legit catch-up → credit max    │
-                            │     threshold per app, one shot  │
-                            └──────────────────────────────────┘
+│ 1. Check the in-flight buffer:                               │
+│    If buffer's last event was ≥ 5s ago,                      │
+│      the buffered batch is finished → SETTLE it (Phase C).   │
+│      Then clear the buffer.                                  │
+│                                                              │
+│ 2. Add the current event to the buffer.                      │
+│    Do not credit yet. Return.                                │
+└──────────────────────────────────┬───────────────────────────┘
+                                   │ on settlement trigger
+                                   ▼
+┌──────────────────────────────────────────────────────────────┐
+│ PHASE C — Settle the batch                                   │
+│                                                              │
+│ Batch has 1 event:                                           │
+│   No neighbors before or after → ISOLATED                    │
+│   Credit it at face value.                                   │
+│                                                              │
+│ Batch has 2+ events:                                         │
+│   Multiple events clustered within 5s of each other = BURST. │
+│   Evaluate flood vs legit catch-up:                          │
+│     - Sum of claimed credit (max threshold per app)          │
+│       vs wallclock since the previous credit (any app)       │
+│       before the burst started.                              │
+│     - Plus other flood signatures (shielded app event in     │
+│       buffer, extension-kill density, etc.)                  │
+│   Legit → credit max threshold per app, one shot.            │
+│   Flood → reject the whole batch.                            │
+└──────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -89,92 +99,84 @@ These filters reject events regardless of burst context. They check physical or 
 
 ---
 
-## Phase B — Classify context
+## Phase B — Buffer + lazy settlement trigger
 
-One classifier. One window. One source of truth.
+Phase B does not classify. It does two things:
+
+1. **If the in-flight buffer's last event is ≥ 5 seconds old, settle the buffer now** (run Phase C on the accumulated batch). Then clear the buffer.
+2. **Add the current event to the buffer.** Do not credit. Return.
 
 ```swift
-enum EventContext {
-    case isolated       // gap >= 30s from last credited event (any app)
-    case burst          // gap < 30s — this event continues an active burst
-                        // OR starts a new burst (first event after isolation)
-}
-
-func classify(now: TimeInterval, defaults: UserDefaults) -> EventContext {
-    let lastCredited = defaults.double(forKey: "last_credited_global_timestamp")
-    let gap = lastCredited > 0 ? now - lastCredited : .infinity
-    return gap < 30 ? .burst : .isolated
+func bufferAndMaybeSettle(event: Event, defaults: UserDefaults) {
+    let buffer = readBuffer(defaults: defaults)
+    let lastBufferTime = buffer.last?.arrivalTime ?? 0
+    if !buffer.isEmpty && (event.now - lastBufferTime) >= 5 {
+        settle(buffer: buffer, defaults: defaults)
+        clearBuffer(defaults: defaults)
+    }
+    append(event: event, defaults: defaults)
 }
 ```
 
-**Why 30 seconds:**
-- Normal per-minute thresholds fire at ~60s cadence.
-- Anything below 60s is not normal cadence.
-- 30s gives a generous margin (events within 30s of each other are clearly clustered).
-- In real flow the kid foregrounds one app at a time, so legit cross-app events arrive >60s apart.
+**Why 5 seconds, not 30:**
+Today's flood data showed the maximum within-burst gap was 1.6 seconds across all events of a real phantom flood. 5 seconds gives a 3× safety margin without imposing a 30-second crediting delay on every event. If future logs show bursts with larger internal gaps, we widen — but 5s is the right starting point given the evidence we have.
 
-**Settlement check (also in Phase B):**
+**Why no immediate credit for isolated events:**
+Until we wait the full window after the event, we can't be sure it's isolated. A second wave might arrive in 2-3 seconds. So every event waits — even the eventually-isolated ones. The 5-second delay is small enough not to matter for the user-facing experience (the main app re-reads usage on foreground anyway).
 
-Before classifying the current event, check if there's an in-flight burst buffer. If yes, look at the gap between the buffer's last event and now:
-- gap ≥ 30s → burst has settled, evaluate the buffer (flood vs legit), apply or reject credits, clear buffer.
-- gap < 30s → burst still in flight, fall through.
-
-This lets settlement happen "lazily" on the next event arrival. No timers, no async — just check on entry.
+**What "settle" decides — Phase C below.**
 
 ---
 
-## Phase C — Route by context
+## Phase C — Settle the batch
 
-### Phase C-iso (isolated event)
+When Phase B triggers settlement, the buffer holds N events that all arrived within 5 seconds of each other.
 
-```
-Trust iOS threshold value.
-delta = max(60, thresholdSeconds - lastThreshold)
-Credit delta to usage_<id>_today.
-Update lastThreshold to thresholdSeconds.
-Update last_credited_global_timestamp to now.
-```
-
-No budget checks. No per-event caps. Isolated event = legit by definition (per CEO model).
-
-**Safety net:** if an isolated event has an absurd threshold (e.g., min.2700 when wallclock since pin is 60s), Phase A's `SKIP_STALE_FLUSH` and `SKIP_PIN_REPLAY` already catch it. Phase C-iso does not need its own check.
-
-### Phase C-burst (burst event)
+### Case 1 — Single event in the batch
 
 ```
-Add to in-flight burst buffer:
-  burst_buffer = [
-    { appID, thresholdSeconds, arrivalTime },
-    ...
-  ]
-Do NOT credit yet.
-Update burst_last_event_timestamp = now.
-Return false (no credit on this call).
+N == 1 → ISOLATED.
+Credit at face value:
+  delta = max(60, event.thresholdSeconds - lastThreshold[event.appID])
+  usage_<id>_today += delta
+  lastThreshold[event.appID] = event.thresholdSeconds
+  last_credited_global_timestamp = event.arrivalTime
 ```
 
-The buffer accumulates until the burst settles.
+No flood checks needed — the event had no neighbors before OR after. Phase A's hard rejects already ruled out absurd thresholds (stale flush, pin replay, regression, shielded). Trust it.
 
-### Burst settlement (triggered in Phase B on next event)
+### Case 2 — Multiple events in the batch (burst)
 
-When a new event arrives and `now - burst_last_event_timestamp >= 30s`, the burst is done. Evaluate the buffer:
+The batch is a cluster of events arriving close together. This is either a legit catch-up (kid genuinely played during a tracking gap, iOS dumping queued events) or a phantom flood (iOS firing events for time that wasn't really used).
 
-```
-1. Flood signature checks (any one of these = flood):
-   a. Any shielded reward app event appears in the buffer.
-      Kid physically can't use a blocked app → flood.
-   b. Sum of (max threshold per app in buffer) > wallclock since burst started + grace.
-      Total claimed > wallclock possible → flood.
-   c. (Future) Kill-density signal: extension was killed N times in last 60s.
+**Flood signature checks (any one = flood):**
 
-2. If flood → reject all buffer events. Log SETTLE_FLOOD. Clear buffer.
+a. **Shielded reward app event** appears in the buffer.
+   The kid physically can't use a blocked app. Any threshold event for a currently-shielded reward app means iOS is replaying phantom data. The whole batch is suspect.
 
-3. If legit catch-up → for each app in the buffer:
-     credit = max(thresholdSeconds_per_app) - lastThreshold_per_app
-     Apply credit (one shot per app). Update lastThreshold to max.
-   Log SETTLE_LEGIT with per-app credits. Clear buffer.
-```
+b. **Aggregate claim exceeds available wallclock.**
+   ```
+   claimed = sum over all apps in buffer of (max threshold for that app - last credited threshold for that app)
+   budget  = arrivalTime[first event in buffer] - last_credited_global_timestamp_before_this_burst
+   if claimed > budget + grace → flood
+   ```
+   The kid can only use one app at a time, so total credit claimed across all apps cannot exceed the wallclock that passed since the last credit. Grace ≈ 10% to absorb iOS jitter.
 
-**Key change from current code:** for a legit burst, we credit the highest threshold each app reached, ONCE, instead of accumulating per-event deltas. This matches the CEO model and avoids the per-event-cap dance.
+c. **(Future) Kill-density signal.**
+   If the extension was killed N times in the last 60 seconds, the next batch is suspect.
+
+**Decision:**
+
+- Any flood signature triggers → REJECT ENTIRE BATCH. Log `SETTLE_FLOOD` with the signature. `last_credited_global_timestamp` does not advance.
+- Otherwise → LEGIT CATCH-UP. For each app present in the batch:
+  ```
+  credit = max(thresholdSeconds for this app in batch) - lastThreshold[appID]
+  usage_<id>_today += credit
+  lastThreshold[appID] = max(thresholdSeconds for this app in batch)
+  ```
+  Update `last_credited_global_timestamp` to the batch's last event time.
+
+**Key idea:** we credit the highest threshold each app reached, ONCE, instead of crediting each event individually. This avoids per-event-cap arithmetic and naturally handles out-of-order iOS delivery.
 
 ---
 
@@ -227,11 +229,11 @@ Add the classifier at the top of `setUsageToThreshold`. Log every event arrival 
 - Multi-app phantom cascades (Device C scenario) classify as `burst`.
 - Roblox sliding-window recovery (single high-threshold event after silence) classifies as `isolated`.
 
-### Step 3b — Promote isolated routing.
-Once shadow logs confirm classification correctness, divert ISOLATED events to the new fast path: trust threshold, credit `max(60, threshold - lastThreshold)`, skip the legacy per-event-cap branching and SKIP_BURST_BUDGET. BURST events continue to fall through to existing burst-handling code until Step 4 replaces it.
+### Step 3b — Shadow buffer + settlement (no active routing yet).
+Add the buffer storage and settlement logic alongside the legacy code. Every event goes into the buffer in parallel with legacy processing. Settlement runs on each event arrival (when previous batch's last event is ≥ 5s old). Log what the settlement WOULD credit / reject, but don't change actual credit. Compare shadow outcomes against legacy outcomes for a day on real devices.
 
-### Step 4 — Phase C-burst buffer + settlement.
-Add the buffer storage. Replace the per-event burst-handling code with buffer-add. Implement settlement on next event entry. Build, run, validate flood detection on Device C log replay.
+### Step 4 — Promote shadow to active routing.
+Once shadow logs confirm settlement gives correct outcomes for both flood and legit cases, flip the switch: legacy path becomes a no-op, buffer + settlement becomes the source of truth.
 
 ### Step 5 — Remove dead code.
 Delete `SKIP_FLOOD`, `FIRST_EVENT_BUFFER`, `PHANTOM_FLOOD_DETECTED`, `SKIP_BURST_BUDGET`, `PER_EVENT_CAP`, `isMidDayBurst`, `isBurstActive`. Each removal is its own commit with a log-diff showing equivalent behavior.
@@ -278,12 +280,12 @@ Multi-day testing across Devices 1, 2, 3, 4, A, B, C. Confirm:
 
 ## Status checklist
 
-- [x] Architecture doc (this file) — commit `d7b805a`
+- [x] Architecture doc v1 — commit `d7b805a`
 - [x] Step 2: Phase A section markers (no behavior change) — commit `df7eb38`
-- [x] Step 3a: Phase B classifier in SHADOW mode — commit `611f1e2`
-- [ ] Step 3a validation: multi-event burst observed in shadow logs (partial — see below)
-- [ ] Step 3b: promote isolated routing to new fast path
-- [ ] Step 4: Phase C-burst buffer + settlement
+- [x] Step 3a: Phase B classifier in SHADOW mode (look-backward only, 30s window) — commit `611f1e2`
+- [x] Architecture doc v2 — rewritten to "buffer everything + settle on silence" model with 5s window (this revision)
+- [ ] Step 3b (new model): shadow buffer + settlement alongside legacy
+- [ ] Step 4: promote shadow buffer to active routing
 - [ ] Step 5: dead-code removal
 - [ ] Step 6: multi-device test pass
 
@@ -322,6 +324,21 @@ Original plan (Step 3 in doc): land classifier and divert isolated routing in on
 
 ### 2026-05-18 — 30s burst window (not 5s, not 50s)
 Original code used 5s — tuned for iOS-flush-batch latency, not for "what's normal cadence". CEO pushed back: normal events fire at ~60s, so anything below 60s is suspicious. Widened to 30s as a conservative middle ground (15-25s margin below 60s cadence). Today's shadow data validates the choice: gaps as low as 42s correctly classified as isolated. If we'd picked 50s, the 42s event would have been false-tagged as burst.
+
+### 2026-05-18 (evening) — Burst is a pure timing pattern; switch from 30s look-backward to 5s buffer + settle-on-silence
+The v1 doc framed burst classification as a look-backward gap check from `last_credited_global_timestamp`, with a 30s window. Two flaws came out of the day's data:
+
+1. **Same-app / cross-app framing is wrong.** A burst is just multiple events arriving close together. App identity is irrelevant. Real-time play has exactly one app firing events, so any clustering of events (regardless of source) is iOS catching up or iOS phantom-flooding. The classifier should never inspect which app fired.
+
+2. **Look-backward only is incomplete.** Today's flood (15:31) had events spaced 1-2s apart within the burst, and one specific event was just over the same-app gap of 5s, so it slipped through as "isolated" and got 28 min of phantom credit. A look-backward check can be defeated by gaps that fall just outside the window. The right model is: hold every event, wait to see what arrives AFTER it, settle the batch retroactively. No event is "isolated" until the window has elapsed with nothing following.
+
+The corrected model:
+- Window = **5s** (3× safety margin over today's max within-burst gap of 1.6s; not 30s because we don't want every event delayed by half a minute).
+- **Every event buffers.** No real-time credit. Settlement runs on the next event arrival when the previous batch is ≥5s old.
+- Single-event batch → isolated → credit. Multi-event batch → burst → run flood vs legit decision.
+- Flood decision: aggregate claim (sum of max threshold per app in batch − previous credited threshold per app) vs wallclock since previous credit across any app. Plus shielded-event-in-batch as a flood signature.
+
+Doc rewritten this evening. Implementation moves from "Phase B classifier in shadow" to "Phase B+C buffer + settlement in shadow."
 
 ### 2026-05-18 — Section markers, not function extraction, for Step 2
 Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helper. Revised to add prominent section markers in place without moving code. Rationale: extraction would change inline state-write ordering (e.g., `last_event_arrival_<id>` is updated at the top of the to-be-removed SKIP_FLOOD filter and reading it from a different position could change the burst-context behavior of OTHER filters). Extraction lands once Phase B is active and the legacy filters are being removed (Step 5).
