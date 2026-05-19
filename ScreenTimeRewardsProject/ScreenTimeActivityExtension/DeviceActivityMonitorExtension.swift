@@ -802,6 +802,29 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let startOfToday = calendar.startOfDay(for: now).timeIntervalSince1970
 
         // ┌─────────────────────────────────────────────────────────────────┐
+        // │ DAY ROLLOVER — runs once on the first event of a new day        │
+        // │ Resets usage_<id>_today, lastThreshold, hourly buckets, and     │
+        // │ captures yesterday's pending archive. Without this, the new     │
+        // │ architecture's early-return bypassed the legacy NEW_DAY branch  │
+        // │ and yesterday's lastThreshold persisted into today, poisoning   │
+        // │ today's SKIP_REGRESSION decisions.                              │
+        // └─────────────────────────────────────────────────────────────────┘
+        let globalResetKey = "global_daily_reset_timestamp"
+        let lastGlobalReset = defaults.double(forKey: globalResetKey)
+        if lastGlobalReset < startOfToday {
+            debugLog("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))... — running resetAllDailyCounters and clearing lastThresholds", defaults: defaults)
+            Self.logger.notice("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))...")
+            resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
+            defaults.set(startOfToday, forKey: globalResetKey)
+            // Also clear the event buffer and burst baseline — yesterday's pending
+            // burst (if any) is no longer relevant to today.
+            defaults.removeObject(forKey: "event_buffer_json")
+            defaults.removeObject(forKey: "burst_baseline_global_ts")
+            defaults.removeObject(forKey: "last_shielded_event_arrival_ts")
+            notifyMainApp()
+        }
+
+        // ┌─────────────────────────────────────────────────────────────────┐
         // │ PHASE A — Hard rejects (no burst context required)              │
         // │ These filters reject events on physical or logical impossibility│
         // │ regardless of whether the event is part of a burst.             │
