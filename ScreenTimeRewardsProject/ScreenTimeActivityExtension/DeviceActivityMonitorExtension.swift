@@ -349,6 +349,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func settleBatch(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) -> Bool {
         guard !buffer.isEmpty else { return false }
 
+        // FIRST — regardless of flood/legit decision, the events in this buffer
+        // CONSUMED iOS thresholds (iOS fires each threshold once then forgets it).
+        // If any app's max threshold in this batch is near its registered window
+        // top, request a sliding-window rebuild so iOS has fresh thresholds to
+        // fire on for future usage. Otherwise the kid's next minute of play
+        // produces no event because all thresholds were consumed by this burst.
+        triggerRebuildsForConsumedThresholds(buffer: buffer, now: now, defaults: defaults)
+
         // FLOOD SIGNATURE — shielded reward app event within the burst window.
         // If a verifiably-shielded reward app fired an event within 5s of any
         // event in this buffer, the entire burst is phantom. The kid physically
@@ -442,6 +450,42 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(newThreshold)s (via settle)")
 
         defaults.set(now, forKey: "last_recorded_timestamp")
+    }
+
+    /// For each app in the buffer, if the max threshold seen approaches the registered
+    /// window top, request a sliding-window rebuild. iOS consumes thresholds one-shot
+    /// regardless of whether we credit or reject, so this MUST run for floods too —
+    /// otherwise the next legit minute of usage has no threshold to fire on.
+    /// Per-app 60s debounce via `window_rebuild_request_<id>` matches legacy behavior.
+    private nonisolated func triggerRebuildsForConsumedThresholds(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) {
+        var perAppMaxThresh: [String: Int] = [:]
+        for entry in buffer {
+            perAppMaxThresh[entry.appID] = max(perAppMaxThresh[entry.appID] ?? 0, entry.thresholdSeconds)
+        }
+
+        var anyRebuildRequested = false
+        for (appID, maxThresh) in perAppMaxThresh {
+            let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
+            guard windowTopMin > 0 else { continue }
+            let maxThreshMin = maxThresh / 60
+            // Trigger when we've fired within 5 min of the window top (matches legacy WINDOW_TOP_HIT margin).
+            if maxThreshMin >= windowTopMin - 5 {
+                let debounceKey = "window_rebuild_request_\(appID)"
+                let lastRequest = defaults.double(forKey: debounceKey)
+                let elapsed = now - lastRequest
+                if elapsed > 60 {
+                    defaults.set(now, forKey: debounceKey)
+                    debugLog("SETTLE_REBUILD_REQUEST appID=\(appID.prefix(8))... maxThreshMin=\(maxThreshMin) windowTop=\(windowTopMin) — thresholds consumed by burst, requesting refresh", defaults: defaults)
+                    Self.logger.notice("SETTLE_REBUILD_REQUEST app=\(appID.prefix(8))... maxThreshMin=\(maxThreshMin)")
+                    requestMainAppWindowRebuild(reason: "settle-consumed-\(appID.prefix(8))", defaults: defaults)
+                    _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "settle-consumed-\(appID.prefix(8))")
+                    anyRebuildRequested = true
+                }
+            }
+        }
+        if anyRebuildRequested {
+            debugLog("SETTLE_REBUILD_DONE — sliding window refresh requested for consumed thresholds", defaults: defaults)
+        }
     }
 
     /// Returns true if a shielded reward app fired within ±5s of any event in the buffer.
