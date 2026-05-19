@@ -366,13 +366,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Single-event batch → ISOLATED → credit.
+        // Single-event batch → ISOLATED → trust iOS, set usage_today to threshold.
         if buffer.count == 1 {
             let entry = buffer[0]
-            let delta = max(60, entry.thresholdSeconds - entry.baselineLastThreshold)
-            applyCredit(appID: entry.appID, delta: delta, newThreshold: entry.thresholdSeconds, now: entry.arrivalTime, defaults: defaults)
-            debugLog("SETTLE_ISO appID=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s baseline=\(entry.baselineLastThreshold)s credited=\(delta)s", defaults: defaults)
-            Self.logger.notice("SETTLE_ISO app=\(entry.appID.prefix(8))... credited=\(delta)s")
+            applyCredit(appID: entry.appID, newThreshold: entry.thresholdSeconds, now: entry.arrivalTime, defaults: defaults)
+            debugLog("SETTLE_ISO appID=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s — set as today", defaults: defaults)
+            Self.logger.notice("SETTLE_ISO app=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s")
             return true
         }
 
@@ -396,43 +395,59 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             totalClaim += max(0, stats.maxThresh - stats.minBaseline)
         }
 
-        // Wallclock budget = time from the previous credit (any app) to the first event of this burst.
+        // Wallclock budget = time from the previous credit (any app) to NOW.
+        // We use `now` (the event that triggered settlement) instead of the
+        // buffer's first event time because the buffer's first event can be
+        // the trigger event of the previous burst — making firstEventTime
+        // equal to baselineGlobal and giving wallclock=0 falsely.
         let baselineGlobal = defaults.double(forKey: "burst_baseline_global_ts")
-        let firstEventTime = buffer[0].arrivalTime
-        let wallclock = baselineGlobal > 0 ? max(0, Int(firstEventTime - baselineGlobal)) : 0
+        let wallclock = baselineGlobal > 0 ? max(0, Int(now - baselineGlobal)) : 0
         let grace = max(60, wallclock / 10)
 
         let appsDesc = perApp.map { (id, s) in
             "\(id.prefix(8))(n=\(s.count) max=\(s.maxThresh)s baseline=\(s.minBaseline)s)"
         }.sorted().joined(separator: ", ")
 
-        if totalClaim > wallclock + grace {
-            debugLog("SETTLE_FLOOD eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — REJECTED all. apps: \(appsDesc)", defaults: defaults)
-            Self.logger.notice("SETTLE_FLOOD events=\(buffer.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
+        // FLOOD CHECK — only apply the aggregate-claim check when the buffer
+        // contains MULTIPLE different apps. Multi-app bursts where total claim
+        // across apps exceeds wallclock are the Device C phantom-flood pattern.
+        //
+        // SINGLE-app bursts trust iOS's max threshold: the kid was using that
+        // one app and iOS is catching up after a tracking gap. The user has
+        // explicitly directed us to trust iOS's reported max in this case.
+        // The shielded-in-burst signature above still catches single-app
+        // phantom floods (a shielded reward app firing alongside means the
+        // burst is fake regardless of how many apps are involved).
+        if perApp.count >= 2 && totalClaim > wallclock + grace {
+            debugLog("SETTLE_FLOOD eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — multi-app aggregate exceeds wallclock, REJECTED all. apps: \(appsDesc)", defaults: defaults)
+            Self.logger.notice("SETTLE_FLOOD events=\(buffer.count) apps=\(perApp.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
             return false
         }
 
-        // Legit catch-up → credit per-app max in one shot.
+        // Legit catch-up → trust iOS, set each app's usage_today to its max threshold.
         var anyCredited = false
         for (appID, stats) in perApp {
-            let delta = max(0, stats.maxThresh - stats.minBaseline)
-            if delta > 0 {
-                applyCredit(appID: appID, delta: delta, newThreshold: stats.maxThresh, now: now, defaults: defaults)
-                anyCredited = true
-            }
+            applyCredit(appID: appID, newThreshold: stats.maxThresh, now: now, defaults: defaults)
+            anyCredited = true
         }
         debugLog("SETTLE_LEGIT eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — credited per-app max. apps: \(appsDesc)", defaults: defaults)
         Self.logger.notice("SETTLE_LEGIT events=\(buffer.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
         return anyCredited
     }
 
-    /// Apply credit for one app: update usage_today, lastThreshold, and global timestamps.
-    /// Keeps the storage contract that legacy code expected — main app reads usage_<id>_today.
-    private nonisolated func applyCredit(appID: String, delta: Int, newThreshold: Int, now: TimeInterval, defaults: UserDefaults) {
+    /// Apply credit for one app: set `usage_today` and `lastThreshold` to iOS's
+    /// reported max threshold. This is the core principle of the new architecture:
+    /// iOS knows the cumulative usage; we trust the max threshold value.
+    ///
+    /// usage_today = max(currentToday, newThreshold). Never regress.
+    /// Same value used for lastThreshold so the two stay in sync.
+    private nonisolated func applyCredit(appID: String, newThreshold: Int, now: TimeInterval, defaults: UserDefaults) {
         let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
-        let newToday = currentToday + delta
+        let newToday = max(currentToday, newThreshold)
+        let credited = newToday - currentToday
+
         defaults.set(newToday, forKey: "usage_\(appID)_today")
-        defaults.set(newThreshold, forKey: "usage_\(appID)_lastThreshold")
+        defaults.set(newToday, forKey: "usage_\(appID)_lastThreshold")
         defaults.set(now, forKey: "usage_\(appID)_modified")
         // Per-day reset anchor — ensures cross-day logic in legacy code stays consistent.
         let startOfToday = Self.calendar.startOfDay(for: Date(timeIntervalSince1970: now)).timeIntervalSince1970
@@ -442,12 +457,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "last_credited_global_timestamp")
 
         // ext_ keys — totals and timestamps the main app and other code may read.
-        let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
-        defaults.set(currentTotal + delta, forKey: "ext_usage_\(appID)_total")
+        if credited > 0 {
+            let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
+            defaults.set(currentTotal + credited, forKey: "ext_usage_\(appID)_total")
+        }
         defaults.set(now, forKey: "ext_usage_\(appID)_timestamp")
 
-        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s +\(delta) = newToday=\(newToday)s, thresh=\(newThreshold)s", defaults: defaults)
-        Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(newThreshold)s (via settle)")
+        debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s set newToday=\(newToday)s (thresh=\(newThreshold)s, +\(credited)s)", defaults: defaults)
+        Self.logger.notice("SET app=\(appID.prefix(8))... today=\(newToday)s (+\(credited)s) thresh=\(newThreshold)s (via settle)")
 
         defaults.set(now, forKey: "last_recorded_timestamp")
     }
