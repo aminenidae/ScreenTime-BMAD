@@ -349,6 +349,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     private nonisolated func settleBatch(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) -> Bool {
         guard !buffer.isEmpty else { return false }
 
+        // FLOOD SIGNATURE — shielded reward app event within the burst window.
+        // If a verifiably-shielded reward app fired an event within 5s of any
+        // event in this buffer, the entire burst is phantom. The kid physically
+        // can't use a blocked app, so all events arriving alongside that
+        // shielded event are part of the same iOS phantom dump.
+        if checkShieldedInBurst(buffer: buffer, defaults: defaults) {
+            return false
+        }
+
         // Single-event batch → ISOLATED → credit.
         if buffer.count == 1 {
             let entry = buffer[0]
@@ -433,6 +442,27 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         Self.logger.notice("INCREMENT app=\(appID.prefix(8))... +\(delta)s = \(newToday)s thresh=\(newThreshold)s (via settle)")
 
         defaults.set(now, forKey: "last_recorded_timestamp")
+    }
+
+    /// Returns true if a shielded reward app fired within ±5s of any event in the buffer.
+    private nonisolated func checkShieldedInBurst(buffer: [BufferEntry], defaults: UserDefaults) -> Bool {
+        let lastShieldedTs = defaults.double(forKey: "last_shielded_event_arrival_ts")
+        guard lastShieldedTs > 0, !buffer.isEmpty else { return false }
+
+        let firstTime = buffer[0].arrivalTime
+        let lastTime = buffer[buffer.count - 1].arrivalTime
+        let withinWindow = lastShieldedTs >= (firstTime - Self.burstWindowSeconds) &&
+                           lastShieldedTs <= (lastTime + Self.burstWindowSeconds)
+        guard withinWindow else { return false }
+
+        var perAppCounts: [String: Int] = [:]
+        for entry in buffer {
+            perAppCounts[entry.appID, default: 0] += 1
+        }
+        let appsDesc = perAppCounts.map { "\($0.key.prefix(8))(n=\($0.value))" }.sorted().joined(separator: ", ")
+        debugLog("SETTLE_FLOOD_SHIELDED bufferSize=\(buffer.count) apps=\(perAppCounts.count) shieldedTs=\(Int(lastShieldedTs)) burstWindow=[\(Int(firstTime))..\(Int(lastTime))] — shielded reward app fired in burst, REJECTING all. apps: \(appsDesc)", defaults: defaults)
+        Self.logger.notice("SETTLE_FLOOD_SHIELDED bufferSize=\(buffer.count) — shielded in burst window")
+        return true
     }
 
     private nonisolated func readEventBuffer(defaults: UserDefaults) -> [BufferEntry] {
@@ -953,6 +983,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     if shieldHasToken {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
                         Self.logger.notice("SKIP_SHIELDED app=\(appID.prefix(8))... shield up, blocking")
+
+                        // SHIELD-IN-BURST signal for Phase C settlement.
+                        // The shielded reward app cannot be in use; if it fired an event
+                        // within a burst window, the entire burst is phantom. Record the
+                        // arrival time so settleBatch() can flood-reject any buffer
+                        // whose events sit within ±5s of this timestamp.
+                        defaults.set(nowTimestamp, forKey: "last_shielded_event_arrival_ts")
 
                         // FLOOD TRIGGER (May 10, 2026): a verifiably-shielded app cannot
                         // produce legit events — the kid physically can't use a blocked app.
