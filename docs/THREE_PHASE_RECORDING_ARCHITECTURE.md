@@ -132,35 +132,45 @@ Until we wait the full window after the event, we can't be sure it's isolated. A
 
 When Phase B triggers settlement, the buffer holds N events that all arrived within 5 seconds of each other.
 
-### Case 1 — Single event in the batch
+### The core credit rule (applies to every case)
+
+**Credit means SET, not increment.** `usage_today` is always written to the iOS-reported max threshold for that app — never `today += delta`.
 
 ```
-N == 1 → ISOLATED.
-Credit at face value:
-  delta = max(60, event.thresholdSeconds - lastThreshold[event.appID])
-  usage_<id>_today += delta
-  lastThreshold[event.appID] = event.thresholdSeconds
-  last_credited_global_timestamp = event.arrivalTime
+usage_<id>_today      = max(currentToday, newThreshold)
+usage_<id>_lastThreshold = same value
+last_credited_global_timestamp = settlement timestamp
+```
+
+`usage_today` and `lastThreshold` are kept in lock-step — they always receive the same write. This guarantees they never drift apart. iOS's threshold value is the authoritative cumulative for that app today; we trust it.
+
+**Why not increment by delta?** Delta-based crediting requires `usage_today` and `lastThreshold` to stay perfectly synchronized. They drift easily — poisoned baselines from yesterday, missed events, cross-day rollovers, partial credits — and once drifted the gap becomes permanent (subsequent deltas remain small and never catch up). Set-to-max-threshold has no such fragility.
+
+### Case 1 — Single event in the batch (ISOLATED)
+
+```
+N == 1 → trust iOS.
+applyCredit(appID: entry.appID, newThreshold: entry.thresholdSeconds)
 ```
 
 No flood checks needed — the event had no neighbors before OR after. Phase A's hard rejects already ruled out absurd thresholds (stale flush, pin replay, regression, shielded). Trust it.
 
-### Case 2 — Multiple events in the batch (burst)
+### Case 2 — Multiple events in the batch (BURST)
 
 The batch is a cluster of events arriving close together. This is either a legit catch-up (kid genuinely played during a tracking gap, iOS dumping queued events) or a phantom flood (iOS firing events for time that wasn't really used).
 
-**Flood signature checks (any one = flood):**
+**Flood signature checks (any one = flood, reject the entire batch):**
 
 a. **Shielded reward app event** appears in the buffer.
-   The kid physically can't use a blocked app. Any threshold event for a currently-shielded reward app means iOS is replaying phantom data. The whole batch is suspect.
+   The kid physically can't use a blocked app. Any threshold event for a currently-shielded reward app means iOS is replaying phantom data. This is the primary flood signal and applies to both single-app and multi-app bursts.
 
-b. **Aggregate claim exceeds available wallclock.**
+b. **Multi-app aggregate claim exceeds available wallclock** (only when ≥ 2 distinct apps in the buffer):
    ```
-   claimed = sum over all apps in buffer of (max threshold for that app - last credited threshold for that app)
-   budget  = arrivalTime[first event in buffer] - last_credited_global_timestamp_before_this_burst
+   claimed = sum over all apps in buffer of (max threshold − usage_today before settle)
+   budget  = now − last_credited_global_timestamp_before_this_burst
    if claimed > budget + grace → flood
    ```
-   The kid can only use one app at a time, so total credit claimed across all apps cannot exceed the wallclock that passed since the last credit. Grace ≈ 10% to absorb iOS jitter.
+   The kid uses one app at a time, so total credit claimed across multiple apps cannot exceed the wallclock that passed since the last credit. Grace ≈ 10% absorbs iOS jitter. **Single-app bursts skip this check** and unconditionally trust iOS's max threshold — for a single app catching up after a tracking gap, iOS's reported cumulative is the right answer.
 
 c. **(Future) Kill-density signal.**
    If the extension was killed N times in the last 60 seconds, the next batch is suspect.
@@ -170,13 +180,11 @@ c. **(Future) Kill-density signal.**
 - Any flood signature triggers → REJECT ENTIRE BATCH. Log `SETTLE_FLOOD` with the signature. `last_credited_global_timestamp` does not advance.
 - Otherwise → LEGIT CATCH-UP. For each app present in the batch:
   ```
-  credit = max(thresholdSeconds for this app in batch) - lastThreshold[appID]
-  usage_<id>_today += credit
-  lastThreshold[appID] = max(thresholdSeconds for this app in batch)
+  applyCredit(appID: appID, newThreshold: max(thresholdSeconds for this app in batch))
   ```
-  Update `last_credited_global_timestamp` to the batch's last event time.
+  Each app's `usage_today` is set to the highest threshold iOS reported for that app in the batch. Update `last_credited_global_timestamp` to the settlement timestamp.
 
-**Key idea:** we credit the highest threshold each app reached, ONCE, instead of crediting each event individually. This avoids per-event-cap arithmetic and naturally handles out-of-order iOS delivery.
+**Key idea:** every successful settle SETS usage_today to iOS's max threshold for that app. No per-event-cap arithmetic, no delta tracking that could drift, no catch-up math. iOS reports the cumulative; we trust it.
 
 ---
 
@@ -283,11 +291,21 @@ Multi-day testing across Devices 1, 2, 3, 4, A, B, C. Confirm:
 - [x] Architecture doc v1 — commit `d7b805a`
 - [x] Step 2: Phase A section markers (no behavior change) — commit `df7eb38`
 - [x] Step 3a: Phase B classifier in SHADOW mode (look-backward only, 30s window) — commit `611f1e2`
-- [x] Architecture doc v2 — rewritten to "buffer everything + settle on silence" model with 5s window (this revision)
-- [ ] Step 3b (new model): shadow buffer + settlement alongside legacy
-- [ ] Step 4: promote shadow buffer to active routing
-- [ ] Step 5: dead-code removal
+- [x] Architecture doc v2 — rewritten to "buffer everything + settle on silence" model with 5s window
+- [x] Step 3b: shadow buffer + settlement alongside legacy — commit `7cbbdde`
+- [x] Step 4: promote shadow buffer to active routing — commit `dc5ad0f`
+- [x] Shielded-in-burst flood signature — commit `4281a44`
+- [x] Day rollover restored — commit `6b56dd2`
+- [x] Monitoring-health diagnostics + persisted-flag fallback — commit `c06fa73`
+- [x] Sliding-window rebuild after burst settlement — commit `8469477`
+- [x] Architecture doc v3 — credit = SET to iOS max threshold (this revision)
+- [x] applyCredit: SET usage_today + multi-app-only flood scope + wallclock fix — commit `a321ec6`
+- [ ] Step 5: dead-code removal (legacy filter chain still runs above the buffer call)
 - [ ] Step 6: multi-device test pass
+
+### Known open items
+- One-event tail: the last event of a usage session sits in the buffer until something else fires. Need flush-on-foreground/on-intervalStart to drain stale buffers.
+- Legacy `FIRST_EVENT_BUFFER` and `SKIP_FLOOD` still running above the buffer — competing with the new architecture. To be removed in Step 5.
 
 ---
 
@@ -324,6 +342,12 @@ Original plan (Step 3 in doc): land classifier and divert isolated routing in on
 
 ### 2026-05-18 — 30s burst window (not 5s, not 50s)
 Original code used 5s — tuned for iOS-flush-batch latency, not for "what's normal cadence". CEO pushed back: normal events fire at ~60s, so anything below 60s is suspicious. Widened to 30s as a conservative middle ground (15-25s margin below 60s cadence). Today's shadow data validates the choice: gaps as low as 42s correctly classified as isolated. If we'd picked 50s, the 42s event would have been false-tagged as burst.
+
+### 2026-05-19 — Credit = SET usage_today to iOS max threshold, not increment
+The architecture's core principle since day one was "trust iOS's max threshold." I repeatedly implemented this as `delta = max_threshold − baseline; usage_today += delta` — an increment model that only works when `usage_today` and `lastThreshold` stay synchronized. They drift trivially (poisoned baseline from yesterday, cross-day rollover, partial credit during a flood) and once drifted the gap is permanent. May 19: Instagram showed 5 min in our app while iOS reported 15 min — a 10-min gap that started accumulating on the first event of the day and could never close with delta-based credit. Fix: `applyCredit` SETs `usage_today = max(currentToday, newThreshold)` and writes the same value to `lastThreshold`. The two are guaranteed to stay in sync because they always receive the same write. Saved in memory as `feedback_set_to_max_threshold` — do not drift back to delta-based crediting.
+
+### 2026-05-19 — Multi-app scope for the aggregate-claim flood check
+The wallclock-budget formula in the original doc was `firstEventTime − baselineGlobal`. In practice the first event of a new buffer is the trigger event from the previous burst — so `firstEventTime == baselineGlobal` and `wallclock = 0`. Every back-to-back burst gets falsely flagged as flood. Two fixes: (a) use `now − baselineGlobal` (settlement time, not first event time), (b) only apply the aggregate-claim check when ≥ 2 distinct apps are in the buffer. Single-app bursts unconditionally trust iOS's max threshold. The shielded-in-burst signature still catches phantom floods regardless of app count.
 
 ### 2026-05-18 (evening) — Burst is a pure timing pattern; switch from 30s look-backward to 5s buffer + settle-on-silence
 The v1 doc framed burst classification as a look-backward gap check from `last_credited_global_timestamp`, with a 30s window. Two flaws came out of the day's data:
