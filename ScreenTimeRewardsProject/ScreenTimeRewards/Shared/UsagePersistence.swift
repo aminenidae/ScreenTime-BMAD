@@ -377,6 +377,67 @@ final class UsagePersistence {
         return Int(Double(seconds) * ratio) / 60
     }
 
+    /// Archive one day's totals into `app.dailyHistory`, skipping if a row for the
+    /// same calendar day already exists. Single chokepoint for every midnight
+    /// rollover path so the same day cannot be recorded twice.
+    ///
+    /// Five different call sites archive yesterday's totals (recordUsage on first
+    /// usage of a new day, resetDailyCounters from the AppDelegate timer / BG task,
+    /// forceResetAllDailyCounters during migrations, syncFromUserDefaults when ext
+    /// data crosses a day boundary, and drainPendingArchives draining the extension
+    /// midnight handoff). Each was added independently to catch a different "what
+    /// if the app was in state X at midnight" scenario. Without dedup they can
+    /// race — e.g. drainPendingArchives appends a row, then resetDailyCounters
+    /// appends an identical row a few seconds later — and the bank-balance read
+    /// downstream double-counts both. Confirmed in device logs May 19, 2026:
+    /// carry-over inflated by ~177 min on multiple midnights.
+    ///
+    /// Computes `rewardMinutesEarned` at archive time using the ratio active on
+    /// `day` (May 16 ratio-lock invariant — never recompute after archive). Prunes
+    /// rows older than 30 days from `today` to keep the array bounded.
+    ///
+    /// - Returns: `true` if a new row was appended, `false` if dedup skipped it.
+    @discardableResult
+    static func archiveDayIfNotAlready(
+        app: inout PersistedApp,
+        day: Date,
+        seconds: Int,
+        points: Int,
+        hourlySeconds: [Int]? = nil,
+        hourlyPoints: [Int]? = nil,
+        today: Date
+    ) -> Bool {
+        let calendar = Calendar.current
+        let archiveDay = calendar.startOfDay(for: day)
+
+        if app.dailyHistory.contains(where: { calendar.isDate($0.date, inSameDayAs: archiveDay) }) {
+            return false
+        }
+
+        let earnedMinutes = computeRewardMinutesEarned(
+            logicalID: app.logicalID,
+            category: app.category,
+            seconds: seconds,
+            day: archiveDay
+        )
+
+        let summary = DailyUsageSummary(
+            date: archiveDay,
+            seconds: seconds,
+            points: points,
+            hourlySeconds: hourlySeconds,
+            hourlyPoints: hourlyPoints,
+            rewardMinutesEarned: earnedMinutes
+        )
+        app.dailyHistory.append(summary)
+
+        if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
+            app.dailyHistory.removeAll { $0.date < cutoff }
+        }
+
+        return true
+    }
+
     /// Resolve the schedule version ratio for `(logicalID, dayKey)` by reading the
     /// versions blob persisted by `AppScheduleService.persistVersions()`. Returns
     /// 1.0 if no matching version is found.
@@ -736,34 +797,27 @@ final class UsagePersistence {
         let today = calendar.startOfDay(for: now)
 
         if !calendar.isDate(app.lastResetDate, inSameDayAs: today) {
-            // Archive previous day's usage before resetting
+            // Archive previous day's usage before resetting. Dedup keeps the
+            // four other midnight-rollover paths from re-recording the same day.
             if app.todaySeconds > 0 || app.todayPoints > 0 {
-                let previousDay = calendar.startOfDay(for: app.lastResetDate)
-                let earnedAtArchive = Self.computeRewardMinutesEarned(
-                    logicalID: logicalID,
-                    category: app.category,
-                    seconds: app.todaySeconds,
-                    day: previousDay
-                )
-                let summary = DailyUsageSummary(
-                    date: previousDay,
+                let archived = Self.archiveDayIfNotAlready(
+                    app: &app,
+                    day: app.lastResetDate,
                     seconds: app.todaySeconds,
                     points: app.todayPoints,
-                    hourlySeconds: app.todayHourlySeconds,  // ✅ Archive hourly data
-                    hourlyPoints: app.todayHourlyPoints,    // ✅ Archive hourly data
-                    rewardMinutesEarned: earnedAtArchive
+                    hourlySeconds: app.todayHourlySeconds,
+                    hourlyPoints: app.todayHourlyPoints,
+                    today: today
                 )
-                app.dailyHistory.append(summary)
-
-                // Cleanup: keep only the last 30 days
-                if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
-                    app.dailyHistory.removeAll { $0.date < cutoff }
-                }
 
                 #if DEBUG
-                print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s, \(app.todayPoints)pts on \(previousDay)")
-                if app.todayHourlySeconds != nil {
-                    print("[UsagePersistence] 📅   with hourly breakdown")
+                if archived {
+                    print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s, \(app.todayPoints)pts on \(app.lastResetDate)")
+                    if app.todayHourlySeconds != nil {
+                        print("[UsagePersistence] 📅   with hourly breakdown")
+                    }
+                } else {
+                    print("[UsagePersistence] ⏭️ \(app.displayName) — day \(app.lastResetDate) already in dailyHistory; skipping duplicate archive")
                 }
                 #endif
             }
@@ -863,29 +917,24 @@ final class UsagePersistence {
                 continue
             }
 
-            // Archive previous day's usage if there was any
+            // Archive previous day's usage if there was any. Dedup via the
+            // single chokepoint so the same day isn't recorded twice when this
+            // races with drainPendingArchives or the syncFromUserDefaults path.
             if app.todaySeconds > 0 || app.todayPoints > 0 {
-                let earnedAtArchive = Self.computeRewardMinutesEarned(
-                    logicalID: logicalID,
-                    category: app.category,
-                    seconds: app.todaySeconds,
-                    day: app.lastResetDate
-                )
-                let summary = DailyUsageSummary(
-                    date: app.lastResetDate,
+                let archived = Self.archiveDayIfNotAlready(
+                    app: &app,
+                    day: app.lastResetDate,
                     seconds: app.todaySeconds,
                     points: app.todayPoints,
-                    rewardMinutesEarned: earnedAtArchive
+                    today: midnight
                 )
-                app.dailyHistory.append(summary)
-
-                // Cleanup: Keep only last 30 days
-                if let cutoff = calendar.date(byAdding: .day, value: -30, to: midnight) {
-                    app.dailyHistory.removeAll { $0.date < cutoff }
-                }
 
                 #if DEBUG
-                print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s from \(app.lastResetDate)")
+                if archived {
+                    print("[UsagePersistence] 📅 Archived \(app.displayName): \(app.todaySeconds)s from \(app.lastResetDate)")
+                } else {
+                    print("[UsagePersistence] ⏭️ \(app.displayName) — day \(app.lastResetDate) already in dailyHistory; skipping duplicate archive")
+                }
                 #endif
             }
 
@@ -917,32 +966,23 @@ final class UsagePersistence {
         print("[UsagePersistence] 🔧 FORCE RESET: Resetting ALL apps regardless of lastResetDate")
 
         for (logicalID, var app) in cachedApps {
-            // Archive previous day's usage if there was any (but don't archive if lastResetDate is already today
-            // and this is real today data from the extension)
+            // Archive previous day's usage if there was any. Dedup via the
+            // single chokepoint so a migration run after a normal rollover
+            // doesn't re-record the same day.
             if app.todaySeconds > 0 || app.todayPoints > 0 {
-                // Only archive to history if this looks like stale data
-                // (i.e., lastResetDate == today but no actual usage events happened today)
-                // For safety, we archive all non-zero data to history before resetting
-                let earnedAtArchive = Self.computeRewardMinutesEarned(
-                    logicalID: logicalID,
-                    category: app.category,
-                    seconds: app.todaySeconds,
-                    day: app.lastResetDate
-                )
-                let summary = DailyUsageSummary(
-                    date: app.lastResetDate,
+                let archived = Self.archiveDayIfNotAlready(
+                    app: &app,
+                    day: app.lastResetDate,
                     seconds: app.todaySeconds,
                     points: app.todayPoints,
-                    rewardMinutesEarned: earnedAtArchive
+                    today: midnight
                 )
-                app.dailyHistory.append(summary)
 
-                // Cleanup: Keep only last 30 days
-                if let cutoff = calendar.date(byAdding: .day, value: -30, to: midnight) {
-                    app.dailyHistory.removeAll { $0.date < cutoff }
+                if archived {
+                    print("[UsagePersistence] 📅 FORCE: Archived \(app.displayName): \(app.todaySeconds)s")
+                } else {
+                    print("[UsagePersistence] ⏭️ FORCE: \(app.displayName) — day \(app.lastResetDate) already in dailyHistory; skipping duplicate")
                 }
-
-                print("[UsagePersistence] 📅 FORCE: Archived \(app.displayName): \(app.todaySeconds)s")
             }
 
             // Force reset counters

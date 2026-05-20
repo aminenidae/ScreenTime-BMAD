@@ -1325,38 +1325,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     if isFromToday {
                         let deltaSeconds = extTodaySeconds - persistedApp.todaySeconds
 
-                        // FIX: Archive yesterday's data before overwriting if day changed
-                        // This ensures dailyHistory gets populated for historical charts
+                        // FIX: Archive yesterday's data before overwriting if day changed.
+                        // Dedup via UsagePersistence.archiveDayIfNotAlready so this can't
+                        // race with drainPendingArchives or resetDailyCounters and double
+                        // up yesterday's row in dailyHistory (May 19, 2026 carry-over
+                        // inflation bug).
                         let calendar = Calendar.current
                         let today = calendar.startOfDay(for: Date())
                         if !calendar.isDate(persistedApp.lastResetDate, inSameDayAs: today) {
-                            // Day changed - archive previous day's data before resetting
                             if persistedApp.todaySeconds > 0 || persistedApp.todayPoints > 0 {
-                                // May 18, 2026 — freeze rewardMinutesEarned at archive
-                                // (see drainPendingArchives for the same fix and rationale).
-                                let earnedMinutes = UsagePersistence.computeRewardMinutesEarned(
-                                    logicalID: persistedApp.logicalID,
-                                    category: persistedApp.category,
-                                    seconds: persistedApp.todaySeconds,
-                                    day: persistedApp.lastResetDate
-                                )
-                                let summary = UsagePersistence.DailyUsageSummary(
-                                    date: persistedApp.lastResetDate,
+                                let archived = UsagePersistence.archiveDayIfNotAlready(
+                                    app: &persistedApp,
+                                    day: persistedApp.lastResetDate,
                                     seconds: persistedApp.todaySeconds,
                                     points: persistedApp.todayPoints,
                                     hourlySeconds: persistedApp.todayHourlySeconds,
                                     hourlyPoints: persistedApp.todayHourlyPoints,
-                                    rewardMinutesEarned: earnedMinutes
+                                    today: today
                                 )
-                                persistedApp.dailyHistory.append(summary)
-
-                                // Cleanup: keep only last 30 days
-                                if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
-                                    persistedApp.dailyHistory.removeAll { $0.date < cutoff }
-                                }
 
                                 #if DEBUG
-                                print("[ScreenTimeService] 📅 Archived \(persistedApp.displayName): \(persistedApp.todaySeconds)s from \(persistedApp.lastResetDate)")
+                                if archived {
+                                    print("[ScreenTimeService] 📅 Archived \(persistedApp.displayName): \(persistedApp.todaySeconds)s from \(persistedApp.lastResetDate)")
+                                } else {
+                                    print("[ScreenTimeService] ⏭️ \(persistedApp.displayName) — day \(persistedApp.lastResetDate) already in dailyHistory; skipping duplicate archive")
+                                }
                                 #endif
                             }
 
@@ -1456,32 +1449,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 continue
             }
 
-            let alreadyArchived = persistedApp.dailyHistory.contains {
-                calendar.isDate($0.date, inSameDayAs: archiveDay)
-            }
-            if !alreadyArchived {
-                // May 18, 2026 — set rewardMinutesEarned at archive time using the
-                // day's active ratio. Without this, the row is written with nil and
-                // the bank-balance read falls back to seconds × current-ratio (the
-                // exact bug the May 16 ratio-lock fix was meant to prevent). Device
-                // observed today: −101 min carry-over because yesterday's learning
-                // rows archived with nil and were re-computed against the wrong ratio.
-                let earnedMinutes = UsagePersistence.computeRewardMinutesEarned(
-                    logicalID: logicalID,
-                    category: persistedApp.category,
-                    seconds: seconds,
-                    day: archiveDay
-                )
-                let summary = UsagePersistence.DailyUsageSummary(
-                    date: archiveDay,
-                    seconds: seconds,
-                    points: 0,
-                    rewardMinutesEarned: earnedMinutes
-                )
-                persistedApp.dailyHistory.append(summary)
-                if let cutoff = calendar.date(byAdding: .day, value: -30, to: today) {
-                    persistedApp.dailyHistory.removeAll { $0.date < cutoff }
-                }
+            // Dedup + freeze-rewardMinutesEarned + 30-day prune all live inside
+            // archiveDayIfNotAlready — same chokepoint every other midnight
+            // rollover path goes through, so the same day can't end up as two
+            // rows in dailyHistory.
+            let archived = UsagePersistence.archiveDayIfNotAlready(
+                app: &persistedApp,
+                day: archiveDay,
+                seconds: seconds,
+                points: 0,
+                today: today
+            )
+            if archived {
                 usagePersistence.saveApp(persistedApp)
                 drained.append((name: persistedApp.displayName, seconds: seconds, date: dateString))
             }
