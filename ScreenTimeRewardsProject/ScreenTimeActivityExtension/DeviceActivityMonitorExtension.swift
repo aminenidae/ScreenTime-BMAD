@@ -294,153 +294,113 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
     }
 
-    // MARK: - Phase B+C ACTIVE: buffer events, settle on silence (5s window)
+    // MARK: - Phase B+C: credit-on-arrival with undo on flood (no buffer)
     //
-    // See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md for the model.
-    // Every event arrives, passes Phase A hard rejects, then goes into the
-    // buffer. When a new event arrives ≥5s after the previous one, settlement
-    // runs on the prior batch: single event = isolated (credit), multi-event
-    // = burst (flood-vs-legit). Credit is applied via applyCredit() which
-    // writes the same UserDefaults keys the legacy recording path used.
-
-    private struct BufferEntry: Codable {
-        let appID: String
-        let thresholdSeconds: Int
-        let arrivalTime: TimeInterval
-        let baselineLastThreshold: Int   // app's lastThreshold at insertion
-    }
+    // See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md (v4).
+    //
+    // Every event that passes Phase A is credited at arrival. We save the
+    // pre-credit (usage_today, lastThreshold) per app so we can roll back
+    // if a flood signal arrives later in the same 5-second burst window.
+    // When the burst window closes (next event arrives with gap ≥ 5s), the
+    // credits become final and the undo state is cleared.
 
     private static let burstWindowSeconds: TimeInterval = 5
 
-    /// Process an event arrival. Returns true if settlement applied any credit
-    /// (in which case the caller should notify the main app). Returns false if
-    /// the event was buffered with no settlement, or settlement rejected the
-    /// batch as a flood.
-    private nonisolated func bufferProcessActive(appID: String, thresholdSeconds: Int, now: TimeInterval, defaults: UserDefaults) -> Bool {
-        var buffer = readEventBuffer(defaults: defaults)
-        var creditedAnything = false
+    /// Process an event arrival after Phase A passed. Updates burst state,
+    /// applies credit (with revert info saved), triggers sliding-window
+    /// rebuild if needed. Returns true if credit was applied (caller should
+    /// notify the main app), false if rejected (e.g. burst is in flood mode).
+    private nonisolated func processEventAndCredit(appID: String, thresholdSeconds: Int, now: TimeInterval, defaults: UserDefaults) -> Bool {
+        // Phase B+C: the burst state was already maintained on entry to
+        // setUsageToThreshold (gap check + last_event_arrival_global update).
+        // Here we just check flood mode and credit.
 
-        // Settle the prior batch if it's been silent for ≥5s.
-        if let lastEntry = buffer.last, (now - lastEntry.arrivalTime) >= Self.burstWindowSeconds {
-            creditedAnything = settleBatch(buffer: buffer, now: now, defaults: defaults)
-            buffer.removeAll()
-        }
-
-        // Snapshot the global pre-burst baseline when starting a new batch.
-        if buffer.isEmpty {
-            let baselineGlobal = defaults.double(forKey: "last_credited_global_timestamp")
-            defaults.set(baselineGlobal, forKey: "burst_baseline_global_ts")
-        }
-
-        let appBaseline = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
-        buffer.append(BufferEntry(
-            appID: appID,
-            thresholdSeconds: thresholdSeconds,
-            arrivalTime: now,
-            baselineLastThreshold: appBaseline
-        ))
-        writeEventBuffer(buffer, defaults: defaults)
-
-        debugLog("BUFFERED appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s bufferSize=\(buffer.count) — awaiting settlement", defaults: defaults)
-        return creditedAnything
-    }
-
-    /// Run the settlement decision on a batch. Returns true if any credit was applied.
-    private nonisolated func settleBatch(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) -> Bool {
-        guard !buffer.isEmpty else { return false }
-
-        // FIRST — regardless of flood/legit decision, the events in this buffer
-        // CONSUMED iOS thresholds (iOS fires each threshold once then forgets it).
-        // If any app's max threshold in this batch is near its registered window
-        // top, request a sliding-window rebuild so iOS has fresh thresholds to
-        // fire on for future usage. Otherwise the kid's next minute of play
-        // produces no event because all thresholds were consumed by this burst.
-        triggerRebuildsForConsumedThresholds(buffer: buffer, now: now, defaults: defaults)
-
-        // FLOOD SIGNATURE — shielded reward app event within the burst window.
-        // If a verifiably-shielded reward app fired an event within 5s of any
-        // event in this buffer, the entire burst is phantom. The kid physically
-        // can't use a blocked app, so all events arriving alongside that
-        // shielded event are part of the same iOS phantom dump.
-        if checkShieldedInBurst(buffer: buffer, defaults: defaults) {
+        if defaults.bool(forKey: "burst_is_flood") {
+            // Earlier event in this same burst detected a flood. All subsequent
+            // events in the window are silently dropped (no credit) so they
+            // can't smuggle phantom usage in alongside.
+            debugLog("BURST_FLOOD_SKIP appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — burst already classified as flood, ignoring", defaults: defaults)
+            Self.logger.notice("BURST_FLOOD_SKIP app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
             return false
         }
 
-        // Single-event batch → ISOLATED → trust iOS, set usage_today to threshold.
-        if buffer.count == 1 {
-            let entry = buffer[0]
-            applyCredit(appID: entry.appID, newThreshold: entry.thresholdSeconds, now: entry.arrivalTime, defaults: defaults)
-            debugLog("SETTLE_ISO appID=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s — set as today", defaults: defaults)
-            Self.logger.notice("SETTLE_ISO app=\(entry.appID.prefix(8))... thresh=\(entry.thresholdSeconds)s")
-            return true
+        // Save revert info IFF this is the first credit for this app in the
+        // current burst window. Subsequent credits to the same app within
+        // the burst stay covered by the same revert snapshot.
+        var creditedApps = readBurstCreditedApps(defaults: defaults)
+        if !creditedApps.contains(appID) {
+            let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+            let currentLastThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
+            defaults.set(currentToday, forKey: "revert_today_\(appID)")
+            defaults.set(currentLastThreshold, forKey: "revert_lastThreshold_\(appID)")
+            creditedApps.insert(appID)
+            writeBurstCreditedApps(creditedApps, defaults: defaults)
         }
 
-        // Multi-event batch → BURST. Compute per-app max threshold + min baseline.
-        var perApp: [String: (maxThresh: Int, minBaseline: Int, count: Int)] = [:]
-        for entry in buffer {
-            if let existing = perApp[entry.appID] {
-                perApp[entry.appID] = (
-                    maxThresh: max(existing.maxThresh, entry.thresholdSeconds),
-                    minBaseline: min(existing.minBaseline, entry.baselineLastThreshold),
-                    count: existing.count + 1
-                )
-            } else {
-                perApp[entry.appID] = (entry.thresholdSeconds, entry.baselineLastThreshold, 1)
-            }
-        }
-
-        // Aggregate claim across all apps in the batch.
-        var totalClaim = 0
-        for (_, stats) in perApp {
-            totalClaim += max(0, stats.maxThresh - stats.minBaseline)
-        }
-
-        // Wallclock budget = time from the previous credit (any app) to NOW.
-        // We use `now` (the event that triggered settlement) instead of the
-        // buffer's first event time because the buffer's first event can be
-        // the trigger event of the previous burst — making firstEventTime
-        // equal to baselineGlobal and giving wallclock=0 falsely.
-        let baselineGlobal = defaults.double(forKey: "burst_baseline_global_ts")
-        let wallclock = baselineGlobal > 0 ? max(0, Int(now - baselineGlobal)) : 0
-        let grace = max(60, wallclock / 10)
-
-        let appsDesc = perApp.map { (id, s) in
-            "\(id.prefix(8))(n=\(s.count) max=\(s.maxThresh)s baseline=\(s.minBaseline)s)"
-        }.sorted().joined(separator: ", ")
-
-        // FLOOD CHECK — only apply the aggregate-claim check when the buffer
-        // contains MULTIPLE different apps. Multi-app bursts where total claim
-        // across apps exceeds wallclock are the Device C phantom-flood pattern.
-        //
-        // SINGLE-app bursts trust iOS's max threshold: the kid was using that
-        // one app and iOS is catching up after a tracking gap. The user has
-        // explicitly directed us to trust iOS's reported max in this case.
-        // The shielded-in-burst signature above still catches single-app
-        // phantom floods (a shielded reward app firing alongside means the
-        // burst is fake regardless of how many apps are involved).
-        if perApp.count >= 2 && totalClaim > wallclock + grace {
-            debugLog("SETTLE_FLOOD eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — multi-app aggregate exceeds wallclock, REJECTED all. apps: \(appsDesc)", defaults: defaults)
-            Self.logger.notice("SETTLE_FLOOD events=\(buffer.count) apps=\(perApp.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
-            return false
-        }
-
-        // Legit catch-up → trust iOS, set each app's usage_today to its max threshold.
-        var anyCredited = false
-        for (appID, stats) in perApp {
-            applyCredit(appID: appID, newThreshold: stats.maxThresh, now: now, defaults: defaults)
-            anyCredited = true
-        }
-        debugLog("SETTLE_LEGIT eventsCount=\(buffer.count) apps=\(perApp.count) totalClaim=\(totalClaim)s wallclock=\(wallclock)s grace=\(grace)s — credited per-app max. apps: \(appsDesc)", defaults: defaults)
-        Self.logger.notice("SETTLE_LEGIT events=\(buffer.count) claim=\(totalClaim)s budget=\(wallclock + grace)s")
-        return anyCredited
+        applyCredit(appID: appID, newThreshold: thresholdSeconds, now: now, defaults: defaults)
+        triggerRebuildIfNearWindowTop(appID: appID, threshold: thresholdSeconds, now: now, defaults: defaults)
+        return true
     }
 
-    /// Apply credit for one app: set `usage_today` and `lastThreshold` to iOS's
-    /// reported max threshold. This is the core principle of the new architecture:
-    /// iOS knows the cumulative usage; we trust the max threshold value.
-    ///
-    /// usage_today = max(currentToday, newThreshold). Never regress.
-    /// Same value used for lastThreshold so the two stay in sync.
+    /// Clear the burst window state. Called by Phase B when an event arrives
+    /// with gap ≥ 5s from the previous arrival — the previous burst is over,
+    /// its credits are final, and we no longer need the undo info.
+    private nonisolated func clearBurstState(defaults: UserDefaults) {
+        let creditedApps = readBurstCreditedApps(defaults: defaults)
+        for appID in creditedApps {
+            defaults.removeObject(forKey: "revert_today_\(appID)")
+            defaults.removeObject(forKey: "revert_lastThreshold_\(appID)")
+        }
+        defaults.removeObject(forKey: "burst_credited_apps_csv")
+        defaults.removeObject(forKey: "burst_is_flood")
+    }
+
+    /// Roll back every credit applied during the current burst window. Called
+    /// by Phase A's SKIP_SHIELDED branch when a shielded reward app fires
+    /// while a burst is in progress — the entire burst is then declared a
+    /// flood and locked into `burst_is_flood` mode.
+    private nonisolated func revertBurstCredits(reason: String, defaults: UserDefaults) {
+        let creditedApps = readBurstCreditedApps(defaults: defaults)
+        guard !creditedApps.isEmpty else { return }
+
+        var revertDescParts: [String] = []
+        for appID in creditedApps {
+            let revertToday = defaults.integer(forKey: "revert_today_\(appID)")
+            let revertLastThresh = defaults.integer(forKey: "revert_lastThreshold_\(appID)")
+            let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
+            defaults.set(revertToday, forKey: "usage_\(appID)_today")
+            defaults.set(revertLastThresh, forKey: "usage_\(appID)_lastThreshold")
+            defaults.removeObject(forKey: "revert_today_\(appID)")
+            defaults.removeObject(forKey: "revert_lastThreshold_\(appID)")
+            revertDescParts.append("\(appID.prefix(8))(\(currentToday)s→\(revertToday)s)")
+        }
+
+        defaults.set(true, forKey: "burst_is_flood")
+        defaults.removeObject(forKey: "burst_credited_apps_csv")
+
+        let revertDesc = revertDescParts.sorted().joined(separator: ", ")
+        debugLog("BURST_REVERT reason=\(reason) appsReverted=\(creditedApps.count) — \(revertDesc)", defaults: defaults)
+        Self.logger.notice("BURST_REVERT reason=\(reason) appsReverted=\(creditedApps.count)")
+    }
+
+    private nonisolated func readBurstCreditedApps(defaults: UserDefaults) -> Set<String> {
+        let csv = defaults.string(forKey: "burst_credited_apps_csv") ?? ""
+        if csv.isEmpty { return [] }
+        return Set(csv.split(separator: ",").map(String.init))
+    }
+
+    private nonisolated func writeBurstCreditedApps(_ apps: Set<String>, defaults: UserDefaults) {
+        if apps.isEmpty {
+            defaults.removeObject(forKey: "burst_credited_apps_csv")
+        } else {
+            defaults.set(apps.sorted().joined(separator: ","), forKey: "burst_credited_apps_csv")
+        }
+    }
+
+    /// Apply credit for one app: SET `usage_today` and `lastThreshold` to
+    /// `max(currentToday, newThreshold)`. iOS's threshold is the authoritative
+    /// cumulative for that app; we trust the max value. The two fields are
+    /// written the same value to keep them in lock-step.
     private nonisolated func applyCredit(appID: String, newThreshold: Int, now: TimeInterval, defaults: UserDefaults) {
         let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
         let newToday = max(currentToday, newThreshold)
@@ -449,11 +409,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(newToday, forKey: "usage_\(appID)_today")
         defaults.set(newToday, forKey: "usage_\(appID)_lastThreshold")
         defaults.set(now, forKey: "usage_\(appID)_modified")
-        // Per-day reset anchor — ensures cross-day logic in legacy code stays consistent.
+        // Per-day reset anchor — ensures cross-day logic stays consistent.
         let startOfToday = Self.calendar.startOfDay(for: Date(timeIntervalSince1970: now)).timeIntervalSince1970
         defaults.set(startOfToday, forKey: "usage_\(appID)_reset")
 
-        // Update the global "last credited" anchor used by future burst-baseline snapshots.
+        // Global "last credited" anchor used by other code paths.
         defaults.set(now, forKey: "last_credited_global_timestamp")
 
         // ext_ keys — totals and timestamps the main app and other code may read.
@@ -464,81 +424,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "ext_usage_\(appID)_timestamp")
 
         debugLog("RECORDED appID=\(appID.prefix(8))... oldToday=\(currentToday)s set newToday=\(newToday)s (thresh=\(newThreshold)s, +\(credited)s)", defaults: defaults)
-        Self.logger.notice("SET app=\(appID.prefix(8))... today=\(newToday)s (+\(credited)s) thresh=\(newThreshold)s (via settle)")
+        Self.logger.notice("SET app=\(appID.prefix(8))... today=\(newToday)s (+\(credited)s) thresh=\(newThreshold)s")
 
         defaults.set(now, forKey: "last_recorded_timestamp")
     }
 
-    /// For each app in the buffer, if the max threshold seen approaches the registered
-    /// window top, request a sliding-window rebuild. iOS consumes thresholds one-shot
-    /// regardless of whether we credit or reject, so this MUST run for floods too —
-    /// otherwise the next legit minute of usage has no threshold to fire on.
-    /// Per-app 60s debounce via `window_rebuild_request_<id>` matches legacy behavior.
-    private nonisolated func triggerRebuildsForConsumedThresholds(buffer: [BufferEntry], now: TimeInterval, defaults: UserDefaults) {
-        var perAppMaxThresh: [String: Int] = [:]
-        for entry in buffer {
-            perAppMaxThresh[entry.appID] = max(perAppMaxThresh[entry.appID] ?? 0, entry.thresholdSeconds)
-        }
+    /// If this event's threshold approaches the registered window top for this
+    /// app, request a sliding-window rebuild so iOS has fresh thresholds to
+    /// fire on for future usage. Per-app 60s debounce via
+    /// `window_rebuild_request_<id>`.
+    private nonisolated func triggerRebuildIfNearWindowTop(appID: String, threshold: Int, now: TimeInterval, defaults: UserDefaults) {
+        let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
+        guard windowTopMin > 0 else { return }
+        let threshMin = threshold / 60
+        guard threshMin >= windowTopMin - 5 else { return }
 
-        var anyRebuildRequested = false
-        for (appID, maxThresh) in perAppMaxThresh {
-            let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
-            guard windowTopMin > 0 else { continue }
-            let maxThreshMin = maxThresh / 60
-            // Trigger when we've fired within 5 min of the window top (matches legacy WINDOW_TOP_HIT margin).
-            if maxThreshMin >= windowTopMin - 5 {
-                let debounceKey = "window_rebuild_request_\(appID)"
-                let lastRequest = defaults.double(forKey: debounceKey)
-                let elapsed = now - lastRequest
-                if elapsed > 60 {
-                    defaults.set(now, forKey: debounceKey)
-                    debugLog("SETTLE_REBUILD_REQUEST appID=\(appID.prefix(8))... maxThreshMin=\(maxThreshMin) windowTop=\(windowTopMin) — thresholds consumed by burst, requesting refresh", defaults: defaults)
-                    Self.logger.notice("SETTLE_REBUILD_REQUEST app=\(appID.prefix(8))... maxThreshMin=\(maxThreshMin)")
-                    requestMainAppWindowRebuild(reason: "settle-consumed-\(appID.prefix(8))", defaults: defaults)
-                    _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "settle-consumed-\(appID.prefix(8))")
-                    anyRebuildRequested = true
-                }
-            }
-        }
-        if anyRebuildRequested {
-            debugLog("SETTLE_REBUILD_DONE — sliding window refresh requested for consumed thresholds", defaults: defaults)
-        }
-    }
+        let debounceKey = "window_rebuild_request_\(appID)"
+        let lastRequest = defaults.double(forKey: debounceKey)
+        guard (now - lastRequest) > 60 else { return }
 
-    /// Returns true if a shielded reward app fired within ±5s of any event in the buffer.
-    private nonisolated func checkShieldedInBurst(buffer: [BufferEntry], defaults: UserDefaults) -> Bool {
-        let lastShieldedTs = defaults.double(forKey: "last_shielded_event_arrival_ts")
-        guard lastShieldedTs > 0, !buffer.isEmpty else { return false }
-
-        let firstTime = buffer[0].arrivalTime
-        let lastTime = buffer[buffer.count - 1].arrivalTime
-        let withinWindow = lastShieldedTs >= (firstTime - Self.burstWindowSeconds) &&
-                           lastShieldedTs <= (lastTime + Self.burstWindowSeconds)
-        guard withinWindow else { return false }
-
-        var perAppCounts: [String: Int] = [:]
-        for entry in buffer {
-            perAppCounts[entry.appID, default: 0] += 1
-        }
-        let appsDesc = perAppCounts.map { "\($0.key.prefix(8))(n=\($0.value))" }.sorted().joined(separator: ", ")
-        debugLog("SETTLE_FLOOD_SHIELDED bufferSize=\(buffer.count) apps=\(perAppCounts.count) shieldedTs=\(Int(lastShieldedTs)) burstWindow=[\(Int(firstTime))..\(Int(lastTime))] — shielded reward app fired in burst, REJECTING all. apps: \(appsDesc)", defaults: defaults)
-        Self.logger.notice("SETTLE_FLOOD_SHIELDED bufferSize=\(buffer.count) — shielded in burst window")
-        return true
-    }
-
-    private nonisolated func readEventBuffer(defaults: UserDefaults) -> [BufferEntry] {
-        guard let data = defaults.data(forKey: "event_buffer_json") else { return [] }
-        return (try? JSONDecoder().decode([BufferEntry].self, from: data)) ?? []
-    }
-
-    private nonisolated func writeEventBuffer(_ buffer: [BufferEntry], defaults: UserDefaults) {
-        if buffer.isEmpty {
-            defaults.removeObject(forKey: "event_buffer_json")
-            return
-        }
-        if let data = try? JSONEncoder().encode(buffer) {
-            defaults.set(data, forKey: "event_buffer_json")
-        }
+        defaults.set(now, forKey: debounceKey)
+        debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
+        Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
+        requestMainAppWindowRebuild(reason: "credit-near-top-\(appID.prefix(8))", defaults: defaults)
+        _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "credit-near-top-\(appID.prefix(8))")
     }
 
     // MARK: - Lifecycle
@@ -873,17 +782,33 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let globalResetKey = "global_daily_reset_timestamp"
         let lastGlobalReset = defaults.double(forKey: globalResetKey)
         if lastGlobalReset < startOfToday {
-            debugLog("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))... — running resetAllDailyCounters and clearing lastThresholds", defaults: defaults)
+            debugLog("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))... — running resetAllDailyCounters and clearing lastThresholds + burst state", defaults: defaults)
             Self.logger.notice("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))...")
             resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
             defaults.set(startOfToday, forKey: globalResetKey)
-            // Also clear the event buffer and burst baseline — yesterday's pending
-            // burst (if any) is no longer relevant to today.
-            defaults.removeObject(forKey: "event_buffer_json")
-            defaults.removeObject(forKey: "burst_baseline_global_ts")
-            defaults.removeObject(forKey: "last_shielded_event_arrival_ts")
+            // Clear the burst window state — yesterday's pending burst (if any)
+            // is no longer relevant to today.
+            clearBurstState(defaults: defaults)
+            defaults.removeObject(forKey: "last_event_arrival_global")
             notifyMainApp()
         }
+
+        // ┌─────────────────────────────────────────────────────────────────┐
+        // │ PHASE B — Burst window maintenance (predecessor check)          │
+        // │ Gap from last event arrival decides whether we're inside the    │
+        // │ current burst window or starting fresh. Done early so Phase A's │
+        // │ SKIP_SHIELDED branch can use the burst state to detect floods.  │
+        // └─────────────────────────────────────────────────────────────────┘
+        let lastEventArrivalGlobal = defaults.double(forKey: "last_event_arrival_global")
+        let gapSinceLastEvent = lastEventArrivalGlobal > 0
+            ? nowTimestamp - lastEventArrivalGlobal
+            : Double.greatestFiniteMagnitude
+        if gapSinceLastEvent >= Self.burstWindowSeconds {
+            // Previous burst (if any) is done — credits made within it are
+            // now final, undo state is no longer needed.
+            clearBurstState(defaults: defaults)
+        }
+        defaults.set(nowTimestamp, forKey: "last_event_arrival_global")
 
         // ┌─────────────────────────────────────────────────────────────────┐
         // │ PHASE A — Hard rejects (no burst context required)              │
@@ -1068,12 +993,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
                         Self.logger.notice("SKIP_SHIELDED app=\(appID.prefix(8))... shield up, blocking")
 
-                        // SHIELD-IN-BURST signal for Phase C settlement.
-                        // The shielded reward app cannot be in use; if it fired an event
-                        // within a burst window, the entire burst is phantom. Record the
-                        // arrival time so settleBatch() can flood-reject any buffer
-                        // whose events sit within ±5s of this timestamp.
-                        defaults.set(nowTimestamp, forKey: "last_shielded_event_arrival_ts")
+                        // SHIELD-IN-BURST signal — if a shielded reward app fires while
+                        // we're inside an open burst window (Phase B already updated
+                        // last_event_arrival_global and may have cleared stale state),
+                        // the entire burst is phantom. Revert every credit applied in
+                        // this burst and lock the burst into flood mode.
+                        let creditedApps = readBurstCreditedApps(defaults: defaults)
+                        if !creditedApps.isEmpty {
+                            revertBurstCredits(reason: "shield-in-burst-\(appID.prefix(8))", defaults: defaults)
+                        }
 
                         // FLOOD TRIGGER (May 10, 2026): a verifiably-shielded app cannot
                         // produce legit events — the kid physically can't use a blocked app.
@@ -1343,28 +1271,30 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
         }
 
-        // ═══════════ PASSED ALL FILTERS — route to buffer + settle ═══════════
+        // ═══════════ PASSED ALL FILTERS — credit on arrival ═══════════
 
         // ┌─────────────────────────────────────────────────────────────────┐
-        // │ PHASE B+C — ACTIVE buffer + settle on silence (5s window)       │
-        // │ Promoted from shadow on 2026-05-18. Every event that survives   │
-        // │ Phase A goes into the buffer; settlement runs when the next     │
-        // │ event arrives ≥5s after the previous buffer event. Single-event │
-        // │ batch = isolated (credit). Multi-event batch = burst → flood    │
-        // │ vs legit decision.                                              │
+        // │ PHASE C — Credit on arrival (no buffer)                         │
         // │                                                                 │
-        // │ See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md.                 │
+        // │ Phase B already updated the burst window state at the top of    │
+        // │ this function. SKIP_SHIELDED in Phase A already reverted any    │
+        // │ in-progress burst credits if a shielded reward app fired in     │
+        // │ the burst window. Here we just apply the credit (SET to max     │
+        // │ threshold) and save the per-app revert info in case a later     │
+        // │ event in the same burst triggers a flood revert.                │
         // │                                                                 │
-        // │ The legacy recording code below is now unreachable — left in    │
-        // │ place for the migration window; will be removed in Step 5.      │
+        // │ See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md (v4).             │
+        // │                                                                 │
+        // │ The legacy recording code below is unreachable — left in place  │
+        // │ for the migration window; will be removed once stable.          │
         // └─────────────────────────────────────────────────────────────────┘
-        let creditedAtSettle = bufferProcessActive(
+        let credited = processEventAndCredit(
             appID: appID,
             thresholdSeconds: thresholdSeconds,
             now: nowTimestamp,
             defaults: defaults
         )
-        return creditedAtSettle
+        return credited
 
         // ─── LEGACY recording path (UNREACHABLE — kept for migration window) ───
 
