@@ -330,9 +330,11 @@ This branch (`feat/credit-on-arrival-no-buffer`) migrates from the buffer model 
 
 ### On `feat/credit-on-arrival-no-buffer` branch (current — supersedes above)
 - [x] Architecture doc v4 — credit-on-arrival + undo (this revision)
-- [ ] Replace buffer with credit-on-arrival + undo state
-- [ ] Verify on device
-- [ ] Migrate `feat/three-phase-recording-architecture` improvements into this branch (day rollover, monitoring-health, sliding-window rebuild — all carried forward as-is)
+- [x] Replace buffer with credit-on-arrival + undo state — commit `5a834ee`
+- [x] Verify on device — May 20 single-device validation (see log below)
+- [x] Migrate `feat/three-phase-recording-architecture` improvements into this branch (day rollover, monitoring-health, sliding-window rebuild — all carried forward as-is)
+- [ ] Multi-device validation across mixed iOS memory tiers and usage shapes
+- [ ] **Wait-and-watch:** real-world flood (shielded reward app fires during a catch-up burst). Cannot be reliably triggered on demand — must occur naturally. When it does, the log will show `FLOOD` + `REVERT` entries; verify net credit for the burst is zero or unchanged.
 
 ---
 
@@ -359,6 +361,60 @@ Branch: `feat/three-phase-recording-architecture`. Shadow classifier shipped 202
 ### Observations not yet acted on
 
 - **Concurrent event processing at 15:15:25**: two events for C6DA269B arrived 0.3s apart in the new extension session (post-kill). Both read the same `last_credited_global_timestamp` (giving identical `gap=97s`) because the first hadn't written its updated value before the second started reading. Classification was the same for both (`isolated`), and the first was correctly rejected as duplicate (SKIP_REGRESSION). Not a problem in this case, but worth noting: in a Phase C-burst world where the buffer mutates state, concurrent events may need a lock or atomic compare-and-swap on the burst buffer. Defer until we see it cause a real issue.
+
+---
+
+## Device validation log (2026-05-20)
+
+Branch: `feat/credit-on-arrival-no-buffer`. Single-device full-day run on Amine's iPhone. Build includes credit-on-arrival processing (`processEventAndCredit` at extension line 313) shipped in commit `5a834ee`.
+
+### Day shape
+
+- Battery: started 100%, drifted to 4% by 20:18 with multiple unplug/plug cycles
+- Tracked apps with activity: Instagram, YouTube, Facebook, TV
+- Events processed: 192 total (183 credited, 9 rejected)
+- Extension kills: 18 across the day — highest single-day count ever logged
+- Floods detected: 0
+- Undo operations triggered: 0
+
+### Ground-truth comparison at 20:18
+
+| App | iOS Screen Time | Brain Coinz `usage_<id>_today` | Drift |
+|-----|-----------------|-------------------------------|-------|
+| Instagram | 96 min (1h 36) | 96 min | 0 |
+| YouTube | 55 min | 55 min | 0 |
+| Facebook | 32 min | 32 min | 0 |
+| TV | 6 min | 6 min | 0 |
+
+Zero drift across all four apps after a day that included extreme battery pressure, 18 process terminations, and a morning cluster of four kills in 16 minutes (06:54, 07:02, 07:09, 07:10).
+
+### Rejection audit
+
+All 9 `recorded=false` events were `SKIP_REGRESSION` rejecting legitimate iOS duplicate deliveries after extension session changes. Each rejection corresponded to a threshold ≤ `lastThreshold` on the same day — exactly what the filter is designed to block. No false rejections of real play.
+
+### What this validated
+
+- ✅ Credit-on-arrival path (Phase B + Phase C) running in production on real device
+- ✅ SET-to-max-threshold model holds across multiple extension respawns within a day
+- ✅ Daily counter survives 18 process terminations with no data loss
+- ✅ Day rollover at midnight (00:00:02) reset all 8 apps and registered fresh thresholds via `MIDNIGHT_EXT_REBUILD_OK` without main-app involvement
+- ✅ SKIP_REGRESSION correctly blocks iOS catch-up duplicates after session restarts
+- ✅ Architecture survives extreme low-battery conditions (4%)
+
+### What this did NOT validate (still pending)
+
+- Multi-device coverage across different iOS memory tiers
+- Phantom flood signature (shielded reward app event arriving during a burst → undo of pre-flood credits in `burst_credited_apps_csv`) — **cannot be triggered on demand; awaiting natural occurrence**
+- Sub-60-second kill pair stress test under sustained load
+
+### Observations
+
+- **Sub-minute kill pair at 07:09 → 07:10.** Extension survived only 63 seconds before iOS killed it again. Cause not investigated — may be one-off iOS memory pressure, may be a startup path issue. If the pattern repeats, the extension's `intervalDidStart` and init sequence are worth profiling.
+- **Shadow judge stale-read on day's first event.** `SHADOW_BURST_JUDGE` at 06:54:44 for C6DA269B reported `start_today=104min` and `would_set=105min` against `actual=0min`. The shadow's bookkeeping was reading yesterday's leftover `lastThreshold` (6300s) — the live credit path correctly ignored it. Cosmetic only, but the shadow's `start_today` source should be tidied to read post-rollover state.
+
+### Verdict
+
+Single-device validation complete. Credit-on-arrival + undo architecture is correct and resilient under realistic stress. Cleared for multi-device rollout.
 
 ---
 
