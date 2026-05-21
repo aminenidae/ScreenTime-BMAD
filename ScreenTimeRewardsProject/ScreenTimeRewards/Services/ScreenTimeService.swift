@@ -577,6 +577,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         Task { [weak self] in
                             await self?.restartMonitoring(reason: "midnight pending refresh (init)")
                         }
+                    } else if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+                              sharedDefaults.bool(forKey: "pending_window_rebuild") {
+                        // Post-flood (or any rebuild-needed) safety net. The extension's
+                        // Darwin notification may have been missed while the main app was
+                        // suspended; the persistent flag survives. Without this, MONITORING_ALIVE
+                        // skip prevents recovery and recording can stay silent for hours
+                        // (2026-05-21 incident — see THREE_PHASE_RECORDING_ARCHITECTURE.md).
+                        let reason = sharedDefaults.string(forKey: "pending_window_rebuild_reason") ?? "unknown"
+                        lifecycleLog("PENDING_WINDOW_REBUILD — detected during init (reason=\(reason)), restarting")
+                        #if DEBUG
+                        print("[ScreenTimeService] 🪟 Pending window rebuild detected at init (reason=\(reason)) — triggering restart")
+                        #endif
+                        Task { [weak self] in
+                            await self?.restartMonitoring(reason: "pending window rebuild (init): \(reason)")
+                        }
                     }
                 } else {
                     // Monitoring genuinely dead — restart needed
@@ -2131,6 +2146,24 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             sharedDefaults.set(Date().timeIntervalSince1970, forKey: "midnight_pending_timestamp")
             Task { [weak self] in
                 await self?.restartMonitoring(reason: "midnight pending refresh")
+            }
+            return
+        }
+
+        // Check 2b: Post-flood pending window rebuild — monitoring alive at OS level
+        // but every threshold iOS had registered was consumed by a flood burst. The
+        // extension's Darwin notification may have been dropped while the main app was
+        // suspended; the persistent flag survives and gets drained here on the next
+        // foreground transition (2026-05-21 incident — see THREE_PHASE_RECORDING_ARCHITECTURE.md).
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier),
+           sharedDefaults.bool(forKey: "pending_window_rebuild") {
+            let reason = sharedDefaults.string(forKey: "pending_window_rebuild_reason") ?? "unknown"
+            lifecycleLog("PENDING_WINDOW_REBUILD — detected on foreground (reason=\(reason)), restarting")
+            #if DEBUG
+            print("[ScreenTimeService] Pending window rebuild (reason=\(reason)) — triggering restart")
+            #endif
+            Task { [weak self] in
+                await self?.restartMonitoring(reason: "pending window rebuild (foreground): \(reason)")
             }
             return
         }

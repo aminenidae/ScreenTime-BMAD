@@ -381,6 +381,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let revertDesc = revertDescParts.sorted().joined(separator: ", ")
         debugLog("BURST_REVERT reason=\(reason) appsReverted=\(creditedApps.count) — \(revertDesc)", defaults: defaults)
         Self.logger.notice("BURST_REVERT reason=\(reason) appsReverted=\(creditedApps.count)")
+
+        // Post-flood recovery: iOS consumed every registered threshold during the
+        // flood burst, even though we rejected each event. Request a main-app
+        // `restartMonitoring` so a fresh sliding window gets registered before
+        // legit usage accumulates invisibly (see "2026-05-21 — Phantom flood +
+        // recovery hole" in THREE_PHASE_RECORDING_ARCHITECTURE.md).
+        requestMainAppWindowRebuild(reason: "post-flood-recovery", defaults: defaults)
     }
 
     private nonisolated func readBurstCreditedApps(defaults: UserDefaults) -> Set<String> {

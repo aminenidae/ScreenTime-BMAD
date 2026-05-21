@@ -331,10 +331,12 @@ This branch (`feat/credit-on-arrival-no-buffer`) migrates from the buffer model 
 ### On `feat/credit-on-arrival-no-buffer` branch (current — supersedes above)
 - [x] Architecture doc v4 — credit-on-arrival + undo (this revision)
 - [x] Replace buffer with credit-on-arrival + undo state — commit `5a834ee`
-- [x] Verify on device — May 20 single-device validation (see log below)
+- [x] Verify on device — May 20 single-device validation (Amine's iPhone, see log below)
+- [x] Second-device validation — May 20 Betty's iPhone with multi-reinstall catch-up burst (see log below)
 - [x] Migrate `feat/three-phase-recording-architecture` improvements into this branch (day rollover, monitoring-health, sliding-window rebuild — all carried forward as-is)
-- [ ] Multi-device validation across mixed iOS memory tiers and usage shapes
-- [ ] **Wait-and-watch:** real-world flood (shielded reward app fires during a catch-up burst). Cannot be reliably triggered on demand — must occur naturally. When it does, the log will show `FLOOD` + `REVERT` entries; verify net credit for the burst is zero or unchanged.
+- [ ] Multi-device validation across mixed iOS memory tiers and usage shapes (one more device beyond Amine's + Betty's)
+- [x] **Wait-and-watch:** real-world phantom flood — observed 2026-05-21 on Amine's iPhone (see log below). FLOOD + REVERT path worked correctly; but uncovered a post-flood recording blackout (~10h) caused by iOS-side threshold exhaustion with no rebuild trigger
+- [ ] **Post-flood recovery fix:** add `requestMainAppWindowRebuild` call inside `revertBurstCredits` so a full `restartMonitoring` kicks off automatically the moment a flood is reverted (see "2026-05-21 — Phantom flood + recovery hole" below)
 
 ---
 
@@ -415,6 +417,171 @@ All 9 `recorded=false` events were `SKIP_REGRESSION` rejecting legitimate iOS du
 ### Verdict
 
 Single-device validation complete. Credit-on-arrival + undo architecture is correct and resilient under realistic stress. Cleared for multi-device rollout.
+
+---
+
+## Second-device validation log (2026-05-20 — Betty's iPhone)
+
+Branch: `feat/credit-on-arrival-no-buffer`. Same build as Amine's device. Distinct in that this device had an expired subscription and ran on dev-bypass for most of the day (no proper monitoring schedule), then was reinstalled twice in the evening:
+
+1. **~21:44** — reinstall from TestFlight (proper monitoring resumed)
+2. **~22:04** — fresh TestFlight install picked up by iOS
+3. **~22:15** — Xcode dev build installed to access diag menu
+
+Each install reset the extension's session ID and triggered iOS to dump catch-up threshold events for the cumulative usage it had been tracking independently.
+
+### Ground-truth comparison at 22:15
+
+| App | iOS Screen Time | Brain Coinz app display | Drift |
+|-----|-----------------|------------------------|-------|
+| Instagram | 2h 36m (156 min) | 2h 36m | 0 |
+| YouTube | 1h 14m (74 min) | 1h 14m | 0 |
+| Facebook | 54 min | 56 min | +2 min |
+| WhatsApp | 11 min | 11 min | 0 |
+
+The +2 min Facebook drift is rounding noise (Apple Screen Time and our minute-bucket boundary aren't perfectly aligned).
+
+### How the catch-up recovery played out
+
+The Instagram timeline is the clean illustration:
+
+| Time | Wake event | Instagram `lastThreshold` jumps to |
+|------|-----------|-----------------------------------|
+| 05:03–05:22 | Sequential per-minute play | min 20 |
+| 21:44:36 | First post-reinstall extension wake | min 40 (catch-up burst) |
+| 21:45 | Continued flood from same wake | min 80 |
+| 22:04 | TestFlight install wake | min 120 |
+| 22:15 | Xcode install wake | **min 156** (matches iOS) |
+
+At each wake, iOS fired a flurry of threshold events out-of-order. Our extension accepted each ascending threshold and rejected the duplicates as `SKIP_REGRESSION`. Three apps recovered in parallel from these floods (Instagram, YouTube, Facebook) with no cross-app interference.
+
+### What this validated
+
+- ✅ Legit catch-up recovery works across **multiple same-day reinstalls** — iOS retains its cumulative threshold queue across app reinstalls, and the new extension binary correctly absorbs the replay
+- ✅ `MAPPING_RECOVERED` (stable-hash backfill of event-name → appID after extension state wipe) restored mappings without losing usage data
+- ✅ `SKIP_REGRESSION` correctly filters the out-of-order portion of the catch-up replay without rejecting the ascending portion
+- ✅ Multi-app concurrent recovery — Instagram, YouTube, and Facebook all caught up in interleaved fashion in the same 1.5-second window at 21:44:36
+- ✅ Subscription/dev-bypass transition does not corrupt the day's cumulative once monitoring resumes
+
+### What this did NOT validate (still pending)
+
+- **Phantom flood with shielded event in burst** — no shielded reward app fired during any of the three catch-up bursts on this device, so the `FLOOD` + `REVERT` path was not exercised. Still awaiting natural occurrence.
+
+### Coverage status after May 20
+
+| Path | Status |
+|------|--------|
+| Single event (no neighbors within 5s) → credit on arrival | ✅ Validated (Amine + Betty) |
+| Legit catch-up burst (multiple ascending events within 5s, no shielded signal) | ✅ Validated (Betty — three separate bursts) |
+| Phantom flood (shielded reward app event arriving during burst) | ✅ Validated 2026-05-21 (Amine — see section below). Net credit zero; flood revert worked. **But** uncovered a post-flood recording blackout, fix planned. |
+
+---
+
+## 2026-05-21 — Phantom flood + recovery hole (Amine's iPhone)
+
+First natural phantom flood observed since shipping the credit-on-arrival + undo architecture. The flood classifier itself worked exactly as designed. But the *aftermath* exposed a gap: once a flood fires, iOS's registered sliding-window thresholds are consumed by the burst, and the current architecture has no automatic path to re-register them. Result on this device: ~10 hours of completely silent recording until a manual force-restart at 13:57.
+
+### What the flood looked like
+
+`ext-log-2026-05-21.log`, session `5681D16A`:
+
+- **03:10:52.283** — One legit credit lands first: BB131A01 (Instagram) → 180s on min.3 (`RECORDED ... newToday=180s`)
+- **03:10:52.554** — 0.27s later, shielded reward app C6DA269B fires during the same 5s burst window → `BURST_REVERT reason=shield-in-burst-C6DA269B appsReverted=1 — BB131A01(180s→0s)`
+- **03:10:52.559** — `PHANTOM_FLOOD_DETECTED` locks out 30s
+- **03:10:52.589–03:10:55.547** — Next ~110 events for 8 apps silently rejected as `SKIP_FLOOD`
+
+Threshold values reported during the flood reached **min.30 (Instagram), min.20 (Facebook), min.19 (YouTube)** — confirming this was iOS dumping its full queued event backlog in 3 seconds.
+
+### The dead 10-hour tail
+
+After the flood, the log contains **zero threshold events** until the manual restart at 13:57. Three app launches in between (06:13, 11:30, 13:32) all logged `MONITORING_ALIVE — OS confirms active, skipping restart`. From iOS Screen Time at 13:34: Instagram 20 min, Facebook 6 min — real usage that our recording missed entirely.
+
+### Root cause — two sliding-window states diverged
+
+There are two "sliding window" states, and the flood hit them differently:
+
+1. **iOS's registered thresholds** (the bells iOS will ring): every one of these fired during the flood, even though our extension rejected each event as SKIP_FLOOD. Once iOS rings a bell, it's gone. **State after flood: empty.**
+
+2. **Our internal counter** `usage_<id>_today`: correctly reverted by `revertBurstCredits` back to its pre-flood value (0 for every app today, since BB131A01 was the only credit and it was rolled back). **State after flood: untouched/zero.**
+
+The rebuild trigger (`triggerRebuildIfNearWindowTop` at line 341, and the state-based `WINDOW_TOP_HIT` check at line 1673) both require a successful credit to fire. Flood-rejected events skip both. The main-app safety net (`scheduleActivity` on app open) is gated by `MONITORING_ALIVE` skip-restart, which exists specifically to prevent phantom floods on every app launch.
+
+Net effect: iOS believes monitoring is alive, but the schedule is an empty husk. No bell to ring → no callback to our extension → 10 hours of silence.
+
+### Force-restart validation (13:57)
+
+To test the recovery hypothesis, manually triggered `restartMonitoring` via the diag menu's `settings_refresh_tracking_button`. Same log file, session `B0D1F227`:
+
+- **13:57:33** — `MONITORING_RESTART — reason: settings_refresh_tracking_button`
+- **13:57:34** — Extension killed, fresh session B0D1F227 starts
+- **13:57:49.556** — First catch-up arrives: `RECORDED appID=BB131A01... newToday=120s` (Instagram min.2)
+- **13:57:49.643** — `RECORDED appID=E8B1C8C6... newToday=120s` (Facebook min.2)
+- **13:57:49.695–13:57:52.061** — iOS dumps the rest. Instagram climbs 2 → 13 → 14 → 15 → 18 → 20. Facebook 2 → 6
+- **13:57:52** — Final state: Instagram=20 min, Facebook=6 min. **Matches iOS Screen Time exactly.**
+
+`EXT_REBUILD_APP` log at 13:57:52 confirms the rebuild registered windows based on the *correctly reverted* counters and shows the iOS-actual-cumulative for every app:
+
+| App | Rebuild window | iOS catch-up fires | Real today usage |
+|-----|----------------|---------------------|------------------|
+| BB131A01 (Instagram) | 21–40 (post-credit) | min.2 → 3 → 13 → 14 → 15 → 18 → 20 | **20 min** |
+| E8B1C8C6 (Facebook) | 7–26 (post-credit) | min.2 → 6 | **6 min** |
+| C6DA269B (reward) | 1–90 | none | **0 min** |
+| D63AE4AA (reward) | 1–20 | none | **0 min** |
+| 642B7130 (reward) | 1–90 | none | **0 min** |
+| 739C4A42 (reward) | 1–5 | none | **0 min** |
+| 93088665 (reward) | 1–5 | none | **0 min** |
+| FAE1D45B | 1–30 | none | **0 min** |
+
+### Zero flood re-trigger — and why
+
+Two reinforcing reasons the recovery burst credited cleanly:
+
+1. The catch-ups themselves satisfied today's goals (BB131A01 hit 5 min in the first second of the recovery burst), unshielding the reward apps mid-burst.
+2. **More important finding:** the rebuild registered min.1–90 windows for every reward app, and iOS fired **zero catch-ups for any of them.** That confirms the original 03:10 flood's "reward app at min.5" events were ghost values inside a corrupted iOS event-delivery batch, **not real iOS cumulative.** iOS's actual internal counters for those apps today: zero. Our flood-revert correctly discarded usage that never existed.
+
+### The fix — three small pieces using the existing `pending_window_rebuild` flag
+
+The flag and the recovery handler already exist. They're used today for `WINDOW_TOP_HIT` rebuild requests. The flood path just needs to (a) write the flag, and (b) be honored by the app-launch and foreground-health paths that currently skip restart when `MONITORING_ALIVE` is true.
+
+**Piece 1 — Extension writes the flag on flood revert.** Inside `revertBurstCredits` (DeviceActivityMonitorExtension.swift:362), immediately after `defaults.set(true, forKey: "burst_is_flood")`:
+
+```swift
+requestMainAppWindowRebuild(reason: "post-flood-recovery", defaults: defaults)
+```
+
+That posts a Darwin notification and writes the persistent flag. If the main app is in memory, it handles the notification immediately and runs `restartMonitoring`. If it isn't, the flag persists for any later recovery path to find.
+
+**Piece 2 — App-launch safety net.** In `ScreenTimeService.swift` around line 567, the `MONITORING_ALIVE` block already checks `midnight_pending_refresh` and forces a restart if set. Add a parallel check for `pending_window_rebuild` right next to it. This catches the case where the main app was suspended during the flood — the Darwin notification may have been dropped, but the flag persists, and we drain it the next time the app launches.
+
+**Piece 3 — Foreground health-check safety net.** Same idea in `checkMonitoringHealth` around line 2121 (called on `scenePhase = .active`). Add the same `pending_window_rebuild` check next to the existing `midnight_pending_refresh` check. This catches the case where the main app was already in memory but backgrounded when the flood happened.
+
+### Why this is the right shape
+
+- **No spurious restarts.** Normal days: no flood → flag never set → no extra restart cost. The `MONITORING_ALIVE` skip stays in place for the normal case it was designed for.
+- **Real signal, not a calendar heuristic.** "Restart on first launch of the day" would force a restart every morning whether or not anything went wrong; that re-introduces the phantom-flood risk that `MONITORING_ALIVE` was added to prevent. The flag-based version only fires when the extension actually detected something it can't recover from.
+- **Self-clearing.** `restartMonitoring` clears the flag on entry (line 2227). Once recovery succeeds, the flag is gone.
+- **No infinite-loop risk.** The only way recovery could re-trigger flood detection is if a shielded reward app fires during the catch-up burst — physically impossible (shields prevent launch). The May 21 test confirmed this empirically: reward apps in the original flood had zero iOS-cumulative and fired no catch-ups during recovery.
+
+### Plan — implementation steps
+
+1. **Piece 1** — Add `requestMainAppWindowRebuild(reason: "post-flood-recovery", defaults: defaults)` inside `revertBurstCredits`, right after the `burst_is_flood = true` write
+2. **Piece 2** — In `ScreenTimeService.swift`'s app-launch `MONITORING_ALIVE` block (~line 567), add parallel `pending_window_rebuild` check that calls `restartMonitoring(reason: "post-flood pending window rebuild (init)")`
+3. **Piece 3** — In `checkMonitoringHealth` (~line 2121), add the same `pending_window_rebuild` check that calls `restartMonitoring(reason: "post-flood pending window rebuild (foreground)")`
+4. On-device test: wait for natural flood (or simulate by toggling a reward app's shield mid-burst) → confirm auto-recovery completes within ~10s, no manual intervention needed
+5. Update the test-scenarios table — "Multi-app phantom flood including a shielded reward app event" → add "and recording auto-resumes within seconds via post-flood rebuild"
+
+### Known residual concern — immediate-recovery race
+
+If the main app is in memory at the moment the flood fires, the Darwin notification triggers `handleWindowRebuildRequest` → debounces 5s → `restartMonitoring` within ~5-7 s of flood detection. iOS will then dump catch-ups within another 2-3 s. Those catch-ups may land while:
+
+- `phantom_flood_active_until` is still active (30 s lockout from `PHANTOM_FLOOD_DETECTED`)
+- `burst_is_flood = true` and `last_event_arrival_global` is recent (Phase B sees `gap < 5 s` → in-burst → no clear)
+
+In that window the catch-ups would be rejected by `SKIP_FLOOD` and/or `BURST_FLOOD_SKIP`. The system still self-recovers within ~30-60 s — fresh thresholds are registered, lockouts eventually expire, the next real per-minute event credits cleanly — but the catch-up burst itself doesn't recover the missed usage.
+
+This is a **strictly better failure mode than today** (10 h of silence → ~60 s of silence) and matches the existing accepted trade-off for phantom floods (the architecture already accepts net-zero credit on flood). The late-recovery path (main app suspended at flood time → recovery on next launch or foreground transition) is unaffected — by the time the flag is drained at launch, all flood timers have long since expired, which is exactly the case the 2026-05-21 force-restart test validated end-to-end.
+
+If immediate-recovery becomes a problem in practice (we observe a real-device incident where the kid had real usage iOS would have caught us up on, and we missed it because immediate-restart fired during active lockout), the fix is to clear `phantom_flood_active_until` and `burst_is_flood` at the start of `restartMonitoring` when the reason contains "post-flood-recovery". Defer until evidence warrants.
 
 ---
 
