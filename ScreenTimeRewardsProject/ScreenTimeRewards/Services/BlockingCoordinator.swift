@@ -1356,14 +1356,18 @@ class BlockingCoordinator: ObservableObject {
     func startPeriodicRefresh() {
         stopPeriodicRefresh()
 
-        // Don't start monitoring if subscription expired.
-        // effectiveHasAccess: on child devices, includes parent-paired entitlement so we don't
-        // wipe shields at launch before CloudKit confirms the parent subscription.
+        // Don't start the periodic re-evaluation if subscription is not currently verified.
+        // CRITICAL — do NOT wipe shields here. A transient CloudKit failure or a pre-warm
+        // race in ChildBackgroundSyncService.hasFullAccess can flip effectiveHasAccess to
+        // false for 1-2 seconds; wiping iOS's shield set on that signal gives the kid
+        // unrestricted access to every reward app until the extension's per-event recovery
+        // re-applies them (5-15 min). Subscription enforcement now happens via natural
+        // bank drain and locked settings UI, not by destroying the safety state.
+        // See docs/SHIELD_SUBSCRIPTION_RACE_FIX.md for the 2026-05-21 device incident.
         guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
-            print("[BlockingCoordinator] Subscription expired - not starting periodic refresh")
+            print("[BlockingCoordinator] Subscription not verified — skipping periodic refresh (shields preserved)")
             #endif
-            ScreenTimeService.shared.clearAllShields()
             return
         }
 
@@ -1391,12 +1395,17 @@ class BlockingCoordinator: ObservableObject {
 
     /// Refresh all blocking states for currently tracked reward apps
     func refreshAllBlockingStates() {
-        // Stop monitoring if subscription expired (includes parent-paired access on child devices)
+        // Skip this refresh if subscription is not currently verified.
+        // CRITICAL — do NOT wipe shields here. See docs/SHIELD_SUBSCRIPTION_RACE_FIX.md
+        // for the 2026-05-21 device incident: a transient effectiveHasAccess=false caused
+        // managedSettingsStore.shield.applications=nil, dropping every reward shield for
+        // hours until a learning-app threshold event triggered the extension's per-event
+        // recovery. Existing shields stay in place; subscription enforcement happens via
+        // natural bank drain and locked settings UI, not by clearing.
         guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
-            print("[BlockingCoordinator] Subscription expired - clearing all shields")
+            print("[BlockingCoordinator] Subscription not verified — skipping refresh (shields preserved)")
             #endif
-            ScreenTimeService.shared.clearAllShields()
             return
         }
 
