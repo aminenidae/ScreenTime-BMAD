@@ -185,6 +185,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Burst start timestamp (set once per burst)
         if defaults.double(forKey: "shadow_burst_start_ts") == 0 {
             defaults.set(nowTimestamp, forKey: "shadow_burst_start_ts")
+            // Wall-clock budget baseline: snapshot the timestamp of the most recent
+            // credit BEFORE this burst began. We read `last_credited_global_timestamp`
+            // here, before this event flows through applyCredit and updates it. The
+            // snapshot is frozen for the lifetime of this burst — the burst's own
+            // credits don't get to update its own budget reference. See
+            // shadowBurstEmit's SHADOW_BUDGET_CHECK for the comparison.
+            let lastCreditTs = defaults.double(forKey: "last_credited_global_timestamp")
+            defaults.set(lastCreditTs, forKey: "shadow_burst_baseline_credit_ts")
         }
         defaults.set(nowTimestamp, forKey: "shadow_burst_last_event_ts")
 
@@ -275,6 +283,53 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let verdict = (coldStartSignal == "pass" && growthSignal == "pass") ? "legit" : "phantom"
 
         debugLog("SHADOW_BURST_JUDGE dur=\(String(format: "%.1f", dur))s events=\(totalEvents) apps=\(apps.count) timeSinceKill=\(timeSinceLastKill)s signals=[COLD_START_HIGH=\(coldStartSignal) GROWTH_VS_UNSHIELD=\(growthSignal)] verdict=\(verdict) details=[\(appDetails.joined(separator: " | "))]", defaults: defaults)
+
+        // 2026-05-23 — Wall-clock budget check (shadow only).
+        //
+        // A child can use only one app at a time, so the total minutes claimed
+        // across all apps in a burst cannot exceed the wall-clock time available
+        // before the burst started. Budget is measured from the timestamp of the
+        // most recent legitimate credit before this burst began (snapshotted in
+        // shadowBurstTrack when the burst opened) up to the burst's first event.
+        //
+        // This check is the rigorous defense against phantom kill-replay floods
+        // that the shape-based signals (COLD_START_HIGH, GROWTH_VS_UNSHIELD) cannot
+        // reliably distinguish from legitimate catch-up. Pure observation for now;
+        // promote to enforcement after a few days of shadow data confirms it trips
+        // on real floods (May 23 incident: 282min claim in ~25min window) without
+        // tripping on legitimate catch-ups.
+        // Heal-mode bypass: a heal-triggered catch-up is intentional. Its
+        // claim by design fills today's elapsed budget (baseline is anchored
+        // at start-of-today by performHealUsage), but when we later promote
+        // the budget check to enforcement we don't want any math edge case
+        // (e.g. heal right after midnight, tiny budget) to revert the heal's
+        // own catch-up. Same pattern as the other anti-phantom defenses:
+        // during heal the check logs verdict=heal-bypass and does nothing.
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        let inHealMode = nowTimestamp < healActiveUntil
+
+        let baselineCreditTs = defaults.double(forKey: "shadow_burst_baseline_credit_ts")
+        var totalGrowthMin = 0
+        for appID in apps {
+            let maxThresh = defaults.integer(forKey: "shadow_burst_max_thresh_\(appID)")
+            let todayAtStart = defaults.integer(forKey: "shadow_burst_today_at_start_\(appID)")
+            let growthSec = max(0, maxThresh - todayAtStart)
+            totalGrowthMin += growthSec / 60
+        }
+        let wallclockSec = baselineCreditTs > 0 ? max(0.0, startTs - baselineCreditTs) : -1.0
+        let wallclockMin = wallclockSec >= 0 ? Int(wallclockSec / 60.0) : -1
+        let budgetMin = wallclockMin >= 0 ? Int(Double(wallclockMin) * 1.1) : -1
+        let budgetVerdict: String
+        if inHealMode {
+            budgetVerdict = "heal-bypass"
+        } else if budgetMin < 0 {
+            budgetVerdict = "no-baseline"
+        } else if totalGrowthMin > budgetMin {
+            budgetVerdict = "exceeded"
+        } else {
+            budgetVerdict = "within"
+        }
+        debugLog("SHADOW_BUDGET_CHECK total_growth=\(totalGrowthMin)min wallclock=\(wallclockMin)min budget=\(budgetMin)min verdict=\(budgetVerdict) apps=\(apps.count) baseline_age=\(baselineCreditTs > 0 ? String(format: "%.0f", nowTimestamp - baselineCreditTs) + "s" : "none")", defaults: defaults)
     }
 
     private nonisolated func shadowBurstReset(defaults: UserDefaults) {
@@ -285,6 +340,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(0.0, forKey: "shadow_burst_last_event_ts")
         defaults.set(0, forKey: "shadow_burst_total_events")
         defaults.removeObject(forKey: "shadow_burst_apps_csv")
+        defaults.removeObject(forKey: "shadow_burst_baseline_credit_ts")
 
         for appID in apps {
             defaults.removeObject(forKey: "shadow_burst_count_\(appID)")
@@ -423,6 +479,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Global "last credited" anchor used by other code paths.
         defaults.set(now, forKey: "last_credited_global_timestamp")
 
+        // Heal-mode keepalive: while heal_active_until is in the future, every
+        // successful credit extends it by 30 more seconds. As long as iOS is
+        // delivering catch-up events for ANY app, the heal window stays open.
+        // The flag only expires when catch-up genuinely goes silent for 30s,
+        // which is when the rebuild chain is actually done. Outside heal mode
+        // the flag is 0/expired and the check is a no-op.
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        if now < healActiveUntil {
+            defaults.set(now + 30, forKey: "heal_active_until")
+        }
+
         // ext_ keys — totals and timestamps the main app and other code may read.
         if credited > 0 {
             let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
@@ -446,15 +513,199 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let threshMin = threshold / 60
         guard threshMin >= windowTopMin - 5 else { return }
 
+        // Heal mode: when the main app's healUsageData kicked off a catch-up,
+        // it sets `heal_active_until` ~30s into the future. During that window
+        // we shrink the per-app debounce from 60s → 1s so consecutive window
+        // rebuilds can chain back-to-back. Without this, catch-up deadlocks
+        // at the first window boundary because no further rebuilds can fire.
+        //
+        // Self-extending: every rebuild that fires while heal is active pushes
+        // the expiry forward by another 15s. As long as catch-up keeps making
+        // progress (more rebuilds firing), the window stays open. When events
+        // stop arriving the flag naturally expires within ~15s and normal
+        // debounce returns. Without this, a long catch-up (e.g. Instagram at
+        // 116min needing 6 chained rebuilds) outlasts a fixed 30s window and
+        // deadlocks at the boundary where the flag expired.
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        let inHealMode = now < healActiveUntil
+        let debounceSec: Double = inHealMode ? 1.0 : 60.0
+
         let debounceKey = "window_rebuild_request_\(appID)"
         let lastRequest = defaults.double(forKey: debounceKey)
-        guard (now - lastRequest) > 60 else { return }
+        guard (now - lastRequest) > debounceSec else { return }
 
         defaults.set(now, forKey: debounceKey)
+        if inHealMode {
+            defaults.set(now + 30, forKey: "heal_active_until")
+        }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
         requestMainAppWindowRebuild(reason: "credit-near-top-\(appID.prefix(8))", defaults: defaults)
         _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "credit-near-top-\(appID.prefix(8))")
+    }
+
+    // MARK: - Heal (2026-05-23, extension-canonical)
+    //
+    // Self-healing reset: wipe today's recorded usage and ask iOS for the
+    // authoritative cumulative via a sliding-window rebuild. Lives in the
+    // extension because (1) ~90% of recording work already runs here, (2) auto-
+    // heal triggers (e.g. wall-clock budget anomalies) fire from inside event
+    // handlers and shouldn't depend on the main app being awake, and (3) iOS
+    // can wake the extension via threshold events even when the main app is
+    // terminated, so heal completes regardless of foreground state.
+    //
+    // Manual heal path: main app's button writes `heal_requested_at` + reason
+    // and calls restartMonitoring. iOS delivers intervalDidStart to the
+    // extension, which sees the flag and calls performHealUsage() before the
+    // regular intervalDidStart logic runs.
+    //
+    // Auto-heal path: any extension-internal trigger (budget anomaly, judge
+    // verdict, future heuristics) calls performHealUsage() directly. No
+    // round-trip to the main app required.
+    //
+    // See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md "2026-05-23 — Heal
+    // mechanism" for the full design and rationale.
+
+    /// Perform the heal: wipe today's per-app totals, reset state flags so the
+    /// catch-up burst doesn't trip any anti-phantom defenses, then re-register
+    /// the sliding window so iOS delivers fresh threshold events carrying its
+    /// authoritative cumulative for today.
+    private nonisolated func performHealUsage(reason: String, defaults: UserDefaults) {
+        lifecycleLog("HEAL_USAGE_START — reason: \(reason)", defaults: defaults)
+        Self.logger.notice("HEAL_USAGE_START reason=\(reason)")
+
+        let appIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        guard !appIDs.isEmpty else {
+            lifecycleLog("HEAL_USAGE_SKIP — no tracked apps", defaults: defaults)
+            return
+        }
+
+        let startOfToday = Self.calendar.startOfDay(for: Date()).timeIntervalSince1970
+        let nowTs = Date().timeIntervalSince1970
+
+        // Snapshot pre-heal totals for the audit trail.
+        var preHealTotalSec = 0
+        var preHealParts: [String] = []
+        for appID in appIDs {
+            let secs = defaults.integer(forKey: "usage_\(appID)_today")
+            preHealTotalSec += secs
+            if secs > 0 {
+                preHealParts.append("\(appID.prefix(8))=\(secs / 60)min")
+            }
+        }
+
+        // Zero each app's today counters, hourly buckets, and the shadow burst
+        // tracker's per-app keys (the latter is what caused the apps=0 bug in
+        // SHADOW_BUDGET_CHECK during the May 23 heal tests — heal cleared the
+        // global shadow state but missed these per-app counters).
+        for appID in appIDs {
+            defaults.set(0, forKey: "usage_\(appID)_today")
+            defaults.set(0, forKey: "usage_\(appID)_lastThreshold")
+            defaults.set(nowTs, forKey: "usage_\(appID)_modified")
+            defaults.set(startOfToday, forKey: "usage_\(appID)_reset")
+
+            defaults.set(0, forKey: "ext_usage_\(appID)_today")
+            defaults.removeObject(forKey: "ext_usage_\(appID)_timestamp")
+
+            for h in 0..<24 {
+                defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+            }
+
+            // Shadow burst tracker per-app state — must clear so the heal's own
+            // catch-up burst registers fresh app entries in shadow_burst_apps_csv.
+            defaults.removeObject(forKey: "shadow_burst_count_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_max_thresh_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_min_thresh_\(appID)")
+            defaults.removeObject(forKey: "shadow_burst_today_at_start_\(appID)")
+
+            // Burst revert state from any in-flight burst.
+            defaults.removeObject(forKey: "revert_today_\(appID)")
+            defaults.removeObject(forKey: "revert_lastThreshold_\(appID)")
+        }
+
+        // Anchor wall-clock budget baseline at start-of-today so the upcoming
+        // catch-up burst's total claim fits within today's elapsed budget.
+        defaults.set(startOfToday, forKey: "last_credited_global_timestamp")
+
+        // Activate heal mode so anti-phantom defenses (SKIP_FLOOD, SKIP_SHIELDED,
+        // BURST_REVERT, PHANTOM_FLOOD_DETECTED, FIRST_EVENT_BUFFER) stand aside
+        // while iOS delivers its authoritative catch-up. The flag self-extends
+        // on every credit during heal and on every rebuild request, so a long
+        // multi-window catch-up chain stays inside heal mode until catch-up
+        // truly goes silent for ≥30 seconds.
+        defaults.set(nowTs + 30, forKey: "heal_active_until")
+
+        // Clear global burst/flood state for a clean restart.
+        defaults.removeObject(forKey: "burst_credited_apps_csv")
+        defaults.removeObject(forKey: "burst_is_flood")
+        defaults.removeObject(forKey: "last_event_arrival_global")
+        defaults.removeObject(forKey: "phantom_flood_active_until")
+
+        // Reset shadow burst tracker globals.
+        defaults.removeObject(forKey: "shadow_burst_apps_csv")
+        defaults.set(0.0, forKey: "shadow_burst_start_ts")
+        defaults.set(0.0, forKey: "shadow_burst_last_event_ts")
+        defaults.set(0, forKey: "shadow_burst_total_events")
+        defaults.removeObject(forKey: "shadow_burst_baseline_credit_ts")
+
+        // Clear per-rebuild debounce timestamps so the catch-up chain isn't
+        // blocked by stale per-app debounce. Heal-mode shortens debounce to 1s
+        // anyway, but starting from a clean baseline keeps things predictable.
+        for appID in appIDs {
+            defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+        }
+
+        let preHealMin = preHealTotalSec / 60
+        let appsSummary = preHealParts.isEmpty ? "no prior usage" : preHealParts.joined(separator: ", ")
+        lifecycleLog("HEAL_USAGE_RESET — cleared \(preHealMin)min across \(appIDs.count) apps [\(appsSummary)]", defaults: defaults)
+        Self.logger.notice("HEAL_USAGE_RESET cleared=\(preHealMin)min apps=\(appIDs.count)")
+
+        // Re-register the sliding window with current=0 for every tracked app.
+        // iOS responds by firing catch-up threshold events for every threshold
+        // ≤ its real cumulative for today. The extension processes those
+        // events normally; applyCredit's SET-to-max semantics rebuild today's
+        // totals to match iOS's authoritative count.
+        let rebuildOK = extensionRebuildSlidingWindow(
+            defaults: defaults,
+            triggerAppID: nil,
+            reason: "heal-\(reason)"
+        )
+        if !rebuildOK {
+            lifecycleLog("HEAL_USAGE_REBUILD_FAILED — sliding-window re-registration failed; main app will retry on next foreground", defaults: defaults)
+            Self.logger.error("HEAL_USAGE_REBUILD_FAILED — extension rebuild returned false")
+            // Set the same flag the midnight path uses so the main app does a
+            // safety-net scheduleActivity() the next time it's running.
+            defaults.set(true, forKey: "midnight_pending_refresh")
+            defaults.set(nowTs, forKey: "midnight_pending_timestamp")
+        }
+
+        // Notify the main app so its UI re-reads usage and shield state.
+        notifyMainApp()
+
+        lifecycleLog("HEAL_USAGE_DONE — iOS catch-up will rebuild today's usage", defaults: defaults)
+        Self.logger.notice("HEAL_USAGE_DONE — rebuild dispatched")
+    }
+
+    /// Called from intervalDidStart on every monitoring restart. If the main
+    /// app set `heal_requested_at` within the last 60 seconds, this is a
+    /// heal-driven restart — drain the flag and perform the heal before the
+    /// regular intervalDidStart processing runs.
+    private nonisolated func consumeHealRequestIfPresent(defaults: UserDefaults) {
+        let requestedAt = defaults.double(forKey: "heal_requested_at")
+        guard requestedAt > 0 else { return }
+        let age = Date().timeIntervalSince1970 - requestedAt
+        guard age <= 60 else {
+            // Stale request — drain without acting. Prevents a forgotten flag
+            // from triggering an unexpected heal hours later.
+            defaults.removeObject(forKey: "heal_requested_at")
+            defaults.removeObject(forKey: "heal_requested_reason")
+            lifecycleLog("HEAL_USAGE_STALE — request age=\(Int(age))s, draining without action", defaults: defaults)
+            return
+        }
+        let reason = defaults.string(forKey: "heal_requested_reason") ?? "main-app-button"
+        defaults.removeObject(forKey: "heal_requested_at")
+        defaults.removeObject(forKey: "heal_requested_reason")
+        performHealUsage(reason: reason, defaults: defaults)
     }
 
     // MARK: - Lifecycle
@@ -486,6 +737,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
             // Set restart timestamp for 60s safety window
             defaults.set(Date().timeIntervalSince1970, forKey: "monitoring_restart_timestamp")
+
+            // Heal hook: if the main app's button just set heal_requested_at,
+            // perform the heal here. Must run BEFORE the rest of intervalDidStart
+            // so subsequent midnight/shield logic sees the post-heal state.
+            consumeHealRequestIfPresent(defaults: defaults)
 
             // === MIDNIGHT DIAGNOSTIC: Only activate on genuine midnight (day changed) ===
             let lastDiagDate = defaults.string(forKey: "midnight_diagnostic_date")
@@ -942,8 +1198,19 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let myAppLastArrival = defaults.double(forKey: "last_event_arrival_\(appID)")
         defaults.set(nowTimestamp, forKey: "last_event_arrival_\(appID)")
 
+        // Heal-mode bypass: when the main app's healUsageData kicked off a
+        // catch-up rebuild, anti-phantom defenses (SKIP_FLOOD, SKIP_SHIELDED,
+        // BURST_REVERT, PHANTOM_FLOOD_DETECTED, FIRST_EVENT_BUFFER) must not
+        // fire — the catch-up is intentional and represents iOS's authoritative
+        // cumulative for today. Without this bypass the heal's own burst trips
+        // the shielded-in-burst defense (reward apps re-shield during heal
+        // because goals become unmet at usage=0), reverts every credit, and
+        // locks out subsequent events for 30s (see 2026-05-23 11:46:35 log).
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        let inHealMode = nowTimestamp < healActiveUntil
+
         let floodActiveUntil = defaults.double(forKey: "phantom_flood_active_until")
-        if floodActiveUntil > nowTimestamp {
+        if !inHealMode && floodActiveUntil > nowTimestamp {
             // Burst-context check: is this event part of a tight burst?
             // - own app: prior event within 5s (this event is a follow-up in a burst)
             // - other apps: any tracked app had an event within 5s
@@ -982,7 +1249,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Filter 2: Shielded reward app — user can't use a blocked app, so events are phantom
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         Self.logger.notice("FILTER2_ENTRY app=\(appID.prefix(8))... category=\(category) thresh=\(thresholdSeconds)s")
-        if category == "Reward" {
+        if category == "Reward" && !inHealMode {
             guard let configs = shieldConfigs else {
                 // shieldConfigs unavailable — can't verify shield state. Block reward app events as a
                 // safe default: false negatives (missing earned-time events) are safer than false
@@ -1158,6 +1425,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     // Without this gate, a kid starting a new app post-restart loses
                     // all credit until a low-min companion event arrives (which won't,
                     // because they're already past min.3 in real cumulative).
+                    //
+                    // 2026-05-23 heal-mode bypass: during heal, all bursts are
+                    // intentional iOS catch-up — trust the high-threshold event
+                    // directly instead of opening a buffer that would reject it.
                     var inBurst = false
                     let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
                     for trackedID in trackedAppIDs where trackedID != appID {
@@ -1167,7 +1438,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                             break
                         }
                     }
-                    if !inBurst {
+                    if !inBurst || inHealMode {
                         debugLog("FIRST_EVENT_TRUST appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — isolated event (no other apps in burst), trusting as legit catch-up", defaults: defaults)
                         Self.logger.notice("FIRST_EVENT_TRUST app=\(appID.prefix(8))... thresh=\(thresholdSeconds)s")
                         // Fall through to recording: rawDelta=60 (lastThresh=0 case)

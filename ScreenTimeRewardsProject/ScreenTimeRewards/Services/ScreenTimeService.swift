@@ -2223,6 +2223,69 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
     // MARK: - Diagnostics helpers
 
+    /// Self-healing reset (2026-05-23, extension-canonical since refactor).
+    /// The actual heal logic lives in the extension (`performHealUsage` in
+    /// DeviceActivityMonitorExtension.swift). This main-app function is a
+    /// thin trigger that:
+    ///
+    ///   1. Writes the heal-request flag the extension reads.
+    ///   2. Snapshots pre-heal totals for the user-facing message.
+    ///   3. Calls restartMonitoring, which causes iOS to deliver
+    ///      intervalDidStart to the extension — and the extension's
+    ///      consumeHealRequestIfPresent() then drains the flag and runs
+    ///      the heal locally inside the extension process.
+    ///
+    /// This indirection means:
+    ///   - The same heal mechanism serves manual (button) and auto-heal
+    ///     (extension-internal trigger) paths from a single implementation.
+    ///   - Auto-heal triggers from inside the extension don't depend on the
+    ///     main app being awake — they call performHealUsage directly.
+    ///   - The wipe runs in the extension process, so there's no inter-process
+    ///     race window between zeroing main-app keys and the extension's
+    ///     next event arrival.
+    ///
+    /// See docs/THREE_PHASE_RECORDING_ARCHITECTURE.md "2026-05-23 — Heal
+    /// mechanism" for the full design.
+    @MainActor
+    func healUsageData(reason: String) async -> String {
+        lifecycleLog("HEAL_USAGE_REQUEST — reason: \(reason) (extension will perform the work)")
+
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
+            return "Couldn't access shared storage."
+        }
+
+        let appIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        guard !appIDs.isEmpty else {
+            return "No apps are being tracked yet."
+        }
+
+        // Snapshot pre-heal totals so the success message can show what was
+        // cleared. The extension's HEAL_USAGE_RESET log line records the
+        // authoritative numbers a moment later.
+        var preHealTotalSec = 0
+        for appID in appIDs {
+            preHealTotalSec += defaults.integer(forKey: "usage_\(appID)_today")
+        }
+        let preHealMin = preHealTotalSec / 60
+
+        // Set the flag the extension's intervalDidStart hook reads. Reason
+        // string is preserved for the extension's HEAL_USAGE_START log.
+        defaults.set(Date().timeIntervalSince1970, forKey: "heal_requested_at")
+        defaults.set(reason, forKey: "heal_requested_reason")
+
+        // Restart monitoring. iOS calls intervalDidEnd → intervalDidStart on
+        // the extension; the extension's hook sees the flag and runs the heal
+        // before its regular intervalDidStart logic. iOS then delivers the
+        // catch-up burst against the post-heal sliding window.
+        await restartMonitoring(reason: "heal-usage:\(reason)", force: true)
+
+        if preHealMin > 0 {
+            return "Cleared \(preHealMin) minutes of recorded usage. iOS is sending the correct usage data now — totals will update in a few seconds."
+        } else {
+            return "No usage recorded yet today. iOS will deliver today's usage now if any."
+        }
+    }
+
     /// Restart monitoring with retry logic for robustness.
     /// If scheduleActivity() fails, retries up to 3 times with exponential backoff.
     func restartMonitoring(reason: String, force: Bool = false) async {

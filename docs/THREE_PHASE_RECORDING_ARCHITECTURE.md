@@ -198,6 +198,8 @@ iOS's threshold is the authoritative cumulative for that app today. Both fields 
 
 **Note on the multi-app aggregate check:** the prior design used a sum-of-claims-vs-wallclock check to catch Device-C-style floods even without a shielded event. The new design drops this — we accept that a multi-app phantom flood without a shielded reward app event could over-credit. In practice every real phantom flood we've seen included shielded events (reward apps are always part of the monitored set and frequently shielded), so the shielded signal alone is sufficient.
 
+**Update 2026-05-23:** the "every real phantom flood includes shielded events" assumption broke. On Amine's iPhone, an 8-app phantom flood fired at kill-respawn while every reward app was already unshielded (pool=2474min, all goals met). The shielded-in-burst signal could not fire; over-credit went through (Mobile Legends +69min, YouTube +66min, Mini Motorways +69min). The shadow burst-judge correctly classified `verdict=phantom` from the kill-replay signature but was diagnostic-only. **Resolution:** the wall-clock budget check (multi-app aggregate, originally dropped from this section) has been re-introduced in shadow mode. More importantly, the heal mechanism shipped same day fundamentally changes the threat model — phantom credits no longer need to be perfectly prevented because they can be corrected after the fact via iOS ground-truth catch-up. See "2026-05-23 — Heal mechanism" below for the architectural realization.
+
 ---
 
 ## State storage
@@ -288,10 +290,12 @@ This branch (`feat/credit-on-arrival-no-buffer`) migrates from the buffer model 
 | Kid plays one app, events fire every 60s | Each event credits at arrival (no waiting), usage_today advances to threshold |
 | Kid switches apps every 5 minutes | Each event credits at arrival, no interference between apps |
 | Extension dies for 10 min, restarts, iOS dumps 10 catch-up events for app A in 2s | All 10 events credit at arrival. Since applyCredit SETs to max, usage_today ends at the highest threshold = 10 min. |
-| Multi-app phantom flood (Device C): 16 apps fire in 25s after kill cascade, NO shielded events | All credit at arrival. **Trade-off:** we accept this risk — the multi-app aggregate flood check was dropped. |
+| Multi-app phantom flood (Device C): N apps fire after kill, NO shielded events | Early events credit at arrival. Two layers of defense: (1) the wall-clock budget check (shadow, logs `SHADOW_BUDGET_CHECK verdict=exceeded\|within`) — promotes to enforcement after validation. (2) When promoted, `verdict=exceeded` will trigger a silent heal rather than `revertBurstCredits` — heal asks iOS for ground truth and overwrites whatever the phantom credited. See heal section below. |
 | Multi-app phantom flood including a shielded reward app event | Early events credit. When shielded event arrives (Phase A SKIP_SHIELDED) → revert all credited apps → no net credit. |
 | Solo phantom event arrives after long idle | Credits at arrival. SKIP_STALE_FLUSH and SKIP_PIN_REPLAY catch absurd thresholds in Phase A. |
 | Roblox sliding-window recovery: high-threshold event after silence | Credits at arrival (no predecessor), usage_today set to threshold value. |
+| User triggers heal (manual button or future auto-trigger) | Today's usage zeros, sliding window re-registers at current=0, iOS delivers catch-up burst covering today's authoritative cumulative for every app. Anti-phantom defenses respect `heal_active_until` and stand aside. Validated 2026-05-23 — three apps healed to ±1 min of iOS Screen Time. |
+| Long-absence phantom (Flaw 1: phantom fits inside large wall-clock budget) | Budget check passes (verdict=within), credit lands. Auto-heal trigger (future) gated on "wall-clock was suspiciously large" calls heal to verify against iOS ground truth — phantom credit gets overwritten. |
 
 ---
 
@@ -337,6 +341,11 @@ This branch (`feat/credit-on-arrival-no-buffer`) migrates from the buffer model 
 - [ ] Multi-device validation across mixed iOS memory tiers and usage shapes (one more device beyond Amine's + Betty's)
 - [x] **Wait-and-watch:** real-world phantom flood — observed 2026-05-21 on Amine's iPhone (see log below). FLOOD + REVERT path worked correctly; but uncovered a post-flood recording blackout (~10h) caused by iOS-side threshold exhaustion with no rebuild trigger
 - [ ] **Post-flood recovery fix:** add `requestMainAppWindowRebuild` call inside `revertBurstCredits` so a full `restartMonitoring` kicks off automatically the moment a flood is reverted (see "2026-05-21 — Phantom flood + recovery hole" below)
+- [x] **Multi-app phantom flood without shielded events** — observed 2026-05-23 morning on Amine's iPhone. Initial shape-based enforcement attempt rolled back same day. Replaced by wall-clock budget check (shadow) and the heal mechanism. See "2026-05-23 — Multi-app phantom flood without shielded events" + "2026-05-23 — Heal mechanism" below.
+- [x] **Wall-clock budget check** — shipped in shadow mode 2026-05-23 (`SHADOW_BUDGET_CHECK`). Heal-mode bypass added so heal's own catch-up can't trip it.
+- [x] **Heal mechanism (extension-canonical)** — manual button validated 2026-05-23, three apps healed to ±1 min of iOS Screen Time. Refactored to extension-canonical implementation same day.
+- [ ] **Auto-heal triggers** — wire judge verdicts and budget anomalies to call `performHealUsage` silently. Thresholds and cooldown TBD.
+- [ ] **Production-ready user-facing heal button** — friendlier UX wording, silent-update mode that doesn't visibly flicker the dashboard.
 
 ---
 
@@ -582,6 +591,222 @@ In that window the catch-ups would be rejected by `SKIP_FLOOD` and/or `BURST_FLO
 This is a **strictly better failure mode than today** (10 h of silence → ~60 s of silence) and matches the existing accepted trade-off for phantom floods (the architecture already accepts net-zero credit on flood). The late-recovery path (main app suspended at flood time → recovery on next launch or foreground transition) is unaffected — by the time the flag is drained at launch, all flood timers have long since expired, which is exactly the case the 2026-05-21 force-restart test validated end-to-end.
 
 If immediate-recovery becomes a problem in practice (we observe a real-device incident where the kid had real usage iOS would have caught us up on, and we missed it because immediate-restart fired during active lockout), the fix is to clear `phantom_flood_active_until` and `burst_is_flood` at the start of `restartMonitoring` when the reason contains "post-flood-recovery". Defer until evidence warrants.
+
+---
+
+## 2026-05-23 — Multi-app phantom flood without shielded events (Amine's iPhone)
+
+First real-device occurrence of the "Device C" scenario the architecture had explicitly accepted as risk. The shielded-in-burst defense couldn't fire because every reward app was already unshielded at burst time — pool=2474min historical, all four learning goals were met. iOS killed the extension (memory pressure, session age 1420s = 23.6 min), and on respawn replayed catch-up events for every monitored app. Without a shielded reward app to trigger `revertBurstCredits`, the over-credit landed in production.
+
+### Evidence
+
+`ext-log-2026-05-23.log`, session boundary `465C140C → EDCB4069` at 08:38:56:
+
+```
+[08:38:56] EXTENSION_KILLED — new session detected (was: 465C140C, now: EDCB4069) age=1420s
+[08:38:56] EXTENSION_INIT session=EDCB4069
+SHADOW_BURST_JUDGE dur=10.1s events=183 apps=8 timeSinceKill=0s
+  signals=[COLD_START_HIGH=fail GROWTH_VS_UNSHIELD=pass]
+  verdict=phantom
+  details=[BB131A01:start=16min growth=4min | C6DA269B:start=0min growth=67min cold=true |
+           FAE1D45B:start=0min growth=30min cold=true | 642B7130:start=0min growth=70min cold=true |
+           93088665:start=0min growth=70min cold=true | E8B1C8C6:start=49min growth=18min |
+           D63AE4AA:start=0min growth=20min cold=true | 739C4A42:start=0min growth=3min cold=true]
+```
+
+User-visible damage compared to iOS Screen Time ground truth (09:32 snapshot):
+
+| App | App showed | iOS reported | Phantom |
+|---|---|---|---|
+| Mobile Legends (642B7130) | 69 min | 0 min (not in top apps) | +69 min |
+| YouTube (C6DA269B) | 67 min | 1 min | +66 min |
+| Mini Motorways (93088665) | 69 min | 0 min (not in top apps) | +69 min |
+| Facebook (E8B1C8C6) | 67 min | 49 min | +18 min |
+
+The judge captured the kill-replay signature exactly (cold apps at high thresholds, all 8 monitored apps in the burst, `timeSinceKill=0s`). Its output was correct; it just wasn't acting on the verdict.
+
+### First attempt (rolled back same day): shape-based enforcement
+
+Initial fix promoted the judge's `verdict=phantom` to call `revertBurstCredits` when three conditions held: `apps≥2`, `timeSinceKill∈[0,60]s`, `COLD_START_HIGH=fail`. **This was wrong.** The shape signals (cold apps + high thresholds + recent kill) describe phantom *and* legitimate catch-up identically — iOS replays the same threshold events whether the underlying usage was real (kid actually used apps during the kill window) or phantom (iOS firing residual thresholds without underlying activity). Pattern-matching on shape cannot distinguish them.
+
+A 7-day audit confirmed the problem: across 1094 judge fires, 13 multi-app bursts within 60s of a kill were classified `legit`, and the shape-based enforcement would have indiscriminately reverted them. Some were likely real catch-ups of legitimate usage during long kill windows; reverting them would have erased screen time the kid actually earned. Worse than the phantom-flood bug we were trying to fix.
+
+### The rigorous test: wall-clock budget
+
+The only signal that doesn't get fooled by "kid was actually using apps during the kill window" is the physical-impossibility check: a child can use one app at a time, so the total minutes claimed in a burst across all apps cannot exceed the wall-clock time available before the burst began. This was the multi-app aggregate check originally dropped on May 19 due to implementation bugs (timestamp updated mid-burst collapsed the budget). The concept was sound; the previous implementation wasn't.
+
+Mechanism:
+1. When a new burst begins (first event with gap ≥ 5s from the previous arrival), snapshot `last_credited_global_timestamp` into `shadow_burst_baseline_credit_ts`. This is the timestamp of the most recent legitimate credit before this burst — frozen for the burst's lifetime.
+2. As burst events flow in and credits update `last_credited_global_timestamp`, the snapshot is unaffected. The burst's own credits do not get to update its own budget reference.
+3. When the burst closes, compute `total_growth_min = sum(max_threshold − today_at_burst_start)` across all apps in the burst. Compute `wallclock_min = burst_start_ts − baseline_credit_ts`. Apply 10% grace: `budget = wallclock_min × 1.1`. Emit `SHADOW_BUDGET_CHECK verdict=exceeded|within|no-baseline`.
+
+Validation against the May 23 incident:
+- Total claimed across 8 apps: ~282 min (4+67+30+70+70+18+20+3)
+- Baseline: previous session was actively recording credits until ~24 min before the burst — `wallclock_min ≈ 24`
+- Budget: ~27 min
+- 282 > 27 → would trip cleanly. 10× margin over budget.
+
+### Known limitations (accepted)
+
+- **Long-absence floods:** if our extension is dead for hours and the last credit is from before that gap, the budget grows correspondingly. A phantom flood with claims that fit inside the long budget would slip through. Mitigation: the shielded-in-burst defense catches this — overnight, reward apps typically re-shield (bank depletes, goals reset), so any phantom touching them trips `BURST_REVERT reason=shield-in-burst-…`. The remaining hole is daytime long-kill scenarios with a very large bank pool, which is uncommon but possible.
+- **First event of the day:** baseline could be from yesterday or `0`. We emit `verdict=no-baseline` for these and do not enforce on them.
+- **Mixed bursts:** in 7 days of log audit we did not observe a single burst that mixed real catch-up usage with phantom thresholds — phantom floods either come entirely from iOS replay residue or are entirely real catch-up. So all-or-nothing revert is acceptable.
+
+### Status: shadow only
+
+Currently emits `SHADOW_BUDGET_CHECK` log lines for diagnostic observation. No enforcement. Once we have a few days of shadow data confirming `verdict=exceeded` cleanly correlates with phantom floods (and `verdict=within` with legitimate growth), we'll promote to enforcement — but per the heal-as-safety-net realization below, the trigger should be a silent heal rather than `revertBurstCredits`.
+
+### Implementation
+
+`ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`:
+- `shadowBurstTrack`: snapshot `last_credited_global_timestamp` into `shadow_burst_baseline_credit_ts` at burst start.
+- `shadowBurstEmit`: compute and log `SHADOW_BUDGET_CHECK`. Heal-mode bypass (added later same day) logs `verdict=heal-bypass` and skips the comparison so heal's own catch-up can't trip itself.
+- `shadowBurstReset`: clear the baseline key.
+
+### Known limitation (Flaw 1)
+
+When the wall-clock budget is large (e.g. overnight gap of 8 hours), a phantom flood claiming a few hundred minutes can fit inside that budget and slip through with `verdict=within`. This case is now addressed by the heal mechanism (see below): an auto-heal trigger gated on suspicious-large-budget bursts can call back to iOS for ground truth and overwrite the phantom credit. Design details in the heal section.
+
+---
+
+## 2026-05-23 — Heal mechanism (the architectural turning point)
+
+The most consequential change in this branch's history. Started as a debug button, ended as a fundamental shift in the threat model.
+
+### What heal does
+
+1. Wipe today's recorded usage to zero (per-app `usage_<id>_today`, `lastThreshold`, hourly buckets, every related counter).
+2. Reset state flags so the upcoming catch-up burst doesn't trip any anti-phantom defense: zero the global burst-credited-apps CSV, clear `burst_is_flood`, clear `last_event_arrival_global`, clear `phantom_flood_active_until`, reset shadow burst tracker.
+3. Anchor wall-clock budget baseline at start-of-today (`last_credited_global_timestamp = startOfToday`).
+4. Set `heal_active_until = now + 30s` — the flag every anti-phantom defense consults.
+5. Re-register the sliding window with `current = 0` for every tracked app.
+6. iOS responds by firing catch-up threshold events for every threshold ≤ its real cumulative for today. The extension processes them normally; `applyCredit`'s SET-to-max semantics rebuild today's totals to match iOS's authoritative count.
+
+### Why this works at all
+
+DeviceActivity exposes iOS's cumulative usage per app per day via threshold events. We never had a way to read that cumulative directly — we'd built our entire model around interpreting whatever events iOS happened to send. The heal repurposes the threshold mechanism as a query: "iOS, please tell me your full cumulative for today by firing every threshold up to it." iOS obliges. The numbers we receive are not estimates; they are iOS's authoritative count.
+
+### Validation: May 23 morning incident
+
+Pre-heal state (corrupted from phantom flood at 08:38:56):
+- Mobile Legends: 69 min recorded, 0 in iOS Screen Time
+- YouTube: 67 min recorded, 1 min in iOS Screen Time
+- Mini Motorways: 69 min recorded, 0 in iOS Screen Time
+- Facebook: 67 min recorded, 49 min in iOS Screen Time
+- Instagram (later): 116 min recorded, 116 min in iOS Screen Time (this one happened to be correct)
+
+After heal at 12:02 (after the four sub-fixes below were complete):
+- Mobile Legends: 0 min ✓
+- YouTube: 1 min ✓
+- Mini Motorways: 0 min ✓
+- Facebook: 49 min ✓
+- Instagram: 117 min ✓ (1 min over due to ongoing real usage during heal)
+
+Every value matched iOS Screen Time within ±1 minute. Total heal time: ~2 minutes from button press to final settle.
+
+### The four sub-fixes (in order of discovery)
+
+The initial heal didn't work cleanly. Each failure exposed a different downstream interaction that had to be unblocked.
+
+**Fix 1 — Heal infrastructure itself.** Initial commit: wipe data + restart monitoring. Tested at 11:00. Result: Instagram capped at 40 min, Facebook capped at 40 min. Both apps had real usage > 40 min, but the catch-up stopped at the registered window top.
+
+**Fix 2 — Relax the rebuild debounce during heal.** `triggerRebuildIfNearWindowTop` has a 60-second per-app debounce. The sliding window rebuilds itself when a credit lands near the top. During normal use, one rebuild per minute per app is plenty. During heal, the catch-up needs to chain through multiple windows (1-20 → 20-39 → 39-58 → ...) within seconds. Added: while `heal_active_until > now`, debounce drops to 1 second. Tested at 11:21. Result: Instagram reached 80 min before stopping. Better, but still incomplete.
+
+**Fix 3 — Self-extending heal flag.** The 30-second flag expired before all the chained rebuilds completed. iOS sometimes pauses 10-18 seconds between catch-up batches, and a long catch-up (Instagram's 6 rebuild rounds) couldn't fit in a fixed 30-second window. Added: every successful credit and every rebuild request that fires while in heal mode pushes the flag forward another 30 seconds. The flag only expires after a real silence period. Tested at 11:31. Result: Instagram capped at 60 min — even worse this time.
+
+**Fix 4 — Bypass anti-phantom defenses during heal.** The regression at 11:31 had a different cause: the catch-up's first events caused YouTube (a reward app) to fire while in a re-shielded state (heal had zeroed its usage, learning goal became unmet, shield went back up). The existing `SKIP_SHIELDED` defense correctly identified "shielded reward app firing event" as a phantom signature, called `BURST_REVERT` (wiping Facebook's just-credited 19 min), and set `PHANTOM_FLOOD_DETECTED` (locking out the next 30 seconds of events). The anti-phantom defenses, designed for kid-vs-system flood scenarios, had no way to know this multi-app burst was intentional. Added heal-mode bypass for `SKIP_FLOOD`, `SKIP_SHIELDED`, `BURST_REVERT`, `PHANTOM_FLOOD_DETECTED`, and `FIRST_EVENT_BUFFER`. Tested at 12:02. Result: complete success — all three apps healed to within ±1 min of iOS Screen Time.
+
+### Why extension-side (canonical implementation)
+
+The first heal implementation lived in the main app's `ScreenTimeService`. After the validation succeeded, we refactored to put `performHealUsage(reason:defaults:)` in the extension as the canonical implementation. Reasons:
+
+1. **Auto-heal triggers fire from inside the extension.** When a future budget-anomaly trigger calls heal, the extension can do it inline — no Darwin notification, no waiting for main app to wake, no round trip. Sub-second response.
+2. **Heal works when main app is terminated.** iOS can wake the extension via threshold events even when the main app has been swiped away. Manual-button heal still needs the main app for the button press, but the actual wipe-and-rebuild work happens in the extension.
+3. **No inter-process race.** The earlier implementation had a small race window between main app zeroing keys and the extension's next event arrival (we discussed it as safe due to `applyCredit`'s `max()` semantics and `SKIP_REGRESSION`, but eliminating it is cleaner).
+4. **Architectural consistency.** ~90% of recording work already runs in the extension. Heal belongs alongside the rest of the recording machinery.
+
+Manual button path now:
+1. User taps "Heal Usage Data" in main app settings.
+2. Main app writes `heal_requested_at = now` and `heal_requested_reason` flags to UserDefaults.
+3. Main app calls `restartMonitoring` — this triggers `stopMonitoring` then `startMonitoring` on DeviceActivityCenter.
+4. iOS calls `intervalDidStart` on the extension.
+5. Extension's `consumeHealRequestIfPresent` hook reads the flag, drains it, and calls `performHealUsage` locally.
+6. iOS then delivers catch-up events against the fresh sliding window.
+
+Auto-heal path (future, not yet implemented):
+1. Some extension-internal trigger condition (e.g., budget-check anomaly) fires.
+2. Extension calls `performHealUsage` directly inline.
+3. Same catch-up flow as the manual path.
+
+### The big realization
+
+Up until heal, the entire filter architecture rested on a premise: "if we credit a phantom, we can never take it back." Every defense — `SKIP_SHIELDED`, `BURST_REVERT`, `PHANTOM_FLOOD_DETECTED`, the wall-clock budget check, the buffer-and-watch logic — exists because each event arrival was treated as a one-shot decision: credit now and live with it, or reject now and risk losing real usage forever.
+
+That premise broke with heal. The truth is always available — iOS keeps cumulative per app per day. We just never had a reliable way to read it. Now we do.
+
+Consequences:
+
+1. **The wall-clock budget check's biggest known gap (Flaw 1: long-absence floods)** is no longer urgent. Even if a phantom slips through during an overnight gap, an auto-heal trigger gated on "wall-clock was suspiciously large" can call iOS for ground truth and overwrite the phantom credit afterward.
+
+2. **Filters can lean toward "trust by default"** instead of "reject when unsure." The cost of false-rejection (lost real usage) no longer requires perfect filter accuracy — we can heal to recover. Same for false-acceptance.
+
+3. **Auto-heal becomes viable as a routine maintenance operation.** Examples we should consider:
+   - Budget-check `verdict=exceeded` → silent background heal
+   - Judge `verdict=phantom` from kill-replay signature → silent background heal
+   - Once-an-hour scheduled background heal (belt and suspenders)
+   - First foreground of the day → heal to start from ground truth
+
+4. **When promoting the budget check from shadow to enforcement, wire it to heal rather than to `revertBurstCredits`.** The original plan was to revert burst credits when budget exceeded. Heal is strictly better — it doesn't just delete the suspicious credit, it asks iOS what the truth is and writes that. No edge case where we revert legitimate usage and the kid loses earned time.
+
+### UX trade-offs (will matter when shipping to production)
+
+- **Brief dashboard zero.** The current heal wipes data first, then rebuilds. Visible for 1-3 seconds. For auto-heal in the background, the kid won't see it; for manual heal triggered by the user, they're already expecting a refresh.
+- **Brief shield flicker.** Reward apps may re-shield (goals temporarily unmet) and unshield (catch-up restores them) during the ~2-minute heal window. A kid tapping a reward app at the wrong moment might briefly see it locked.
+- **iOS resource usage.** Each heal triggers a full sliding-window re-registration plus a catch-up burst. Cheap individually, but auto-heals add up. Worth measuring before shipping background auto-heal.
+
+### Status: shipped (debug button only)
+
+- Manual button: shipped in `#if DEBUG` builds, validated end-to-end on Amine's iPhone 2026-05-23.
+- Extension-canonical implementation: refactored 2026-05-23.
+- Anti-phantom heal-mode bypasses: shipped.
+- Wall-clock budget check heal-mode bypass: shipped (logs `verdict=heal-bypass`).
+- Auto-heal triggers: not yet implemented. Open questions: which conditions trigger, how often, with what cooldown, silent vs visible.
+- User-facing button ("Update usage"): not yet implemented. Will be the same `performHealUsage` mechanism with friendlier UX wording.
+
+### State storage additions
+
+```
+heal_active_until        — TimeInterval; flag consulted by anti-phantom defenses
+                           and rebuild debounce to switch into heal mode.
+                           Self-extends on every credit and rebuild during heal.
+
+heal_requested_at        — TimeInterval; main app sets this to request a heal.
+                           Extension's intervalDidStart drains it and calls
+                           performHealUsage. Stale requests (>60s) discarded.
+
+heal_requested_reason    — String; descriptive reason preserved for logging.
+
+shadow_burst_baseline_credit_ts — TimeInterval; budget-check baseline,
+                                  snapshot at burst start (see budget check
+                                  section above).
+```
+
+### Implementation
+
+`ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`:
+- `performHealUsage(reason:defaults:)` — canonical heal implementation.
+- `consumeHealRequestIfPresent(defaults:)` — drains the main app's request flag.
+- `intervalDidStart` — invokes `consumeHealRequestIfPresent` before normal processing.
+- `triggerRebuildIfNearWindowTop` — heal-mode debounce relaxation (60s → 1s) and self-extending flag.
+- `applyCredit` — self-extending flag on every credit during heal mode.
+- `setUsageToThreshold` — `inHealMode` short-circuits `SKIP_FLOOD`, `SKIP_SHIELDED`, `BURST_REVERT`, `PHANTOM_FLOOD_DETECTED`, and `FIRST_EVENT_BUFFER`.
+- `shadowBurstEmit` — heal-mode bypass for `SHADOW_BUDGET_CHECK`.
+
+`ScreenTimeRewards/Services/ScreenTimeService.swift`:
+- `healUsageData(reason:)` — thin wrapper that sets the flag and triggers `restartMonitoring`.
+
+`ScreenTimeRewards/Views/SettingsTabView.swift`:
+- `healUsageRow` — debug-only button with confirmation alert and result message.
 
 ---
 

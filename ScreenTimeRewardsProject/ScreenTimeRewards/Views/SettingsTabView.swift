@@ -50,6 +50,10 @@ struct SettingsTabView: View {
     @State private var isRefreshingTracking = false
     @State private var trackingRefreshFeedback: String?
 
+    @State private var isHealingUsage = false
+    @State private var showHealConfirm = false
+    @State private var healResultMessage: String?
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // Background
@@ -165,6 +169,7 @@ struct SettingsTabView: View {
                         #if DEBUG
                         settingsSection(title: "DIAGNOSTICS") {
                             refreshTrackingRow
+                            healUsageRow
                             sendDiagnosticReportRow
                             extensionLogExportRow
                             diagnosticMappingRow
@@ -243,6 +248,24 @@ struct SettingsTabView: View {
             }
         } message: {
             Text(diagnosticUploadAlertMessage)
+        }
+
+        .alert("Heal Usage Data?", isPresented: $showHealConfirm) {
+            Button("Cancel", role: .cancel) { }
+            Button("Heal", role: .destructive) {
+                Task { await runHealUsage() }
+            }
+        } message: {
+            Text("Clears today's recorded usage and asks iOS for the correct values. Totals will rebuild from iOS's authoritative count in a few seconds. The hourly chart will flatten to the current hour.")
+        }
+
+        .alert("Heal Complete", isPresented: Binding(
+            get: { healResultMessage != nil },
+            set: { if !$0 { healResultMessage = nil } }
+        )) {
+            Button("OK") { healResultMessage = nil }
+        } message: {
+            Text(healResultMessage ?? "")
         }
 
         .onAppear {
@@ -912,6 +935,67 @@ private extension SettingsTabView {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    var healUsageRow: some View {
+        Button(action: {
+            guard !isHealingUsage else { return }
+            showHealConfirm = true
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(Color.purple.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    if isHealingUsage {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .tint(.purple)
+                    } else {
+                        Image(systemName: "wand.and.stars")
+                            .font(.system(size: 20))
+                            .foregroundColor(.purple)
+                    }
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(isHealingUsage ? "Healing…" : "Heal Usage Data")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Clear today's totals and rebuild from iOS")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.brandedText(for: colorScheme).opacity(0.1), lineWidth: 1)
+                    )
+            )
+        }
+        .buttonStyle(PlainButtonStyle())
+        .disabled(isHealingUsage)
+    }
+
+    private func runHealUsage() async {
+        isHealingUsage = true
+        let result = await ScreenTimeService.shared.healUsageData(reason: "settings_heal_button")
+        await MainActor.run {
+            isHealingUsage = false
+            healResultMessage = result
+        }
     }
 
     var notificationSettingsRow: some View {
