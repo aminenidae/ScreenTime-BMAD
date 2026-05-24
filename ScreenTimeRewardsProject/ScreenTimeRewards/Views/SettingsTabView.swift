@@ -1037,7 +1037,7 @@ private extension SettingsTabView {
     }
 
     var helpSupportRow: some View {
-        Link(destination: URL(string: "https://i6dev.ca/braincoinz/support.html")!) {
+        Link(destination: URL(string: "https://i6dev.ca/ticlock/support.html")!) {
             HStack(spacing: 16) {
                 ZStack {
                     RoundedRectangle(cornerRadius: 12)

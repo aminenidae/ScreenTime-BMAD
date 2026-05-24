@@ -382,10 +382,10 @@ struct ParentPaywallView: View {
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 12) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
                 Text("•")
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
             }
             .font(.system(size: 11))
             .foregroundColor(AppTheme.vibrantTeal)

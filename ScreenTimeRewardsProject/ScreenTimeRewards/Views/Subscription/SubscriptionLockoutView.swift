@@ -23,7 +23,7 @@ struct SubscriptionLockoutView: View {
                         .font(.system(size: 28, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text("Your free trial has ended. Subscribe to continue using Brain Coinz.")
+                    Text("Your free trial has ended. Subscribe to continue using Tic Lock.")
                         .font(.system(size: 16))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .multilineTextAlignment(.center)

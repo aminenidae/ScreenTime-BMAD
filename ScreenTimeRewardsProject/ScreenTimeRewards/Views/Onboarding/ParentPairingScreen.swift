@@ -104,7 +104,7 @@ struct ParentPairingScreen: View {
                 .font(.headline)
                 .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-            Text("Open Brain Coinz → Settings → Pair with Parent → Scan this code.")
+            Text("Open Tic Lock → Settings → Pair with Parent → Scan this code.")
                 .font(.system(size: 15))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                 .multilineTextAlignment(.center)

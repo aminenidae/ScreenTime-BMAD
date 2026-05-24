@@ -125,7 +125,7 @@ struct JoinFamilyView: View {
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-            Text("Your partner has already set up Brain Coinz. Join their family to monitor together.")
+            Text("Your partner has already set up Tic Lock. Join their family to monitor together.")
                 .font(.system(size: 15))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -138,7 +138,7 @@ struct JoinFamilyView: View {
         VStack(alignment: .leading, spacing: 16) {
             InstructionRow(
                 number: 1,
-                text: "Ask your partner to open their Brain Coinz app"
+                text: "Ask your partner to open their Tic Lock app"
             )
 
             InstructionRow(

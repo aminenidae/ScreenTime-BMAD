@@ -14,7 +14,7 @@ struct LaunchScreenView: View {
     @State private var isLaunchComplete = false
     @Environment(\.colorScheme) var colorScheme
 
-    private let backFaceTexts = ["Br", "ain", "Co", "inz"]
+    private let backFaceTexts = ["Ti", "c", "Lo", "ck"]
 
     var body: some View {
         if isLaunchComplete {
@@ -51,12 +51,12 @@ struct LaunchScreenView: View {
         // Z-pattern order: TL(index 0), TR(index 1), BL(index 2), BR(index 3)
         return VStack(spacing: 0) {
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_TL", backText: "Br", animationIndex: 0, size: tileSize, textAlignment: .trailing)
-                tileCellView(assetName: "LaunchTile_TR", backText: "ain", animationIndex: 1, size: tileSize, textAlignment: .leading)
+                tileCellView(assetName: "LaunchTile_TL", backText: "Ti", animationIndex: 0, size: tileSize, textAlignment: .trailing)
+                tileCellView(assetName: "LaunchTile_TR", backText: "c", animationIndex: 1, size: tileSize, textAlignment: .leading)
             }
             HStack(spacing: 0) {
-                tileCellView(assetName: "LaunchTile_BL", backText: "Co", animationIndex: 2, size: tileSize, textAlignment: .trailing)
-                tileCellView(assetName: "LaunchTile_BR", backText: "inz", animationIndex: 3, size: tileSize, textAlignment: .leading)
+                tileCellView(assetName: "LaunchTile_BL", backText: "Lo", animationIndex: 2, size: tileSize, textAlignment: .trailing)
+                tileCellView(assetName: "LaunchTile_BR", backText: "ck", animationIndex: 3, size: tileSize, textAlignment: .leading)
             }
         }
     }

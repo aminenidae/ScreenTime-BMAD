@@ -466,9 +466,9 @@ private extension SubscriptionPaywallView {
                 .multilineTextAlignment(.center)
 
             HStack(spacing: 16) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
                 Text("•")
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
             }
             .font(.system(size: 11))
             .foregroundColor(.secondary)

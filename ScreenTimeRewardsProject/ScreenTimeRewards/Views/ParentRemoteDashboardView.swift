@@ -176,7 +176,7 @@ struct ParentRemoteDashboardView: View {
                                     .buttonStyle(.bordered)
                                     .disabled(showingRefreshIndicator)
 
-                                    Text("Already paired a child? Make sure the child's device has opened Brain Coinz at least once and that you're signed into the same iCloud account used during pairing.")
+                                    Text("Already paired a child? Make sure the child's device has opened Tic Lock at least once and that you're signed into the same iCloud account used during pairing.")
                                         .font(.caption)
                                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                                         .multilineTextAlignment(.center)

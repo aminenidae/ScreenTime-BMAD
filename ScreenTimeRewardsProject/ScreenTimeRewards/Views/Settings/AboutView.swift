@@ -25,7 +25,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!) {
                         HStack {
                             Text("Privacy Policy")
                             Spacer()
@@ -34,7 +34,7 @@ struct AboutView: View {
                         }
                     }
 
-                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!) {
                         HStack {
                             Text("Terms of Service")
                             Spacer()
@@ -47,7 +47,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Link(destination: URL(string: "https://i6dev.ca/braincoinz/support.html")!) {
+                    Link(destination: URL(string: "https://i6dev.ca/ticlock/support.html")!) {
                         HStack {
                             Text("Help & Support")
                             Spacer()
@@ -69,7 +69,7 @@ struct AboutView: View {
                 }
 
                 Section {
-                    Text("Brain Coinz helps families balance screen time by rewarding learning app usage with game time.")
+                    Text("Tic Lock helps families balance screen time by rewarding learning app usage with game time.")
                         .font(.footnote)
                         .foregroundColor(.secondary)
                 } header: {

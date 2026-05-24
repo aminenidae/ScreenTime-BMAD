@@ -182,10 +182,10 @@ struct Screen6_TrialPaywallView: View {
 
             // Terms & Privacy links (required for all subscription flows)
             HStack(spacing: 12) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/braincoinz/terms.html")!)
+                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
                 Text("•")
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/braincoinz/privacy.html")!)
+                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
             }
             .font(.system(size: 12, weight: .regular))
             .foregroundColor(AppTheme.vibrantTeal)
