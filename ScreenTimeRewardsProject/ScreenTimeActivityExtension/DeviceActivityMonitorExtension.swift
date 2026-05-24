@@ -491,6 +491,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         // ext_ keys — totals and timestamps the main app and other code may read.
+        // ext_usage_date MUST be set here: extensionRebuildSlidingWindow gates its
+        // usage_today read on this key matching today's date. Without it, rebuilds
+        // read current=0 and re-register from minute 1, exhausting the window.
+        let dateString = Self.dayDateFormatter.string(from: Date(timeIntervalSince1970: now))
+        defaults.set(dateString, forKey: "ext_usage_\(appID)_date")
         if credited > 0 {
             let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
             defaults.set(currentTotal + credited, forKey: "ext_usage_\(appID)_total")
