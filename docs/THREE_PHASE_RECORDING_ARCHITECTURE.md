@@ -810,6 +810,79 @@ shadow_burst_baseline_credit_ts — TimeInterval; budget-check baseline,
 
 ---
 
+## 2026-05-23 — Parent-device sync fixes (heal follow-up)
+
+The heal mechanism rebuilt today's totals correctly on the child device, but the parent dashboard kept showing stale phantom data. Investigation traced through three sequential bugs in the child→CloudKit→parent sync chain, each only visible after fixing the one above it.
+
+### Bug 1 — `SAFEGUARD 2` blocked updates of existing records to zero
+
+`syncUsageRecordFromExtensionData` in `ScreenTimeService.swift` had a guard `guard todaySeconds > 0 else { return }` that skipped record processing when the extension reported zero seconds. The guard's intent was "don't create empty records for never-used apps," but it also blocked legitimate UPDATE of an existing record from a phantom value back to zero. Result: after heal, a phantom-cleared app's Core Data record stayed at the old phantom value with `isSynced=true`, so the background sync never re-uploaded.
+
+**Fix:** moved the guard so it only applies to the create-new branch. Existing records always update — including to zero.
+
+### Bug 2 — Upload skipped today's record when `todaySeconds == 0` AND no existing CK record
+
+`uploadDailyUsageHistoryToParent` in `CloudKitSyncService.swift` line 3765 (pre-fix) had `if app.todaySeconds > 0 { upload }`. For an app like Mobile Legends with phantom-then-healed-to-zero usage, todaySeconds was 0 and the parent's CloudKit zone never received an updated record — the old phantom value stayed.
+
+**Fix:** condition relaxed to `app.todaySeconds > 0 || hasExistingTodayRecord` so existing records always update, including to zero. The `> 0` guard still applies to creating brand-new records (no point creating empty records for apps that never had usage). Same pattern as Bug 1.
+
+### Bug 3 — Upload failed silently with `record to insert already exists`
+
+After fixes 1 and 2, all 8 apps showed `upload=true` in diagnostics, but Facebook and TikTok still didn't reach the parent. The save log showed `Saved batch 1: 81 records` — looked successful. But CloudKit's `modifyRecords` returns a per-record `Result<CKRecord, Error>`; individual failures don't throw. Per-record diagnostic logging revealed:
+
+```
+❌ Save FAILED for DUH-{deviceID}-BB131A01-...-2026-05-10:
+  record to insert already exists
+```
+
+Root cause: the upload starts with a dedup-fetch (`CKFetchRecordZoneChangesOperation`) that has a 15-second timeout. When CloudKit was slow, the timeout fired with an incomplete set of existing records. The code then took the "create new" path for records that actually existed on CloudKit. The default save policy (`.ifServerRecordUnchanged`) rejected those as duplicates. Affected records stayed at their old value.
+
+**Fix:** two parts.
+1. Pass `savePolicy: .allKeys, atomically: false` to `modifyRecords`. With `.allKeys`, records overwrite-on-collision instead of failing. This is the correct upsert pattern when the local device is the authoritative writer for these per-day totals.
+2. Bumped the dedup-fetch timeout from 15s to 60s. With `.allKeys` this is no longer required for correctness, but a complete dedup set keeps the upload's create-vs-update counts accurate in logs.
+
+### Bug 4 — Parent's fetch silently capped at 100 records
+
+After fixes 1, 2, and 3, the child's save log finally showed `Saved batch 1: 81 succeeded, 0 failed` — every record landed on CloudKit including Facebook and TikTok for today. But the parent STILL didn't see Facebook today. Parent log showed `Zone-specific fetch returned 100 history records` consistently.
+
+Root cause: `db.records(matching:inZoneWith:)` returns a **maximum of ~100 records per page** by default. The function call returns both a result tuple and a `CKQueryOperation.Cursor` for fetching the next page. The previous code ignored the cursor entirely — `let (matches, _) = try await db.records(...)`. The zone had ~123 records total; Facebook and TikTok for today happened to be returned beyond record #100 in CloudKit's ordering and were never fetched.
+
+**Fix:** paginated the fetch via cursor loop. The function now fetches page 1, checks for a non-nil cursor, fetches page 2, and continues until cursor is nil. New log line:
+
+```
+Zone ChildMonitoring-...: found 123 history records across 2 page(s)
+```
+
+This was the final fix that unblocked parent sync for the heal's results.
+
+### Validation
+
+Tested 2026-05-23 18:58 on Amine's iPhone (child) and parent device. After heal:
+- Child Facebook = 77 min (4620s) ✓
+- Parent Facebook (after pull-to-refresh) = 77 min ✓
+- All 8 apps reconciled within ~2 minutes
+
+### Lessons captured
+
+- **Per-record results require per-record logging.** Aggregate counts (`Saved 81 records`) hide silent partial failures in CloudKit's API. Any future bug investigation in CloudKit sync should immediately drill down to per-record results.
+- **Default page limits are silent.** CloudKit query APIs cap at ~100 results and require explicit cursor pagination. Audit any other `records(matching:)` call in the codebase that doesn't loop on `queryCursor`.
+- **Save policy `.allKeys` is the correct upsert pattern.** Default `.ifServerRecordUnchanged` is for optimistic-concurrency UPDATE-only workflows; for one-writer aggregate snapshots (per-day totals), upsert-with-overwrite is correct.
+
+### Implementation files
+
+`ScreenTimeRewards/Services/ScreenTimeService.swift`:
+- `syncUsageRecordFromExtensionData` — moved SAFEGUARD 2 to apply only to record creation.
+
+`ScreenTimeRewards/Services/CloudKitSyncService.swift`:
+- `uploadDailyUsageHistoryToParent` —
+  - today-upload condition: `app.todaySeconds > 0 || hasExistingTodayRecord`.
+  - save call uses `savePolicy: .allKeys, atomically: false` for upsert.
+  - dedup-fetch timeout bumped 15s → 60s.
+  - per-batch logging now breaks down successes vs failures per record ID.
+- `fetchChildDailyUsageHistory` — paginates via `queryCursor` until exhausted.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing

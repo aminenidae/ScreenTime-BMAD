@@ -3591,7 +3591,15 @@ class CloudKitSyncService: ObservableObject {
         // the result block can fail to fire entirely, hanging the upload chain.
         fetchOperation.qualityOfService = .userInitiated
 
-        // 15s timeout guard so a stuck fetch doesn't block subsequent uploads.
+        // 60s timeout guard so a stuck fetch doesn't block subsequent uploads.
+        // Was 15s but that was too aggressive on busy zones — when the fetch
+        // timed out with incomplete results, records that already existed on
+        // CloudKit weren't in our dedup set, so the upload took the
+        // create-new path and CloudKit rejected with "record to insert
+        // already exists." With savePolicy=.allKeys on the save call this
+        // is no longer a correctness issue (overwrite wins), but a complete
+        // dedup set keeps the upload path clean and lets us correctly
+        // distinguish updatedCount from createdCount in logs.
         actor HistoryResumeGuard { var done = false; func tryResume() -> Bool { if done { return false }; done = true; return true } }
         let historyGuard = HistoryResumeGuard()
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
@@ -3609,11 +3617,11 @@ class CloudKitSyncService: ObservableObject {
             sharedDB.add(fetchOperation)
 
             Task {
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
+                try? await Task.sleep(nanoseconds: 60_000_000_000)
                 if await historyGuard.tryResume() {
                     fetchOperation.cancel()
                     #if DEBUG
-                    print("[CloudKitSyncService] ⏱ DailyUsageHistory dedup fetch hit 15s timeout — proceeding with \(allExistingRecords.count) records collected so far")
+                    print("[CloudKitSyncService] ⏱ DailyUsageHistory dedup fetch hit 60s timeout — proceeding with \(allExistingRecords.count) records collected so far")
                     #endif
                     continuation.resume()
                 }
@@ -3761,10 +3769,29 @@ class CloudKitSyncService: ObservableObject {
                 toSave.append(rec)
             }
 
-            // Also upload today's data if available
-            if app.todaySeconds > 0 {
-                let dateStr = dateFormatter.string(from: today)
-                let key = "\(logicalID)-\(dateStr)"
+            // Also upload today's data.
+            //
+            // 2026-05-23: Upload zero-value records when an existing CloudKit
+            // record exists — this lets heal overwrite stale phantom values
+            // on parent's CloudKit zone. Without this, an app like Mobile
+            // Legends that was phantom-credited then healed to 0 would keep
+            // its old phantom value visible to the parent forever, because
+            // `todaySeconds > 0` blocked the overwrite.
+            //
+            // Still skip creating brand-new zero records (apps with no
+            // usage history and no usage today) — those would just add noise
+            // to CloudKit. Mirrors syncUsageRecordFromExtensionData's
+            // relocated SAFEGUARD 2 on the Core Data side.
+            let todayDateStr = dateFormatter.string(from: today)
+            let todayKey = "\(logicalID)-\(todayDateStr)"
+            let hasExistingTodayRecord = existingByKey[todayKey] != nil
+            let willUploadToday = app.todaySeconds > 0 || hasExistingTodayRecord
+            #if DEBUG
+            print("[CloudKitSyncService] 📋 \(app.displayName) (\(logicalID.prefix(8))) today=\(app.todaySeconds)s existingCK=\(hasExistingTodayRecord) inDailyHistory=\(alreadyAddedKeys.contains(todayKey)) → upload=\(willUploadToday && !alreadyAddedKeys.contains(todayKey))")
+            #endif
+            if willUploadToday {
+                let dateStr = todayDateStr
+                let key = todayKey
 
                 // Skip if already added from dailyHistory
                 guard !alreadyAddedKeys.contains(key) else { continue }
@@ -3819,11 +3846,44 @@ class CloudKitSyncService: ObservableObject {
             let end = min(batch + batchSize, toSave.count)
             let batchRecords = Array(toSave[batch..<end])
 
-            let (savedRecords, _) = try await sharedDB.modifyRecords(saving: batchRecords, deleting: [])
-            savedTotal += savedRecords.count
+            // 2026-05-23: use .allKeys save policy so records OVERWRITE on
+            // collision instead of failing with "record to insert already
+            // exists". This is the proper upsert pattern — necessary because
+            // the dedup-fetch above can time out (15s) and miss some existing
+            // records, causing the code to take the create-new path for records
+            // that actually exist on CloudKit. Without .allKeys, those records
+            // get silently dropped and the parent never sees the latest value
+            // (the May 23 Facebook + TikTok parent-sync bug).
+            //
+            // .allKeys = save every field in our record, regardless of server
+            // state. We are the authoritative source for these daily totals, so
+            // overwrite-wins is correct.
+            let (savedRecords, _) = try await sharedDB.modifyRecords(
+                saving: batchRecords,
+                deleting: [],
+                savePolicy: .allKeys,
+                atomically: false
+            )
 
             #if DEBUG
-            print("[CloudKitSyncService] Saved batch \(batch/batchSize + 1): \(savedRecords.count) records")
+            // Per-record outcome: savedRecords is a dictionary keyed by record ID,
+            // each entry is a Result<CKRecord, Error>. modifyRecords does NOT throw
+            // for individual record failures — only transactional errors. So the
+            // count includes failures. We need to break it down to see what's
+            // actually getting saved vs silently dropped.
+            var successCount = 0
+            var failureCount = 0
+            for (recordID, result) in savedRecords {
+                switch result {
+                case .success:
+                    successCount += 1
+                case .failure(let error):
+                    failureCount += 1
+                    print("[CloudKitSyncService] ❌ Save FAILED for \(recordID.recordName): \(error.localizedDescription)")
+                }
+            }
+            savedTotal += successCount
+            print("[CloudKitSyncService] Saved batch \(batch/batchSize + 1): \(successCount) succeeded, \(failureCount) failed (of \(batchRecords.count) attempted)")
             #endif
         }
 
@@ -4149,10 +4209,29 @@ class CloudKitSyncService: ObservableObject {
                     deviceID, startDate as NSDate
                 )
                 let query = CKQuery(recordType: "CD_DailyUsageHistory", predicate: predicate)
-                let (matches, _) = try await db.records(matching: query, inZoneWith: specificZoneID)
+
+                // 2026-05-23: paginate via cursor. CloudKit's default page size
+                // (~100 records) was silently truncating the fetch — records
+                // beyond page 1 (Facebook 2026-05-23, TikTok 2026-05-23 in the
+                // logged case) never reached the parent dashboard. Loop until
+                // CloudKit returns nil cursor.
+                var totalPages = 0
+                var matches: [(CKRecord.ID, Result<CKRecord, Error>)] = []
+                var cursor: CKQueryOperation.Cursor?
+                let pageLimit = CKQueryOperation.maximumResults
+                let firstPage = try await db.records(matching: query, inZoneWith: specificZoneID, desiredKeys: nil, resultsLimit: pageLimit)
+                matches.append(contentsOf: firstPage.matchResults)
+                cursor = firstPage.queryCursor
+                totalPages = 1
+                while let c = cursor {
+                    let nextPage = try await db.records(continuingMatchFrom: c, desiredKeys: nil, resultsLimit: pageLimit)
+                    matches.append(contentsOf: nextPage.matchResults)
+                    cursor = nextPage.queryCursor
+                    totalPages += 1
+                }
 
                 #if DEBUG
-                print("[CloudKitSyncService] Zone \(zoneName): found \(matches.count) history records")
+                print("[CloudKitSyncService] Zone \(zoneName): found \(matches.count) history records across \(totalPages) page(s)")
                 #endif
 
                 for (_, res) in matches {

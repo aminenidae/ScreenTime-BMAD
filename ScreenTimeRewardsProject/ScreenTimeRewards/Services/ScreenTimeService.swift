@@ -1514,11 +1514,6 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             return  // Not paired, skip record creation
         }
 
-        // SAFEGUARD 2: Only create records for apps with actual usage
-        guard todaySeconds > 0 else {
-            return  // No usage to record
-        }
-
         let context = PersistenceController.shared.container.viewContext
         let deviceID = DeviceModeManager.shared.deviceID
 
@@ -1546,7 +1541,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
             if let record = existing {
                 // SAFEGUARD 4: Update existing record ONLY if values changed
-                // Minimizes Core Data writes and CloudKit uploads
+                // Minimizes Core Data writes and CloudKit uploads.
+                //
+                // 2026-05-23: Allow updates to 0 here. Heal wipes today's
+                // usage to 0 for apps with no real iOS-side cumulative
+                // (phantom-only apps like Mobile Legends after the morning's
+                // flood). Without allowing the 0-update, the existing record
+                // stays at the phantom value with isSynced=true, and the
+                // parent device keeps showing stale data forever. The
+                // "only create records with >0" rule (former SAFEGUARD 2)
+                // moved below to the create-new branch.
                 if record.totalSeconds != Int32(todaySeconds) ||
                    record.earnedPoints != Int32(todayPoints) ||
                    record.displayName != displayName {
@@ -1559,6 +1563,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                     try context.save()
                 }
             } else {
+                // SAFEGUARD 2 (relocated): Don't create a brand-new record
+                // for an app with no usage today. Existing records always
+                // get updated above; this guard only applies to creation.
+                guard todaySeconds > 0 else {
+                    return
+                }
+
                 // Create new record for today
                 let record = UsageRecord(context: context)
                 record.recordID = UUID().uuidString
