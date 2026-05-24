@@ -660,11 +660,25 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         lifecycleLog("HEAL_USAGE_RESET — cleared \(preHealMin)min across \(appIDs.count) apps [\(appsSummary)]", defaults: defaults)
         Self.logger.notice("HEAL_USAGE_RESET cleared=\(preHealMin)min apps=\(appIDs.count)")
 
-        // Re-register the sliding window with current=0 for every tracked app.
-        // iOS responds by firing catch-up threshold events for every threshold
-        // ≤ its real cumulative for today. The extension processes those
-        // events normally; applyCredit's SET-to-max semantics rebuild today's
-        // totals to match iOS's authoritative count.
+        // Batch mode: if the main app set a batch plan, only register thresholds
+        // for the current batch's apps. Future-batch apps keep window_size=0 so
+        // extensionRebuildSlidingWindow skips them. This prevents the memory-
+        // overload crash loop that occurs when 20 apps × 90 thresholds fire at once.
+        if defaults.bool(forKey: "heal_batch_active"),
+           let batchPlanData = defaults.data(forKey: "heal_batch_plan"),
+           let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchPlanData),
+           !batchPlan.isEmpty {
+            let currentBatch = defaults.integer(forKey: "heal_batch_current")
+            let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
+            for appID in appIDs where !allowedApps.contains(appID) {
+                defaults.set(0, forKey: "window_size_\(appID)")
+            }
+            let batchApps = batchPlan[currentBatch]
+            lifecycleLog("HEAL_BATCH_MODE — batch \(currentBatch) apps=[\(batchApps.map { String($0.prefix(8)) }.joined(separator: ","))] allowed=\(allowedApps.count) deferred=\(appIDs.count - allowedApps.count)", defaults: defaults)
+        }
+
+        // Re-register the sliding window. In batch mode, only the current batch's
+        // apps have non-zero window_size, so only they get thresholds registered.
         let rebuildOK = extensionRebuildSlidingWindow(
             defaults: defaults,
             triggerAppID: nil,
@@ -708,6 +722,59 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         performHealUsage(reason: reason, defaults: defaults)
     }
 
+    /// Called from intervalDidStart to handle batched heal advancement.
+    /// When the main app's timer advances heal_batch_current and triggers
+    /// a restart, this runs in the new extension session to process the
+    /// next batch of reward apps.
+    private nonisolated func processHealBatchIfNeeded(defaults: UserDefaults) {
+        guard defaults.bool(forKey: "heal_batch_active") else { return }
+        let currentBatch = defaults.integer(forKey: "heal_batch_current")
+        guard currentBatch > 0 else { return }
+
+        guard let batchPlanData = defaults.data(forKey: "heal_batch_plan"),
+              let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchPlanData) else {
+            defaults.removeObject(forKey: "heal_batch_active")
+            return
+        }
+
+        guard currentBatch < batchPlan.count else {
+            defaults.removeObject(forKey: "heal_batch_active")
+            defaults.removeObject(forKey: "heal_batch_plan")
+            defaults.removeObject(forKey: "heal_batch_current")
+            defaults.removeObject(forKey: "heal_batch_total")
+            lifecycleLog("HEAL_BATCH_DONE — all batches processed, cleaning up", defaults: defaults)
+            return
+        }
+
+        let nowTs = Date().timeIntervalSince1970
+
+        // Re-activate heal mode for this batch
+        defaults.set(nowTs + 30, forKey: "heal_active_until")
+
+        // Clear burst/flood state for clean batch processing
+        defaults.removeObject(forKey: "burst_credited_apps_csv")
+        defaults.removeObject(forKey: "burst_is_flood")
+        defaults.removeObject(forKey: "last_event_arrival_global")
+        defaults.removeObject(forKey: "phantom_flood_active_until")
+
+        // Set window_size = 0 for apps in FUTURE batches
+        let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
+        let allApps = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        for appID in allApps where !allowedApps.contains(appID) {
+            defaults.set(0, forKey: "window_size_\(appID)")
+        }
+
+        // Clear per-app rebuild debounce for the new batch's apps
+        let batchApps = batchPlan[currentBatch]
+        for appID in batchApps {
+            defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+        }
+
+        lifecycleLog("HEAL_BATCH_PROCESS — batch \(currentBatch)/\(batchPlan.count - 1) apps=[\(batchApps.map { String($0.prefix(8)) }.joined(separator: ","))] allowed_total=\(allowedApps.count)", defaults: defaults)
+
+        _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: nil, reason: "heal-batch-\(currentBatch)")
+    }
+
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
@@ -742,6 +809,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // perform the heal here. Must run BEFORE the rest of intervalDidStart
             // so subsequent midnight/shield logic sees the post-heal state.
             consumeHealRequestIfPresent(defaults: defaults)
+            processHealBatchIfNeeded(defaults: defaults)
 
             // === MIDNIGHT DIAGNOSTIC: Only activate on genuine midnight (day changed) ===
             let lastDiagDate = defaults.string(forKey: "midnight_diagnostic_date")

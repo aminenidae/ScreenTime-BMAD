@@ -2284,16 +2284,92 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         defaults.set(Date().timeIntervalSince1970, forKey: "heal_requested_at")
         defaults.set(reason, forKey: "heal_requested_reason")
 
+        // Compute batch plan: learning apps first, then reward apps in groups of 3.
+        let batchPlan = computeHealBatchPlan(appIDs: appIDs, defaults: defaults)
+        if let batchPlanData = try? JSONEncoder().encode(batchPlan) {
+            defaults.set(batchPlanData, forKey: "heal_batch_plan")
+        }
+        defaults.set(0, forKey: "heal_batch_current")
+        defaults.set(batchPlan.count, forKey: "heal_batch_total")
+        defaults.set(true, forKey: "heal_batch_active")
+
+        lifecycleLog("HEAL_BATCH_PLAN — \(batchPlan.count) batches: learning=\(batchPlan.first?.count ?? 0) apps, reward=\(batchPlan.dropFirst().map { "\($0.count)" }.joined(separator: "+")) apps")
+
         // Restart monitoring. iOS calls intervalDidEnd → intervalDidStart on
         // the extension; the extension's hook sees the flag and runs the heal
         // before its regular intervalDidStart logic. iOS then delivers the
         // catch-up burst against the post-heal sliding window.
         await restartMonitoring(reason: "heal-usage:\(reason)", force: true)
 
+        // Advance batches in the background (35s between each).
+        if batchPlan.count > 1 {
+            Task { [weak self] in await self?.advanceHealBatches() }
+        }
+
         if preHealMin > 0 {
-            return "Cleared \(preHealMin) minutes of recorded usage. iOS is sending the correct usage data now — totals will update in a few seconds."
+            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding in \(batchPlan.count) batches — totals will update over the next \(batchPlan.count * 35) seconds."
         } else {
             return "No usage recorded yet today. iOS will deliver today's usage now if any."
+        }
+    }
+
+    private func computeHealBatchPlan(appIDs: [String], defaults: UserDefaults) -> [[String]] {
+        var learningApps: [String] = []
+        var rewardApps: [String] = []
+
+        for appID in appIDs {
+            let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+            if category == "Reward" {
+                rewardApps.append(appID)
+            } else {
+                learningApps.append(appID)
+            }
+        }
+
+        var batches: [[String]] = []
+        if !learningApps.isEmpty {
+            batches.append(learningApps)
+        }
+
+        let chunkSize = 3
+        var i = 0
+        while i < rewardApps.count {
+            let end = min(i + chunkSize, rewardApps.count)
+            batches.append(Array(rewardApps[i..<end]))
+            i += chunkSize
+        }
+
+        if batches.isEmpty {
+            batches.append([])
+        }
+
+        return batches
+    }
+
+    private func advanceHealBatches() async {
+        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
+
+        while defaults.bool(forKey: "heal_batch_active") {
+            try? await Task.sleep(nanoseconds: 35_000_000_000)
+
+            let now = Date().timeIntervalSince1970
+            let healActive = defaults.double(forKey: "heal_active_until")
+            guard now > healActive else { continue }
+
+            let current = defaults.integer(forKey: "heal_batch_current")
+            let total = defaults.integer(forKey: "heal_batch_total")
+            guard current < total - 1 else {
+                defaults.removeObject(forKey: "heal_batch_active")
+                defaults.removeObject(forKey: "heal_batch_plan")
+                defaults.removeObject(forKey: "heal_batch_current")
+                defaults.removeObject(forKey: "heal_batch_total")
+                lifecycleLog("HEAL_BATCH_COMPLETE — all \(total) batches processed")
+                break
+            }
+
+            defaults.set(current + 1, forKey: "heal_batch_current")
+            lifecycleLog("HEAL_BATCH_ADVANCE — advancing to batch \(current + 1)/\(total - 1)")
+            await restartMonitoring(reason: "heal-batch-\(current + 1)", force: true)
         }
     }
 
