@@ -487,7 +487,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // the flag is 0/expired and the check is a no-op.
         let healActiveUntil = defaults.double(forKey: "heal_active_until")
         if now < healActiveUntil {
-            defaults.set(now + 30, forKey: "heal_active_until")
+            defaults.set(now + 10, forKey: "heal_active_until")
         }
 
         // ext_ keys — totals and timestamps the main app and other code may read.
@@ -541,7 +541,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         defaults.set(now, forKey: debounceKey)
         if inHealMode {
-            defaults.set(now + 30, forKey: "heal_active_until")
+            defaults.set(now + 10, forKey: "heal_active_until")
         }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
@@ -638,7 +638,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // on every credit during heal and on every rebuild request, so a long
         // multi-window catch-up chain stays inside heal mode until catch-up
         // truly goes silent for ≥30 seconds.
-        defaults.set(nowTs + 30, forKey: "heal_active_until")
+        defaults.set(nowTs + 10, forKey: "heal_active_until")
         defaults.set(0, forKey: "heal_batch_last_processed")
 
         // Clear global burst/flood state for a clean restart.
@@ -763,7 +763,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let nowTs = Date().timeIntervalSince1970
 
         // Re-activate heal mode for this batch
-        defaults.set(nowTs + 30, forKey: "heal_active_until")
+        defaults.set(nowTs + 10, forKey: "heal_active_until")
 
         // Clear burst/flood state for clean batch processing
         defaults.removeObject(forKey: "burst_credited_apps_csv")

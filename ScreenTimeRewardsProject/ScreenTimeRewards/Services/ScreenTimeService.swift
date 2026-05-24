@@ -2307,7 +2307,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         }
 
         if preHealMin > 0 {
-            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding in \(batchPlan.count) batches — totals will update over the next \(batchPlan.count * 35) seconds."
+            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding in \(batchPlan.count) batches — totals will update over the next \(batchPlan.count * 20) seconds."
         } else {
             return "No usage recorded yet today. iOS will deliver today's usage now if any."
         }
@@ -2350,7 +2350,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
 
         while defaults.bool(forKey: "heal_batch_active") {
-            try? await Task.sleep(nanoseconds: 35_000_000_000)
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
 
             let now = Date().timeIntervalSince1970
             let healActive = defaults.double(forKey: "heal_active_until")
