@@ -639,6 +639,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // multi-window catch-up chain stays inside heal mode until catch-up
         // truly goes silent for ≥30 seconds.
         defaults.set(nowTs + 30, forKey: "heal_active_until")
+        defaults.set(0, forKey: "heal_batch_last_processed")
 
         // Clear global burst/flood state for a clean restart.
         defaults.removeObject(forKey: "burst_credited_apps_csv")
@@ -736,6 +737,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentBatch = defaults.integer(forKey: "heal_batch_current")
         guard currentBatch > 0 else { return }
 
+        // Prevent re-entry: extensionRebuildSlidingWindow calls startMonitoring
+        // which triggers intervalDidStart which calls us again. Only run once
+        // per batch number.
+        let lastProcessed = defaults.integer(forKey: "heal_batch_last_processed")
+        guard currentBatch > lastProcessed else { return }
+        defaults.set(currentBatch, forKey: "heal_batch_last_processed")
+
         guard let batchPlanData = defaults.data(forKey: "heal_batch_plan"),
               let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchPlanData) else {
             defaults.removeObject(forKey: "heal_batch_active")
@@ -747,6 +755,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.removeObject(forKey: "heal_batch_plan")
             defaults.removeObject(forKey: "heal_batch_current")
             defaults.removeObject(forKey: "heal_batch_total")
+            defaults.removeObject(forKey: "heal_batch_last_processed")
             lifecycleLog("HEAL_BATCH_DONE — all batches processed, cleaning up", defaults: defaults)
             return
         }

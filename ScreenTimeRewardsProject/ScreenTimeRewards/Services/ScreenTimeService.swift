@@ -2363,6 +2363,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 defaults.removeObject(forKey: "heal_batch_plan")
                 defaults.removeObject(forKey: "heal_batch_current")
                 defaults.removeObject(forKey: "heal_batch_total")
+                defaults.removeObject(forKey: "heal_batch_last_processed")
                 lifecycleLog("HEAL_BATCH_COMPLETE — all \(total) batches processed")
                 break
             }

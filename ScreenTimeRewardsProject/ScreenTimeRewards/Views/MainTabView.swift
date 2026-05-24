@@ -65,6 +65,9 @@ struct MainTabView: View {
                     viewModel.onFamilyPickerDismissed()
                 }
             }
+            .onReceive(NotificationCenter.default.publisher(for: .healSwitchToDashboard)) { _ in
+                withAnimation { selectedTab = 0 }
+            }
 
         }
     }
