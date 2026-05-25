@@ -270,7 +270,7 @@ private final class PairedDeviceObserver: ObservableObject {
 
     private func refreshDevices() async {
         do {
-            let devices = try await cloudKitService.fetchLinkedChildDevices()
+            let devices = try await cloudKitService.fetchLinkedChildDevices(restrictToKnownZones: false)
             let ids = Set(devices.compactMap { $0.deviceID })
             await MainActor.run {
                 self.deviceIDs = ids

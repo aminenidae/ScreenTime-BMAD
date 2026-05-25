@@ -1181,13 +1181,23 @@ private struct AppUsageChart: View {
 
 
 
-        return dailyHistory
+        var dailyData: [Date: Int] = [:]
 
-            .filter { $0.date >= sevenDaysAgo }
+        for item in dailyHistory where item.date >= sevenDaysAgo {
 
-            .sorted { $0.date < $1.date }
+            let dayStart = calendar.startOfDay(for: item.date)
 
-            .map { (date: $0.date, minutes: $0.seconds / 60) }
+            dailyData[dayStart, default: 0] += item.seconds / 60
+
+        }
+
+
+
+        return dailyData
+
+            .sorted { $0.key < $1.key }
+
+            .map { (date: $0.key, minutes: $0.value) }
 
     }
 
