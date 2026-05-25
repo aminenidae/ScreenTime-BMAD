@@ -8,6 +8,8 @@ struct MainTabView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @AppStorage("hasCompletedChildOnboarding") private var hasCompletedOnboarding = false
     @State private var selectedTab = 0
+    @State private var isHealingOverlay = false
+    @State private var healOverlayMessage = "Updating learning app usage..."
 
     // TutorialModeManager - use shared instance (not active outside tutorial, but needed for views)
     @StateObject private var tutorialManager = TutorialModeManager.shared
@@ -67,6 +69,50 @@ struct MainTabView: View {
             }
             .onReceive(NotificationCenter.default.publisher(for: .healSwitchToDashboard)) { _ in
                 withAnimation { selectedTab = 0 }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .healOverlayShow)) { note in
+                if let msg = note.object as? String {
+                    healOverlayMessage = msg
+                }
+                isHealingOverlay = true
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .healOverlayUpdate)) { note in
+                if let msg = note.object as? String {
+                    healOverlayMessage = msg
+                }
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .healOverlayDismiss)) { _ in
+                isHealingOverlay = false
+            }
+            .fullScreenCover(isPresented: $isHealingOverlay) {
+                ZStack {
+                    Color.black.opacity(0.4)
+                        .ignoresSafeArea()
+
+                    VStack(spacing: 20) {
+                        ProgressView()
+                            .progressViewStyle(.circular)
+                            .scaleEffect(1.5)
+                            .tint(.white)
+
+                        Text(healOverlayMessage)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.white)
+                            .multilineTextAlignment(.center)
+                            .animation(.easeInOut(duration: 0.3), value: healOverlayMessage)
+
+                        Text("Please keep the app open.")
+                            .font(.system(size: 13))
+                            .foregroundColor(.white.opacity(0.7))
+                    }
+                    .padding(40)
+                    .background(
+                        RoundedRectangle(cornerRadius: 20)
+                            .fill(.ultraThinMaterial)
+                    )
+                }
+                .presentationBackground(.clear)
+                .interactiveDismissDisabled()
             }
 
         }

@@ -5,6 +5,9 @@ import CoreData
 
 extension Notification.Name {
     static let healSwitchToDashboard = Notification.Name("healSwitchToDashboard")
+    static let healOverlayShow = Notification.Name("healOverlayShow")
+    static let healOverlayUpdate = Notification.Name("healOverlayUpdate")
+    static let healOverlayDismiss = Notification.Name("healOverlayDismiss")
 }
 
 struct SettingsTabView: View {
@@ -204,37 +207,6 @@ struct SettingsTabView: View {
             SubscriptionManagementView()
                 .environmentObject(subscriptionManager)
                 .environmentObject(modeManager)
-        }
-
-        .fullScreenCover(isPresented: $isHealingUsage) {
-            ZStack {
-                Color.black.opacity(0.4)
-                    .ignoresSafeArea()
-
-                VStack(spacing: 20) {
-                    ProgressView()
-                        .progressViewStyle(.circular)
-                        .scaleEffect(1.5)
-                        .tint(.white)
-
-                    Text(healPhaseMessage)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundColor(.white)
-                        .multilineTextAlignment(.center)
-                        .animation(.easeInOut(duration: 0.3), value: healPhaseMessage)
-
-                    Text("Please keep the app open.")
-                        .font(.system(size: 13))
-                        .foregroundColor(.white.opacity(0.7))
-                }
-                .padding(40)
-                .background(
-                    RoundedRectangle(cornerRadius: 20)
-                        .fill(.ultraThinMaterial)
-                )
-            }
-            .presentationBackground(.clear)
-            .interactiveDismissDisabled()
         }
 
         .sheet(isPresented: $showingPairingConfig) {
@@ -1030,11 +1002,9 @@ private extension SettingsTabView {
         // fullScreenCover presentation and DeviceActivityCenter calls.
         let result = await ScreenTimeService.shared.healUsageData(reason: "settings_heal_button")
 
-        // Now that restartMonitoring has completed, show the spinner.
-        await MainActor.run {
-            healPhaseMessage = "Updating learning app usage..."
-            isHealingUsage = true
-        }
+        // Switch to dashboard and show spinner (lives on MainTabView).
+        NotificationCenter.default.post(name: .healSwitchToDashboard, object: nil)
+        NotificationCenter.default.post(name: .healOverlayShow, object: "Updating learning app usage...")
 
         // Track batch progress with dynamic messages.
         if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
@@ -1045,19 +1015,17 @@ private extension SettingsTabView {
                 if current != lastBatch {
                     lastBatch = current
                     let total = defaults.integer(forKey: "heal_batch_total")
-                    await MainActor.run {
-                        if current >= total - 1 {
-                            healPhaseMessage = "Finishing up..."
-                        } else {
-                            healPhaseMessage = "Updating reward app usage\n(\(current) of \(total - 1))..."
-                        }
+                    if current >= total - 1 {
+                        NotificationCenter.default.post(name: .healOverlayUpdate, object: "Finishing up...")
+                    } else {
+                        NotificationCenter.default.post(name: .healOverlayUpdate, object: "Updating reward app usage\n(\(current) of \(total - 1))...")
                     }
                 }
             }
         }
 
+        NotificationCenter.default.post(name: .healOverlayDismiss, object: nil)
         await MainActor.run {
-            isHealingUsage = false
             healResultMessage = result
         }
     }
