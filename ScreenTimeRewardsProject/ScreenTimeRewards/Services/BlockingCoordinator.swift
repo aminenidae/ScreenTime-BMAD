@@ -815,7 +815,7 @@ class BlockingCoordinator: ObservableObject {
         guard todayLimit < 1440 else { return }
 
         let usedMinutes = getTodayUsageMinutes(for: logicalID)
-        let appDisplayName = AppNameMappingService.shared.getCustomName(for: logicalID) ?? logicalID
+        let appDisplayName = UserDefaults(suiteName: "group.com.screentimerewards.shared")?.string(forKey: "map_\(logicalID)_name") ?? "Reward App"
 
         // Check for 80% threshold (approaching limit)
         let thresholdPercent = 0.80
@@ -1177,7 +1177,7 @@ class BlockingCoordinator: ObservableObject {
                     "earned_minutes_total": earnedMinutes
                 ])
             }
-            if earnedMinutes > 0 {
+            if earnedMinutes > 0 && !newlyUnshielded.isEmpty {
                 NotificationService.shared.scheduleLearningGoalCompletedNotification(earnedMinutes: earnedMinutes)
 
                 Task {
@@ -1268,7 +1268,7 @@ class BlockingCoordinator: ObservableObject {
                         )
 
                         // Get display name for notifications
-                        let appDisplayName = AppNameMappingService.shared.getCustomName(for: logicalID) ?? logicalID
+                        let appDisplayName = UserDefaults(suiteName: "group.com.screentimerewards.shared")?.string(forKey: "map_\(logicalID)_name") ?? "Reward App"
 
                         // Schedule local notification for child
                         NotificationService.shared.scheduleStreakMilestoneNotification(
