@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 import ManagedSettings
 import Combine
 
@@ -1378,6 +1379,7 @@ class BlockingCoordinator: ObservableObject {
         refreshTimer = Timer.scheduledTimer(withTimeInterval: 60.0, repeats: true) { [weak self] _ in
             guard let self = self else { return }
             Task { @MainActor [weak self] in
+                guard UIApplication.shared.applicationState == .active else { return }
                 self?.refreshAllBlockingStates()
             }
         }
