@@ -915,5 +915,56 @@ The corrected model:
 
 Doc rewritten this evening. Implementation moves from "Phase B classifier in shadow" to "Phase B+C buffer + settlement in shadow."
 
+### 2026-05-25 — Tiered threshold windows: 5 → 30 → 90
+
+**Problem:** When the learning goal is met, all reward apps immediately jump from 5 to 90 thresholds — even apps the child never opens. On Device 2 (May 24, weekend), 13 reward apps × 90 = 1,170 thresholds registered at once. iOS batched and delayed delivery under this load, producing 40+ minute gaps followed by catch-up bursts instead of 1-per-minute delivery. Those bursts then interact poorly with BURST_REVERT and other filters.
+
+**Root cause confirmed:** Today's 4-device test (May 25) with only 1 active reward app (185 thresholds total) showed perfect 1-per-minute delivery across all 4 devices, zero BURST_REVERT events. The threshold count was the variable.
+
+**Solution — tiered window promotion based on actual usage:**
+
+| Tier | Window size | When |
+|------|------------|------|
+| Tier 0 (sentinel) | 5 thresholds | Default for shielded AND newly-unshielded apps |
+| Tier 1 (interested) | 30 thresholds | First threshold fires — child started using the app |
+| Tier 2 (favorite) | 90 thresholds | Usage crosses 25 min — sustained play |
+
+**Tier transitions:**
+- Shield drops → app stays at tier 0 (was: instant jump to 90)
+- First RECORDED event for an app at tier 0 → promote to tier 1 (or tier 2 if catch-up reports 25+ min)
+- RECORDED event crosses 25 min at tier 1 → promote to tier 2
+- Shield re-applied (daily limit, downtime, goal unmet) → demote to tier 0
+
+**Simulation against Device 2 May 24 (realistic sequential play):**
+
+| Moment | Current system | Tiered system | Savings |
+|--------|---------------|---------------|---------|
+| Shield drop (all 13 apps) | 1,260 | 155 | 87% |
+| 1 app active | 1,260 | 215 | 83% |
+| 3 apps active (peak) | 1,260 | 325 | 74% |
+| Day winds down | 1,260 | 190 | 85% |
+
+**Implementation touch points:**
+1. `DeviceActivityMonitorExtension.checkAndUpdateShields()` — removed instant `window_size = 90` on shield drop
+2. `DeviceActivityMonitorExtension.promoteTierIfNeeded()` — new function called after every RECORDED event
+3. `DeviceActivityMonitorExtension.checkAndUpdateShields()` — three shield-application paths (downtime, daily limit, learning goal) now set `window_size = 5` on re-shield
+4. `ScreenTimeService.windowSize(for:category:isShielded:)` — reward apps now read `window_size_<id>` from shared UserDefaults (extension-set tier) instead of hardcoding 90
+
+**Heal compatibility:** After heal resets usage to 0, catch-up events fire. `promoteTierIfNeeded` handles this correctly — if catch-up reports 25+ min, the app promotes straight from tier 0 to tier 2 in one step (no intermediate tier 1 rebuild).
+
+**Logging:** `TIER_PROMOTE appID=... 5→30 (usage=1min)` and `TIER_PROMOTE appID=... 30→90 (usage=25min)` appear in the extension log for each transition.
+
+### 2026-05-25 — BURST_REVERT mid-shield fix
+
+When a reward app crossed its daily limit during a catch-up burst, the shield was applied mid-burst. The very next catch-up event (arriving <1s later) saw the shield and triggered BURST_REVERT, erasing the just-recorded usage. This created a permanent freeze: usage stuck below the limit → shield removed on next restart → child plays more → repeat.
+
+Device 2 (May 24): Roblox tracked 118 min vs iOS 188 min due to 3 BURST_REVERTs at 19:57, 20:35, and 23:00, each rolling back to 7080s (118 min).
+
+Fix: in SKIP_SHIELDED, check if the triggering app was credited earlier in the same burst (i.e., in `burst_credited_apps`). If so, the shield was applied mid-burst by that credit — the remaining catch-ups are real pre-shield usage. Block the event but preserve credits. Only revert when the shield was already on before the burst started (true phantom signal).
+
+### 2026-05-25 — Foreground-only periodic shield refresh
+
+BlockingCoordinator's 60s periodic timer (`refreshAllBlockingStates`) was running even when the app was backgrounded. On Device 4 (May 25), this caused all reward apps to briefly unshield at ~12:09 — the main app's evaluation disagreed with the extension's ground truth because its Core Data was stale. The extension is the shield authority. Fix: timer callback now checks `UIApplication.shared.applicationState == .active` and skips when backgrounded.
+
 ### 2026-05-18 — Section markers, not function extraction, for Step 2
 Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helper. Revised to add prominent section markers in place without moving code. Rationale: extraction would change inline state-write ordering (e.g., `last_event_arrival_<id>` is updated at the top of the to-be-removed SKIP_FLOOD filter and reading it from a different position could change the burst-context behavior of OTHER filters). Extraction lands once Phase B is active and the legacy filters are being removed (Step 5).

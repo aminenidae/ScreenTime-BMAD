@@ -394,6 +394,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         applyCredit(appID: appID, newThreshold: thresholdSeconds, now: now, defaults: defaults)
+        promoteTierIfNeeded(appID: appID, thresholdSeconds: thresholdSeconds, defaults: defaults)
         triggerRebuildIfNearWindowTop(appID: appID, threshold: thresholdSeconds, now: now, defaults: defaults)
         return true
     }
@@ -506,6 +507,34 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         Self.logger.notice("SET app=\(appID.prefix(8))... today=\(newToday)s (+\(credited)s) thresh=\(newThreshold)s")
 
         defaults.set(now, forKey: "last_recorded_timestamp")
+    }
+
+    /// Tiered window promotion (May 25, 2026). Reward apps start at 5 thresholds
+    /// (sentinel). Promote to 30 on first use, and to min(dailyLimit, 90) at 25 min.
+    /// Each promotion triggers a window rebuild so iOS has the wider threshold range.
+    private nonisolated func promoteTierIfNeeded(appID: String, thresholdSeconds: Int, defaults: UserDefaults) {
+        let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+        guard category == "Reward" else { return }
+
+        let currentWindow = defaults.integer(forKey: "window_size_\(appID)")
+        let usageMin = thresholdSeconds / 60
+
+        if currentWindow <= 5 && usageMin > 0 {
+            let newWindow: Int
+            if usageMin >= 25 {
+                newWindow = 90
+            } else {
+                newWindow = 30
+            }
+            defaults.set(newWindow, forKey: "window_size_\(appID)")
+            debugLog("TIER_PROMOTE appID=\(appID.prefix(8))... \(currentWindow)→\(newWindow) (usage=\(usageMin)min)", defaults: defaults)
+            Self.logger.notice("TIER_PROMOTE app=\(appID.prefix(8))... \(currentWindow)→\(newWindow)")
+        } else if currentWindow <= 30 && usageMin >= 25 {
+            let newWindow = 90
+            defaults.set(newWindow, forKey: "window_size_\(appID)")
+            debugLog("TIER_PROMOTE appID=\(appID.prefix(8))... \(currentWindow)→\(newWindow) (usage=\(usageMin)min)", defaults: defaults)
+            Self.logger.notice("TIER_PROMOTE app=\(appID.prefix(8))... \(currentWindow)→\(newWindow)")
+        }
     }
 
     /// If this event's threshold approaches the registered window top for this
@@ -2578,17 +2607,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 anyShieldDropped = true
                 debugLog("SHIELD_CHECK: ✅ REMOVED shield for \(shortID) (goalMet, pool=\(pool)min)", defaults: defaults)
 
-                // May 16, 2026 — sentinel-window upgrade on shield drop. The shielded
-                // reward app had `window_size_<id> = 5` (the sentinel). Now that it's
-                // playable, expand to the full reward window so the next extension
-                // fast-path rebuild registers a 90-threshold window instead of
-                // another 5-sentinel. Without this, WINDOW_TOP_HIT cascades every 60s
-                // (re-registering 5 thresholds at a time) until the main app's
-                // restartMonitoring eventually catches up. The kid never loses events
-                // but the cascade is wasteful and stresses the extension memory budget.
-                // Pairing: the main app's `windowSize(for:category:isShielded:)`
-                // returns the same 90 when scheduleActivity next runs — values align.
-                defaults.set(90, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
+                // May 25, 2026 — tiered windows: keep sentinel (5) on shield drop.
+                // The extension promotes to 30 when the child starts using the app,
+                // and to 90 when usage reaches 25 min. This keeps total threshold
+                // count low (155 at unshield vs 1,260 with the old instant-90 approach)
+                // and only allocates full windows to apps the child actually plays.
+                // Replaces May 16 instant-90 upgrade that overloaded iOS threshold
+                // delivery with 13+ apps × 90 thresholds at once.
 
                 // Layer 3 anchor: track unshield-window for the post-unshield budget filter.
                 // Snapshot all monitored apps' usage_<id>_today at this moment. If we're
@@ -2863,6 +2888,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                     debugLog("DOWNTIME_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... outside allowed window \(goalConfig.allowedStartHour):\(goalConfig.allowedStartMinute)-\(goalConfig.allowedEndHour):\(goalConfig.allowedEndMinute)", defaults: defaults)
                 }
+                defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
                 continue  // Skip other checks - downtime takes priority
             }
 
@@ -2895,6 +2921,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                     debugLog("DAILY_LIMIT_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... used=\(usageMinutes)min >= limit=\(dailyLimit)min", defaults: defaults)
                 }
+                defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
                 continue  // Skip reward time check - daily limit takes priority
             }
 
@@ -2925,6 +2952,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
                     debugLog("LEARNING_GOAL_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... goal not met (pool=\(pool)min) — re-applying shield", defaults: defaults)
                 }
+                defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
                 continue  // Skip pool-empty check - learning goal takes priority
             }
 

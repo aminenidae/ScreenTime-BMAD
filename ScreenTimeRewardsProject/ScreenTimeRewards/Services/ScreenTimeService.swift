@@ -2724,27 +2724,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         switch category {
         case .reward:
-            // Shield state is the source of truth for "can the kid use this today" —
-            // the shield-drop path can unshield mid-day regardless of what the
-            // schedule's todayLimit field says. So a reward app NEVER gets 0
-            // thresholds: at minimum we register the 5-min sentinel so iOS can
-            // fire events the moment the shield comes off. This closes the May 16
-            // Device 2 gap where `schedule.dailyLimits.todayLimit == 0` short-
-            // circuited the windowSize logic before reaching the sentinel branch
-            // (3h 27min of legitimate usage on app 2146685D went unrecorded).
             if isShielded {
                 return shieldedSentinel
             }
-            guard let schedule = AppScheduleService.shared.getSchedule(for: logicalID) else {
-                return rewardLookaheadCap
+            // Tiered windows (May 25, 2026): the extension sets window_size_<id>
+            // based on actual usage — 5 (sentinel), 30 (first use), or 90 (25+ min).
+            // Respect whatever the extension decided. Fall back to sentinel if unset.
+            if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
+                let extensionWindow = defaults.integer(forKey: "window_size_\(logicalID)")
+                if extensionWindow > 0 {
+                    return extensionWindow
+                }
             }
-            let todayLimit = schedule.dailyLimits.todayLimit
-            if todayLimit == unlimitedSentinel { return rewardLookaheadCap }
-            if todayLimit > 0 { return max(60, min(todayLimit, rewardLookaheadCap)) }
-            // todayLimit == 0 here means the schedule says "off today" — but the
-            // shield path may still unshield this app (data drift between the
-            // schedule's dailyLimits and goalConfig.todayDailyLimit). Register
-            // the sentinel as a safety net.
             return shieldedSentinel
         default:
             // Learning: the todayLimit==0 short-circuit still applies — a learning
