@@ -1349,46 +1349,39 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         debugLog("SKIP_SHIELDED appID=\(appID.prefix(8))... reward app is currently blocked", defaults: defaults)
                         Self.logger.notice("SKIP_SHIELDED app=\(appID.prefix(8))... shield up, blocking")
 
-                        // SHIELD-IN-BURST signal — if a shielded reward app fires while
-                        // we're inside an open burst window (Phase B already updated
-                        // last_event_arrival_global and may have cleared stale state),
-                        // the entire burst is phantom. Revert every credit applied in
-                        // this burst and lock the burst into flood mode.
+                        // Guard: if THIS app was credited earlier in the same burst,
+                        // the shield was applied mid-burst (daily limit crossed).
+                        // The remaining catch-up events are real pre-shield usage —
+                        // don't revert and don't escalate to flood.
                         let creditedApps = readBurstCreditedApps(defaults: defaults)
-                        if !creditedApps.isEmpty {
-                            revertBurstCredits(reason: "shield-in-burst-\(appID.prefix(8))", defaults: defaults)
-                        }
+                        let shieldedDuringBurst = creditedApps.contains(appID)
 
-                        // FLOOD TRIGGER (May 10, 2026): a verifiably-shielded app cannot
-                        // produce legit events — the kid physically can't use a blocked app.
-                        // If this event arrived within a burst (any other tracked app has
-                        // had an event in the last 10s), the burst itself is phantom: lock
-                        // out all events for 5 minutes and clear any open Layer 2 buffers
-                        // (their BUFFER_LEGIT verdicts would otherwise still fire later).
-                        // Solo SKIP_SHIELDED events without burst context are just blocked
-                        // here, not escalated — could be a one-off iOS stray.
-                        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-                        var otherAppsRecent = 0
-                        for trackedID in trackedAppIDs where trackedID != appID {
-                            let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
-                            if arrival > 0 && (nowTimestamp - arrival) <= 10 {
-                                otherAppsRecent += 1
+                        if shieldedDuringBurst {
+                            debugLog("SKIP_SHIELDED_MID_BURST appID=\(appID.prefix(8))... shield applied during this burst (daily limit) — blocking event but preserving burst credits", defaults: defaults)
+                            Self.logger.notice("SKIP_SHIELDED_MID_BURST app=\(appID.prefix(8))... credits preserved")
+                        } else {
+                            // Pre-existing shield — this burst is phantom.
+                            if !creditedApps.isEmpty {
+                                revertBurstCredits(reason: "shield-in-burst-\(appID.prefix(8))", defaults: defaults)
                             }
-                        }
-                        if otherAppsRecent >= 1 {
-                            // May 17, 2026 — Lockout shortened 300s → 30s. Real phantom
-                            // floods last 1–2 seconds (Device 1 May 16: 80h of phantom in 2s).
-                            // A 30s window suppresses the tail (out-of-order replays after
-                            // the burst settles) without blocking unrelated normal-cadence
-                            // usage. The burst-shape gating on SKIP_FLOOD above is the
-                            // primary defense; this duration is the secondary safety margin.
-                            defaults.set(nowTimestamp + 30, forKey: "phantom_flood_active_until")
-                            for trackedID in trackedAppIDs {
-                                defaults.removeObject(forKey: "first_event_start_\(trackedID)")
-                                defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
+
+                            let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+                            var otherAppsRecent = 0
+                            for trackedID in trackedAppIDs where trackedID != appID {
+                                let arrival = defaults.double(forKey: "last_event_arrival_\(trackedID)")
+                                if arrival > 0 && (nowTimestamp - arrival) <= 10 {
+                                    otherAppsRecent += 1
+                                }
                             }
-                            debugLog("PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=\(appID.prefix(8))... + \(otherAppsRecent) other app(s) within 10s — burst is phantom, locking out 30s, clearing all open buffers", defaults: defaults)
-                            Self.logger.notice("PHANTOM_FLOOD_DETECTED via SKIP_SHIELDED otherApps=\(otherAppsRecent) lockout=30s")
+                            if otherAppsRecent >= 1 {
+                                defaults.set(nowTimestamp + 30, forKey: "phantom_flood_active_until")
+                                for trackedID in trackedAppIDs {
+                                    defaults.removeObject(forKey: "first_event_start_\(trackedID)")
+                                    defaults.removeObject(forKey: "first_event_max_thresh_\(trackedID)")
+                                }
+                                debugLog("PHANTOM_FLOOD_DETECTED: SKIP_SHIELDED on appID=\(appID.prefix(8))... + \(otherAppsRecent) other app(s) within 10s — burst is phantom, locking out 30s, clearing all open buffers", defaults: defaults)
+                                Self.logger.notice("PHANTOM_FLOOD_DETECTED via SKIP_SHIELDED otherApps=\(otherAppsRecent) lockout=30s")
+                            }
                         }
                         return false
                     }
