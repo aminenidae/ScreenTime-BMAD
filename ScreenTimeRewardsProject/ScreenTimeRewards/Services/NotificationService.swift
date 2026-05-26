@@ -370,6 +370,13 @@ final class NotificationService: ObservableObject {
             return
         }
 
+        // Skip if the extension already fired this notification
+        let todayKey = dateKey()
+        if UserDefaults(suiteName: "group.com.screentimerewards.shared")?.bool(forKey: "ext_approaching_limit_\(appLogicalID)_\(todayKey)") == true {
+            print("[NotificationService] Extension already sent approaching limit for \(appName)")
+            return
+        }
+
         let remaining = limitMinutes - usedMinutes
 
         let content = UNMutableNotificationContent()

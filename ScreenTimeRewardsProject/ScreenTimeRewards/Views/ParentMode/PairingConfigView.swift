@@ -685,6 +685,13 @@ struct PairingConfigView: View {
             }
         }
 
+        // Sync names to shared UserDefaults so notifications use real names
+        if let sharedDefaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
+            for (logicalID, name) in editedNames where !name.isEmpty {
+                sharedDefaults.set(name, forKey: "map_\(logicalID)_name")
+            }
+        }
+
         // Update existing UsageRecords with new displayNames
         updateUsageRecordDisplayNames()
 

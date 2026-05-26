@@ -241,7 +241,7 @@ struct SettingsTabView: View {
         }
 
         .sheet(isPresented: $showingLogExport) {
-            DiagnosticsLogExportView()
+            DiagnosticsLogExportView(childName: modeManager.deviceName)
         }
 
         .alert("Diagnostic Report", isPresented: $showingDiagnosticUploadAlert) {

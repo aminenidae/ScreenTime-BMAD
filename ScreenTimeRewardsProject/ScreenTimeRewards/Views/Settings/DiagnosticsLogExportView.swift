@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 /// Diagnostics screen reachable from the parent Settings tab.
 ///
@@ -20,17 +21,25 @@ import SwiftUI
 /// NOTE: This file must be added to the ScreenTimeRewards target in Xcode
 /// before it will compile.
 struct DiagnosticsLogExportView: View {
+    let childName: String
+
     @Environment(\.dismiss) private var dismiss
     @Environment(\.colorScheme) private var colorScheme
 
-    @State private var logFiles: [LogFileInfo] = []
+    @State private var logFiles: [LogFileInfo]
+    @State private var selectedURLs: Set<URL> = []
     @State private var showingDeleteConfirm = false
-    @State private var shareItems: [Any] = []
-    @State private var showingShareSheet = false
-    @State private var batteryLine: String = "—"
+    @State private var batteryLine: String
+
+    init(childName: String) {
+        self.childName = childName
+        let urls = ExtensionFileLogger.shared.allLogFileURLs()
+        _logFiles = State(initialValue: urls.map(LogFileInfo.init))
+        _batteryLine = State(initialValue: Self.formattedBatteryLine())
+    }
 
     var body: some View {
-        NavigationView {
+        NavigationStack {
             List {
                 Section("Battery (last snapshot from main app)") {
                     Text(batteryLine)
@@ -45,26 +54,37 @@ struct DiagnosticsLogExportView: View {
                             .foregroundColor(.secondary)
                     } else {
                         ForEach(logFiles, id: \.url) { info in
-                            HStack {
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(info.url.lastPathComponent)
-                                        .font(.system(.body, design: .monospaced))
-                                    Text(info.sizeString)
-                                        .font(.caption)
-                                        .foregroundColor(.secondary)
+                            Button {
+                                toggleSelection(info.url)
+                            } label: {
+                                HStack(spacing: 12) {
+                                    Image(systemName: selectedURLs.contains(info.url) ? "checkmark.circle.fill" : "circle")
+                                        .foregroundColor(selectedURLs.contains(info.url) ? .accentColor : .secondary)
+                                        .font(.system(size: 20))
+                                    VStack(alignment: .leading, spacing: 2) {
+                                        Text(info.url.lastPathComponent)
+                                            .font(.system(.body, design: .monospaced))
+                                        Text(info.sizeString)
+                                            .font(.caption)
+                                            .foregroundColor(.secondary)
+                                    }
+                                    Spacer()
                                 }
-                                Spacer()
                             }
+                            .buttonStyle(.plain)
                         }
                     }
                 }
 
                 Section {
                     Button {
-                        shareItems = logFiles.map { $0.url as Any }
-                        showingShareSheet = !shareItems.isEmpty
+                        exportFiles()
                     } label: {
-                        Label("Export all", systemImage: "square.and.arrow.up")
+                        if selectedURLs.isEmpty {
+                            Label("Export all", systemImage: "square.and.arrow.up")
+                        } else {
+                            Label("Export \(selectedURLs.count) selected", systemImage: "square.and.arrow.up")
+                        }
                     }
                     .disabled(logFiles.isEmpty)
 
@@ -75,7 +95,7 @@ struct DiagnosticsLogExportView: View {
                     }
                     .disabled(logFiles.isEmpty)
                 } footer: {
-                    Text("Logs help diagnose usage-recording issues like the Apr 23 charging-flush overcounting incident. They include battery state at every monitoring restart and threshold burst.")
+                    Text("Tap files to pick specific days, or export all.")
                         .font(.footnote)
                 }
             }
@@ -86,7 +106,6 @@ struct DiagnosticsLogExportView: View {
                     Button("Done") { dismiss() }
                 }
             }
-            .onAppear { reload() }
             .confirmationDialog(
                 "Delete all log files?",
                 isPresented: $showingDeleteConfirm,
@@ -100,20 +119,61 @@ struct DiagnosticsLogExportView: View {
             } message: {
                 Text("This cannot be undone. Future log lines will start a fresh file.")
             }
-            .sheet(isPresented: $showingShareSheet) {
-                // Reuses the module-level ShareSheet defined in UsageAccuracyDiagnosticsView.swift.
-                ShareSheet(items: shareItems)
+        }
+    }
+
+    private func toggleSelection(_ url: URL) {
+        if selectedURLs.contains(url) {
+            selectedURLs.remove(url)
+        } else {
+            selectedURLs.insert(url)
+        }
+    }
+
+    private func exportFiles() {
+        let urls = selectedURLs.isEmpty
+            ? logFiles.map(\.url)
+            : logFiles.map(\.url).filter { selectedURLs.contains($0) }
+        guard !urls.isEmpty else { return }
+
+        let sanitized = childName
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .replacingOccurrences(of: " ", with: "-")
+            .replacingOccurrences(of: "/", with: "-")
+        let prefix = sanitized.isEmpty ? "" : "\(sanitized)-"
+        let tmp = FileManager.default.temporaryDirectory
+
+        var renamed: [URL] = []
+        for url in urls {
+            let newName = "\(prefix)\(url.lastPathComponent)"
+            let dest = tmp.appendingPathComponent(newName)
+            try? FileManager.default.removeItem(at: dest)
+            if (try? FileManager.default.copyItem(at: url, to: dest)) != nil {
+                renamed.append(dest)
+            } else {
+                renamed.append(url)
             }
         }
+
+        let ac = UIActivityViewController(activityItems: renamed, applicationActivities: nil)
+        guard let scene = UIApplication.shared.connectedScenes.first as? UIWindowScene,
+              let root = scene.windows.first?.rootViewController else { return }
+        var presenter = root
+        while let presented = presenter.presentedViewController {
+            presenter = presented
+        }
+        ac.popoverPresentationController?.sourceView = presenter.view
+        presenter.present(ac, animated: true)
     }
 
     private func reload() {
         let urls = ExtensionFileLogger.shared.allLogFileURLs()
         logFiles = urls.map(LogFileInfo.init)
-        batteryLine = formattedBatteryLine()
+        selectedURLs = []
+        batteryLine = Self.formattedBatteryLine()
     }
 
-    private func formattedBatteryLine() -> String {
+    private static func formattedBatteryLine() -> String {
         guard let defaults = UserDefaults(suiteName: ExtensionFileLogger.appGroupID) else {
             return "App Group unavailable"
         }

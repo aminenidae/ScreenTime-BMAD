@@ -816,7 +816,7 @@ class BlockingCoordinator: ObservableObject {
         guard todayLimit < 1440 else { return }
 
         let usedMinutes = getTodayUsageMinutes(for: logicalID)
-        let appDisplayName = UserDefaults(suiteName: "group.com.screentimerewards.shared")?.string(forKey: "map_\(logicalID)_name") ?? "Reward App"
+        let appDisplayName = resolveAppDisplayName(for: logicalID)
 
         // Check for 80% threshold (approaching limit)
         let thresholdPercent = 0.80
@@ -1268,8 +1268,7 @@ class BlockingCoordinator: ObservableObject {
                             appLogicalID: logicalID
                         )
 
-                        // Get display name for notifications
-                        let appDisplayName = UserDefaults(suiteName: "group.com.screentimerewards.shared")?.string(forKey: "map_\(logicalID)_name") ?? "Reward App"
+                        let appDisplayName = resolveAppDisplayName(for: logicalID)
 
                         // Schedule local notification for child
                         NotificationService.shared.scheduleStreakMilestoneNotification(
@@ -1562,6 +1561,22 @@ class BlockingCoordinator: ObservableObject {
                 }
             }
         }
+    }
+
+    private func resolveAppDisplayName(for logicalID: String) -> String {
+        // 1. Parent-entered name in UsagePersistence (most trustworthy)
+        if let persisted = screenTimeService?.usagePersistence.app(for: logicalID),
+           !persisted.displayName.isEmpty,
+           !persisted.displayName.hasPrefix("Unknown App") {
+            return persisted.displayName
+        }
+        // 2. Shared UserDefaults mapping (written by configureMonitoring)
+        if let name = UserDefaults(suiteName: "group.com.screentimerewards.shared")?.string(forKey: "map_\(logicalID)_name"),
+           !name.isEmpty,
+           !name.hasPrefix("Unknown App") {
+            return name
+        }
+        return "Reward App"
     }
 
     /// Calculate total earned minutes from extension unlock records

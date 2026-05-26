@@ -380,6 +380,32 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
+        // Wall-clock budget enforcement: total growth across all apps in this
+        // burst cannot exceed wall-clock since the last credit before the burst.
+        // The shadow system already tracks these values — promote to enforce.
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        let inHealMode = now < healActiveUntil
+        if !inHealMode {
+            let baselineCreditTs = defaults.double(forKey: "shadow_burst_baseline_credit_ts")
+            if baselineCreditTs > 0 {
+                let wallclockSec = max(0.0, now - baselineCreditTs)
+                let budgetSec = wallclockSec * 1.1 + 60
+                var totalGrowthSec = 0
+                let appsCSV = defaults.string(forKey: "shadow_burst_apps_csv") ?? ""
+                for burstApp in appsCSV.split(separator: ",").map(String.init) {
+                    let maxThresh = defaults.integer(forKey: "shadow_burst_max_thresh_\(burstApp)")
+                    let todayAtStart = defaults.integer(forKey: "shadow_burst_today_at_start_\(burstApp)")
+                    totalGrowthSec += max(0, maxThresh - todayAtStart)
+                }
+                let proposedGrowth = totalGrowthSec + max(0, thresholdSeconds - defaults.integer(forKey: "usage_\(appID)_today"))
+                if Double(proposedGrowth) > budgetSec {
+                    debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... growth=\(proposedGrowth)s > budget=\(Int(budgetSec))s (wallclock=\(Int(wallclockSec))s) — phantom reject", defaults: defaults)
+                    Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... growth=\(proposedGrowth)s budget=\(Int(budgetSec))s")
+                    return false
+                }
+            }
+        }
+
         // Save revert info IFF this is the first credit for this app in the
         // current burst window. Subsequent credits to the same app within
         // the burst stay covered by the same revert snapshot.
@@ -664,10 +690,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Activate heal mode so anti-phantom defenses (SKIP_FLOOD, SKIP_SHIELDED,
         // BURST_REVERT, PHANTOM_FLOOD_DETECTED, FIRST_EVENT_BUFFER) stand aside
         // while iOS delivers its authoritative catch-up. The flag self-extends
-        // on every credit during heal and on every rebuild request, so a long
-        // multi-window catch-up chain stays inside heal mode until catch-up
-        // truly goes silent for ≥30 seconds.
-        defaults.set(nowTs + 10, forKey: "heal_active_until")
+        // Duration must cover ALL batches + iOS delivery delay. Batches advance
+        // every 10s × up to 6 batches = 60s, plus iOS can take 30-60s to deliver
+        // catch-ups after the last batch. 120s covers worst case; keepalive in
+        // applyCredit extends it further if catch-ups are still arriving.
+        let batchCount = defaults.integer(forKey: "heal_batch_total")
+        let healDuration = max(120.0, Double(batchCount) * 10.0 + 60.0)
+        defaults.set(nowTs + healDuration, forKey: "heal_active_until")
         defaults.set(0, forKey: "heal_batch_last_processed")
 
         // Clear global burst/flood state for a clean restart.
@@ -791,8 +820,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         let nowTs = Date().timeIntervalSince1970
 
-        // Re-activate heal mode for this batch
-        defaults.set(nowTs + 10, forKey: "heal_active_until")
+        // Extend heal mode — ensure it covers remaining batches + iOS delivery delay.
+        let currentHealUntil = defaults.double(forKey: "heal_active_until")
+        let newHealUntil = max(currentHealUntil, nowTs + 60)
+        defaults.set(newHealUntil, forKey: "heal_active_until")
 
         // Clear burst/flood state for clean batch processing
         defaults.removeObject(forKey: "burst_credited_apps_csv")
@@ -1081,6 +1112,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // EXTENSION SHIELD BLOCKING: Check if any reward app has exhausted its earned time
         checkAndBlockIfRewardTimeExhausted(configs: shieldConfigs, defaults: defaults)
+
+        // APPROACHING LIMIT NOTIFICATION: Fire when reward app hits 80% of daily limit
+        checkAndNotifyApproachingLimit(appID: appID, usageSeconds: newToday, configs: shieldConfigs, defaults: defaults)
 
         // EXTENSION CLOUDKIT SYNC: Only if explicitly enabled (disabled by default to save ~1-2MB)
         // Main app handles CloudKit sync on foreground activation
@@ -2086,6 +2120,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// stays as the best-effort fast path; if it succeeds the main-app handler
     /// observes a clean state and is a no-op.
     private nonisolated func requestMainAppWindowRebuild(reason: String, defaults: UserDefaults) {
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        if Date().timeIntervalSince1970 < healActiveUntil {
+            debugLog("WINDOW_REBUILD_SUPPRESSED reason=\(reason) — heal active, extension handles rebuilds", defaults: defaults)
+            return
+        }
         defaults.set(true, forKey: "pending_window_rebuild")
         defaults.set(Date().timeIntervalSince1970, forKey: "pending_window_rebuild_timestamp")
         defaults.set(reason, forKey: "pending_window_rebuild_reason")
@@ -2777,6 +2816,56 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 // Mark as sent to prevent duplicates
                 defaults.set(true, forKey: notificationSentKey)
                 self?.debugLog("NOTIFICATION: ✅ Scheduled goal completed notification for \(String(rewardAppID.prefix(12)))", defaults: defaults)
+            }
+        }
+    }
+
+    // MARK: - Approaching Limit Notification
+
+    private nonisolated func checkAndNotifyApproachingLimit(
+        appID: String,
+        usageSeconds: Int,
+        configs: ExtensionShieldConfigsMinimal?,
+        defaults: UserDefaults
+    ) {
+        guard let configs = configs else { return }
+
+        guard let goalConfig = configs.goalConfigs.first(where: { $0.rewardAppLogicalID == appID }) else {
+            return
+        }
+
+        let dailyLimit = goalConfig.todayDailyLimit()
+        guard dailyLimit > 0, dailyLimit < 1440 else { return }
+
+        let usedMinutes = usageSeconds / 60
+        let thresholdMinutes = Int(Double(dailyLimit) * 0.80)
+
+        guard usedMinutes >= thresholdMinutes, usedMinutes < dailyLimit else { return }
+
+        let todayKey = Self.dayDateFormatter.string(from: Date())
+        let sentKey = "ext_approaching_limit_\(appID)_\(todayKey)"
+        guard !defaults.bool(forKey: sentKey) else { return }
+
+        let appName = defaults.string(forKey: "map_\(appID)_name") ?? "Reward App"
+        let displayName = (appName.hasPrefix("Unknown App")) ? "Reward App" : appName
+        let remaining = dailyLimit - usedMinutes
+
+        let content = UNMutableNotificationContent()
+        content.title = "Approaching Limit"
+        content.body = "\(displayName): \(Self.formatRewardDuration(remaining)) remaining today"
+        content.sound = .default
+        content.categoryIdentifier = "dailyLimit"
+
+        let identifier = "ext_approaching_limit_\(appID)_\(todayKey)"
+        let trigger = UNTimeIntervalNotificationTrigger(timeInterval: 1, repeats: false)
+        let request = UNNotificationRequest(identifier: identifier, content: content, trigger: trigger)
+
+        UNUserNotificationCenter.current().add(request) { [weak self] error in
+            if let error = error {
+                self?.debugLog("NOTIFICATION: ❌ Approaching limit failed - \(error.localizedDescription)", defaults: defaults)
+            } else {
+                defaults.set(true, forKey: sentKey)
+                self?.debugLog("NOTIFICATION: ✅ Approaching limit for \(String(appID.prefix(12))) (\(displayName)) — \(remaining)min left of \(dailyLimit)min", defaults: defaults)
             }
         }
     }

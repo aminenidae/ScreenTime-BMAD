@@ -962,6 +962,30 @@ Device 2 (May 24): Roblox tracked 118 min vs iOS 188 min due to 3 BURST_REVERTs 
 
 Fix: in SKIP_SHIELDED, check if the triggering app was credited earlier in the same burst (i.e., in `burst_credited_apps`). If so, the shield was applied mid-burst by that credit — the remaining catch-ups are real pre-shield usage. Block the event but preserve credits. Only revert when the shield was already on before the burst started (true phantom signal).
 
+### 2026-05-26 — Burst budget promoted from shadow to enforce
+
+The shadow budget check (`SHADOW_BUDGET_CHECK`) correctly detected phantom floods on every occasion but never blocked them — it was diagnostic-only. On Amine's device (May 26), a "schedule edited" restart at 12:15 produced 43 min of phantom across 11 unused reward apps; the shadow logged `verdict=exceeded` but let every event through.
+
+The `applyCredit` code path (credit-on-arrival) had no wall-clock budget enforcement. The legacy `setUsageToThreshold` path had `SKIP_BURST_BUDGET` but it was never ported to the active path.
+
+Fix: added enforcing budget check before `applyCredit` in `setUsageToThreshold`. Uses the same shadow burst state (`shadow_burst_baseline_credit_ts`, per-app growth tracking). Budget = wallclock × 1.1 + 60s grace. Heal mode bypasses the check (heal catch-ups are intentional). Logs `SKIP_BURST_BUDGET` on reject.
+
+### 2026-05-26 — Heal duration and batch isolation fixes
+
+Two problems broke the heal mechanism:
+
+**1. `heal_active_until` expired before iOS delivered catch-ups.** The timer was set to now+10s and extended only by successful credits. With 6 batches advancing every 10s (60s total) + iOS delivery delay (15-60s), heal mode expired long before catch-ups arrived. Shielded reward apps then triggered `PHANTOM_FLOOD_DETECTED` which locked out ALL events including legitimate learning-app catch-ups.
+
+Fix: initial `heal_active_until` now covers the full batch window (`batchCount × 10s + 60s`, minimum 120s). Each batch extends to `max(current, now+60s)` instead of resetting to `now+10s`.
+
+**2. Main app `scheduleActivity()` broke batch isolation.** The extension's batch mode set `window_size=0` for deferred apps, but `scheduleActivity()` (triggered by Darwin notification) overrode it to 5 (sentinel) because the tiered-window stale-check treated 0 as "unset." iOS then fired sentinel catch-ups for all 17 apps during the learning batch.
+
+Fix (two layers):
+- `windowSize()` respects `window_size=0` when `heal_batch_active` is true — returns 0 instead of sentinel.
+- `requestMainAppWindowRebuild` suppressed during heal mode — the extension handles all rebuilds, no Darwin notification sent to main app.
+
+Validated on Amine's device: heal recovered Instagram=22min (exact), Clue=15min (exact), all 14 other reward apps=0min (zero phantom).
+
 ### 2026-05-25 — Foreground-only periodic shield refresh
 
 BlockingCoordinator's 60s periodic timer (`refreshAllBlockingStates`) was running even when the app was backgrounded. On Device 4 (May 25), this caused all reward apps to briefly unshield at ~12:09 — the main app's evaluation disagreed with the extension's ground truth because its Core Data was stale. The extension is the shield authority. Fix: timer callback now checks `UIApplication.shared.applicationState == .active` and skips when backgrounded.

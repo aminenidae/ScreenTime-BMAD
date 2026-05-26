@@ -1078,9 +1078,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Also write using logicalID key for ExtensionCloudKitSync lookup
             // (ExtensionCloudKitSync reads category by logicalID, not eventName)
             sharedDefaults.set(app.category.rawValue, forKey: "map_\(app.logicalID)_category")
-            // Also write display name using logicalID key for ExtensionCloudKitSync lookup
-            // (Required for parent app to show real app names instead of "Privacy Protected App #X")
-            sharedDefaults.set(app.displayName, forKey: "map_\(app.logicalID)_name")
+            // Write display name — prefer parent-entered custom name over iOS default
+            let persistedName = usagePersistence.app(for: app.logicalID)?.displayName
+            let nameForDefaults = (persistedName != nil && !persistedName!.isEmpty && !persistedName!.hasPrefix("Unknown App"))
+                ? persistedName!
+                : app.displayName
+            sharedDefaults.set(nameForDefaults, forKey: "map_\(app.logicalID)_name")
             // Store serialized token so extension can rebuild DeviceActivityEvent objects
             // without the main app — needed for extension-side sliding window refresh.
             // Written once per app (overwrites are harmless, token is stable).
@@ -2730,9 +2733,19 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Tiered windows (May 25, 2026): the extension sets window_size_<id>
             // based on actual usage — 5 (sentinel), 30 (first use), or 90 (25+ min).
             // Respect whatever the extension decided. Fall back to sentinel if unset.
+            // Cross-check: if window says 30+ but app has 0 usage today, the value
+            // is stale from a previous build or day — reset to sentinel.
+            // IMPORTANT: window_size=0 means "skip this app" (heal batch mode).
             if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
                 let extensionWindow = defaults.integer(forKey: "window_size_\(logicalID)")
+                if defaults.bool(forKey: "heal_batch_active") && extensionWindow == 0 {
+                    return 0
+                }
                 if extensionWindow > 0 {
+                    let usageToday = defaults.integer(forKey: "usage_\(logicalID)_today")
+                    if extensionWindow > shieldedSentinel && usageToday == 0 {
+                        return shieldedSentinel
+                    }
                     return extensionWindow
                 }
             }
