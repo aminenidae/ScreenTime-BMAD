@@ -397,7 +397,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     let todayAtStart = defaults.integer(forKey: "shadow_burst_today_at_start_\(burstApp)")
                     totalGrowthSec += max(0, maxThresh - todayAtStart)
                 }
-                let proposedGrowth = totalGrowthSec + max(0, thresholdSeconds - defaults.integer(forKey: "usage_\(appID)_today"))
+                // shadowBurstTrack already updated max_thresh for this event,
+                // so totalGrowthSec includes the current event's contribution.
+                // Only add the proposed delta for apps NOT yet in the burst CSV.
+                let alreadyTracked = Set(appsCSV.split(separator: ",").map(String.init))
+                let proposedAddition = alreadyTracked.contains(appID) ? 0 : max(0, thresholdSeconds - defaults.integer(forKey: "usage_\(appID)_today"))
+                let proposedGrowth = totalGrowthSec + proposedAddition
                 if Double(proposedGrowth) > budgetSec {
                     debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... growth=\(proposedGrowth)s > budget=\(Int(budgetSec))s (wallclock=\(Int(wallclockSec))s) — phantom reject", defaults: defaults)
                     Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... growth=\(proposedGrowth)s budget=\(Int(budgetSec))s")
@@ -545,6 +550,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentWindow = defaults.integer(forKey: "window_size_\(appID)")
         let usageMin = thresholdSeconds / 60
 
+        var promoted = false
         if currentWindow <= 5 && usageMin > 0 {
             let newWindow: Int
             if usageMin >= 25 {
@@ -555,11 +561,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(newWindow, forKey: "window_size_\(appID)")
             debugLog("TIER_PROMOTE appID=\(appID.prefix(8))... \(currentWindow)→\(newWindow) (usage=\(usageMin)min)", defaults: defaults)
             Self.logger.notice("TIER_PROMOTE app=\(appID.prefix(8))... \(currentWindow)→\(newWindow)")
+            promoted = true
         } else if currentWindow <= 30 && usageMin >= 25 {
             let newWindow = 90
             defaults.set(newWindow, forKey: "window_size_\(appID)")
             debugLog("TIER_PROMOTE appID=\(appID.prefix(8))... \(currentWindow)→\(newWindow) (usage=\(usageMin)min)", defaults: defaults)
             Self.logger.notice("TIER_PROMOTE app=\(appID.prefix(8))... \(currentWindow)→\(newWindow)")
+            promoted = true
+        }
+        if promoted {
+            defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
         }
     }
 

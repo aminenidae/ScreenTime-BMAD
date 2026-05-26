@@ -970,6 +970,16 @@ The `applyCredit` code path (credit-on-arrival) had no wall-clock budget enforce
 
 Fix: added enforcing budget check before `applyCredit` in `setUsageToThreshold`. Uses the same shadow burst state (`shadow_burst_baseline_credit_ts`, per-app growth tracking). Budget = wallclock × 1.1 + 60s grace. Heal mode bypasses the check (heal catch-ups are intentional). Logs `SKIP_BURST_BUDGET` on reject.
 
+**Bug (same day, later):** The enforcing check double-counted the current event's contribution. `shadowBurstTrack` runs before the enforcing check and updates `shadow_burst_max_thresh_<id>` for the current event. The enforcing check then summed `max_thresh - today_at_start` across all burst apps (already including this event), then ADDED `thresholdSeconds - usage_today` on top — counting the same 60s twice. Every normal 1-per-minute event showed 120s growth against ~60s wallclock → always over budget → legit usage blocked. Amine's device: Clue (739C4A42) had 6 consecutive normal events rejected at 14:01–14:06.
+
+Fix: only add the proposed delta for apps not yet in the burst CSV. If the app is already tracked (which it always is by the time the enforcing check runs), its contribution is already in `totalGrowthSec`.
+
+### 2026-05-26 — Tier promotion debounce clear
+
+On Sami's device, Roblox promoted 30→90 at 11:50:55 but the rebuild debounce (60s) was still active from the 5→30 promotion 21 seconds earlier. The window stayed at 4-33 (old tier-1 range), exhausted at min 33, and Roblox went dark for 97 minutes until the main app opened. Imane's device worked because events arrived at normal 1-per-minute cadence — the debounce cleared naturally before the window exhausted.
+
+Fix: `promoteTierIfNeeded` clears the per-app rebuild debounce timestamp on every promotion. The next event that approaches the window top triggers the rebuild immediately. No mid-burst monitoring restart (which would cause phantom floods) — just clearing the gate so the existing rebuild path fires sooner.
+
 ### 2026-05-26 — Heal duration and batch isolation fixes
 
 Two problems broke the heal mechanism:
