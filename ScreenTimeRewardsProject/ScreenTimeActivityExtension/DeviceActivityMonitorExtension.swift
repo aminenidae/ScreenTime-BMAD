@@ -726,8 +726,12 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // Clear per-rebuild debounce timestamps so the catch-up chain isn't
         // blocked by stale per-app debounce. Heal-mode shortens debounce to 1s
         // anyway, but starting from a clean baseline keeps things predictable.
+        // Also clear goal-completed notification flags — usage was reset so the
+        // goal is un-met; the notification should fire again when re-earned.
+        let todayKey = Self.dayDateFormatter.string(from: Date(timeIntervalSince1970: nowTs))
         for appID in appIDs {
             defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+            defaults.removeObject(forKey: "ext_goal_notification_\(appID)_\(todayKey)")
         }
 
         let preHealMin = preHealTotalSec / 60
@@ -2989,6 +2993,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     debugLog("DOWNTIME_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... outside allowed window \(goalConfig.allowedStartHour):\(goalConfig.allowedStartMinute)-\(goalConfig.allowedEndHour):\(goalConfig.allowedEndMinute)", defaults: defaults)
                 }
                 defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
+                let dtk = Self.dayDateFormatter.string(from: Date())
+                defaults.removeObject(forKey: "ext_goal_notification_\(goalConfig.rewardAppLogicalID)_\(dtk)")
                 continue  // Skip other checks - downtime takes priority
             }
 
@@ -3022,6 +3028,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     debugLog("DAILY_LIMIT_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... used=\(usageMinutes)min >= limit=\(dailyLimit)min", defaults: defaults)
                 }
                 defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
+                let dltk = Self.dayDateFormatter.string(from: Date())
+                defaults.removeObject(forKey: "ext_goal_notification_\(goalConfig.rewardAppLogicalID)_\(dltk)")
                 continue  // Skip reward time check - daily limit takes priority
             }
 
@@ -3053,6 +3061,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                     debugLog("LEARNING_GOAL_BLOCK: \(goalConfig.rewardAppLogicalID.prefix(12))... goal not met (pool=\(pool)min) — re-applying shield", defaults: defaults)
                 }
                 defaults.set(5, forKey: "window_size_\(goalConfig.rewardAppLogicalID)")
+                let lgtk = Self.dayDateFormatter.string(from: Date())
+                defaults.removeObject(forKey: "ext_goal_notification_\(goalConfig.rewardAppLogicalID)_\(lgtk)")
                 continue  // Skip pool-empty check - learning goal takes priority
             }
 
