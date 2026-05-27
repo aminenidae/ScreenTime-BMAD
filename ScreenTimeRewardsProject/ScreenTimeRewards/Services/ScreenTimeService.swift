@@ -3524,12 +3524,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// IMPORTANT: This REPLACES all shields with only the current reward tokens
     /// This ensures removed apps get unshielded even after app restart
     func syncRewardAppShields(currentRewardTokens: Set<ApplicationToken>) {
-        // If subscription expired, clear all shields instead of applying (includes parent-paired access on child devices)
+        // Fail closed: if subscription status is uncertain, preserve existing shields.
+        // See feedback_safety_state_separate_from_entitlement — a single false from
+        // effectiveHasAccess (CloudKit hiccup, slow network) must never wipe shields.
+        // Subscription enforcement happens via bank drain, not shield destruction.
         guard SubscriptionManager.shared.effectiveHasAccess else {
             #if DEBUG
-            print("[ScreenTimeService] ⏭️ Subscription expired - clearing all shields")
+            print("[ScreenTimeService] ⏭️ Subscription not verified — preserving existing shields (fail closed)")
             #endif
-            clearAllShields()
             return
         }
 

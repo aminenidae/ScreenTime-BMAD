@@ -97,6 +97,24 @@ is now only mutated by:
 - The extension's per-event control flow (`checkAndUpdateShields` and
   `checkAndBlockIfRewardTimeExhausted`)
 
+### 2026-05-26 — Third door: `syncRewardAppShields`
+
+`ScreenTimeService.syncRewardAppShields()` (line 3526) still had
+`clearAllShields()` on `!effectiveHasAccess` — the same pattern removed from
+BlockingCoordinator on May 21 but missed in this function. Called by:
+
+- `BlockingCoordinator.handleParentSubscriptionRestored`
+- `SubscriptionManager.restartMonitoringServices`
+- `SubscriptionLockoutView` DEV bypass
+
+On two child devices (May 26), all reward apps silently unshielded while the
+extension was dormant and the main app was not opened. The extension log shows
+a 71-minute gap with zero entries; when the extension woke, every app reported
+"not currently shielded." A background task calling `syncRewardAppShields`
+during a transient `effectiveHasAccess = false` is the most likely trigger.
+
+Fix: same as May 21 — early return without clearing shields. Shields preserved.
+
 ## Invariants restored
 
 - **Shield state survives subscription-check transients.** Shields can only
