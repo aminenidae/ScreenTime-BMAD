@@ -980,6 +980,26 @@ On Sami's device, Roblox promoted 30→90 at 11:50:55 but the rebuild debounce (
 
 Fix: `promoteTierIfNeeded` clears the per-app rebuild debounce timestamp on every promotion. The next event that approaches the window top triggers the rebuild immediately. No mid-burst monitoring restart (which would cause phantom floods) — just clearing the gate so the existing rebuild path fires sooner.
 
+### 2026-05-27 — Heal batch window_size restore
+
+When the heal batch processor advances to a new batch, it sets `window_size=0` for apps in future batches (correct). But it never restored `window_size` to a positive value for apps in the **current** batch. Those apps had `window_size=0` from being deferred in batch 0, and it stayed at 0.
+
+Imane's device (May 27): Roblox was in batch 2. Learning app recovered in batch 0 (goal met). When batch 2 ran, `extensionRebuildSlidingWindow` read `window_size=0` for Roblox → registered 0 thresholds → iOS had nothing to fire → Roblox recovered 0 min despite 2+ hours of real usage. Required 3 heal attempts; first recovered 5 min, second recovered 133 min (from batch 0 sentinel leaking), third recovered 0 min.
+
+Sami's device (May 27): same build without the `heal_batch_active` check in `windowSize()`. Main app's `scheduleActivity()` registered 5-threshold sentinels for ALL apps during batch 0. iOS fired catch-ups for reward apps in the learning batch → phantom inflation (e.g. Stumble Guys 118 min vs iOS 55 min).
+
+Fix: `processHealBatch` now restores `window_size` for apps entering the current batch — learning apps get 30, reward apps get 5 (sentinel, tier promotion handles expansion).
+
+### 2026-05-27 — Main app heal batch isolation: read the actual batch plan
+
+The `heal_batch_active` + `extensionWindow == 0` check in `windowSize()` was insufficient. Reward apps with `window_size=90` from tier-2 promotion (set during normal usage before the heal) bypassed the check because `extensionWindow` was 90, not 0. The extension's heal reset zeroes `window_size` for deferred apps, but `scheduleActivity()` can run before or concurrently — a race condition.
+
+Sami's device (May 27): 852B1F13 had `window_size=90` and `usage_today=118` (inflated from a previous heal's phantom). The stale check saw `window_size=90, usage > 0 → return 90`. Full 90-threshold window registered during batch 0 → iOS fired catch-ups → phantom flood. Imane's device worked by luck: reward apps had `usage_today=0` (never recorded due to double-count bug), so the stale check returned 5 (less damage).
+
+Additional issue: overlapping heals. When a second heal started while the first was still batching, the first heal's batch timer continued advancing and overwrote `window_size` values after the second heal had cleared them.
+
+Fix: during `heal_batch_active`, `windowSize()` now reads the actual batch plan from UserDefaults and checks if the app is in an allowed batch. Any app not in the allowed list returns 0, regardless of its `window_size` value.
+
 ### 2026-05-26 — Heal duration and batch isolation fixes
 
 Two problems broke the heal mechanism:

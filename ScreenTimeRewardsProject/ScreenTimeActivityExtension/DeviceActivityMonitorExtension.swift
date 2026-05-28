@@ -853,9 +853,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             defaults.set(0, forKey: "window_size_\(appID)")
         }
 
-        // Clear per-app rebuild debounce for the new batch's apps
+        // Restore window size for newly-allowed apps and clear rebuild debounce.
         let batchApps = batchPlan[currentBatch]
         for appID in batchApps {
+            if defaults.integer(forKey: "window_size_\(appID)") <= 0 {
+                let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+                defaults.set(category == "Learning" ? 30 : 5, forKey: "window_size_\(appID)")
+            }
             defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
         }
 

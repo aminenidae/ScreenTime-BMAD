@@ -2738,8 +2738,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // IMPORTANT: window_size=0 means "skip this app" (heal batch mode).
             if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
                 let extensionWindow = defaults.integer(forKey: "window_size_\(logicalID)")
-                if defaults.bool(forKey: "heal_batch_active") && extensionWindow == 0 {
-                    return 0
+                if defaults.bool(forKey: "heal_batch_active") {
+                    if extensionWindow <= 0 { return 0 }
+                    if let batchData = defaults.data(forKey: "heal_batch_plan"),
+                       let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchData) {
+                        let currentBatch = defaults.integer(forKey: "heal_batch_current")
+                        let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
+                        if !allowedApps.contains(logicalID) { return 0 }
+                    }
                 }
                 if extensionWindow > 0 {
                     let usageToday = defaults.integer(forKey: "usage_\(logicalID)_today")
