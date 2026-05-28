@@ -406,6 +406,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 if Double(proposedGrowth) > budgetSec {
                     debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... growth=\(proposedGrowth)s > budget=\(Int(budgetSec))s (wallclock=\(Int(wallclockSec))s) — phantom reject", defaults: defaults)
                     Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... growth=\(proposedGrowth)s budget=\(Int(budgetSec))s")
+                    // iOS consumes every registered threshold during the flood even
+                    // though we reject each event; without a rebuild the window is a
+                    // dead husk and real usage accumulates invisibly (see "2026-05-21
+                    // — Phantom flood + recovery hole" in
+                    // THREE_PHASE_RECORDING_ARCHITECTURE.md). Mirror revertBurstCredits:
+                    // lock the burst as flood so the remaining events short-circuit at
+                    // the burst_is_flood check instead of re-triggering recovery
+                    // per-event, then request a fresh sliding window. The flag
+                    // auto-clears when the next genuine burst opens (Phase B gap check).
+                    defaults.set(true, forKey: "burst_is_flood")
+                    requestMainAppWindowRebuild(reason: "post-budget-recovery", defaults: defaults)
                     return false
                 }
             }

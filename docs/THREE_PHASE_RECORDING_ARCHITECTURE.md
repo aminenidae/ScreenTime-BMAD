@@ -883,6 +883,54 @@ Tested 2026-05-23 18:58 on Amine's iPhone (child) and parent device. After heal:
 
 ---
 
+## 2026-05-27 — Budget-enforce flood left the window dead (Alex's iPhone)
+
+The same recovery hole as **2026-05-21**, re-opened through a new rejection path. The May 21 fix wired post-flood recovery into `revertBurstCredits` (the shielded-in-burst detector). On 2026-05-26, commit `ae771b2` promoted the wall-clock budget check from shadow to enforce as a bare `return false` — a third way to reject a flood that never enters `revertBurstCredits` and so never re-arms the consumed sliding window.
+
+### What happened
+
+`Alex-ext-log-2026-05-27.log`:
+
+- Normal per-minute recording all morning through **14:41** (last credit: learning app E8B1C8C6 → 12 min).
+- **14:39** — learning goal met; all reward apps unshielded.
+- **14:43:44–14:43:55** — iOS dumped a phantom flood: **112 threshold events across 15 apps in 11 seconds.** Only YouTube (C6DA269B) had real usage today; every other app's events were phantom.
+- The cross-app budget check tripped correctly (`proposedGrowth ≈ 11,000s` vs `budget ≈ 230s`) and rejected all 112 events as `SKIP_BURST_BUDGET`. **The filter did its job.**
+- After 14:43:55: **zero threshold events for the rest of the day (~6 h).** Three later app launches all logged `MONITORING_ALREADY_ACTIVE — skipping`. No heal, no rebuild.
+
+### Root cause — identical mechanism to 2026-05-21
+
+- iOS fired (and thereby consumed) every registered threshold for each app during the flood — including all 30 of YouTube's 14–43 window — even though we rejected each event.
+- The sliding-window rebuild only fires on a successful credit (`RECORDED → REBUILD_REQUEST`). A 100%-rejected flood produces no credit, so the window never advances or re-registers.
+- The cross-app budget is unique in that it rejects the **entire** flood, including the one legit app: YouTube's real growth was swept up because the phantom apps kept the cross-app total over budget — so not even the real app produced a credit to drive a rebuild.
+- `MONITORING_ALIVE` keeps the periodic restart from making a fresh session. The window stays a dead husk while everything looks healthy.
+
+`ae771b2` shipped only the blocking half of the design. The doc had already prescribed the other half (see "The big realization" → "When promoting the budget check from shadow to enforcement, wire it to heal rather than to `revertBurstCredits`"). The commit did neither — no heal, no rebuild signal.
+
+### The fix
+
+Wire `SKIP_BURST_BUDGET` to the same recovery `revertBurstCredits` already uses. At the budget reject, before `return false`:
+
+```swift
+defaults.set(true, forKey: "burst_is_flood")
+requestMainAppWindowRebuild(reason: "post-budget-recovery", defaults: defaults)
+```
+
+- `burst_is_flood = true` classifies the burst as a flood so the remaining events short-circuit at the `burst_is_flood` check (the `BURST_FLOOD_SKIP` branch) instead of re-running the budget math and re-posting the rebuild notification per-event. It auto-clears when the next genuine burst opens (Phase B gap ≥ 5 s → `clearBurstState`).
+- `requestMainAppWindowRebuild` raises `pending_window_rebuild` + posts the Darwin notification. The main app drains it three ways (Darwin handler, app-launch check, foreground health check) — all reason-agnostic, so `post-budget-recovery` is handled exactly like `post-flood-recovery`.
+
+Net: a budget-rejected flood now forces a fresh sliding window within seconds instead of going dark for the rest of the day.
+
+### Why rebuild and not heal (for now)
+
+The doc's preferred end-state is to trigger a silent heal on budget-exceeded (ground-truth re-query, not just re-arm). This fix takes the smaller step — re-arm the window the same way the shield-in-burst path does — because it's a one-line parallel to proven, shipping code and carries the existing accepted trade-offs (see the immediate-recovery race note in the 2026-05-21 section). Heal-on-budget-exceeded remains the eventual target under "Auto-heal triggers."
+
+### Status
+
+- [x] Wire post-budget recovery into `SKIP_BURST_BUDGET` — `DeviceActivityMonitorExtension.swift`.
+- [ ] On-device validation: confirm `WINDOW_REBUILD_REQUESTED reason=post-budget-recovery` follows the next `SKIP_BURST_BUDGET` flood and catch-up resumes (vs. dead silence).
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing
