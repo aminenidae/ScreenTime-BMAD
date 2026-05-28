@@ -523,14 +523,17 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "last_credited_global_timestamp")
 
         // Heal-mode keepalive: while heal_active_until is in the future, every
-        // successful credit extends it by 30 more seconds. As long as iOS is
-        // delivering catch-up events for ANY app, the heal window stays open.
-        // The flag only expires when catch-up genuinely goes silent for 30s,
-        // which is when the rebuild chain is actually done. Outside heal mode
-        // the flag is 0/expired and the check is a no-op.
+        // successful credit extends it. The settle window (25s) must exceed iOS's
+        // inter-wave pause during catch-up (≤18s observed) so a batch isn't
+        // advanced mid-delivery during a pause. Use max() so the keepalive only
+        // ever EXTENDS — never shortens the batch's 60s floor (set in
+        // processHealBatchIfNeeded). Earlier this used `now + 10` without max(),
+        // which crushed the floor on the first credit and advanced batches
+        // prematurely → everything piled into the final batch (2026-05-27 flood).
+        // Outside heal mode the flag is 0/expired and the check is a no-op.
         let healActiveUntil = defaults.double(forKey: "heal_active_until")
         if now < healActiveUntil {
-            defaults.set(now + 10, forKey: "heal_active_until")
+            defaults.set(max(healActiveUntil, now + 25), forKey: "heal_active_until")
         }
 
         // ext_ keys — totals and timestamps the main app and other code may read.
@@ -602,12 +605,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // at the first window boundary because no further rebuilds can fire.
         //
         // Self-extending: every rebuild that fires while heal is active pushes
-        // the expiry forward by another 15s. As long as catch-up keeps making
-        // progress (more rebuilds firing), the window stays open. When events
-        // stop arriving the flag naturally expires within ~15s and normal
-        // debounce returns. Without this, a long catch-up (e.g. Instagram at
-        // 116min needing 6 chained rebuilds) outlasts a fixed 30s window and
-        // deadlocks at the boundary where the flag expired.
+        // the expiry forward by the 25s settle window. As long as catch-up keeps
+        // making progress (more rebuilds firing), the window stays open. When
+        // events stop arriving the flag expires within ~25s and normal debounce
+        // returns. Without this, a long catch-up (e.g. Instagram at 116min
+        // needing 6 chained rebuilds) outlasts a fixed window and deadlocks at
+        // the boundary where the flag expired. max() so we only ever EXTEND,
+        // never shorten the batch's 60s floor (2026-05-27 flood fix).
         let healActiveUntil = defaults.double(forKey: "heal_active_until")
         let inHealMode = now < healActiveUntil
         let debounceSec: Double = inHealMode ? 1.0 : 60.0
@@ -618,7 +622,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         defaults.set(now, forKey: debounceKey)
         if inHealMode {
-            defaults.set(now + 10, forKey: "heal_active_until")
+            defaults.set(max(healActiveUntil, now + 25), forKey: "heal_active_until")
         }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
@@ -872,6 +876,21 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 defaults.set(category == "Learning" ? 30 : 5, forKey: "window_size_\(appID)")
             }
             defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
+        }
+
+        // Demote already-recovered PAST batches back to the sentinel (5). Only the
+        // current batch carries a full window; past batches keep a 5-threshold
+        // window starting just above their recovered total, so iOS fires no
+        // catch-up for them (usage_today already == iOS cumulative) and the
+        // concurrent threshold count stays bounded. Without this, every batch
+        // re-registers the cumulative allowed set at full/tier-promoted size,
+        // ballooning to ~1400 thresholds by the final batch — over iOS's ~500
+        // ceiling — which crashes the extension and dumps all catch-up at once
+        // (2026-05-27 last-batch flood). 5 is also the normal tier-0 state, so
+        // tier promotion re-expands these apps on the next real use post-heal.
+        let batchAppSet = Set(batchApps)
+        for appID in allowedApps where !batchAppSet.contains(appID) {
+            defaults.set(5, forKey: "window_size_\(appID)")
         }
 
         lifecycleLog("HEAL_BATCH_PROCESS — batch \(currentBatch)/\(batchPlan.count - 1) apps=[\(batchApps.map { String($0.prefix(8)) }.joined(separator: ","))] allowed_total=\(allowedApps.count)", defaults: defaults)

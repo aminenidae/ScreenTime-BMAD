@@ -931,6 +931,43 @@ The doc's preferred end-state is to trigger a silent heal on budget-exceeded (gr
 
 ---
 
+## 2026-05-27 — Heal last-batch flood (Ali's iPhone)
+
+A manual heal at 22:53 ran its 7 reward batches, but instead of catching up app-by-app in calm waves, **79 of the ~106 total catch-up credits landed in the final batch (22:58–23:00)** while batches 1–4 produced ~10. The extension crashed and respawned **11 times** during the ~8-minute heal, and the registered-threshold count ballooned from ~150 at batch 6 to a peak of **~1,400** at batch 7 — well over iOS's ~500 ceiling.
+
+Benign for correctness (heal mode bypassed the filters, `verdict=heal-bypass`, SET-to-max is idempotent — nothing rejected, no data lost), but it crashed the extension repeatedly and defeated the entire point of batching.
+
+### Root cause — three compounding mechanisms
+
+1. **Cumulative re-registration.** Each batch registers the current batch *plus every earlier batch* (`allowedApps = batchPlan.prefix(currentBatch + 1)` at `processHealBatchIfNeeded` and the main app's `windowSize()`). The batching held *future* apps back (`window_size=0`) but never capped *past* apps. So the registered crowd only grew — 5 → 8 → 11 → … → 22 — and the final batch re-registered the whole fleet, the exact thing batching was added to prevent (`DeviceActivityMonitorExtension.swift:753`).
+
+2. **Tier promotion during catch-up.** As each app passed 25 min it promoted 30 → 90 thresholds (`promoteTierIfNeeded`). With ~15 apps doing this in the final batch, the alarm count exploded — and that's what crashed the 6 MB extension repeatedly.
+
+3. **Keepalive overwrite (the cadence bug).** The per-credit and per-rebuild heal keepalives did `set(heal_active_until = now + 10)` — overwrite, not extend (the comment even claimed "30 seconds"). The first catch-up credit *crushed* the batch's 60 s floor (`max(current, now+60)` at `:851`) down to +10 s. Since iOS pauses **up to 18 s between delivery waves**, the batch advanced *mid-delivery* during a pause — before its apps finished. Unfinished catch-up kept getting shoved down the line until the final batch, where (no batch behind it to interrupt) iOS finally dumped everything at once.
+
+### The fix (two interdependent halves)
+
+**Half 1 — bound concurrent alarms.** Establish one rule everywhere windows are decided during heal: **future batch → 0, past (recovered) batch → sentinel 5, current batch → full window.** A recovered app at a 5-alarm window just above its total fires no catch-up (its `usage_today` already equals iOS's cumulative), so it stops re-flooding and stops eating memory. Two sites:
+- `DeviceActivityMonitorExtension.swift` `processHealBatchIfNeeded` — after restoring the current batch, demote `allowedApps − batchApps` to `window_size=5`.
+- `ScreenTimeService.swift` `windowSize()` heal branch — for an app in `allowedApps` but not in the current batch, return `shieldedSentinel` regardless of the stored `window_size` (closes the race where it's still tier-promoted to 90). Scoped to the reward branch, where the 90-promotion balloon happens; past learning apps re-registered at their goal window fire no catch-up either (nothing above current), so they're left to the existing learning path.
+
+Peak alarms worst-case (final batch, 22 apps): 19 past × 5 + 3 current × 90 ≈ **365**, under the ~500 ceiling → crash loop ends, final batch is no longer a full-fleet wake-up.
+
+**Half 2 — make "advance when quiet" mean quiet.** Change both keepalives from `set(now + 10)` to `set(max(heal_active_until, now + 25))`. `max()` so the keepalive only ever *extends* — never shortens the 60 s batch floor. The 25 s settle window exceeds iOS's ≤18 s inter-wave pause, so a batch isn't advanced during a delivery pause. This restores the existing settle-detector (advance once `heal_active_until` passes) that the overwrite had been sabotaging. Strengthens, doesn't undo, the 2026-05-26 "heal_active_until expired too early" fix.
+
+The halves depend on each other: Half 1 bounds memory and kills the final-batch flood; Half 2 guarantees a batch fully settles before Half 1 demotes its apps (otherwise demotion would truncate an unfinished catch-up → undercount).
+
+Conscious trade-off: each batch now waits ~25 s of real silence, so a heal takes a bit longer (~3–4 min vs ~2). Correctness over speed.
+
+### Status
+
+- [x] Half 1a — demote past batches to sentinel in `processHealBatchIfNeeded` (`DeviceActivityMonitorExtension.swift`).
+- [x] Half 1b — mirror the sentinel rule in `windowSize()` heal branch (`ScreenTimeService.swift`).
+- [x] Half 2 — keepalive extend-not-overwrite at both sites (`DeviceActivityMonitorExtension.swift` credit + rebuild paths).
+- [ ] On-device validation: next heal shows credits spread across batches (not piled in the last), peak `EXT_REBUILD_SUCCESS events=` stays under ~500, and zero `EXTENSION_KILLED` during the heal.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing

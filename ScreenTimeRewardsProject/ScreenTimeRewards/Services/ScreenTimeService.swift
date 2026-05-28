@@ -2745,6 +2745,16 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         let currentBatch = defaults.integer(forKey: "heal_batch_current")
                         let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
                         if !allowedApps.contains(logicalID) { return 0 }
+                        // Past (already-recovered) batches hold only the sentinel so
+                        // the concurrent threshold count stays bounded — only the
+                        // current batch gets a full window. Mirrors the extension's
+                        // processHealBatchIfNeeded demotion and closes the race where
+                        // the stored window_size is still tier-promoted to 90.
+                        // See 2026-05-27 last-batch flood fix.
+                        if currentBatch < batchPlan.count,
+                           !batchPlan[currentBatch].contains(logicalID) {
+                            return shieldedSentinel
+                        }
                     }
                 }
                 if extensionWindow > 0 {
