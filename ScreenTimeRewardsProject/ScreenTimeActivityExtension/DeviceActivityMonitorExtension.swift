@@ -2440,24 +2440,41 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             repeats: true
         )
 
-        // Set restart timestamp BEFORE startMonitoring to close the race window
-        // (mirrors the same pattern in scheduleActivity() in the main app)
+        // Persist window ceilings AND the restart timestamp BEFORE startMonitoring.
+        // Both must survive a mid-hand-off kill: startMonitoring re-enters
+        // intervalDidStart synchronously (the shield check), and iOS can terminate the
+        // 6MB extension before control returns here. If window_top_min were written only
+        // on the success path below, a kill strands it at yesterday's stale value and the
+        // re-arm trigger deadlocks for the rest of the day (2026-05-28: Instagram froze at
+        // min 20 against a stale ceiling of 56, losing 9 min). Mirrors how the map_
+        // event→app keys are already written inside the loop above, pre-hand-off.
+        var previousWindowTops: [String: Int] = [:]
+        for (logicalID, topMin) in newWindowTops {
+            previousWindowTops[logicalID] = defaults.integer(forKey: "window_top_min_\(logicalID)")
+            defaults.set(topMin, forKey: "window_top_min_\(logicalID)")
+        }
         defaults.set(now, forKey: "monitoring_restart_timestamp")
 
         do {
             let center = DeviceActivityCenter()
             try center.startMonitoring(DeviceActivityName("ScreenTimeTracking"), during: schedule, events: events)
 
-            // Success — update window tops so the check doesn't re-fire immediately
-            for (logicalID, topMin) in newWindowTops {
-                defaults.set(topMin, forKey: "window_top_min_\(logicalID)")
-            }
+            // Window tops already persisted before the hand-off above.
             debugLog("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)", defaults: defaults)
             Self.logger.notice("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)")
             return true
         } catch {
             // Undo restart timestamp so SKIP_RESTART doesn't block real events
             defaults.removeObject(forKey: "monitoring_restart_timestamp")
+            // Revert the ceilings written before the hand-off — the old schedule is still
+            // the one registered with iOS, so its (old) windows still apply.
+            for (logicalID, prevTop) in previousWindowTops {
+                if prevTop > 0 {
+                    defaults.set(prevTop, forKey: "window_top_min_\(logicalID)")
+                } else {
+                    defaults.removeObject(forKey: "window_top_min_\(logicalID)")
+                }
+            }
             debugLog("EXT_REBUILD_FAILED: \(error)", defaults: defaults)
             Self.logger.error("EXT_REBUILD_FAILED: \(error.localizedDescription)")
             return false

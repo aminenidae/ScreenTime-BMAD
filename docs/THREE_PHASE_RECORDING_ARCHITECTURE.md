@@ -968,6 +968,43 @@ Conscious trade-off: each batch now waits ~25 s of real silence, so a heal takes
 
 ---
 
+## 2026-05-28 — Window ceiling stranded by mid-hand-off kill (Alex's iPhone)
+
+Instagram stopped recording at 20 min while iOS Screen Time showed 29 — a silent 9-min undercount with **no flood and no heal involved**. The sliding-window re-arm trigger went dead for the entire day because the per-app ceiling (`window_top_min_<id>`) was never refreshed to match the day's freshly-registered windows.
+
+### What broke
+
+Each threshold window is registered once at midnight (`extensionRebuildSlidingWindow`). As the kid nears the top of a window, a rebuild trigger (`triggerRebuildIfNearWindowTop` + the state-based `WINDOW_TOP_HIT` check) re-registers the next batch. Both triggers are gated on `window_top_min_<id>` — they fire when `recordedMin >= windowTop − 5`.
+
+On 5-28 the trigger fired **zero** times all day: `REBUILD_REQUEST=0`, `WINDOW_TOP_HIT=0`, `EXT_REBUILD_SUCCESS=0`. Instagram's window was registered 1–20 at midnight and never extended. When the kid passed 20 min, iOS had no higher threshold to fire (confirmed: iOS re-fired min.20 → `SKIP_REGRESSION`), so recording froze at 20.
+
+### Root cause — two independent facts collided
+
+1. **`window_top_min` is not reset at midnight.** `resetAllDailyCounters` clears usage, lastThreshold, hourly buckets, pin/phantom state — but not `window_top_min`. It carries over from the prior day. On 5-27 Instagram had been used to 36 min and its window extended to a ceiling of **56**; that 56 persisted into 5-28.
+2. **The midnight rebuild was killed before it recorded the day's real ceilings.** `extensionRebuildSlidingWindow` registered all 17 windows (Instagram 1–20) and called `startMonitoring`, which synchronously re-entered `intervalDidStart` (the shield check). iOS terminated the 6 MB extension mid-callback — `MIDNIGHT_EXT_REBUILD_OK`, `MIDNIGHT_PENDING_SET`, and even `INTERVAL_START_SHIELD_CHECK completed` all logged **zero** for the whole day. The `window_top_min` write sat on the success path *after* `startMonitoring`, so it never ran.
+
+Result: today's real ceiling (20) was never written; the stored ceiling stayed at the stale **56**. The re-arm trigger waited for usage to reach 51 (56−5) before extending — but iOS only had bells up to min.20, so recorded usage could never reach 51. Deadlock: window frozen at 1–20, real usage 29, 9 min lost.
+
+### Why it didn't surface before
+
+The ceiling is refreshed by any monitoring restart that runs to completion — and on prior days plenty happened: the self-sustaining `credit-near-top` trigger (261× on 5-26, once seeded), developer heal-testing, `schedule edited` config changes, an occasional `midnight background task`. The 45-min `intraday-refresh` BGTask never fired in any log. Crucially, **opening the app does not refresh the ceiling** — app launches hit `MONITORING_ALIVE` and skip the restart. On 5-28 none of the seeding restarts happened (0 restarts all day), the midnight seed was killed, and the self-sustaining trigger was poisoned by the stale 56 — so nothing reseeded the ceiling.
+
+The midnight rebuild failing to complete is **common** (`MIDNIGHT_EXT_REBUILD_OK=0` on ~1/3 of logged days); it had always been masked by one of the other restart sources. Test devices mask it especially well because they're opened/restarted constantly; a quiet real-user device — particularly a child's device the parent rarely touches — is the exposed case. This is a *could-happen-when-the-dice-land-wrong* bug, not a *will-happen-to-everyone* one: it needs (a) the midnight rebuild killed mid-hand-off, (b) no other completing restart that day, and (c) an app used past its fresh-morning window carrying a higher stale ceiling.
+
+### The fix (`DeviceActivityMonitorExtension.swift`, `extensionRebuildSlidingWindow`)
+
+Move the `window_top_min_<id>` write to **before** `startMonitoring`, mirroring how `monitoring_restart_timestamp` and the `map_` event→app keys are already persisted pre-hand-off. The ceilings become durable the instant the windows are defined, so a mid-hand-off kill can no longer strand them. On `startMonitoring` failure the catch block reverts each ceiling to its prior value (the old schedule is still the registered one). Because every rebuild path shares this function, midnight, the self-sustaining trigger, and heal are all hardened at once; the correct ceiling also overwrites any stale prior-day value, dissolving the deadlock.
+
+We can't stop iOS from killing the extension mid-callback (that's its 6 MB/CPU budget, not our bug), so the fix targets the *consequence* of an incomplete rebuild rather than trying to force completion: the rebuild's essential output is recorded before the kill point.
+
+### Status
+
+- [x] Write `window_top_min` before the `startMonitoring` hand-off + revert-on-failure.
+- [ ] On-device validation: a day with a cut-short midnight rebuild (`EXT_REBUILD_SUCCESS=0`) where windows nonetheless keep extending and per-app totals track iOS.
+- [ ] Fallback (belt-and-suspenders): reset `window_top_min` at midnight so a stale value can never poison the trigger even if the pre-hand-off write is skipped.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing
