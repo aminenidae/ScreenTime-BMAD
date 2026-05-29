@@ -264,7 +264,7 @@ struct SettingsTabView: View {
                 Task { await runHealUsage() }
             }
         } message: {
-            Text("Clears today's recorded usage and asks iOS for the correct values. Totals will rebuild from iOS's authoritative count in a few seconds. The hourly chart will flatten to the current hour.")
+            Text("Clears today's recorded usage and asks iOS for the correct values. Totals rebuild from iOS's authoritative count and can take a few minutes to finish climbing — they keep refreshing on their own, so there's no need to heal again. The hourly chart will flatten to the current hour.")
         }
 
         .alert("Heal Complete", isPresented: Binding(
@@ -968,7 +968,7 @@ private extension SettingsTabView {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isHealingUsage ? "Healing…" : "Heal Usage Data")
+                    Text(isHealingUsage ? "Updating from iOS… (a few min)" : "Heal Usage Data")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
@@ -998,36 +998,34 @@ private extension SettingsTabView {
     }
 
     private func runHealUsage() async {
-        // Start heal BEFORE any UI transitions to avoid racing with
-        // fullScreenCover presentation and DeviceActivityCenter calls.
-        let result = await ScreenTimeService.shared.healUsageData(reason: "settings_heal_button")
+        // Lock the button up front and hold it through a cooldown. We deliberately
+        // do NOT try to detect when iOS has "finished" — catch-up arrives in
+        // unpredictable waves (a 2.5-min mid-recovery gap was observed 2026-05-28),
+        // so any completion signal would be wrong and a spinner would dismiss
+        // mid-recovery (reading as "done" with partial numbers). Instead: show a
+        // brief honest note, let the dashboard climb live, and keep the button
+        // locked long enough that a re-press can't zero a partial recovery.
+        await MainActor.run { isHealingUsage = true }
 
-        // Switch to dashboard and show spinner (lives on MainTabView).
+        _ = await ScreenTimeService.shared.healUsageData(reason: "settings_heal_button")
+
+        // Switch to the dashboard (totals update live as catch-up lands) and show
+        // an honest, time-bounded note rather than a "done" spinner.
         NotificationCenter.default.post(name: .healSwitchToDashboard, object: nil)
-        NotificationCenter.default.post(name: .healOverlayShow, object: "Updating learning app usage...")
+        NotificationCenter.default.post(
+            name: .healOverlayShow,
+            object: "Updating usage from iOS…\nThis can take a few minutes — your totals will keep refreshing on their own. No need to heal again."
+        )
 
-        // Track batch progress with dynamic messages.
-        if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
-            var lastBatch = 0
-            while defaults.bool(forKey: "heal_batch_active") {
-                try? await Task.sleep(nanoseconds: 2_000_000_000)
-                let current = defaults.integer(forKey: "heal_batch_current")
-                if current != lastBatch {
-                    lastBatch = current
-                    let total = defaults.integer(forKey: "heal_batch_total")
-                    if current >= total - 1 {
-                        NotificationCenter.default.post(name: .healOverlayUpdate, object: "Finishing up...")
-                    } else {
-                        NotificationCenter.default.post(name: .healOverlayUpdate, object: "Updating reward app usage\n(\(current) of \(total - 1))...")
-                    }
-                }
-            }
-        }
-
+        // Show the note long enough to read, then drop it so the live dashboard is
+        // visible behind it. The catch-up continues in the background regardless.
+        try? await Task.sleep(nanoseconds: 6_000_000_000)
         NotificationCenter.default.post(name: .healOverlayDismiss, object: nil)
-        await MainActor.run {
-            healResultMessage = result
-        }
+
+        // Cooldown: keep the button disabled (~4 min total) while the background
+        // catch-up finishes its multi-wave climb, so a re-press can't interrupt it.
+        try? await Task.sleep(nanoseconds: 234_000_000_000)
+        await MainActor.run { isHealingUsage = false }
     }
 
     var notificationSettingsRow: some View {

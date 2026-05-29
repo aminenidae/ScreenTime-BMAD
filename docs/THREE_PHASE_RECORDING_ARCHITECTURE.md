@@ -1005,6 +1005,147 @@ We can't stop iOS from killing the extension mid-callback (that's its 6 MB/CPU b
 
 ---
 
+## 2026-05-28 (later) — Dynamic heal pacing (replace fixed batch floors)
+
+The window-ceiling fix above was validated by a manual heal on Alex's iPhone (Instagram recovered 20 → 32, window extended to 33–37, re-arm trigger fired 3× after being dead all morning, peak 195 thresholds, 0 crashes). But analyzing that heal's timing exposed a separate problem: **heal is far slower than the work requires.**
+
+### The slowness, measured
+
+| Batch | Apps | Window | Events | Credits | Last credit |
+|---|---|---|---|---|---|
+| 0 | 3 active (Instagram/Facebook/YouTube) | 13:31:44 → 13:33:48 | 87 | 14 | **13:32:06** |
+| 1–5 | 14 shielded reward apps (no usage) | ~62s each | 0 | 0 | — |
+
+The entire useful job finished in **~22 seconds** (heal start 13:31:44 → last credit 13:32:06). Total heal ran **7m14s**. ~95% of the run was idle waiting:
+- Batch 0 did its work in 22s, then sat idle ~102s before advancing.
+- Batches 1–5 received **zero events** (shielded reward apps with no usage) yet each burned a full ~62s.
+
+### Root cause — fixed floors override the settle detector
+
+The heal already has a quiescence ("settle") detector: every credit/rebuild during heal sets `heal_active_until = max(current, now + 25)`, and `advanceHealBatches` advances once `now > heal_active_until`. That loop is correct. The problem is two **fixed floors** sitting on top of it that never let it fire early:
+- `performHealUsage` initial floor: `max(120, batchCount×10 + 60)` → batch 0 can't advance for ~120s.
+- `processHealBatchIfNeeded` per-batch floor: `now + 60` → every batch waits ≥60s even if silent.
+
+A batch that's been quiet for 30s still waits out the full 60s floor. The floors were added (2026-05-26/27) to stop a batch advancing *during* an iOS inter-wave pause — a real risk — but they overcorrected into a flat per-batch minimum.
+
+### The fix — pure quiescence pacing
+
+Remove the fixed floors and let the settle detector drive, with a single tunable settle window `healSettleSeconds`:
+- Batch start (`performHealUsage` and `processHealBatchIfNeeded`): `heal_active_until = max(current, now + healSettleSeconds)` — one settle window of grace for iOS to *begin* delivering.
+- Each credit/rebuild keepalive: `heal_active_until = max(current, now + healSettleSeconds)` — extends as long as events keep arriving.
+- A batch therefore advances exactly `healSettleSeconds` after its **last** event (fast when small or empty), and stays alive indefinitely while events keep flowing (handles a large multi-round catch-up).
+- `advanceHealBatches` poll tightened 10s → 5s so the advance is detected promptly.
+
+### Why the window is 20s, not 10s
+
+The window must exceed iOS's longest *mid-delivery* pause, or we advance a batch before its catch-up is done — truncating it (undercount) or spilling the tail into the next batch (the last-batch flood). Measured evidence:
+- Today's small heal: max gap between catch-up events = **4.7s**.
+- Ali's large heal (2026-05-27): max gap *during active delivery* = **14.0s** (over 831 intervals); doc's prior observation ≤18s.
+
+`healSettleSeconds = 20` clears the measured 14s with margin and sits just above the historical worst case. It is a single named constant — if any truncation/undercount is ever observed on a slow device, bump it toward 25–30s. **10s was rejected: it sits below the observed 14s pause and would re-open the truncation/flood bugs.**
+
+### Expected impact
+
+Today's heal would drop from **7m14s → ~2 min** (batch 0 ~25s + five empty batches ~20s each). The empty batches still cost one settle window apiece — pure pacing doesn't avoid *creating* them. Eliminating them needs the complementary usage-aware/probe batching (deferred): pacing decides how fast a batch advances; batch composition decides how many exist.
+
+### Why not usage-aware batching instead (the rejected static plan)
+
+A static plan that drops zero-usage apps into one cheap batch was considered and rejected: it makes the batch-composition decision from the **pre-heal counter — the very number heal exists because we don't trust.** In an under-count-to-zero case (our counter says 0, iOS has 120 min), that app would be mis-placed in the cheap pool and recover only via slow chained rebuilds, and the batch's threshold budget (sized from the wrong estimate) could overrun. Dynamic pacing has no such fragility — it reacts to what iOS actually delivers, so a surprise large catch-up simply keeps the batch alive until it's genuinely done. (A future *probe* batch — register everything at sentinel-5, watch what fires, then stagger only the apps that proved they have usage — could get static-like speed without trusting the counter; deferred.)
+
+### Status
+
+- [x] Replace fixed floors with `healSettleSeconds` quiescence window (initial + per-batch + both keepalives); tighten `advanceHealBatches` poll to 5s.
+- [ ] On-device validation: heal completes in ~2 min, credits still land before each batch advances (no truncation), totals match iOS, 0 crashes.
+- [ ] Complementary batch-composition fix (usage-aware or probe) to eliminate empty batches — deferred.
+
+---
+
+## 2026-05-28 — Drop heal batching entirely (Ali's iPhone)
+
+**This supersedes all heal-batching work above** (the 2026-05-26/27 batch-isolation fixes, the 2026-05-27 last-batch-flood fix, and the 2026-05-28 dynamic-pacing fix). The batching is removed. The sections above are kept as the historical record of *why* — every one of them was patching a leak in machinery we've now deleted.
+
+### Why batching had to go
+
+Batching existed for one reason: stop the extension registering too many thresholds at once (the ~1,400-threshold crash). It tried to do that by *deferring* apps — register only the current batch, hold the rest at `window_size = 0`. That deferral never held, because **five different code paths write `window_size`** and they race during a heal that restarts monitoring a dozen times:
+
+1. `performHealUsage` — sets `0` to defer.
+2. `processHealBatchIfNeeded` — sets `0`/`5`/full per batch.
+3. `scheduleActivity` / `windowSize()` (main app) — recomputes on every restart.
+4. `promoteTierIfNeeded` — promotes `5→30→90` on every credit.
+5. **`checkAndBlockIfRewardTimeExhausted` (the shield check)** — sets `5` for every shielded reward app, on every `intervalDidStart`, **with no heal guard**.
+
+The decision log below records *three separate fixes* for this same leak in two days (5-26, 5-27 ×2), each closing one writer. The shield-check writer (#5) was never guarded — so on a device with many shielded reward apps it re-armed every deferred app back to a live `5` window mid-heal. Two failure modes resulted, both seen on real devices:
+
+- **Phantom inflation.** Deferred reward apps leaked into the learning wave (batch 0), recovered correctly, then got re-flooded on the next batch advance. Ali's 20:40 heal: `ABFF9B19` recovered to its true **123 min** in batch 0, then the batch-1 advance fired a **16-restart storm in 13 s** (vs 7 across all of batch 0), which flushed a stale `min.168` event (`MAPPING_RECOVERED ...min.168`) into its over-stretched look-ahead window — inflating it to **209 min** (+86 phantom) with the anti-phantom guard disabled by heal mode. `F595B07A` 40→67, `E3032FD9` 37→44 the same way.
+- **Recover-zero.** Overlapping/rapid heals corrupted the batch state (`heal_batch_active` / `heal_batch_current`), so `windowSize()` returned `0` for *every* app → no thresholds registered → iOS fired nothing → all apps stranded at the wiped 0. Reported on Ali across several manual heals.
+
+Patching a sixth writer would not have ended this. The architecture — many independent writers fighting over `window_size` across a multi-restart heal — was the bug.
+
+### The replacement: one shot, no batches
+
+`performHealUsage` now, after the wipe, sets **every** tracked app to its starting window — reward = `5` (sentinel), learning = `30` — and does a **single** `extensionRebuildSlidingWindow`. That's the whole heal. From there the *normal everyday recording path* takes over:
+
+- iOS replays catch-up only for apps with real usage today.
+- Each such app promotes `5→30→90` via `promoteTierIfNeeded` and chain-rebuilds through `triggerRebuildIfNearWindowTop` — identical to a normal day's growth.
+- Idle/shielded reward apps fire nothing and stay at the sentinel.
+
+The shield check writing `5` is now **harmless** — `5` is exactly what we want for a reward app during heal, so there's no value for it to stomp. The leak class disappears because nobody writes `0` anymore.
+
+### Why this bounds thresholds without batching
+
+The crash was never about app *count* — it was about apps reaching the `90` window. **Only apps the kid actually used ever promote past `5`,** and there are few of those. On Ali (22 apps) only 4 had usage. Worst-case concurrent threshold count is therefore `(few active × 90) + (many idle × 5)` ≈ the same ~365–450 the batching was contorting to reach — but reached directly, with no batch state to corrupt and no advance-storm to flush phantom.
+
+### The side issue this also fixes (reward apps not recording after a heal)
+
+Batching left recovered reward apps demoted to a stale `5`-min sentinel. When the kid used the app again, the real usage leap-frogged the tiny window and iOS went silent → recording froze (e.g. YouTube stuck at 20 while iOS showed 28+). With batching gone, a used reward app ends the heal on its proper promoted window (30 or 90) with normal look-ahead, so later play is tracked exactly as on a normal day. No special post-heal window handling needed; it rejoins the normal sliding-window machinery (hardened by the 5-28 `window_top_min` pre-hand-off write).
+
+### Accepted trade-off
+
+If a kid genuinely used *many* apps heavily in one day (≈8+ apps each past 25 min), they'd all promote to `90` together and could crowd iOS's ~500 ceiling. Real-world that's a handful of apps, and it's the same ceiling batching strained toward anyway. If it's ever actually hit, the fix is the **probe** idea (register all at sentinel-5, watch what fires, stagger only the proven-active apps) — deferred until evidence warrants. Pure-pacing/static batching are not revisited; they reintroduce the writer race.
+
+### Implementation
+
+`ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift`:
+- `performHealUsage` — replaced the batch-deferral block with a single loop setting `window_size = 30` (learning) / `5` (reward) for all apps, then one rebuild. Removed the `heal_batch_last_processed` seed.
+- Deleted `processHealBatchIfNeeded` and its `intervalDidStart` call.
+
+`ScreenTimeRewards/Services/ScreenTimeService.swift`:
+- `healUsageData` — removed batch-plan creation and the `advanceHealBatches` kickoff; just sets the flag and restarts once.
+- Deleted `computeHealBatchPlan` and `advanceHealBatches`.
+- `windowSize()` — removed the `heal_batch_active` branch; reward apps read their tier normally.
+
+`ScreenTimeRewards/Views/SettingsTabView.swift`:
+- `runHealUsage` — see the UX section below.
+
+### On-device validation (Ali, 2026-05-28 evening)
+
+The new no-batch heal ran (confirmed: **no `HEAL_BATCH_*` lines** after 21:18) and recovered the previously-broken reward app cleanly:
+
+```
+ABFF9B19 (Roblox):  1 → 5 → 7 → 25 → 31 → 76 → 119 → 121 min   (true ≈ 123)
+```
+
+It climbed through the tiers (5→30→90 windows), landed at the true total with **no overshoot** (no 209-style phantom), **no `BURST_REVERT` / `PHANTOM_FLOOD_DETECTED`**, and **8 monitoring restarts over ~5 min** — normal chained tier-promotion, not the old 16-in-13-seconds batch-advance storm. Learning apps recovered exact (37/38, 17). ✅
+
+### UX — completion is unknowable, so don't pretend (the cooldown model)
+
+The same run exposed a UX flaw. iOS delivers catch-up in **waves with unpredictable gaps** — earlier heals finished in ~13 s, but this one had a **2 min 37 s gap** mid-recovery (Roblox sat at 5 min from 21:28:45, didn't resume until 21:31:22, finished 21:32:17). The blocking spinner waited on the `heal_active_until` settle signal (≈20 s of quiet) — so the multi-minute gap looked exactly like "finished," the spinner dismissed at ~21:29 showing partial numbers, and the user re-pressed heal mid-climb — which re-zeroed the partial recovery. (Also found: `isHealingUsage` was declared but never set `true`, so the button was never actually disabled.)
+
+There is no reliable "done" signal — any settle window short enough to feel responsive is shorter than iOS's inter-wave gaps. So the UI stops trying to detect completion:
+
+- **Lock the heal button for a ~4-min cooldown** (`isHealingUsage = true` up front, cleared after the cooldown). A re-press during recovery is now impossible — this is the real guard.
+- **Honest, time-bounded note** instead of a "done" spinner: switch to the dashboard, show *"Updating usage from iOS… This can take a few minutes — your totals will keep refreshing on their own. No need to heal again."* for a few seconds, then dismiss so the dashboard (which updates live as catch-up lands) is visible.
+- Button shows **"Updating from iOS… (a few min)"** while locked; confirm-dialog copy corrected from "a few seconds" to "a few minutes."
+
+### Status
+
+- [x] Remove batching from extension, main app, and UI (no `heal_batch_*` keys remain project-wide).
+- [x] On-device validation (Ali, 2026-05-28): clean reward recovery, no phantom, no storm (above).
+- [x] UX: button cooldown + honest note (no false "done" spinner).
+- [ ] Watch on a real multi-active-app day that peak `EXT_REBUILD` thresholds stay < ~500 (the accepted trade-off); if hit, build the probe-batch stagger.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing

@@ -2287,93 +2287,20 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         defaults.set(Date().timeIntervalSince1970, forKey: "heal_requested_at")
         defaults.set(reason, forKey: "heal_requested_reason")
 
-        // Compute batch plan: learning apps first, then reward apps in groups of 3.
-        let batchPlan = computeHealBatchPlan(appIDs: appIDs, defaults: defaults)
-        if let batchPlanData = try? JSONEncoder().encode(batchPlan) {
-            defaults.set(batchPlanData, forKey: "heal_batch_plan")
-        }
-        defaults.set(0, forKey: "heal_batch_current")
-        defaults.set(batchPlan.count, forKey: "heal_batch_total")
-        defaults.set(true, forKey: "heal_batch_active")
-
-        lifecycleLog("HEAL_BATCH_PLAN — \(batchPlan.count) batches: learning=\(batchPlan.first?.count ?? 0) apps, reward=\(batchPlan.dropFirst().map { "\($0.count)" }.joined(separator: "+")) apps")
-
         // Restart monitoring. iOS calls intervalDidEnd → intervalDidStart on
         // the extension; the extension's hook sees the flag and runs the heal
-        // before its regular intervalDidStart logic. iOS then delivers the
-        // catch-up burst against the post-heal sliding window.
+        // (wipe + a single all-apps sliding-window rebuild) before its regular
+        // intervalDidStart logic. iOS then delivers the catch-up burst against
+        // the post-heal window. No batching — the extension registers every app
+        // at its sentinel/default window in one shot and the normal tier-promotion
+        // path grows the apps the kid actually used. See docs/THREE_PHASE_
+        // RECORDING_ARCHITECTURE.md "2026-05-28 — Drop heal batching".
         await restartMonitoring(reason: "heal-usage:\(reason)", force: true)
 
-        // Advance batches in the background (35s between each).
-        if batchPlan.count > 1 {
-            Task { [weak self] in await self?.advanceHealBatches() }
-        }
-
         if preHealMin > 0 {
-            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding in \(batchPlan.count) batches — totals will update over the next \(batchPlan.count * 20) seconds."
+            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding today's totals now — they'll update over the next ~30 seconds."
         } else {
             return "No usage recorded yet today. iOS will deliver today's usage now if any."
-        }
-    }
-
-    private func computeHealBatchPlan(appIDs: [String], defaults: UserDefaults) -> [[String]] {
-        var learningApps: [String] = []
-        var rewardApps: [String] = []
-
-        for appID in appIDs {
-            let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
-            if category == "Reward" {
-                rewardApps.append(appID)
-            } else {
-                learningApps.append(appID)
-            }
-        }
-
-        var batches: [[String]] = []
-        if !learningApps.isEmpty {
-            batches.append(learningApps)
-        }
-
-        let chunkSize = 3
-        var i = 0
-        while i < rewardApps.count {
-            let end = min(i + chunkSize, rewardApps.count)
-            batches.append(Array(rewardApps[i..<end]))
-            i += chunkSize
-        }
-
-        if batches.isEmpty {
-            batches.append([])
-        }
-
-        return batches
-    }
-
-    private func advanceHealBatches() async {
-        guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else { return }
-
-        while defaults.bool(forKey: "heal_batch_active") {
-            try? await Task.sleep(nanoseconds: 10_000_000_000)
-
-            let now = Date().timeIntervalSince1970
-            let healActive = defaults.double(forKey: "heal_active_until")
-            guard now > healActive else { continue }
-
-            let current = defaults.integer(forKey: "heal_batch_current")
-            let total = defaults.integer(forKey: "heal_batch_total")
-            guard current < total - 1 else {
-                defaults.removeObject(forKey: "heal_batch_active")
-                defaults.removeObject(forKey: "heal_batch_plan")
-                defaults.removeObject(forKey: "heal_batch_current")
-                defaults.removeObject(forKey: "heal_batch_total")
-                defaults.removeObject(forKey: "heal_batch_last_processed")
-                lifecycleLog("HEAL_BATCH_COMPLETE — all \(total) batches processed")
-                break
-            }
-
-            defaults.set(current + 1, forKey: "heal_batch_current")
-            lifecycleLog("HEAL_BATCH_ADVANCE — advancing to batch \(current + 1)/\(total - 1)")
-            await restartMonitoring(reason: "heal-batch-\(current + 1)", force: true)
         }
     }
 
@@ -2735,28 +2662,11 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             // Respect whatever the extension decided. Fall back to sentinel if unset.
             // Cross-check: if window says 30+ but app has 0 usage today, the value
             // is stale from a previous build or day — reset to sentinel.
-            // IMPORTANT: window_size=0 means "skip this app" (heal batch mode).
+            // window_size reflects the extension's tier (5 sentinel / 30 / 90),
+            // set by tier promotion and the shield check. Heal no longer batches,
+            // so there's no deferral value to special-case here.
             if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
                 let extensionWindow = defaults.integer(forKey: "window_size_\(logicalID)")
-                if defaults.bool(forKey: "heal_batch_active") {
-                    if extensionWindow <= 0 { return 0 }
-                    if let batchData = defaults.data(forKey: "heal_batch_plan"),
-                       let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchData) {
-                        let currentBatch = defaults.integer(forKey: "heal_batch_current")
-                        let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
-                        if !allowedApps.contains(logicalID) { return 0 }
-                        // Past (already-recovered) batches hold only the sentinel so
-                        // the concurrent threshold count stays bounded — only the
-                        // current batch gets a full window. Mirrors the extension's
-                        // processHealBatchIfNeeded demotion and closes the race where
-                        // the stored window_size is still tier-promoted to 90.
-                        // See 2026-05-27 last-batch flood fix.
-                        if currentBatch < batchPlan.count,
-                           !batchPlan[currentBatch].contains(logicalID) {
-                            return shieldedSentinel
-                        }
-                    }
-                }
                 if extensionWindow > 0 {
                     let usageToday = defaults.integer(forKey: "usage_\(logicalID)_today")
                     if extensionWindow > shieldedSentinel && usageToday == 0 {

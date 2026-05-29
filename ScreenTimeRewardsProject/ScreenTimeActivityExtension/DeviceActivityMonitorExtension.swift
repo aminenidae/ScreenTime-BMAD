@@ -380,47 +380,22 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return false
         }
 
-        // Wall-clock budget enforcement: total growth across all apps in this
-        // burst cannot exceed wall-clock since the last credit before the burst.
-        // The shadow system already tracks these values — promote to enforce.
-        let healActiveUntil = defaults.double(forKey: "heal_active_until")
-        let inHealMode = now < healActiveUntil
-        if !inHealMode {
-            let baselineCreditTs = defaults.double(forKey: "shadow_burst_baseline_credit_ts")
-            if baselineCreditTs > 0 {
-                let wallclockSec = max(0.0, now - baselineCreditTs)
-                let budgetSec = wallclockSec * 1.1 + 60
-                var totalGrowthSec = 0
-                let appsCSV = defaults.string(forKey: "shadow_burst_apps_csv") ?? ""
-                for burstApp in appsCSV.split(separator: ",").map(String.init) {
-                    let maxThresh = defaults.integer(forKey: "shadow_burst_max_thresh_\(burstApp)")
-                    let todayAtStart = defaults.integer(forKey: "shadow_burst_today_at_start_\(burstApp)")
-                    totalGrowthSec += max(0, maxThresh - todayAtStart)
-                }
-                // shadowBurstTrack already updated max_thresh for this event,
-                // so totalGrowthSec includes the current event's contribution.
-                // Only add the proposed delta for apps NOT yet in the burst CSV.
-                let alreadyTracked = Set(appsCSV.split(separator: ",").map(String.init))
-                let proposedAddition = alreadyTracked.contains(appID) ? 0 : max(0, thresholdSeconds - defaults.integer(forKey: "usage_\(appID)_today"))
-                let proposedGrowth = totalGrowthSec + proposedAddition
-                if Double(proposedGrowth) > budgetSec {
-                    debugLog("SKIP_BURST_BUDGET appID=\(appID.prefix(8))... growth=\(proposedGrowth)s > budget=\(Int(budgetSec))s (wallclock=\(Int(wallclockSec))s) — phantom reject", defaults: defaults)
-                    Self.logger.notice("SKIP_BURST_BUDGET app=\(appID.prefix(8))... growth=\(proposedGrowth)s budget=\(Int(budgetSec))s")
-                    // iOS consumes every registered threshold during the flood even
-                    // though we reject each event; without a rebuild the window is a
-                    // dead husk and real usage accumulates invisibly (see "2026-05-21
-                    // — Phantom flood + recovery hole" in
-                    // THREE_PHASE_RECORDING_ARCHITECTURE.md). Mirror revertBurstCredits:
-                    // lock the burst as flood so the remaining events short-circuit at
-                    // the burst_is_flood check instead of re-triggering recovery
-                    // per-event, then request a fresh sliding window. The flag
-                    // auto-clears when the next genuine burst opens (Phase B gap check).
-                    defaults.set(true, forKey: "burst_is_flood")
-                    requestMainAppWindowRebuild(reason: "post-budget-recovery", defaults: defaults)
-                    return false
-                }
-            }
-        }
+        // 2026-05-28 — Flood decision moved from HERE (on-arrival) to burst CLOSE.
+        //
+        // The old on-arrival SKIP_BURST_BUDGET measured growth against
+        // "wall-clock since the last credit" — a baseline its OWN recovery credit
+        // kept resetting. Apple delivers real usage in lagged batches, so a legit
+        // catch-up batch arriving seconds after a credit looked physically
+        // impossible and was rejected; the reject then fired a `post-budget-recovery`
+        // restart that re-presented the same crossed thresholds, forming a
+        // self-sustaining reject→restart→re-fire loop (Sami 2026-05-28, Roblox
+        // shield ~3min late; see docs/ROBLOX_LATE_SHIELD_BURST_BUDGET_2026-05-28.md).
+        //
+        // Now: credit every threshold on arrival (set-to-max, below). When the
+        // burst window closes (Phase B gap check), finalizeBurstAtClose() applies a
+        // physical ceiling — Σ usage across all apps ≤ wall-clock since midnight,
+        // one app at a time — and reverts the whole burst via the existing
+        // revertBurstCredits only if that ceiling is breached.
 
         // Save revert info IFF this is the first credit for this app in the
         // current burst window. Subsequent credits to the same app within
@@ -452,6 +427,51 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         defaults.removeObject(forKey: "burst_credited_apps_csv")
         defaults.removeObject(forKey: "burst_is_flood")
+    }
+
+    /// Decide-at-close (2026-05-28). Called when a burst window closes (next
+    /// event arrived with gap ≥ 5s). The burst's credits are already applied;
+    /// keep them unless the device-wide total now exceeds what wall-clock since
+    /// midnight physically allows — a child uses one app at a time, so
+    /// `Σ usage_<app>_today ≤ minutes elapsed today` (×1.1 + 5min grace for
+    /// Apple's batched delivery / clock skew). Anchored at midnight so it works
+    /// for learning apps (usable all day) and reward apps alike, and catches
+    /// multi-app floods. If breached, the whole burst was a flood → revert it.
+    /// Replaces the old on-arrival SKIP_BURST_BUDGET stopwatch.
+    private nonisolated func finalizeBurstAtClose(now: TimeInterval, startOfToday: TimeInterval, defaults: UserDefaults) {
+        let creditedApps = readBurstCreditedApps(defaults: defaults)
+        guard !creditedApps.isEmpty else {
+            // Nothing credited in the closed burst (or already reverted/flood-locked).
+            clearBurstState(defaults: defaults)
+            return
+        }
+
+        // Heal fills the budget by design — never revert a heal catch-up.
+        let healActiveUntil = defaults.double(forKey: "heal_active_until")
+        if now < healActiveUntil {
+            clearBurstState(defaults: defaults)
+            return
+        }
+
+        let secondsSinceMidnight = max(0.0, now - startOfToday)
+        let ceilingSec = Int(secondsSinceMidnight * 1.1) + 300
+        var totalUsageSec = 0
+        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
+        for id in trackedAppIDs {
+            totalUsageSec += defaults.integer(forKey: "usage_\(id)_today")
+        }
+
+        if totalUsageSec > ceilingSec {
+            debugLog("BURST_CLOSE_OVER_CEILING total=\(totalUsageSec / 60)min > ceiling=\(ceilingSec / 60)min (elapsed=\(Int(secondsSinceMidnight) / 60)min, apps=\(creditedApps.count)) — reverting flood burst", defaults: defaults)
+            Self.logger.notice("BURST_CLOSE_OVER_CEILING total=\(totalUsageSec / 60)min ceiling=\(ceilingSec / 60)min")
+            // revertBurstCredits sets burst_is_flood + requests recovery rebuild;
+            // clearBurstState then resets the flag so the NEW burst starts clean.
+            revertBurstCredits(reason: "over-ceiling total=\(totalUsageSec / 60)min>ceiling=\(ceilingSec / 60)min", defaults: defaults)
+            clearBurstState(defaults: defaults)
+        } else {
+            debugLog("BURST_CLOSE_OK total=\(totalUsageSec / 60)min <= ceiling=\(ceilingSec / 60)min — \(creditedApps.count) app credit(s) final", defaults: defaults)
+            clearBurstState(defaults: defaults)
+        }
     }
 
     /// Roll back every credit applied during the current burst window. Called
@@ -523,17 +543,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         defaults.set(now, forKey: "last_credited_global_timestamp")
 
         // Heal-mode keepalive: while heal_active_until is in the future, every
-        // successful credit extends it. The settle window (25s) must exceed iOS's
-        // inter-wave pause during catch-up (≤18s observed) so a batch isn't
-        // advanced mid-delivery during a pause. Use max() so the keepalive only
-        // ever EXTENDS — never shortens the batch's 60s floor (set in
-        // processHealBatchIfNeeded). Earlier this used `now + 10` without max(),
-        // which crushed the floor on the first credit and advanced batches
-        // prematurely → everything piled into the final batch (2026-05-27 flood).
-        // Outside heal mode the flag is 0/expired and the check is a no-op.
+        // successful credit re-extends it by one settle window. As long as iOS
+        // keeps delivering catch-up, the batch stays alive; it advances
+        // ~healSettleSeconds after the LAST event. The window must exceed iOS's
+        // mid-delivery pause (14s measured, ≤18s historically) or we'd advance
+        // before the batch finishes (2026-05-27 flood / truncation). max() so we
+        // only ever EXTEND. Outside heal mode the flag is 0/expired → no-op.
         let healActiveUntil = defaults.double(forKey: "heal_active_until")
         if now < healActiveUntil {
-            defaults.set(max(healActiveUntil, now + 25), forKey: "heal_active_until")
+            defaults.set(max(healActiveUntil, now + Self.healSettleSeconds), forKey: "heal_active_until")
         }
 
         // ext_ keys — totals and timestamps the main app and other code may read.
@@ -598,20 +616,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let threshMin = threshold / 60
         guard threshMin >= windowTopMin - 5 else { return }
 
-        // Heal mode: when the main app's healUsageData kicked off a catch-up,
-        // it sets `heal_active_until` ~30s into the future. During that window
-        // we shrink the per-app debounce from 60s → 1s so consecutive window
-        // rebuilds can chain back-to-back. Without this, catch-up deadlocks
-        // at the first window boundary because no further rebuilds can fire.
+        // Heal mode: when a heal catch-up is in flight, heal_active_until is in
+        // the future. During that window we shrink the per-app debounce from
+        // 60s → 1s so consecutive window rebuilds can chain back-to-back.
+        // Without this, catch-up deadlocks at the first window boundary because
+        // no further rebuilds can fire.
         //
         // Self-extending: every rebuild that fires while heal is active pushes
-        // the expiry forward by the 25s settle window. As long as catch-up keeps
-        // making progress (more rebuilds firing), the window stays open. When
-        // events stop arriving the flag expires within ~25s and normal debounce
-        // returns. Without this, a long catch-up (e.g. Instagram at 116min
-        // needing 6 chained rebuilds) outlasts a fixed window and deadlocks at
-        // the boundary where the flag expired. max() so we only ever EXTEND,
-        // never shorten the batch's 60s floor (2026-05-27 flood fix).
+        // the expiry forward by one settle window (healSettleSeconds). As long
+        // as catch-up keeps making progress, the batch stays alive; it advances
+        // ~healSettleSeconds after the last event. A long catch-up (e.g.
+        // Instagram needing 6 chained rebuilds) therefore can't be cut off
+        // mid-chain. max() so we only ever EXTEND (2026-05-28 dynamic pacing).
         let healActiveUntil = defaults.double(forKey: "heal_active_until")
         let inHealMode = now < healActiveUntil
         let debounceSec: Double = inHealMode ? 1.0 : 60.0
@@ -622,7 +638,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         defaults.set(now, forKey: debounceKey)
         if inHealMode {
-            defaults.set(max(healActiveUntil, now + 25), forKey: "heal_active_until")
+            defaults.set(max(healActiveUntil, now + Self.healSettleSeconds), forKey: "heal_active_until")
         }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
@@ -656,6 +672,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// catch-up burst doesn't trip any anti-phantom defenses, then re-register
     /// the sliding window so iOS delivers fresh threshold events carrying its
     /// authoritative cumulative for today.
+    /// Quiescence window for dynamic heal pacing: a batch advances this many
+    /// seconds after its LAST catch-up event (each credit/rebuild re-extends it).
+    /// Must exceed iOS's longest mid-delivery pause (14s measured on Ali's
+    /// 2026-05-27 heal, ≤18s historically) or a batch advances before its
+    /// catch-up finishes → truncation/undercount. Single tunable knob — bump
+    /// toward 25–30s if truncation is ever observed on a slow device. See
+    /// THREE_PHASE_RECORDING_ARCHITECTURE.md "2026-05-28 (later) — Dynamic heal pacing".
+    private static let healSettleSeconds: Double = 20
+
     private nonisolated func performHealUsage(reason: String, defaults: UserDefaults) {
         lifecycleLog("HEAL_USAGE_START — reason: \(reason)", defaults: defaults)
         Self.logger.notice("HEAL_USAGE_START reason=\(reason)")
@@ -715,15 +740,15 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Activate heal mode so anti-phantom defenses (SKIP_FLOOD, SKIP_SHIELDED,
         // BURST_REVERT, PHANTOM_FLOOD_DETECTED, FIRST_EVENT_BUFFER) stand aside
-        // while iOS delivers its authoritative catch-up. The flag self-extends
-        // Duration must cover ALL batches + iOS delivery delay. Batches advance
-        // every 10s × up to 6 batches = 60s, plus iOS can take 30-60s to deliver
-        // catch-ups after the last batch. 120s covers worst case; keepalive in
-        // applyCredit extends it further if catch-ups are still arriving.
-        let batchCount = defaults.integer(forKey: "heal_batch_total")
-        let healDuration = max(120.0, Double(batchCount) * 10.0 + 60.0)
-        defaults.set(nowTs + healDuration, forKey: "heal_active_until")
-        defaults.set(0, forKey: "heal_batch_last_processed")
+        // while iOS delivers its authoritative catch-up.
+        //
+        // Dynamic pacing: seed one settle window of grace for iOS to BEGIN
+        // delivering batch 0's catch-up; every credit/rebuild then re-extends
+        // heal_active_until by another settle window (see applyCredit /
+        // triggerRebuildIfNearWindowTop). The batch advances ~healSettleSeconds
+        // after its last event. The old fixed floor — max(120, batches×10+60) —
+        // left batch 0 idle ~100s after its work was done (2026-05-28 analysis).
+        defaults.set(nowTs + Self.healSettleSeconds, forKey: "heal_active_until")
 
         // Clear global burst/flood state for a clean restart.
         defaults.removeObject(forKey: "burst_credited_apps_csv")
@@ -754,25 +779,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         lifecycleLog("HEAL_USAGE_RESET — cleared \(preHealMin)min across \(appIDs.count) apps [\(appsSummary)]", defaults: defaults)
         Self.logger.notice("HEAL_USAGE_RESET cleared=\(preHealMin)min apps=\(appIDs.count)")
 
-        // Batch mode: if the main app set a batch plan, only register thresholds
-        // for the current batch's apps. Future-batch apps keep window_size=0 so
-        // extensionRebuildSlidingWindow skips them. This prevents the memory-
-        // overload crash loop that occurs when 20 apps × 90 thresholds fire at once.
-        if defaults.bool(forKey: "heal_batch_active"),
-           let batchPlanData = defaults.data(forKey: "heal_batch_plan"),
-           let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchPlanData),
-           !batchPlan.isEmpty {
-            let currentBatch = defaults.integer(forKey: "heal_batch_current")
-            let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
-            for appID in appIDs where !allowedApps.contains(appID) {
-                defaults.set(0, forKey: "window_size_\(appID)")
-            }
-            let batchApps = batchPlan[currentBatch]
-            lifecycleLog("HEAL_BATCH_MODE — batch \(currentBatch) apps=[\(batchApps.map { String($0.prefix(8)) }.joined(separator: ","))] allowed=\(allowedApps.count) deferred=\(appIDs.count - allowedApps.count)", defaults: defaults)
+        // No batching: register every tracked app at its starting window in a
+        // single rebuild. Reward apps start at the 5-threshold sentinel, learning
+        // apps at 30. iOS replays catch-up only for apps with real usage today;
+        // those promote (5→30→90) and chain-rebuild through the normal recording
+        // path, exactly like a normal day. Idle apps fire nothing and stay at the
+        // sentinel, so the concurrent threshold count stays bounded WITHOUT the
+        // batch machinery — which raced five separate writers of window_size and
+        // either stranded reward apps (recovered 0) or leaked them into the
+        // learning wave (phantom inflation). Only apps the kid actually used reach
+        // a 90-window, and there are few of those. See docs/THREE_PHASE_RECORDING_
+        // ARCHITECTURE.md "2026-05-28 — Drop heal batching".
+        for appID in appIDs {
+            let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
+            defaults.set(category == "Learning" ? 30 : 5, forKey: "window_size_\(appID)")
         }
 
-        // Re-register the sliding window. In batch mode, only the current batch's
-        // apps have non-zero window_size, so only they get thresholds registered.
+        // Re-register the sliding window for all apps in one shot.
         let rebuildOK = extensionRebuildSlidingWindow(
             defaults: defaults,
             triggerAppID: nil,
@@ -816,88 +839,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         performHealUsage(reason: reason, defaults: defaults)
     }
 
-    /// Called from intervalDidStart to handle batched heal advancement.
-    /// When the main app's timer advances heal_batch_current and triggers
-    /// a restart, this runs in the new extension session to process the
-    /// next batch of reward apps.
-    private nonisolated func processHealBatchIfNeeded(defaults: UserDefaults) {
-        guard defaults.bool(forKey: "heal_batch_active") else { return }
-        let currentBatch = defaults.integer(forKey: "heal_batch_current")
-        guard currentBatch > 0 else { return }
-
-        // Prevent re-entry: extensionRebuildSlidingWindow calls startMonitoring
-        // which triggers intervalDidStart which calls us again. Only run once
-        // per batch number.
-        let lastProcessed = defaults.integer(forKey: "heal_batch_last_processed")
-        guard currentBatch > lastProcessed else { return }
-        defaults.set(currentBatch, forKey: "heal_batch_last_processed")
-
-        guard let batchPlanData = defaults.data(forKey: "heal_batch_plan"),
-              let batchPlan = try? JSONDecoder().decode([[String]].self, from: batchPlanData) else {
-            defaults.removeObject(forKey: "heal_batch_active")
-            return
-        }
-
-        guard currentBatch < batchPlan.count else {
-            defaults.removeObject(forKey: "heal_batch_active")
-            defaults.removeObject(forKey: "heal_batch_plan")
-            defaults.removeObject(forKey: "heal_batch_current")
-            defaults.removeObject(forKey: "heal_batch_total")
-            defaults.removeObject(forKey: "heal_batch_last_processed")
-            lifecycleLog("HEAL_BATCH_DONE — all batches processed, cleaning up", defaults: defaults)
-            return
-        }
-
-        let nowTs = Date().timeIntervalSince1970
-
-        // Extend heal mode — ensure it covers remaining batches + iOS delivery delay.
-        let currentHealUntil = defaults.double(forKey: "heal_active_until")
-        let newHealUntil = max(currentHealUntil, nowTs + 60)
-        defaults.set(newHealUntil, forKey: "heal_active_until")
-
-        // Clear burst/flood state for clean batch processing
-        defaults.removeObject(forKey: "burst_credited_apps_csv")
-        defaults.removeObject(forKey: "burst_is_flood")
-        defaults.removeObject(forKey: "last_event_arrival_global")
-        defaults.removeObject(forKey: "phantom_flood_active_until")
-
-        // Set window_size = 0 for apps in FUTURE batches
-        let allowedApps = Set(batchPlan.prefix(currentBatch + 1).flatMap { $0 })
-        let allApps = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-        for appID in allApps where !allowedApps.contains(appID) {
-            defaults.set(0, forKey: "window_size_\(appID)")
-        }
-
-        // Restore window size for newly-allowed apps and clear rebuild debounce.
-        let batchApps = batchPlan[currentBatch]
-        for appID in batchApps {
-            if defaults.integer(forKey: "window_size_\(appID)") <= 0 {
-                let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
-                defaults.set(category == "Learning" ? 30 : 5, forKey: "window_size_\(appID)")
-            }
-            defaults.removeObject(forKey: "window_rebuild_request_\(appID)")
-        }
-
-        // Demote already-recovered PAST batches back to the sentinel (5). Only the
-        // current batch carries a full window; past batches keep a 5-threshold
-        // window starting just above their recovered total, so iOS fires no
-        // catch-up for them (usage_today already == iOS cumulative) and the
-        // concurrent threshold count stays bounded. Without this, every batch
-        // re-registers the cumulative allowed set at full/tier-promoted size,
-        // ballooning to ~1400 thresholds by the final batch — over iOS's ~500
-        // ceiling — which crashes the extension and dumps all catch-up at once
-        // (2026-05-27 last-batch flood). 5 is also the normal tier-0 state, so
-        // tier promotion re-expands these apps on the next real use post-heal.
-        let batchAppSet = Set(batchApps)
-        for appID in allowedApps where !batchAppSet.contains(appID) {
-            defaults.set(5, forKey: "window_size_\(appID)")
-        }
-
-        lifecycleLog("HEAL_BATCH_PROCESS — batch \(currentBatch)/\(batchPlan.count - 1) apps=[\(batchApps.map { String($0.prefix(8)) }.joined(separator: ","))] allowed_total=\(allowedApps.count)", defaults: defaults)
-
-        _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: nil, reason: "heal-batch-\(currentBatch)")
-    }
-
     // MARK: - Lifecycle
     override nonisolated init() {
         super.init()
@@ -932,7 +873,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // perform the heal here. Must run BEFORE the rest of intervalDidStart
             // so subsequent midnight/shield logic sees the post-heal state.
             consumeHealRequestIfPresent(defaults: defaults)
-            processHealBatchIfNeeded(defaults: defaults)
 
             // === MIDNIGHT DIAGNOSTIC: Only activate on genuine midnight (day changed) ===
             let lastDiagDate = defaults.string(forKey: "midnight_diagnostic_date")
@@ -1261,9 +1201,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             ? nowTimestamp - lastEventArrivalGlobal
             : Double.greatestFiniteMagnitude
         if gapSinceLastEvent >= Self.burstWindowSeconds {
-            // Previous burst (if any) is done — credits made within it are
-            // now final, undo state is no longer needed.
-            clearBurstState(defaults: defaults)
+            // Previous burst (if any) is done. Decide-at-close: keep its credits
+            // unless the device-wide total now breaches the physical ceiling
+            // (flood) — then revert. Replaces the old on-arrival reject.
+            finalizeBurstAtClose(now: nowTimestamp, startOfToday: startOfToday, defaults: defaults)
         }
         defaults.set(nowTimestamp, forKey: "last_event_arrival_global")
 
