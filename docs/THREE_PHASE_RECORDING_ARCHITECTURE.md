@@ -1146,6 +1146,85 @@ There is no reliable "done" signal — any settle window short enough to feel re
 
 ---
 
+## 2026-05-28 — Burst budget moved from on-arrival reject to decide-at-close ceiling (Sami's iPhone)
+
+### What broke
+Roblox (reward, per-app daily limit 120 min) shielded ~3 min late. The parent opened the app
+at 13:49 and saw **112 min**, which then crawled 112→114→116→118→120 before the shield applied —
+while real usage was already 123 min.
+
+### Root cause — the enforce path's baseline reset itself
+The `2026-05-26` on-arrival `SKIP_BURST_BUDGET` (see Decision log) measured a burst's growth
+against `last_credited_global_timestamp` — but that key is re-stamped on **every** credit
+(`applyCredit`). So:
+1. A lone catch-up event slipped through and credited (counter snapped to iOS truth) — and in
+   doing so moved the baseline to "now".
+2. Apple's queued catch-up batch arrived ~57s later. Measured against that fresh 57-second
+   window it looked physically impossible (`growth=240s > budget=122s`) → rejected.
+3. The reject fired `requestMainAppWindowRebuild(reason: post-budget-recovery)` → monitoring
+   restarted → iOS re-fired the same already-crossed thresholds → rejected again. A
+   **self-sustaining reject→restart→re-fire loop**: the counter crawled ~1 min per cycle
+   instead of catching up, so the shield (which keys off recorded usage) landed late.
+
+The shadow check `SHADOW_BUDGET_CHECK`, which freezes its baseline per-burst, correctly said
+`within` on the very same events — confirming the live path's moving baseline was the bug.
+
+### Why a short stopwatch can't work at all
+iOS delivers real usage in **lagged, bunched, out-of-order** batches (Sami's 75–79 arrived as
+78,77,75,76,79 within 0.5s). Any "growth-per-second since last event" test mistakes Apple's
+batching for impossibility. Confirmed across 9 device-logs (Alex/Ali/Imane/Sami, May 25–28):
+- **Normal play** only ever produces small, tight bursts. It never needs an anti-phantom check.
+- **Big multi-app bursts** trace to either a **heal** (intentional, already bypassed) or a
+  **crash/restart stale-replay**. Heal and phantom are *shape-identical* — a confirmed heal
+  (Alex 19:03, 7 apps, non-contiguous) looked exactly like a confirmed phantom (Alex 18:40,
+  same shape). So **contiguity / app-count / "does it contain min.75" cannot separate them**
+  (the CEO's contiguity idea was tested on labeled data and rejected for this reason). The only
+  fakeproof signals are **physical impossibility**: usage ≤ wall-clock elapsed, and a shielded
+  app can't be used.
+
+### The fix — credit on arrival, decide at burst close
+Reuses the existing credit/undo machinery; changes only *where* the flood decision is made.
+1. **Removed** the on-arrival `SKIP_BURST_BUDGET` reject in `processEventAndCredit` (and its
+   `post-budget-recovery` restart). Events always credit on arrival (set-to-max).
+2. **Added** `finalizeBurstAtClose(now:startOfToday:)`, invoked at the Phase B window-close
+   (where `clearBurstState` already ran). It applies a physical ceiling:
+   `Σ usage_<app>_today ≤ (seconds since midnight) × 1.1 + 300s` — a child uses one app at a
+   time, so total usage can't exceed elapsed wall-clock. If breached, the whole burst was a
+   flood → `revertBurstCredits`; else `clearBurstState` (credits final). Heal mode bypasses.
+   New markers: `BURST_CLOSE_OK` / `BURST_CLOSE_OVER_CEILING`.
+
+**Why midnight, not "since unshield":** unshield only exists for reward apps. Midnight is the
+universal anchor (works for learning apps too) and is **stable** — it never resets mid-day the
+way the last-credit baseline did. The cross-app total is the strongest form (catches multi-app
+crash floods); per-app since-unshield was considered and deferred — no single-app reward
+phantom that stays under the cross-app ceiling appeared in any log (iOS won't fire a threshold
+for a shielded/unused app).
+
+**Why not the CEO's "must contain min.75" gate:** in the set-to-max model iOS's threshold *is*
+the authoritative cumulative — if min.79 fired the app really reached 79 — so the max is
+self-validating and a contiguity gate would only add false reverts when iOS drops a threshold.
+
+### Status
+- [x] Implemented on `feat/credit-on-arrival-no-buffer` (uncommitted as of 2026-05-28).
+- [x] **First real-world validation — Imane, 2026-05-28 ~21:54 — app matched iOS Screen Time
+      exactly (user-confirmed, no over/undercount).** `BURST_CLOSE_OK total=218<=1450` kept legit
+      credits; 75 `BURST_CLOSE_OK` across the day, zero new-path `SKIP_BURST_BUDGET`, no
+      reject→restart loop. Separately, the pre-existing **shield-in-burst** revert correctly
+      stripped a post-restart phantom replay (`BURST_REVERT shield-in-burst-0454A303`, 9 apps) —
+      `0454A303` was shielded at its daily limit yet "fired", a physical impossibility. The
+      ~129 min reverted was phantom, not real (initially miscalled as lost usage; corrected by
+      the iOS ground-truth comparison). Both mechanisms lean on physical impossibility, not
+      shape — validating the approach.
+- [ ] **Monitoring 2026-05-28 → ~05-30 across devices:** confirm (a) shields land on time at
+      limits, (b) no false reverts of genuine play, (c) `BURST_CLOSE_OVER_CEILING` only on real
+      crash/restart floods. Collect logs + spot-check vs iOS Screen Time per device.
+
+### Method note
+Burst extractor used for the 9-log labeled analysis: `~/Downloads/Logs-Devices/burst_analyze.py`
+(groups EVENT lines into 5s bursts; reports per-app contiguity, reach-above-count, app fan-out).
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing
@@ -1226,6 +1305,7 @@ Device 2 (May 24): Roblox tracked 118 min vs iOS 188 min due to 3 BURST_REVERTs 
 Fix: in SKIP_SHIELDED, check if the triggering app was credited earlier in the same burst (i.e., in `burst_credited_apps`). If so, the shield was applied mid-burst by that credit — the remaining catch-ups are real pre-shield usage. Block the event but preserve credits. Only revert when the shield was already on before the burst started (true phantom signal).
 
 ### 2026-05-26 — Burst budget promoted from shadow to enforce
+**(Superseded 2026-05-28 — the on-arrival enforce described here was removed; see "Burst budget moved from on-arrival reject to decide-at-close ceiling" above and the 05-28 decision-log entry below.)**
 
 The shadow budget check (`SHADOW_BUDGET_CHECK`) correctly detected phantom floods on every occasion but never blocked them — it was diagnostic-only. On Amine's device (May 26), a "schedule edited" restart at 12:15 produced 43 min of phantom across 11 unused reward apps; the shadow logged `verdict=exceeded` but let every event through.
 
@@ -1236,6 +1316,9 @@ Fix: added enforcing budget check before `applyCredit` in `setUsageToThreshold`.
 **Bug (same day, later):** The enforcing check double-counted the current event's contribution. `shadowBurstTrack` runs before the enforcing check and updates `shadow_burst_max_thresh_<id>` for the current event. The enforcing check then summed `max_thresh - today_at_start` across all burst apps (already including this event), then ADDED `thresholdSeconds - usage_today` on top — counting the same 60s twice. Every normal 1-per-minute event showed 120s growth against ~60s wallclock → always over budget → legit usage blocked. Amine's device: Clue (739C4A42) had 6 consecutive normal events rejected at 14:01–14:06.
 
 Fix: only add the proposed delta for apps not yet in the burst CSV. If the app is already tracked (which it always is by the time the enforcing check runs), its contribution is already in `totalGrowthSec`.
+
+### 2026-05-28 — Burst budget: decide-at-close ceiling replaces on-arrival enforce
+The on-arrival enforce (above) had a fatal flaw: it measured growth against `last_credited_global_timestamp`, which `applyCredit` re-stamps on every credit — so a recovery credit reset the baseline to "now" and Apple's queued catch-up batch arriving seconds later looked impossible and got rejected, and the reject fired a `post-budget-recovery` restart that re-presented the same thresholds → a self-sustaining reject→restart→re-fire loop (Sami May 28, Roblox shield 3 min late, counter crawling). Decision: stop rejecting on arrival. Credit every event on arrival (set-to-max), and make ONE keep-or-revert decision when the burst window closes, via a **physical ceiling** — `Σ usage_<app>_today ≤ seconds-since-midnight × 1.1 + 300` (one app at a time). Anchored at midnight (stable, works for learning + reward), enforced cross-app (catches multi-app crash floods), reverts the whole burst via the existing `revertBurstCredits` only when breached. Rejected the CEO's "burst must contain min.75 / be contiguous" gate: 9-log labeled analysis showed heal and phantom are shape-identical, so contiguity can't discriminate, and in the set-to-max model iOS's max threshold is already self-authoritative — a gate would only add false reverts. Full incident write-up above. Validated same evening on Imane's device against iOS Screen Time ground truth.
 
 ### 2026-05-26 — Tier promotion debounce clear
 
