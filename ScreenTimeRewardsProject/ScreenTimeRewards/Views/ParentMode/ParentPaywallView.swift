@@ -478,11 +478,9 @@ struct ParentPaywallView: View {
 
                 onSubscribed()
             } catch SubscriptionError.userCancelled {
-                AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                AppAnalytics.shared.track(.paywallUserCancelled, parameters: [
                     "source": analyticsSource,
-                    "product_id": productID,
-                    "is_user_cancelled": true,
-                    "error_code": "user_cancelled"
+                    "product_id": productID
                 ])
             } catch {
                 purchaseError = error.localizedDescription

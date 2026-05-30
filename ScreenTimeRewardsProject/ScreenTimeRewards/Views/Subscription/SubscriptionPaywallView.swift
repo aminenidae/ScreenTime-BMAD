@@ -547,11 +547,9 @@ private extension SubscriptionPaywallView {
                 }
             }
         } catch SubscriptionError.userCancelled {
-            AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+            AppAnalytics.shared.track(.paywallUserCancelled, parameters: [
                 "source": analyticsSource,
-                "product_id": productID,
-                "error_code": "user_cancelled",
-                "is_user_cancelled": true
+                "product_id": productID
             ])
         } catch {
             errorMessage = error.localizedDescription

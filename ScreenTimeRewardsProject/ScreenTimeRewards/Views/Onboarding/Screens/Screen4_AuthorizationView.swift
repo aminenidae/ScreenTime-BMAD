@@ -116,6 +116,7 @@ struct Screen4_AuthorizationView: View {
 
     private func requestAuthorization() {
         isRequesting = true
+        AppAnalytics.shared.track(.authorizationRequested)
         Task {
             do {
                 try await AuthorizationCenter.shared.requestAuthorization(for: .individual)
@@ -125,6 +126,7 @@ struct Screen4_AuthorizationView: View {
 
                 await MainActor.run {
                     isRequesting = false
+                    AppAnalytics.shared.track(.authorizationGranted)
                     onboarding.advanceScreen()
                 }
             } catch {
@@ -132,8 +134,7 @@ struct Screen4_AuthorizationView: View {
                     isRequesting = false
                     errorMessage = error.localizedDescription
                     showError = true
-                    AppAnalytics.shared.track(.errorFamilyControlsDenied, parameters: [
-                        "context": "onboarding",
+                    AppAnalytics.shared.track(.authorizationDenied, parameters: [
                         "error_code": String(describing: error)
                     ])
                 }

@@ -97,11 +97,13 @@ class OnboardingStateManager: ObservableObject {
 
     init() {
         loadState()
+        trackAttemptStart()
     }
 
     // MARK: - Navigation
 
     func advanceScreen() {
+        logScreenExit(screenNumber: currentScreen)
         if !completedScreens.contains(currentScreen) {
             completedScreens.append(currentScreen)
         }
@@ -113,7 +115,6 @@ class OnboardingStateManager: ObservableObject {
             solutionStepIndex = 0
         }
         saveState()
-        logEvent("onboarding_screen\(currentScreen - 1)_cta_tapped")
     }
 
     /// Advance to the next sub-step inside Screen 2 (solution flow).
@@ -173,6 +174,11 @@ class OnboardingStateManager: ObservableObject {
     }
 
     func resetSetup() {
+        AppAnalytics.shared.track(.onboardingSkipConfirmed, parameters: [
+            "from_screen": currentScreen,
+            "from_screen_name": screenName(for: currentScreen),
+            "path": selectedPath?.rawValue ?? "none"
+        ])
         selectedPath = nil
         selectedLearningApps = []
         selectedRewardApps = []
@@ -184,29 +190,65 @@ class OnboardingStateManager: ObservableObject {
         currentScreen = 1
         completedScreens = []
         saveState()
-        logEvent("onboarding_setup_reset")
     }
 
     /// Set the monitoring path and advance
     func selectPath(_ path: SetupPath) {
         selectedPath = path
         saveState()
-        logEvent("onboarding_path_selected", params: ["path": path.rawValue])
+        AppAnalytics.shared.track(.onboardingPathSelected, parameters: [
+            "path": path.rawValue,
+            "attempt": UserDefaults.standard.integer(forKey: attemptKey)
+        ])
         advanceScreen()
     }
 
     // MARK: - Analytics
 
+    private let screenEnteredAt = NSMutableDictionary()
+    private let attemptKey = "onboarding_attempt_count"
+
     func logScreenView(screenNumber: Int) {
-        logEvent("onboarding_screen\(screenNumber)_shown")
+        screenEnteredAt[screenNumber] = Date()
+        AppAnalytics.shared.track(.onboardingScreenViewed, parameters: [
+            "screen_number": screenNumber,
+            "screen_name": screenName(for: screenNumber),
+            "attempt": UserDefaults.standard.integer(forKey: attemptKey)
+        ])
+    }
+
+    func logScreenExit(screenNumber: Int) {
+        var params: [String: Any] = ["screen_number": screenNumber]
+        if let entered = screenEnteredAt[screenNumber] as? Date {
+            params["time_spent_seconds"] = Date().timeIntervalSince(entered)
+        }
+        params["screen_name"] = screenName(for: screenNumber)
+        AppAnalytics.shared.track(.onboardingCtaTapped, parameters: params)
+    }
+
+    func trackAttemptStart() {
+        let count = UserDefaults.standard.integer(forKey: attemptKey) + 1
+        UserDefaults.standard.set(count, forKey: attemptKey)
+        AppAnalytics.shared.track(.onboardingAttemptStarted, parameters: ["attempt": count])
     }
 
     func logEvent(_ eventName: String, params: [String: Any]? = nil) {
         #if DEBUG
         print("[Onboarding Analytics] \(eventName) \(params ?? [:])")
         #endif
-        // TODO: Integrate with Firebase/Mixpanel when available
-        // Analytics.logEvent(eventName, parameters: params ?? [:])
+    }
+
+    private func screenName(for number: Int) -> String {
+        switch number {
+        case 1: return "problem"
+        case 2: return "solution"
+        case 3: return "path_selection"
+        case 4: return "authorization"
+        case 5: return "tutorial"
+        case 6: return "paywall"
+        case 7: return "activation"
+        default: return "unknown"
+        }
     }
 
     // MARK: - Persistence

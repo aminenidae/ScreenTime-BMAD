@@ -235,6 +235,11 @@ class TutorialModeManager: ObservableObject {
 
         let nextStep = TutorialStep.allCases[currentIndex + 1]
 
+        AppAnalytics.shared.track(.onboardingTutorialStep, parameters: [
+            "step_index": nextStep.rawValue,
+            "total_steps": TutorialStep.allCases.count
+        ])
+
         withAnimation(.easeInOut(duration: 0.3)) {
             currentStep = nextStep
         }
@@ -263,12 +268,23 @@ class TutorialModeManager: ObservableObject {
             // Clear persisted state
             UserDefaults.standard.removeObject(forKey: "tutorial_progress_step")
 
+            AppAnalytics.shared.track(.onboardingCompleted, parameters: [
+                "tutorial_steps_completed": stepCompletionStatus.filter(\.value).count,
+                "total_steps": TutorialStep.allCases.count
+            ])
+
             #if DEBUG
             print("[Tutorial] Completed successfully")
             #endif
 
             // Notify completion
             onTutorialComplete?()
+        } else {
+            AppAnalytics.shared.track(.onboardingTutorialDropped, parameters: [
+                "last_step_index": currentStep.rawValue,
+                "steps_completed": stepCompletionStatus.filter(\.value).count,
+                "total_steps": TutorialStep.allCases.count
+            ])
         }
     }
 

@@ -202,7 +202,13 @@ struct Screen6_TrialPaywallView: View {
             .padding(.bottom, 8)
 
             // Skip link
-            Button(action: { showConfirmSkip = true }) {
+            Button(action: {
+                AppAnalytics.shared.track(.onboardingSkipTapped, parameters: [
+                    "from_screen": "paywall",
+                    "plan_shown": selectedPlan == .annual ? "annual" : "monthly"
+                ])
+                showConfirmSkip = true
+            }) {
                 Text("Skip trial and delete setup")
                     .font(.system(size: 12, weight: .regular))
                     .foregroundColor(.red.opacity(0.8))
@@ -255,6 +261,12 @@ struct Screen6_TrialPaywallView: View {
         .onAppear {
             onboarding.logScreenView(screenNumber: 6)
         }
+        .onChange(of: selectedPlan) { newPlan in
+            AppAnalytics.shared.track(.paywallPlanSwitched, parameters: [
+                "source": "onboarding",
+                "new_plan": newPlan == .annual ? "annual" : "monthly"
+            ])
+        }
     }
 
     private func purchaseAnnual() {
@@ -277,16 +289,35 @@ struct Screen6_TrialPaywallView: View {
         isPurchasing = true
         purchaseError = nil
 
+        AppAnalytics.shared.track(.paywallPurchaseStarted, parameters: [
+            "source": "onboarding",
+            "plan": selectedPlan == .annual ? "annual" : "monthly",
+            "tier": displayTier.rawValue
+        ])
+
         Task {
             do {
                 try await subscriptionManager.purchase(package)
                 onboarding.trialStartDate = Date()
-                onboarding.logEvent("onboarding_trial_started", params: ["plan": selectedPlan.rawValue])
+                AppAnalytics.shared.track(.paywallPurchaseCompleted, parameters: [
+                    "source": "onboarding",
+                    "plan": selectedPlan == .annual ? "annual" : "monthly",
+                    "tier": displayTier.rawValue
+                ])
                 onboarding.advanceScreen()
             } catch SubscriptionError.userCancelled {
-                // User cancelled, no error to show
+                AppAnalytics.shared.track(.paywallUserCancelled, parameters: [
+                    "source": "onboarding",
+                    "plan": selectedPlan == .annual ? "annual" : "monthly",
+                    "tier": displayTier.rawValue
+                ])
             } catch {
                 purchaseError = error.localizedDescription
+                AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
+                    "source": "onboarding",
+                    "plan": selectedPlan == .annual ? "annual" : "monthly",
+                    "error": error.localizedDescription
+                ])
             }
             isPurchasing = false
         }

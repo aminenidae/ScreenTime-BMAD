@@ -17,7 +17,21 @@ import FirebaseAnalytics
 /// All custom analytics events the app emits. Names are snake_case and stable —
 /// renaming breaks Firebase dashboards. Add new cases; do not rename existing ones.
 enum AnalyticsEvent: String {
-    // Onboarding (forwarded from OnboardingAnalytics — see that file for the full list).
+    // Onboarding flow (screen views + interactions)
+    case onboardingScreenViewed     = "onboarding_screen_viewed"
+    case onboardingCtaTapped        = "onboarding_cta_tapped"
+    case onboardingPathSelected     = "onboarding_path_selected"
+    case onboardingSkipTapped       = "onboarding_skip_tapped"
+    case onboardingSkipConfirmed    = "onboarding_skip_confirmed"
+    case onboardingTutorialStep     = "onboarding_tutorial_step"
+    case onboardingTutorialDropped  = "onboarding_tutorial_dropped"
+    case onboardingCompleted        = "onboarding_completed"
+    case onboardingAttemptStarted   = "onboarding_attempt_started"
+
+    // Authorization (Screen 4)
+    case authorizationRequested     = "authorization_requested"
+    case authorizationGranted       = "authorization_granted"
+    case authorizationDenied        = "authorization_denied"
 
     // Paywall (outside onboarding)
     case paywallViewed              = "paywall_viewed"
@@ -29,6 +43,8 @@ enum AnalyticsEvent: String {
     case paywallRestoreSucceeded    = "paywall_restore_succeeded"
     case paywallRestoreNoPurchases  = "paywall_restore_no_purchases"
     case paywallDismissed           = "paywall_dismissed"
+    case paywallUserCancelled       = "paywall_user_cancelled"
+    case paywallPlanSwitched        = "paywall_plan_switched"
 
     // Subscription lifecycle
     case subscriptionStarted        = "subscription_started"
