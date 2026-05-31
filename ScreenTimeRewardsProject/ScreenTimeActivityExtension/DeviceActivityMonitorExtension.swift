@@ -1368,8 +1368,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                 Self.logger.notice("SKIP_FLOOD app=\(appID.prefix(8))... remaining=\(Int(floodActiveUntil - nowTimestamp))s in-burst")
                 return false
             }
-            // else: isolated event during lockout — bypass
-            debugLog("SKIP_FLOOD_BYPASS appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — flood window active but event is isolated (not part of a burst), trusting", defaults: defaults)
+            // else: isolated event during lockout. Trust ONLY a small contiguous step
+            // (≤3 min above the current counter). Real usage advances ~1 min at a time, so
+            // a genuine new-app start (min.1) or next-minute event is a small jump. A LARGE
+            // isolated jump during a lockout is a stale phantom replay — the post-flood
+            // recovery restart manufactures a >5s gap that makes the lone replayed event
+            // look "isolated" by the burst test, whether the counter is at 0 (Alex 05-30:
+            // 0→16min) or non-zero (e.g. 23→54min). A *legit* large catch-up never arrives
+            // alone; it comes as a contiguous burst (24,25,…,54), caught by the in-burst
+            // SKIP_FLOOD above. So reject the lone large jump; if it were somehow real,
+            // set-to-max recovers it on the next per-minute event once the lockout clears.
+            // 2026-05-31: generalizes the from-zero FIRST_EVENT fix to any current value.
+            let jumpSec = thresholdSeconds - defaults.integer(forKey: "usage_\(appID)_today")
+            if jumpSec > 180 {
+                debugLog("SKIP_FLOOD appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — flood window active, isolated but jump=\(jumpSec)s (>3min from current) — phantom replay, rejecting", defaults: defaults)
+                Self.logger.notice("SKIP_FLOOD app=\(appID.prefix(8))... isolated jump=\(jumpSec)s — phantom reject")
+                return false
+            }
+            debugLog("SKIP_FLOOD_BYPASS appID=\(appID.prefix(8))... thresh=\(thresholdSeconds)s — flood window active but event is isolated AND a small step (jump=\(jumpSec)s), trusting", defaults: defaults)
         }
 
         // ┌─────────────────────────────────────────────────────────────────┐
@@ -1572,6 +1588,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
                         // Fall through to recording: rawDelta=60 (lastThresh=0 case)
                         // credits a conservative 60s; subsequent per-minute events
                         // credit 60s each via normal flow, gradually catching up.
+                        // NOTE: the post-flood-lockout phantom variant of this (an isolated
+                        // high jump while a flood lockout is active) is handled upstream by
+                        // the SKIP_FLOOD jump-size gate, so it never reaches here.
                     } else {
                         // No buffer open AND in burst context. Start one. Reject this
                         // event (the high-min trigger), but remember its threshold so we

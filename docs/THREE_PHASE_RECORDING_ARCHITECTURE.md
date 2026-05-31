@@ -1215,13 +1215,111 @@ self-validating and a contiguity gate would only add false reverts when iOS drop
       ~129 min reverted was phantom, not real (initially miscalled as lost usage; corrected by
       the iOS ground-truth comparison). Both mechanisms lean on physical impossibility, not
       shape — validating the approach.
-- [ ] **Monitoring 2026-05-28 → ~05-30 across devices:** confirm (a) shields land on time at
-      limits, (b) no false reverts of genuine play, (c) `BURST_CLOSE_OVER_CEILING` only on real
-      crash/restart floods. Collect logs + spot-check vs iOS Screen Time per device.
+- [x] **Second validation — Alex's iPhone, full day 2026-05-29 (21:48) — exact iOS match.**
+      Every tracked app matched iOS Screen Time to the minute: YouTube 74min, Facebook 69min,
+      Instagram 36min, Mobile Legends 15min, Mini Motorways 13min, Clue 3min. Mechanism health
+      for the whole day: **190 `BURST_CLOSE_OK`, and ZERO of**
+      `BURST_CLOSE_OVER_CEILING` / `BURST_REVERT` / `SKIP_BURST_BUDGET` / `post-budget-recovery`.
+      The anti-phantom path never fired — trust-by-default held all day, no false rejects, no
+      restart loops. Strongest evidence yet that the fix behaves as designed on a real day.
+- [ ] **Monitoring continues across other devices** (Sami/Ali/Imane) — same three criteria:
+      shields on time at limits, no false reverts of genuine play, `BURST_CLOSE_OVER_CEILING`
+      only on real crash/restart floods. Spot-check vs iOS Screen Time per device.
 
 ### Method note
 Burst extractor used for the 9-log labeled analysis: `~/Downloads/Logs-Devices/burst_analyze.py`
 (groups EVENT lines into 5s bursts; reports per-app contiguity, reach-above-count, app fan-out).
+
+---
+
+## 2026-05-30 — Orphaned phantom: isolated-bypass skips first-event confirmation after a restart (Alex's iPhone)
+
+### What broke
+One learning app (`D63AE4AA`) ended the day showing **16 min when it was never used at all**.
+Confirmed: zero activity all day except a ~15-second window at 09:11; it was the *only* app
+that leaked (every other app matched iOS Screen Time). The day was otherwise clean
+(155 `BURST_CLOSE_OK`, 0 ceiling reverts).
+
+### The chain (09:10–09:11)
+1. **09:10:48** — routine `pending window rebuild (credit-near-top-BB131A01)` → `EXTENSION_KILLED`
+   → new session. (NOT a date-blanking bug — `extDate=nil` at 09:10 is normal start-of-day
+   state; every app showed it. Earlier hypothesis retracted.)
+2. iOS replayed stale thresholds for `D63AE4AA` — meaning **iOS's own cumulative for that app
+   was ~29 min** despite our counter being 0. Where iOS's cumulative came from is not derivable
+   from our log (needs the app's iOS Screen Time history); the phantom originates iOS-side, not
+   in our counter/date logic.
+3. **First burst (09:11:02):** `D63AE4AA` min=18 credited (lead) → shielded app `1F753820`
+   reached `SKIP_SHIELDED` → `BURST_REVERT` wiped it (18→0) and armed a 30s phantom-flood
+   lockout + `post-flood-recovery` restart. ✅ Correct.
+4. **Recovery restart (09:11:06)** created a ~10-second quiet gap.
+5. **Second burst (09:11:16):** `D63AE4AA` min=16 arrived first after the gap. It was credited
+   and **survived** → final 16 min phantom.
+
+### Root cause — two "isolated ⇒ trust" gates fooled by the restart gap; revert trigger pre-empted
+Two enforcing gates let the orphan through, both keyed on the same 5-second "isolated" test
+(no own-app or cross-app event within 5s):
+- `SKIP_FLOOD_BYPASS` (L1372): flood lockout active, but event looked isolated → bypass.
+- `FIRST_EVENT_TRUST` (L1570): isolated first-of-day event → trust as legit catch-up.
+
+The ~10s recovery gap made the **first replayed event look isolated**, so both trusted it —
+even though the very same event was, one log line earlier, seen by `SHADOW_BURST_JUDGE` as
+`events=152 apps=17` (a 17-app flood). One detector knew it was a flood; the two enforcing
+gates, using the narrow 5s window, called it isolated.
+
+And it never got wiped because `BURST_REVERT` is only triggered from the `SKIP_SHIELDED` branch
+(L1418), and `SKIP_FLOOD` (L1367) runs *before* `SKIP_SHIELDED`. Once the orphan started a new
+burst, the shielded app (`1F753820`) that would have triggered the wipe hit `SKIP_FLOOD` first
+and was dropped before reaching `SKIP_SHIELDED`. So: orphan trusted in, wipe-trigger pre-empted.
+
+Also note: `SHADOW_RESTART_REJECT … reason=no-trigger-app` flagged this exact event (the
+restart had `triggerAppID=nil`), but it's shadow-only. ("no-trigger-app" = the restart wasn't
+driven by any app's real usage — provenance, NOT a foreground-app query, which the extension
+cannot do.)
+
+### Proposed fix (CEO's signal — physics-leaning, NOT yet implemented)
+The strongest discriminator is physical: **a real app's first credit of the day must start
+low** (usage builds min-by-min from a `1-N` window). An isolated **opening event from
+`usage_today=0` at a high threshold (min.16)** — especially right after a restart — can only be
+iOS replaying a cumulative we never built. This aligns with the code's existing intent:
+`FIRST_EVENT_BUFFER` (L1581) already holds a first-of-day event and waits up to 60s for a
+`min≤3` confirmation — the bug is that the isolated path (`FIRST_EVENT_TRUST`) *skips* that
+confirmation.
+
+Fix shape: **buffer, don't hard-reject.** When `usage_today==0` AND the opening event is high
+(unconfirmed) AND shortly after a restart → do NOT trust-and-credit via the isolated bypass;
+hold it and require a `min≤3` to confirm.
+- `min≤3` arrives → real pre-foreground catch-up → credit the max (preserves the
+  pre-foreground-tracking goal — iOS fires the full `1→N` for genuine usage, so the low
+  threshold *will* show).
+- No low threshold within the window → phantom → drop.
+
+Define "high" by **absence of confirmation**, not a magic number — any opening-from-zero event
+not yet confirmed by a `min≤3` gets buffered. This handles every window tier (1-5/30/90) and
+sidesteps where-to-draw-the-line. False-positive risk (legit early-morning catch-up) is
+covered because that case brings the low thresholds with it.
+
+### Status
+- [x] **Implemented 2026-05-31** (`feat/credit-on-arrival-no-buffer`, uncommitted).
+      **Generalized — the real signal is jump SIZE, not "from zero."** D63AE4AA (0→16) and the
+      non-zero variant (CEO's example: an app at 23 min phantom-jumping to 54 during a flood)
+      are the same phenomenon: a *lone* event that jumps the counter by a lot during a flood
+      lockout. Real usage advances ~1 min/event; a legit large catch-up arrives as a contiguous
+      *burst* (caught by in-burst `SKIP_FLOOD`), never alone.
+      Fix is in the common chokepoint, **`SKIP_FLOOD_BYPASS` (~L1382)**: during a lockout, an
+      isolated event is trusted ONLY if its jump from the current counter is a small contiguous
+      step (`jump ≤ 180s`). A larger isolated jump → `SKIP_FLOOD` reject (logs
+      `isolated jump=Ns — phantom reject`). Works for any current value (0→16 = 960s reject;
+      23→54 = 1860s reject; genuine min.1 or next-minute = 60s trust). If a rejected jump were
+      somehow real, set-to-max recovers it on the next per-minute event after the lockout.
+      Heal-bypass preserved. The earlier from-zero-only `FIRST_EVENT_TRUST` gate was reverted —
+      the bypass jump-gate is upstream and subsumes it.
+- Residual edge (accepted): a genuine isolated "missed-minutes" step >3 min that lands inside
+  the 30s lockout window is rejected and recovers post-lockout via set-to-max. Bounded/rare;
+  far better than crediting phantoms.
+- [ ] Device-validate: replay Alex 05-30 (flood → recovery restart → isolated high jump, from 0
+      *and* from non-zero) → expect `SKIP_FLOOD … isolated jump=Ns — phantom reject`, NO orphan
+      credit; confirm a normal new-app start / next-minute event during no-flood still records.
+- Not pursuing promote-`SHADOW_RESTART_REJECT`-to-enforce — the jump-gate is tighter/lower-risk.
 
 ---
 
