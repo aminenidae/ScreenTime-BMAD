@@ -1323,6 +1323,63 @@ covered because that case brings the low thresholds with it.
 
 ---
 
+## 2026-05-31 — Decide-at-close budget re-anchored from midnight to last-credit (Imane's iPhone)
+
+### What leaked
+A daytime kill-replay flood inflated **every** tracked app and was kept. The learning app
+(`50AB3A4D`) climbed legitimately to 15 min (its goal) by 08:55, then jumped 15 → 34 → 41 → 45
+min starting **09:57:51** and stayed at 45 all day. Battery sat at 20% unplugged → the extension
+was killed repeatedly; a restart at 09:56 dumped iOS's queued backlog, and the credit tripped a
+window-rebuild that fired **9 monitoring restarts in ~90s** — each restart re-dumping catch-up.
+By 10:00 a single burst had grown 18 apps by ~189 min total.
+
+### Why every defense missed it
+- **Shielded-in-burst** couldn't fire — all reward apps were unshielded (goals already met), so no
+  `BURST_REVERT reason=shield-in-burst`.
+- **4abdbe3 isolated-jump gate** never ran — it's gated on an *active flood lockout*, and no lockout
+  was ever armed (first `PHANTOM_FLOOD_DETECTED` was 10:12, after the inflation at 09:57–10:02).
+- **Decide-at-close ceiling DID run and said keep:** `BURST_CLOSE_OK total=231min <= ceiling=665min`.
+  The midnight anchor gives a 600+ min budget by 10am, so the flood fit under it.
+- The tight per-burst shadow check computed the truth right next to it —
+  `SHADOW_BUDGET_CHECK total_growth=189min wallclock=8min verdict=exceeded` — but it's shadow-only.
+
+### Per-app shape can't discriminate (tested, not assumed)
+Cross-checked two candidate per-app criteria against this exact flood:
+- **Big-jump (>3min) reject:** all 14 day's big jumps fell inside the flood window, 0 outside — but
+  this is luck of an easy day; a single-app legit catch-up after a sleep also jumps big (Betty
+  05-20: Instagram +20min, real). High recall, unsafe precision.
+- **"Min event ≤3min above last-recorded" presence:** iOS fired the **full contiguous run** for the
+  phantom apps too — learning app got `min.16` (+1 off its real 15), `8D4D127B` got min.18 (+1 off
+  17), every inflated app had a clean low step. The phantom wears the legit costume. Criterion
+  passes the entire flood.
+
+Conclusion: per-app, every app looked like a textbook legit catch-up. The flood is visible **only in
+the cross-app sum** (189 min of "one app at a time" in an 8-min window). Physics, not shape.
+
+### Fix (committed-but-unvalidated)
+Re-anchor `finalizeBurstAtClose` from midnight to the **last real credit before the burst**, and
+compare the **burst's own growth** (not whole-day total) against it:
+- Snapshot `burst_baseline_credit_ts = last_credited_global_timestamp` on the **first credit** of a
+  burst (in `processEventAndCredit`, before `applyCredit` re-stamps it) — frozen for the burst, so
+  the burst's own credits can't inflate their own budget (the self-reset bug that broke the 05-26
+  on-arrival enforce). Cleared in `clearBurstState`.
+- At close: `Σ (usage_now − revert_today_<id>) ≤ (now − baseline) × 1.1 + 180s`. Breach → revert the
+  whole burst via existing `revertBurstCredits`.
+- **Single-app bursts exempt** (`creditedApps < 2`) — the "one app at a time" impossibility only
+  proves a flood with ≥2 apps; protects legit single-app catch-ups (Sami 05-28) from false revert.
+- No baseline (first burst of day) → don't enforce.
+- Decide-at-**close** (one revert), not on-arrival (per-event reject) → does NOT reintroduce the
+  reject→restart→re-fire loop that forced the 05-28 reversal.
+
+Validates against the incident: 189min growth vs ~15min budget → revert. Normal per-minute play =
+single-app bursts → exempt. 2-app short-kill catch-up (~4min vs ~7min budget) → keep.
+
+- [ ] On-device validation vs iOS Screen Time: confirm `BURST_CLOSE_OVER_CEILING growth=…>budget=…`
+      fires on a real multi-app flood and reverts; confirm no false revert of legit multi-app
+      catch-up after a genuine kill-during-play window.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing

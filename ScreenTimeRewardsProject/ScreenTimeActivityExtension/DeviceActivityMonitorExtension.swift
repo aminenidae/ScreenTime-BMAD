@@ -393,14 +393,24 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         //
         // Now: credit every threshold on arrival (set-to-max, below). When the
         // burst window closes (Phase B gap check), finalizeBurstAtClose() applies a
-        // physical ceiling — Σ usage across all apps ≤ wall-clock since midnight,
-        // one app at a time — and reverts the whole burst via the existing
-        // revertBurstCredits only if that ceiling is breached.
+        // physical ceiling — Σ growth across the burst's apps ≤ wall-clock since the
+        // last real credit, one app at a time — and reverts the whole burst via the
+        // existing revertBurstCredits only if that ceiling is breached.
 
         // Save revert info IFF this is the first credit for this app in the
         // current burst window. Subsequent credits to the same app within
         // the burst stay covered by the same revert snapshot.
         var creditedApps = readBurstCreditedApps(defaults: defaults)
+        if creditedApps.isEmpty {
+            // First credit of this burst window: freeze the budget baseline at the
+            // timestamp of the last real credit BEFORE the burst — read now, before
+            // applyCredit re-stamps last_credited_global_timestamp. Frozen for the
+            // burst's lifetime so the burst's own credits can't inflate their own
+            // budget (the self-resetting-baseline bug that sank the 2026-05-26
+            // on-arrival enforce). Consumed by finalizeBurstAtClose's physics check.
+            let lastCreditTs = defaults.double(forKey: "last_credited_global_timestamp")
+            defaults.set(lastCreditTs, forKey: "burst_baseline_credit_ts")
+        }
         if !creditedApps.contains(appID) {
             let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
             let currentLastThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
@@ -427,18 +437,35 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         defaults.removeObject(forKey: "burst_credited_apps_csv")
         defaults.removeObject(forKey: "burst_is_flood")
+        defaults.removeObject(forKey: "burst_baseline_credit_ts")
     }
 
-    /// Decide-at-close (2026-05-28). Called when a burst window closes (next
-    /// event arrived with gap ≥ 5s). The burst's credits are already applied;
-    /// keep them unless the device-wide total now exceeds what wall-clock since
-    /// midnight physically allows — a child uses one app at a time, so
-    /// `Σ usage_<app>_today ≤ minutes elapsed today` (×1.1 + 5min grace for
-    /// Apple's batched delivery / clock skew). Anchored at midnight so it works
-    /// for learning apps (usable all day) and reward apps alike, and catches
-    /// multi-app floods. If breached, the whole burst was a flood → revert it.
-    /// Replaces the old on-arrival SKIP_BURST_BUDGET stopwatch.
-    private nonisolated func finalizeBurstAtClose(now: TimeInterval, startOfToday: TimeInterval, defaults: UserDefaults) {
+    /// Decide-at-close (2026-05-28; budget re-anchored 2026-05-31). Called when a
+    /// burst window closes (next event arrived with gap ≥ 5s). The burst's credits
+    /// are already applied; keep them unless the burst's OWN growth across all its
+    /// apps exceeds what wall-clock physically allows since the last real credit
+    /// BEFORE the burst — a child uses one app at a time, so
+    /// `Σ (usage_now − usage_before) ≤ seconds since last credit` (×1.1 + 180s
+    /// grace for Apple's batched delivery / clock skew). If breached, the whole
+    /// burst was a flood → revert it.
+    ///
+    /// Why measured from the last credit, not midnight: the midnight anchor was
+    /// stable but far too loose by mid-morning (665min budget at 10am), so daytime
+    /// kill-replay floods fit under it and passed (Imane 2026-05-31: 189min across
+    /// 18 apps in an 8min window logged BURST_CLOSE_OK and every app kept its
+    /// phantom credit). The baseline is frozen at burst start (see
+    /// processEventAndCredit) so the burst's own credits can't inflate their own
+    /// budget — the self-reset bug that broke the 2026-05-26 on-arrival enforce.
+    ///
+    /// Single-app exemption: the "one app at a time" impossibility only proves a
+    /// flood when ≥2 apps claim time in the same burst. A lone app's catch-up —
+    /// even a big jump — is trusted (iOS's max threshold is authoritative). This
+    /// protects legit single-app catch-ups (Sami's Roblox 2026-05-28) from false
+    /// revert. Per-app SHAPE signals (jump size, low-step presence, contiguity)
+    /// were rejected as discriminators: on the Imane flood every inflated app
+    /// carried a clean ≤1min low step and a full contiguous run — iOS replays the
+    /// same shape for real and phantom. Only the cross-app sum reveals the flood.
+    private nonisolated func finalizeBurstAtClose(now: TimeInterval, defaults: UserDefaults) {
         let creditedApps = readBurstCreditedApps(defaults: defaults)
         guard !creditedApps.isEmpty else {
             // Nothing credited in the closed burst (or already reverted/flood-locked).
@@ -453,23 +480,38 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             return
         }
 
-        let secondsSinceMidnight = max(0.0, now - startOfToday)
-        let ceilingSec = Int(secondsSinceMidnight * 1.1) + 300
-        var totalUsageSec = 0
-        let trackedAppIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
-        for id in trackedAppIDs {
-            totalUsageSec += defaults.integer(forKey: "usage_\(id)_today")
+        // Single-app bursts are exempt — a child can legitimately use one app a lot.
+        if creditedApps.count < 2 {
+            debugLog("BURST_CLOSE_OK single-app — \(creditedApps.count) app credit(s) final", defaults: defaults)
+            clearBurstState(defaults: defaults)
+            return
         }
 
-        if totalUsageSec > ceilingSec {
-            debugLog("BURST_CLOSE_OVER_CEILING total=\(totalUsageSec / 60)min > ceiling=\(ceilingSec / 60)min (elapsed=\(Int(secondsSinceMidnight) / 60)min, apps=\(creditedApps.count)) — reverting flood burst", defaults: defaults)
-            Self.logger.notice("BURST_CLOSE_OVER_CEILING total=\(totalUsageSec / 60)min ceiling=\(ceilingSec / 60)min")
+        // Burst growth = Σ across credited apps of (current − pre-burst snapshot).
+        // The pre-burst value is the revert_today_<id> already saved on first credit.
+        var burstGrowthSec = 0
+        for id in creditedApps {
+            let cur = defaults.integer(forKey: "usage_\(id)_today")
+            let before = defaults.integer(forKey: "revert_today_\(id)")
+            burstGrowthSec += max(0, cur - before)
+        }
+
+        // Budget = wall-clock since the frozen last-credit baseline. No baseline
+        // (e.g. first burst of the day) → don't enforce; trust the credits.
+        let baselineCreditTs = defaults.double(forKey: "burst_baseline_credit_ts")
+        let wallclockSec = baselineCreditTs > 0 ? max(0.0, now - baselineCreditTs) : -1.0
+        let budgetSec = wallclockSec >= 0 ? Int(wallclockSec * 1.1) + 180 : -1
+
+        if budgetSec >= 0 && burstGrowthSec > budgetSec {
+            debugLog("BURST_CLOSE_OVER_CEILING growth=\(burstGrowthSec / 60)min > budget=\(budgetSec / 60)min (wallclock=\(Int(wallclockSec) / 60)min since last credit, apps=\(creditedApps.count)) — reverting flood burst", defaults: defaults)
+            Self.logger.notice("BURST_CLOSE_OVER_CEILING growth=\(burstGrowthSec / 60)min budget=\(budgetSec / 60)min apps=\(creditedApps.count)")
             // revertBurstCredits sets burst_is_flood + requests recovery rebuild;
             // clearBurstState then resets the flag so the NEW burst starts clean.
-            revertBurstCredits(reason: "over-ceiling total=\(totalUsageSec / 60)min>ceiling=\(ceilingSec / 60)min", defaults: defaults)
+            revertBurstCredits(reason: "over-budget growth=\(burstGrowthSec / 60)min>budget=\(budgetSec / 60)min apps=\(creditedApps.count)", defaults: defaults)
             clearBurstState(defaults: defaults)
         } else {
-            debugLog("BURST_CLOSE_OK total=\(totalUsageSec / 60)min <= ceiling=\(ceilingSec / 60)min — \(creditedApps.count) app credit(s) final", defaults: defaults)
+            let budgetDesc = budgetSec >= 0 ? "\(budgetSec / 60)min" : "no-baseline"
+            debugLog("BURST_CLOSE_OK growth=\(burstGrowthSec / 60)min <= budget=\(budgetDesc) — \(creditedApps.count) app credit(s) final", defaults: defaults)
             clearBurstState(defaults: defaults)
         }
     }
@@ -1202,9 +1244,9 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             : Double.greatestFiniteMagnitude
         if gapSinceLastEvent >= Self.burstWindowSeconds {
             // Previous burst (if any) is done. Decide-at-close: keep its credits
-            // unless the device-wide total now breaches the physical ceiling
-            // (flood) — then revert. Replaces the old on-arrival reject.
-            finalizeBurstAtClose(now: nowTimestamp, startOfToday: startOfToday, defaults: defaults)
+            // unless the burst's growth across ≥2 apps exceeds wall-clock since the
+            // last real credit (flood) — then revert. Replaces the old on-arrival reject.
+            finalizeBurstAtClose(now: nowTimestamp, defaults: defaults)
         }
         defaults.set(nowTimestamp, forKey: "last_event_arrival_global")
 
