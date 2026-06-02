@@ -498,8 +498,16 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Budget = wall-clock since the frozen last-credit baseline. No baseline
         // (e.g. first burst of the day) → don't enforce; trust the credits.
+        // Measure wall-clock to the burst's CLOSE time (its last event arrival, still
+        // stored in last_event_arrival_global here — Phase B updates it AFTER this
+        // call), NOT to `now`. When a burst is judged late — an orphaned burst whose
+        // successor never arrived, finalized on the next wake (Fix 1, intervalDidStart)
+        // — `now` could be minutes/hours later and would balloon the budget so a real
+        // flood slips through. The stored close time keeps the budget identical to
+        // what it would have been had a successor arrived 5s after the burst.
         let baselineCreditTs = defaults.double(forKey: "burst_baseline_credit_ts")
-        let wallclockSec = baselineCreditTs > 0 ? max(0.0, now - baselineCreditTs) : -1.0
+        let closeTs = defaults.double(forKey: "last_event_arrival_global")
+        let wallclockSec = (baselineCreditTs > 0 && closeTs > 0) ? max(0.0, closeTs - baselineCreditTs) : -1.0
         let budgetSec = wallclockSec >= 0 ? Int(wallclockSec * 1.1) + 180 : -1
 
         if budgetSec >= 0 && burstGrowthSec > budgetSec {
@@ -508,6 +516,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // revertBurstCredits sets burst_is_flood + requests recovery rebuild;
             // clearBurstState then resets the flag so the NEW burst starts clean.
             revertBurstCredits(reason: "over-budget growth=\(burstGrowthSec / 60)min>budget=\(budgetSec / 60)min apps=\(creditedApps.count)", defaults: defaults)
+            // Fix A (2026-06-01, Sami): arm the phantom-flood lockout, mirroring the
+            // shield-in-burst path (~L1488). In a kill storm iOS re-dumps this same
+            // backlog within seconds of the revert; without the lockout those re-dump
+            // events re-credit the phantom (Sami 06-01: 10B06611 reverted to 0, then
+            // re-credited 0→3360s ~1s later by the next respawn's dump). The lockout
+            // makes SKIP_FLOOD drop them. Uses live `now` (not closeTs) so the 30s
+            // window starts at detection, covering the imminent re-dump.
+            defaults.set(now + 30, forKey: "phantom_flood_active_until")
             clearBurstState(defaults: defaults)
         } else {
             let budgetDesc = budgetSec >= 0 ? "\(budgetSec / 60)min" : "no-baseline"
@@ -915,6 +931,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // perform the heal here. Must run BEFORE the rest of intervalDidStart
             // so subsequent midnight/shield logic sees the post-heal state.
             consumeHealRequestIfPresent(defaults: defaults)
+
+            // Fix 1 (2026-06-01, Sami): finalize an ORPHANED burst on restart.
+            // A burst is judged at close (Phase B) only when a SUCCESSOR event arrives
+            // ≥5s later. The final flood of a kill storm has no successor — the
+            // extension credits it, returns, and dies, leaving the phantom un-judged
+            // forever (Sami 06-01: session 8EAC2246 credited 56min at 21:23 and was
+            // never closed; still showing at 21:34). A monitoring restart is a reliable
+            // waker that does NOT depend on usage resuming. If an open burst's last
+            // event is older than the burst window, close-and-judge it now.
+            // finalizeBurstAtClose measures the budget from the stored close time, so
+            // the delay can't inflate it; heal mode is bypassed inside.
+            let orphanLastArrival = defaults.double(forKey: "last_event_arrival_global")
+            if orphanLastArrival > 0,
+               !readBurstCreditedApps(defaults: defaults).isEmpty,
+               (Date().timeIntervalSince1970 - orphanLastArrival) >= Self.burstWindowSeconds {
+                finalizeBurstAtClose(now: Date().timeIntervalSince1970, defaults: defaults)
+            }
 
             // === MIDNIGHT DIAGNOSTIC: Only activate on genuine midnight (day changed) ===
             let lastDiagDate = defaults.string(forKey: "midnight_diagnostic_date")
