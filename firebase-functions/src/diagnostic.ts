@@ -13,7 +13,7 @@
  * client-facing share UI in Release builds is sufficient for that bar.
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 
 const db = admin.firestore();

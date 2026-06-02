@@ -63,6 +63,13 @@ struct ScreenTimeRewardsApp: App {
                 // prevents catch-up floods, making this safe to call on every foreground.
                 ScreenTimeService.shared.checkMonitoringHealth()
 
+                // MONITORING CHECK-IN: tell the backend this device is alive and whether a
+                // reward app is currently playable, so the silent-push refresh only pokes us
+                // if we go silent while a reward app is unlocked. Read the flag on the main
+                // actor, then send off the main thread.
+                let rewardUnlocked = ScreenTimeService.shared.anyRewardAppCurrentlyAccessible()
+                Task { await FirebaseValidationService.shared.sendHeartbeat(rewardUnlocked: rewardUnlocked) }
+
                 // HEARTBEAT GAP DETECTION: If monitoring should be active but extension
                 // hasn't fired in >5 minutes, log the gap for diagnostics
                 if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),

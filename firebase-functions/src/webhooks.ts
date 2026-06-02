@@ -3,7 +3,7 @@
  * Receives subscription events and updates family subscription status
  */
 
-import * as functions from 'firebase-functions';
+import * as functions from 'firebase-functions/v1';
 import * as admin from 'firebase-admin';
 
 const db = admin.firestore();
@@ -83,7 +83,7 @@ export const revenueCatWebhook = functions.https.onRequest(async (req, res) => {
 
   // Verify webhook authorization (optional but recommended)
   const authHeader = req.headers.authorization;
-  const expectedToken = functions.config().revenuecat?.webhook_secret;
+  const expectedToken = process.env.REVENUECAT_WEBHOOK_SECRET;
 
   if (expectedToken && authHeader !== `Bearer ${expectedToken}`) {
     console.warn('Unauthorized webhook request');

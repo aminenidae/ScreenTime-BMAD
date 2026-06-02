@@ -264,6 +264,12 @@ class ChildBackgroundSyncService: ObservableObject {
     private func performMonitoringMaintenanceIfNeeded() async {
         guard let defaults = UserDefaults(suiteName: appGroupID) else { return }
 
+        // MONITORING CHECK-IN: report liveness + reward-unlock state to the backend on every
+        // upload cycle (silent-push monitoring refresh). Sent before the maintenance guard
+        // below so it happens whether or not a restart is due.
+        let rewardUnlocked = await ScreenTimeService.shared.anyRewardAppCurrentlyAccessible()
+        await FirebaseValidationService.shared.sendHeartbeat(rewardUnlocked: rewardUnlocked)
+
         let midnightPending = defaults.bool(forKey: "midnight_pending_refresh")
         let lastRestart = defaults.double(forKey: "monitoring_restart_timestamp")
         let minutesSinceRestart = lastRestart > 0

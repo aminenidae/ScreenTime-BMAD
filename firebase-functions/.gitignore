@@ -1,0 +1,4 @@
+
+# Local function config / secrets (loaded by Firebase at deploy)
+.env
+.env.*

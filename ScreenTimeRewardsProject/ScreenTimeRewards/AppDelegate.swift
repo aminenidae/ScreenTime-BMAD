@@ -5,6 +5,9 @@ import BackgroundTasks
 #if canImport(FirebaseCore)
 import FirebaseCore
 #endif
+#if canImport(FirebaseMessaging)
+import FirebaseMessaging
+#endif
 
 class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
     private var midnightResetObserver: NSObjectProtocol?
@@ -19,6 +22,12 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         // Configure Firebase Analytics
         #if canImport(FirebaseCore)
         FirebaseApp.configure()
+        #endif
+
+        #if canImport(FirebaseMessaging)
+        // Register as FCM delegate so we receive the FCM registration token — the
+        // "push address" the backend targets to wake this device for monitoring refresh.
+        Messaging.messaging().delegate = self
         #endif
 
         // Bootstrap analytics user properties (device_mode, subscription_tier,
@@ -302,7 +311,15 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
     ) {
         let token = deviceToken.map { String(format: "%02.2hhx", $0) }.joined()
         print("[AppDelegate] Device token: \(token)")
-        // Store token if needed for custom push
+        // Persist the raw APNs token to the App Group (diagnostics).
+        UserDefaults(suiteName: "group.com.screentimerewards.shared")?
+            .set(token, forKey: "apns_device_token")
+        #if canImport(FirebaseMessaging)
+        // Hand the APNs token to FCM so it can mint/refresh the FCM registration token.
+        // That token arrives via messaging(_:didReceiveRegistrationToken:) below and is
+        // what the heartbeat reports + the backend targets for the wake-up push.
+        Messaging.messaging().apnsToken = deviceToken
+        #endif
     }
     
     func application(
@@ -318,7 +335,19 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         fetchCompletionHandler completionHandler: @escaping (UIBackgroundFetchResult) -> Void
     ) {
         print("[AppDelegate] Received remote notification: \(userInfo)")
-        
+
+        // Silent-push monitoring refresh: our backend pokes this device when it has
+        // gone silent while a reward app is unlocked. Wake up and restart monitoring
+        // so iOS re-arms the sliding-window thresholds — this recovers from a
+        // background blackout where iOS stopped relaunching the extension on its own.
+        if userInfo["type"] as? String == "monitoring-refresh" {
+            Task { @MainActor in
+                await ScreenTimeService.shared.restartMonitoring(reason: "silent-push monitoring refresh")
+                completionHandler(.newData)
+            }
+            return
+        }
+
         // Handle CloudKit push notifications
         Task {
             await CloudKitSyncService.shared.handlePushNotification(userInfo: userInfo)
@@ -361,3 +390,17 @@ class AppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDele
         completionHandler()
     }
 }
+
+#if canImport(FirebaseMessaging)
+extension AppDelegate: MessagingDelegate {
+    /// FCM hands us the registration token here (on first launch and whenever it
+    /// rotates). Store it in the App Group so the monitoring heartbeat can report it;
+    /// the backend uses it to send the silent wake-up push.
+    func messaging(_ messaging: Messaging, didReceiveRegistrationToken fcmToken: String?) {
+        guard let fcmToken else { return }
+        UserDefaults(suiteName: "group.com.screentimerewards.shared")?
+            .set(fcmToken, forKey: "fcm_token")
+        print("[AppDelegate] FCM registration token stored")
+    }
+}
+#endif

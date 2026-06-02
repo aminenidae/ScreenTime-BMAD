@@ -14,3 +14,5 @@ export { createPairingToken, validateChildPairing, validateCoParentJoin } from '
 export { verifyFamilySubscription, updateSubscriptionStatus, checkParentSubscription, markFamilyExpired } from './subscription';
 export { revenueCatWebhook } from './webhooks';
 export { submitDiagnosticReport } from './diagnostic';
+export { childHeartbeat } from './heartbeat';
+export { monitoringSilenceDetector } from './monitoring';

@@ -4598,6 +4598,21 @@ func configureWithTestApplications() {
         Set(categoryAssignments.filter { $0.value == .reward }.map { $0.key })
     }
 
+    /// True if at least one reward app is currently playable (i.e. not shielded right now).
+    ///
+    /// This is the single signal that drives the silent-push monitoring refresh: the backend
+    /// only pokes a silent device when a reward app was unlocked, because that is the only
+    /// state where the kid could be running up reward usage we must cap. It reads the live iOS
+    /// shield set, so it inherently captures every gate at once — empty bank, unmet learning
+    /// goal, daily limit reached, and outside allowed hours all keep reward apps shielded, so
+    /// this returns false in all of them.
+    func anyRewardAppCurrentlyAccessible() -> Bool {
+        let rewardTokens = getRewardTokens()
+        guard !rewardTokens.isEmpty else { return false }
+        let shielded = managedSettingsStore.shield.applications ?? []
+        return !rewardTokens.subtracting(shielded).isEmpty
+    }
+
     /// Persist goal configurations to App Group for extension access
     /// This allows the extension to check learning goals and update shields directly
     func syncGoalConfigsToExtension() {

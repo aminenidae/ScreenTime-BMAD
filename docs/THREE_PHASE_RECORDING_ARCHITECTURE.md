@@ -1380,6 +1380,132 @@ single-app bursts → exempt. 2-app short-kill catch-up (~4min vs ~7min budget) 
 
 ---
 
+## 2026-05-31 — iOS-side extension blackout under low battery (Ali's iPad) → silent-push monitoring refresh
+
+A failure mode **orthogonal to the phantom/burst recording logic above**, recorded here because it has the
+same user-visible symptom (a daily limit not enforced) and anyone debugging recording will land here first.
+
+### What happened
+Roblox (reward, 120-min daily limit) overran by ~60 min. The extension recorded Roblox at 65 min at 10:18,
+then **iOS killed the extension and refused to relaunch it for ~3 hours** (battery sat at 20–30% unplugged;
+74 process kills across the day). During that blind window the kid kept playing; at 13:14 iOS finally
+relaunched the extension and dumped the queued catch-up (min.113 → 141 → 154 in 3s). The shield fired the
+instant our counter crossed 120 — correct, but ~62 min of real play had already happened. Final recorded 154
+vs iOS 182 (the shield truncated the catch-up tail).
+
+### Root cause — NOT a recording bug
+Proven iOS-side, not a sliding-window / threshold-registration problem:
+- The log was **completely silent for 3h** (no events, no lifecycle, no health checks) — the extension process
+  simply never ran. You cannot mis-register a window while not running.
+- The event that finally woke it (`THRESHOLD_CALL min.113`) was a bell **already registered** before the gap
+  (the 10:18 window covered 66–125). The bell existed; iOS just declined to relaunch us to ring it.
+So this is "iOS won't relaunch the extension under battery pressure," which **no filter in this document can
+fix** — a shield can only act on usage we are alive to record. BGTask wake-ups are empirically unreliable on
+this device class (fired 0× in 8 days; see `docs/SILENT_PUSH_MONITORING_REFRESH.md`).
+
+### The fix lives outside this engine — silent-push monitoring refresh
+Server-triggered wake-up: the child app checks in (liveness + "is a reward app unlocked right now") via a
+Firebase callable; a Cloud Function scans every 10 min and sends a silent APNs/FCM push to any child device
+that has gone silent **while a reward app was unlocked** (the only window where a blackout can let reward usage
+run past its limit). The push wakes the app → `restartMonitoring` → iOS re-arms the sliding window.
+**Built + server deployed live 2026-06-02.** Full design, gating decisions, and the deploy gotcha are in
+**`docs/SILENT_PUSH_MONITORING_REFRESH.md`**. No shared-engine behavior changed — this is additive child/
+server infrastructure plus one read-only helper (`ScreenTimeService.anyRewardAppCurrentlyAccessible()`).
+
+---
+
+## 2026-06-01 — 5-device validation; two structural holes in decide-at-close (Sami's iPhone)
+
+First multi-device run of the 05-31 re-anchor. The fix's two halves split cleanly across the
+fleet, **and** Sami exposed two structural holes that let phantom survive *despite* the ceiling
+firing correctly.
+
+### Fleet results
+
+| Device | Build | Outcome |
+|---|---|---|
+| Alex | **stale** (`1.0.5(1)`, pre-`80342f4`) | old midnight-ceiling let two floods pass (310/834 min). NOT the fix's fault — the build predated it (forgotten install). Healed ×2. |
+| Iness | correct | clean per-minute play, 77 kills survived, 0 floods, 0 false reverts. |
+| Ali | correct | **precision win** — live ceiling KEPT legit 2-app bursts (`growth=2min<=budget=4min`) that the grace-less shadow flagged `exceeded`. No false reverts. |
+| Imane | correct | near-idle (4 events), clean. |
+| Sami | correct | **recall win + two holes** — ceiling caught **18 real floods** (`growth` up to 891min ≫ budget, all reverted), but phantom still survived on ~5 reward apps. |
+
+So **precision** (don't revert legit play) is validated by Ali/Iness; **recall** (catch real
+floods) is validated by Sami's 18 reverts. Ground truth on Sami: only Roblox (38min, the one app
+actually used) matched iOS; Poppy 56 / Stumble 47 / Block Blast 48 etc. were surviving phantom
+(iOS "Most Used" topped out at Roblox 38, so those were ~0).
+
+### Hole 1 — the last flood of a storm is never judged
+
+`finalizeBurstAtClose` runs only when a **successor event** arrives ≥5s later (Phase B,
+`setUsageToThreshold` ~L1278). A kill storm (151 kills on Sami) is dozens of separate <2s dumps,
+each a fresh burst from a respawn; each gets judged *because the next dump follows it* — 18 of
+them reverted. But the **terminal** dump has no successor: the extension credits it, returns, and
+dies. It sits open, un-judged, forever.
+
+```
+21:23:22.155  BURST_REVERT (#18, judged)
+21:23:23–29   [8EAC2246] RECORDED 10B06611 0→3360s (56min) …then silence
+              → never closed, never judged → 56min phantom survives to the 21:34 screenshot
+```
+
+Structural, not an edge case: a trailing-edge judgment needs a trailing event, and the end of a
+flood doesn't have one.
+
+### Hole 2 — the ceiling-revert never armed the lockout
+
+The **shield-in-burst** path arms `phantom_flood_active_until = now+30` (~L1488); the
+**ceiling-revert** path never did. So after each of Sami's 18 reverts there was no lockout, and
+iOS's next re-dump re-credited the phantom. Contrast Alex's shield-in-burst flood the same day:
+`PHANTOM_FLOOD_DETECTED` armed the lockout → **401 re-dump events dropped by `SKIP_FLOOD`**, clean.
+
+**Corrected a wrong first hypothesis:** initially blamed *our* `post-flood-recovery` restart for
+summoning the re-dumps. The log refutes it — `post-flood-recovery` shows **18
+`WINDOW_REBUILD_REQUESTED` but only 1 actual `MONITORING_RESTART`** (main app suspended, Darwin
+dropped). The re-dumps were iOS's own respawns replaying its backlog, independent of our restart.
+So "stop firing the recovery restart" was dropped from the fix — it wasn't the cause. (Battery was
+charging:34%, not critical — the kill storm is the 6 MB extension limit under heavy threshold
+load, not low charge.)
+
+### The fixes (no heal — deliberate)
+
+Heal was rejected for now: ~80% field reliability (Ali 05-31 heal didn't recover cleanly) and the
+UX cost of a visible wipe/flicker. Decide-at-**arrival** reject stays rejected (reintroduces the
+05-28 reject→restart→re-fire loop). A forced restart-after-orphan was rejected too — unreliable
+(1/18 fired) and re-enters the flood→restart loop class. Both fixes reuse existing machinery:
+
+- **Fix A — arm the lockout on ceiling-revert** (`finalizeBurstAtClose` over-ceiling branch):
+  `defaults.set(now + 30, forKey: "phantom_flood_active_until")` after `revertBurstCredits`,
+  mirroring the shield path. Waker-agnostic: drops re-dumps via `SKIP_FLOOD` regardless of whether
+  the respawn came from iOS, the extension, or us. **Would have saved Sami** — the terminal dump
+  arrived 1–7s after revert #18, inside the 30s window.
+- **Fix 1 — judge the orphan burst on next wake, at its close time:**
+  - (a) `finalizeBurstAtClose` now measures the budget from the stored **close time**
+    (`last_event_arrival_global`, still the burst's last event at call time), not the live `now`.
+    Without this, an orphan judged minutes/hours later would balloon its budget and the flood would
+    pass — the same midnight-anchor mistake 05-31 just fixed. Negligible effect on normal closes
+    (successor ≈ 5s later).
+  - (b) `intervalDidStart` finalizes an orphaned burst on **restart** — a reliable waker that
+    doesn't need usage to resume. The "next threshold event" waker already existed (Phase B); this
+    adds the restart path so the orphan is judged even if the device goes silent.
+
+Together: Fix A kills the rapid-succession re-dump (the common kill-storm case, and Sami's exact
+miss); Fix 1 backstops the rarer isolated terminal dump that lands after the lockout expired. The
+phantom can still be *briefly visible* between flood-end and the next wake — accepted, since the
+foreground/restart waker corrects it on the next app open. Zero-visible-phantom would require
+arrival-reject, which is off the table.
+
+### Status
+- [x] Implemented on `feat/credit-on-arrival-no-buffer` (uncommitted): Fix A + Fix 1a/1b in
+      `DeviceActivityMonitorExtension.swift`.
+- [ ] Build the extension target in Xcode (single-file parse can't verify — iOS-only frameworks).
+- [ ] Device-validate: a kill-storm flood where the **terminal** dump is judged (look for a
+      `BURST_CLOSE_OVER_CEILING` fired from `intervalDidStart`, or `SKIP_FLOOD` dropping the
+      re-dump after a `BURST_CLOSE_OVER_CEILING` revert) and final per-app totals match iOS Screen
+      Time. Re-run the 5-device spot-check.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing

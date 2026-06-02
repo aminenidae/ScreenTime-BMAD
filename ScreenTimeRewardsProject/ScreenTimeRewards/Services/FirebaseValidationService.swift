@@ -256,6 +256,52 @@ final class FirebaseValidationService: ObservableObject {
         UserDefaults.standard.string(forKey: "firebase_family_id")
     }
 
+    // MARK: - Monitoring Heartbeat (Child Device)
+
+    /// Child-device check-in for the silent-push monitoring refresh.
+    ///
+    /// Reports: liveness (server stamps receipt time), the APNs token (so the backend can
+    /// wake this device), the device-local timezone (for active-hours gating), and whether a
+    /// reward app is currently playable. The backend's silence detector pokes this device only
+    /// if its check-ins stop while `rewardUnlocked` was true — the one window where a blackout
+    /// can let reward usage run past its limit.
+    ///
+    /// Best-effort and child-only: parent devices never check in, and any failure is swallowed
+    /// so a missed heartbeat never disrupts the app. Silence is itself the signal we act on.
+    func sendHeartbeat(rewardUnlocked: Bool) async {
+        #if canImport(FirebaseFunctions)
+        guard deviceManager.isChildDevice,
+              let functions,
+              let familyId = currentFamilyId else { return }
+
+        var data: [String: Any] = [
+            "deviceId": deviceManager.deviceID,
+            "familyId": familyId,
+            "rewardUnlocked": rewardUnlocked,
+            "timezone": TimeZone.current.identifier
+        ]
+        let group = UserDefaults(suiteName: "group.com.screentimerewards.shared")
+        // FCM registration token (set once FirebaseMessaging is wired). The backend sends
+        // the wake-up push through FCM, which relays to APNs via the uploaded .p8 key.
+        if let token = group?.string(forKey: "fcm_token") {
+            data["fcmToken"] = token
+        }
+        // The extension's last-alive time lets the backend tell a true blackout (extension
+        // long silent) apart from "main app quiet but the extension was firing fine."
+        if let extHeartbeat = group?.double(forKey: "extension_heartbeat"), extHeartbeat > 0 {
+            data["extensionLastActive"] = extHeartbeat
+        }
+
+        do {
+            _ = try await functions.httpsCallable("childHeartbeat").call(data)
+        } catch {
+            #if DEBUG
+            print("[FirebaseValidation] Heartbeat failed (non-fatal): \(error)")
+            #endif
+        }
+        #endif
+    }
+
     /// Update family's subscription tier (called when parent upgrades/downgrades)
     /// Updates maxChildren limit in Firebase to match new tier
     func updateFamilySubscription(familyId: String, subscriptionTier: SubscriptionTier) async throws {
