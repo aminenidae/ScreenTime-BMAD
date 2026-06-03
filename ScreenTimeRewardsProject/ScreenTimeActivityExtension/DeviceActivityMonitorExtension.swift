@@ -1258,6 +1258,20 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             Self.logger.notice("DAY_ROLLOVER triggeredBy=\(appID.prefix(8))...")
             resetAllDailyCounters(defaults: defaults, startOfToday: startOfToday)
             defaults.set(startOfToday, forKey: globalResetKey)
+            // Re-arm sliding windows for EVERY app from current=0. resetAllDailyCounters
+            // zeroes today's counters but leaves iOS's registered thresholds parked at
+            // yesterday's high-water mark, so an app heavily used yesterday (bell parked at,
+            // e.g., min.82) records nothing today until usage organically passes that level.
+            // The midnight intervalDidStart rebuild handles this when the device is on at
+            // midnight; when the phone is off across midnight that callback never fires, and
+            // this event-triggered rollover is the first chance to rebuild (Iness 2026-06-02
+            // device-off gap). Mirror the midnight path so the first event of the new day
+            // re-arms all windows at 1-N — iOS then fires catch-ups covering each app's real
+            // today cumulative. extensionRebuildSlidingWindow also stamps
+            // monitoring_restart_timestamp, which the main-app stale-window safety net reads
+            // (so that net stays a no-op once this has run).
+            let rolloverRebuildOK = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: nil, reason: "day-rollover-rebuild")
+            debugLog("DAY_ROLLOVER_REBUILD ok=\(rolloverRebuildOK) — re-armed all windows from current=0 after late (device-off) rollover", defaults: defaults)
             // Clear the burst window state — yesterday's pending burst (if any)
             // is no longer relevant to today.
             clearBurstState(defaults: defaults)

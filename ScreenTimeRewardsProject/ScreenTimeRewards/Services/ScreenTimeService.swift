@@ -592,6 +592,31 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                         Task { [weak self] in
                             await self?.restartMonitoring(reason: "pending window rebuild (init): \(reason)")
                         }
+                    } else if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+                        // Stale-window safety net (device off across midnight). The extension's
+                        // midnight rebuild only runs if the phone is on at midnight; the
+                        // event-triggered day-rollover rebuild only runs if some app crosses a
+                        // (low) bell. If the phone was off across midnight AND every app the kid
+                        // opens was heavy yesterday, nothing re-arms the windows — and this is
+                        // exactly the moment the kid opens the app to check usage (Iness
+                        // 2026-06-02). Detect it via the last window registration being on a
+                        // prior day and force one restart. monitoring_restart_timestamp is
+                        // stamped by every real rebuild (extension day-rollover rebuild AND the
+                        // normal midnight rebuild), so on a normal day it is today and this is a
+                        // no-op — it only fires when windows are genuinely a day stale. This is
+                        // NOT the reverted per-foreground refresh (Check 3): it is date-gated
+                        // and fires at most once per day.
+                        let lastRestartTs = sharedDefaults.double(forKey: "monitoring_restart_timestamp")
+                        let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+                        if lastRestartTs > 0 && lastRestartTs < startOfToday {
+                            lifecycleLog("STALE_WINDOW_REBUILD — last window registration was a prior day (device off across midnight?), restarting (init)")
+                            #if DEBUG
+                            print("[ScreenTimeService] 🗓️ Stale sliding windows from a prior day — triggering restart (init)")
+                            #endif
+                            Task { [weak self] in
+                                await self?.restartMonitoring(reason: "stale windows from prior day (init)")
+                            }
+                        }
                     }
                 } else {
                     // Monitoring genuinely dead — restart needed
@@ -2180,6 +2205,30 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 await self?.restartMonitoring(reason: "pending window rebuild (foreground): \(reason)")
             }
             return
+        }
+
+        // Check 2c: Stale sliding windows from a prior day — monitoring alive at OS level
+        // but the last window registration happened on an earlier day. Happens when the
+        // phone was off across midnight (extension midnight rebuild never ran) and no app has
+        // since crossed a low bell to trigger the extension's day-rollover rebuild; apps
+        // heavily used yesterday then record nothing today until usage passes yesterday's
+        // level (Iness 2026-06-02 device-off gap). monitoring_restart_timestamp is stamped by
+        // every real rebuild, so on a normal day it is today and this is a no-op; it only
+        // fires when windows are genuinely a day stale. Date-gated → fires at most once per
+        // day. This is NOT the reverted per-foreground refresh (Check 3 below).
+        if let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) {
+            let lastRestartTs = sharedDefaults.double(forKey: "monitoring_restart_timestamp")
+            let startOfToday = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+            if lastRestartTs > 0 && lastRestartTs < startOfToday {
+                lifecycleLog("STALE_WINDOW_REBUILD — last window registration was a prior day (device off across midnight?), restarting (foreground)")
+                #if DEBUG
+                print("[ScreenTimeService] Stale sliding windows from a prior day — triggering restart (foreground)")
+                #endif
+                Task { [weak self] in
+                    await self?.restartMonitoring(reason: "stale windows from prior day (foreground)")
+                }
+                return
+            }
         }
 
         // Note: Check 3 (foreground sliding-window refresh) was REVERTED May 11.

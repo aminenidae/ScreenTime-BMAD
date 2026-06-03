@@ -1506,6 +1506,51 @@ arrival-reject, which is off the table.
 
 ---
 
+## 2026-06-02 — Device-off-across-midnight: stale sliding windows hide today's usage (Iness's iPhone)
+
+First observed case of the **device-off rollover gap**. The phone was powered off across midnight and turned on in the evening. Day-rollover itself worked, but the sliding windows were never re-armed, so apps heavily used *yesterday* recorded **nothing today** until a manual heal forced a rebuild.
+
+### What the log showed
+
+`Iness-ext-log-2026-06-02.log` (only 19:10–21:28 survived the size-trim):
+
+- At **19:10** — 19 h into June 2 — apps still carried **June 1** date stamps and values: `8DB43A35` usage_today=900s (15 min, date=2026-06-01), `06909776` usage_today=4860s (81 min, date=2026-06-01). Expected: the phone was *off*, so nothing ran to roll the day.
+- At **19:33:22** — first power-on app event: `ACCE5205 min.1` fired and triggered `DAY_ROLLOVER`, which ran `resetAllDailyCounters` (archived June-1 values, zeroed all counters). `ACCE5205` had **~0 usage yesterday**, so its bell sat at min.1 and rang on first use — that is what woke the extension.
+- `ACCE5205` then tracked live and correctly (1→5 min). But `8DB43A35` and `06909776` recorded **nothing** between 19:33 and the heal at 19:40 — **zero events fired for them**.
+- At **19:40:44** — manual heal (`settings_heal_button`). `EXT_REBUILD_APP` re-registered windows at 1-N from current=0, iOS immediately dumped catch-ups, and `8DB43A35` recovered to 6 min, `06909776` later climbed to its real value.
+
+### Root cause — two-state divergence at rollover
+
+`resetAllDailyCounters` zeroes our internal counters but does **not** touch iOS's registered thresholds. So after the late rollover:
+
+1. **Our counter** `usage_<id>_today` = 0 (correct).
+2. **iOS's bells** stay parked at *yesterday's* high-water mark: `8DB43A35` ≈ min.16 (15 min yesterday), `06909776` ≈ min.82 (81 min yesterday).
+
+Today's fresh usage starts low — *below* those parked bells — so iOS rings nothing and those apps are invisible until usage organically passes yesterday's level (potentially 80+ min of silent loss). The true-midnight path (`intervalDidStart`, line ~1007) already rebuilds windows after its reset; the **event-triggered `DAY_ROLLOVER` path did not**. When the phone is off at midnight, `intervalDidStart` never fires at the boundary, so the event-triggered path is the only in-extension chance to rebuild — and it was skipped.
+
+Why `ACCE5205` worked but the others didn't: its bells were already low (no yesterday usage), so it both woke the extension *and* tracked from min.1. The heavy-yesterday apps had no low bell to ring.
+
+### The fix — two matched layers
+
+**Layer 1 — Extension (primary).** In the `DAY_ROLLOVER` block (`DeviceActivityMonitorExtension.swift`, after `resetAllDailyCounters`), call `extensionRebuildSlidingWindow(reason: "day-rollover-rebuild")` — mirroring the midnight path. The moment *any* app crosses a (low) bell on the new day, **every** app's windows are re-armed at 1-N and iOS catch-ups recover their real today cumulative. In Iness's exact case this alone makes the heal unnecessary (recovery at 19:33 instead of a manual button at 19:40). Logs `DAY_ROLLOVER_REBUILD ok=…`.
+
+**Layer 2 — Main app (fallback).** Layer 1 only fires if *some* app crosses a low bell. If the phone is off across midnight **and** every app the kid opens was heavy yesterday, nothing wakes the extension — and that is exactly when the kid opens the app to check usage (Iness did; nothing happened, pre-fix). So in `ScreenTimeService.checkMonitoringHealth` (foreground, Check 2c) and the app-launch `MONITORING_ALIVE` block (init), if `monitoring_restart_timestamp` is from a **prior day**, force one restart. Logs `STALE_WINDOW_REBUILD`.
+
+Key property: `monitoring_restart_timestamp` is stamped by **every** real rebuild — the normal midnight rebuild, the extension's day-rollover rebuild (Layer 1, via `extensionRebuildSlidingWindow` line ~2491), and main-app `scheduleActivity`. So on a normal day it equals today and Layer 2 is a **no-op**; it fires at most **once per day**, only when windows are genuinely a day stale. This is deliberately *not* the per-foreground refresh that was reverted May 11 (that fired on every `scenePhase=.active`); this is date-gated.
+
+### Why the design splits this way
+
+- Layer 1 is fast and pre-foreground (no app open needed) but has a blind spot: all-heavy-yesterday apps never ring a low bell.
+- Layer 2 covers that blind spot and the multi-day-off case, but only *after* the app is opened.
+- Together they cover each other. Residual gap (accepted): phone off across midnight **and** nobody opens the app **and** only heavy-yesterday apps are used — silent until any one of those changes.
+
+### Status
+- [x] Implemented on `feat/credit-on-arrival-no-buffer` (this change): Layer 1 in `DeviceActivityMonitorExtension.swift`; Layer 2 in `ScreenTimeService.swift` (init + `checkMonitoringHealth`).
+- [ ] Build the extension + app targets in Xcode (single-file parse can't verify — iOS-only frameworks).
+- [ ] Device-validate the real shape: power the phone **off** across midnight, then in the evening use an app that was **heavy yesterday** *first* (so no low bell rings) — confirm `STALE_WINDOW_REBUILD` fires on app open and per-app totals match iOS Screen Time. Then a second run where a zero-yesterday app is used first — confirm `DAY_ROLLOVER_REBUILD` recovers without any app open.
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing
