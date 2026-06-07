@@ -700,8 +700,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
+        // Step 1 (2026-06-06): the extension no longer rebuilds the sliding window
+        // mid-session — those registrations are stamped with the extension client
+        // identity, which iOS cannot deliver to (-10814), so they are pure orphans.
+        // Only the main-app rebuild request remains (deliverable when the app wakes).
         requestMainAppWindowRebuild(reason: "credit-near-top-\(appID.prefix(8))", defaults: defaults)
-        _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "credit-near-top-\(appID.prefix(8))")
     }
 
     // MARK: - Heal (2026-05-23, extension-canonical)
@@ -1120,8 +1123,11 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
             defaults.set(appID, forKey: mapIdKey)
             defaults.set(category, forKey: "map_\(eventName)_category")
-            debugLog("MAPPING_RECOVERED event=\(eventName) appID=\(appID.prefix(8))... — backfilled via stable-hash, forcing window rebuild", defaults: defaults)
-            extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "mapping-recovered")
+            // Step 1 (2026-06-06): keep the stable-hash backfill (so the above-window
+            // event still records), but DROP the extension-side window rebuild — it
+            // registered orphaned (extension-client) thresholds (-10814). Window
+            // re-registration is the main app's job (Step 2).
+            debugLog("MAPPING_RECOVERED event=\(eventName) appID=\(appID.prefix(8))... — backfilled via stable-hash", defaults: defaults)
         } else {
             debugLog("NO_MAPPING event=\(eventName)", defaults: defaults)
             return false
@@ -1135,6 +1141,26 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let currentToday = defaults.integer(forKey: "usage_\(appID)_today")
         let currentThreshold = defaults.integer(forKey: "usage_\(appID)_lastThreshold")
         debugLog("EVENT appID=\(appID.prefix(8))... min=\(thresholdMinutes) currentToday=\(currentToday)s lastThresh=\(currentThreshold)s", defaults: defaults)
+
+        // DIAGNOSTIC (option 3, 2026-06-04): did the most-recent extension rebuild's NEW window
+        // actually go live? Armed in extensionRebuildSlidingWindow on success. First event ABOVE
+        // the floor → REBUILD_VERIFY_LIVE (window fired) with delaySinceRebuild; events at/below
+        // the floor → REBUILD_VERIFY_CATCHUP (old thresholds replaying). A stall = only CATCHUP,
+        // then eventually LIVE with a huge delay (quantifies the dead time). Diagnostic-only.
+        if defaults.bool(forKey: "rebuild_verify_pending_\(appID)") {
+            let floor = defaults.integer(forKey: "rebuild_verify_floor_\(appID)")
+            let delaySec = Int(Date().timeIntervalSince1970 - defaults.double(forKey: "rebuild_verify_ts_\(appID)"))
+            if delaySec > 21600 || delaySec < 0 {
+                // Stale probe (>6h or clock skew, e.g. survived across a day) — clear without a
+                // verdict so it can't produce a misleading LIVE attributed to an old rebuild.
+                defaults.set(false, forKey: "rebuild_verify_pending_\(appID)")
+            } else if thresholdMinutes > floor {
+                debugLog("REBUILD_VERIFY_LIVE appID=\(appID.prefix(8))... firstInWindowMin=\(thresholdMinutes) floor=\(floor) delaySinceRebuild=\(delaySec)s", defaults: defaults)
+                defaults.set(false, forKey: "rebuild_verify_pending_\(appID)")
+            } else {
+                debugLog("REBUILD_VERIFY_CATCHUP appID=\(appID.prefix(8))... min=\(thresholdMinutes) <= floor=\(floor) delaySinceRebuild=\(delaySec)s (new window not seen yet)", defaults: defaults)
+            }
+        }
 
         Self.logger.notice("EVENT app=\(appID.prefix(8))... min=\(thresholdMinutes) today=\(currentToday)s lastThresh=\(currentThreshold)s")
 
@@ -2190,9 +2216,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             let elapsed = nowTimestamp - lastRequest
             if elapsed > 60 {
                 defaults.set(nowTimestamp, forKey: rebuildRequestKey)
-                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → request main-app rebuild + ext fast-path", defaults: defaults)
+                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → request main-app rebuild", defaults: defaults)
+                // Step 1 (2026-06-06): extension mid-session rebuild removed — orphaned
+                // (extension-client → -10814). Main-app rebuild request only.
                 requestMainAppWindowRebuild(reason: "window-top-\(appID.prefix(8))", defaults: defaults)
-                extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "window-top-\(appID.prefix(8))")
             } else {
                 debugLog("WINDOW_TOP_HIT_DEBOUNCED appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) — rebuild requested \(Int(elapsed))s ago", defaults: defaults)
             }
@@ -2416,6 +2443,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         var events: [DeviceActivityEvent.Name: DeviceActivityEvent] = [:]
         var newWindowTops: [String: Int] = [:]
+        // DIAGNOSTIC (option 3, 2026-06-04): per-app window floor at rebuild time, so the
+        // event path can tell whether the NEW window actually went live (event min > floor)
+        // vs only old catch-ups firing. See REBUILD_VERIFY_* below. Diagnostic-only.
+        var newWindowFloors: [String: Int] = [:]
 
         for logicalID in trackedAppIDs {
             // Decode stored token — written by saveEventMappings() in the main app
@@ -2474,6 +2505,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             }
 
             newWindowTops[logicalID] = currentMin + appWindow
+            newWindowFloors[logicalID] = currentMin   // DIAGNOSTIC (option 3): floor = last credited min; new window is floor+1..top
             debugLog("EXT_REBUILD_APP appID=\(logicalID.prefix(8))... current=\(currentMin)min → new window \(currentMin + 1)-\(currentMin + appWindow) (\(appWindow) thresholds)", defaults: defaults)
             Self.logger.notice("EXT_REBUILD_APP app=\(logicalID.prefix(8))... current=\(currentMin)min window=\(currentMin + 1)-\(currentMin + appWindow)")
         }
@@ -2511,6 +2543,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
             // Window tops already persisted before the hand-off above.
             debugLog("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)", defaults: defaults)
             Self.logger.notice("EXT_REBUILD_SUCCESS events=\(events.count) apps=\(newWindowTops.count)")
+
+            // DIAGNOSTIC (option 3, 2026-06-04): the call returning ≠ iOS committing the new
+            // schedule. Two read-backs to distinguish "iOS honored the rebuild" from "in-place
+            // startMonitoring silently didn't swap the live window" (Ali 06-02 stall):
+            //  (a) OS-level: is the activity registered at all after the call?
+            //  (b) arm a per-app probe — the event path logs REBUILD_VERIFY_LIVE the first time
+            //      iOS fires a threshold ABOVE the floor (proves the new window is live), with
+            //      delaySinceRebuild. A stall shows only REBUILD_VERIFY_CATCHUP then a huge delay.
+            // Diagnostic-only: no behavior change.
+            let activeNames = center.activities.map { $0.rawValue }.joined(separator: ",")
+            let hasTracking = center.activities.contains(DeviceActivityName("ScreenTimeTracking"))
+            debugLog("EXT_REBUILD_VERIFY_ACTIVITIES [\(activeNames)] hasTracking=\(hasTracking)", defaults: defaults)
+            for (logicalID, floorMin) in newWindowFloors {
+                defaults.set(floorMin, forKey: "rebuild_verify_floor_\(logicalID)")
+                defaults.set(now, forKey: "rebuild_verify_ts_\(logicalID)")
+                defaults.set(true, forKey: "rebuild_verify_pending_\(logicalID)")
+            }
             return true
         } catch {
             // Undo restart timestamp so SKIP_RESTART doesn't block real events

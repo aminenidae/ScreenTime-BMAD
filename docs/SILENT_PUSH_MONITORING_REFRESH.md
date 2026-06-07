@@ -144,3 +144,71 @@ Branch: `feat/credit-on-arrival-no-buffer`. Motivated by Ali's 2026-05-31 blacko
 3. **Parent-notification fallback** after 2 failed pokes (intentionally deferred per CEO).
 
 No shared-engine behavior changed (additive child-server hooks + one read-only helper) → no `ENGINE_SYNC_FROM_TICLOCK.md` port entry needed.
+
+---
+
+## Production validation — 2026-06-02 (first real-world test: it never fired)
+
+The same failure the feature was built to fix recurred one day after the server went live. Ali's device (Xcode/debug build) blacked out 20:20–23:01 device-local: Roblox tracked 93 min vs iOS's 112 (19 min lost, daily limit unenforced for ~2h40m). The silent-push net **did not wake the device** — and the server logs show it has **never successfully poked any device**.
+
+### What the logs showed
+- `firebase functions:log --only monitoringSilenceDetector`: **`poked=0` across all 70 logged runs** — never once succeeded.
+- Every send attempt to a device that *had* an `fcmToken` failed with:
+  `messaging/third-party-auth-error: Request is missing required authentication credential. Expected OAuth 2 access token, login cookie or other valid authentication credential.`
+- At least one reward-unlocked silent device also had **no `fcmToken` on record** (`noToken`) — server has nothing to aim at.
+
+### Root cause (confirmed) — empty Development APNs auth key slot
+The error CODE `third-party-auth-error` is, by Firebase's definition, an **Apple-side (third-party) push-credential failure** — despite the misleading Google-OAuth-flavored message *text*. (Note for future debugging: do **not** over-read that message text into a Google-side theory — see "ruled out" below. Trust the error code.)
+
+The test devices (Ali, Imane) are **Xcode/debug installs → Development/sandbox APNs environment**. Firebase's **"APNs Authentication Key"** section has **separate Development and Production slots** — and even though a `.p8` is technically environment-agnostic, Firebase still requires the slot matching the device's environment to be populated. Only **Production** was filled; **Development was empty**. So every push to a sandbox (debug) device bounced.
+
+### Google/server side — VERIFIED HEALTHY (do not re-chase)
+Checked via `gcloud` (project `screentimerewards`):
+- `fcm.googleapis.com` and `iamcredentials.googleapis.com` both **enabled**.
+- Function `monitoringSilenceDetector` runs as `screentimerewards@appspot.gserviceaccount.com` — **exists, not disabled, has `roles/editor`** (covers FCM send).
+- Firestore reads succeed in the same function (`scanned=5` every run), proving ADC works.
+
+There is **no API, service-account, or permission problem.** The only variable was the Apple credential.
+
+### Fix applied (awaiting confirmation)
+User filled **both** the Development and Production "APNs Authentication Key" slots with the same `.p8` (Key ID `M5GX3F9H3Z`, Team ID `KQ5KZR3DQ5`). APNs **Certificates** section left empty — correct, the key method is in use. **Leave both slots populated.**
+
+### ⚠ Confirmation still pending
+Logs continued to show `poked=0` *after* the fix only because it was **after 10pm device-local** → `ACTIVE_HOUR_END=22` makes `candidates=0` (no send is even attempted during quiet hours). This is NOT evidence the fix failed.
+
+**To confirm (before 10pm device-local):** let a debug device sit idle ~15 min with a reward app unlocked (so it's flagged silent), then re-pull `monitoringSilenceDetector` logs. Success signals:
+1. `third-party-auth-error` **gone**
+2. run summary shows **`poked≥1`**
+3. a `MONITORING_RESTART` (reason involving the push) appears in **that device's own extension log** shortly after — proves the wake-up landed and re-armed tracking. ← the real prize; first proof the recovery net works end-to-end.
+
+### ✅ Confirmed server-side — 2026-06-03
+CEO unlocked reward apps and left a debug phone idle. Detector logs flipped:
+- **`third-party-auth-error`: 0 occurrences** in the last 100 runs (was: every send).
+- **`poked=1` on 11 runs** this morning (15:39, 16:09, 16:39, 17:09, 17:39 UTC … every ~30 min, with `rate:1` skips in between — exactly the 20-min min-interval / 3-per-hr design). Prior to the fix: **70 consecutive runs at `poked=0`.**
+
+So signals #1 and #2 are met — the Apple-credential fix works and FCM now accepts/sends every poke. **Signal #3 (last mile) still pending:** `poked=1` only proves Google *sent* the push, not that iOS *delivered* it to the phone and re-armed tracking (a background push can still be dropped device-side). Need the debug phone's extension log to find `MONITORING_RESTART` with a push reason near the poke times. Until then, treat the end-to-end recovery as proven-on-server, unproven-on-device.
+
+### ❌ Last mile FAILED on first device test — 2026-06-03 (Alex log, INCONCLUSIVE cause)
+Pulled Alex's extension log for the same morning. Server poked at 10:39/11:09/11:39/12:09/12:39 device-local (CDT). The device was genuinely silent at those times — extension activity gaps 10:37→11:25 and 11:32→12:50, every poke inside a gap. **But ZERO `silent-push monitoring refresh` restarts appear.** Only restart all day was 10:27 (app-launch, `post-flood-recovery`). The device resumed on its own (natural usage at 11:25/12:50), not from a push. So: server sent 5 pushes, **iOS delivered 0** — while the phone was *charging (34%)*, with correct `remote-notification` background mode and the handler present (AppDelegate.swift:343, calls `restartMonitoring(reason:"silent-push monitoring refresh")`; restartMonitoring always logs a RESTART or MONITORING_ALIVE line, so absence = not delivered, not a silent early-return).
+
+**Cause UNRESOLVED:** CEO unsure whether the app was force-quit (swiped away). iOS NEVER delivers silent/background pushes to a force-quit app — that alone would explain 0/5 and make this test non-representative. **Clean re-test needed:** open app once → press Home/lock (do NOT swipe away) → reward app unlocked → idle ~30–40 min during active hours → check both logs for the push-reason restart.
+
+If a clean (not-force-quit) re-test ALSO shows 0 delivery → it's the real iOS background-push throttling wall (silent push is best-effort, droppable, budget-limited) and silent-push-alone is insufficient → escalate to the **Phase 4 parent-visible-notification fallback** (alert push, priority 10, delivered far more reliably than `content-available` priority 5). Config levers already exhausted: API enabled, SA `roles/editor`, both APNs keys, `remote-notification` mode, handler wired — nothing left to fix client/server-side; the gap is Apple's delivery layer.
+
+### ✅ DEFINITIVE root cause — 2026-06-04 (Console.app device-log bisect)
+Plugged the test phone into the Mac, watched live device logs in Console.app while firing manual FCM pushes (read fcmToken from Firestore `devices/632C8BA5...`, sent via FCM v1 REST with the same shape as the server). The device-level logs settle it conclusively — the failure is iOS's **`dasd` (Duet Activity Scheduler) refusing to LAUNCH a suspended app** to handle the background push:
+
+- **Push ALWAYS reaches the phone.** SpringBoard logs `Received remote notification ... pushType: Background` every time. Apple delivery is not the problem.
+- **Suspended app → `dasd Decision: AMNP`** (App May Not Proceed). iOS queues a `pushLaunch` activity, scores it against policies, and declines to launch the app. Handler never runs. Scoring shows a **Thermal Policy** penalty (`thermalLevel > 10` — phone was warm from charging) and a low **Application Policy** score for the suspended app.
+- **Foreground app → `dasd Decision: AMP`** (App May Proceed). With `Application Policy response: {200, 1.00, [{[appIsForeground]}]}`, iOS allows it, logs `Allowing background launch`, and delivers `UISHandleRemoteNotificationAction` to the app's scene. Immediately after, the app re-registered its DeviceActivity schedule (UsageTrackingAgent re-listed all thresholds) — i.e. `restartMonitoring` ran and re-armed tracking.
+
+**Conclusion:** the entire pipeline (server→FCM→APNs→device→handler→restartMonitoring) is correct and works **when the app is alive**. The sole failure is `dasd` declining to wake a *suspended* app under thermal/low-priority conditions — exactly the blackout scenario (warm charging phone, long-idle app). Silent push is therefore **best-effort only** and cannot be the safety net. Caveat for future debugging: the handler's `print("[AppDelegate] Received remote notification…")` does NOT appear in Console (print→stdout, not unified log); rely on `UISHandleRemoteNotificationAction` + threshold re-registration as proof of receipt.
+
+**Decision:** keep silent push as an opportunistic best-effort layer; build the **parent-visible alert-notification fallback** (Phase 4) as the dependable recovery — an alert push is shown by SpringBoard without needing dasd to launch the app; the parent tapping it foregrounds the app (→ AMP → restart). This is now the priority work item for blackout recovery.
+
+### Related blackout mechanics (independent of the push fix)
+The same Ali log showed *why* recovery is needed and why the other two arms also failed:
+- **Window exhaustion → 2h40m blackout.** Roblox hit its sliding-window top at 8:19pm; tracking went dark until the app was manually opened at 11:03pm.
+- **Main-app rebuild arm dead:** extension posted a Darwin "restart" notification + persistent flag, but Darwin notifications are dropped for a suspended app; the flag wasn't processed until manual app launch 2h40m later.
+- **Extension self-rebuild arm dead:** extension logged `EXT_REBUILD_SUCCESS` (Roblox 90-threshold window 34–123) but iOS does not honor ephemeral-extension `startMonitoring` re-registration when cumulative usage already exists — it delivered a burst of out-of-order catch-ups, then fired nothing. The window was never truly armed.
+- Net: all three recovery paths failed together → silent push is the load-bearing one, and it must actually work.

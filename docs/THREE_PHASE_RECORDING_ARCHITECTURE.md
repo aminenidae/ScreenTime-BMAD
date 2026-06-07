@@ -1551,6 +1551,152 @@ Key property: `monitoring_restart_timestamp` is stamped by **every** real rebuil
 
 ---
 
+## 2026-06-03/04 — Blackout recovery: silent-push is a proven dead end; on-device self-healing is the real (and only) lever
+
+Multi-day investigation triggered by Ali's 2026-06-02 blackout (Roblox tracked 93 min vs iOS's 112 — a 2h40m recording gap where the daily limit went unenforced). Goal was to make the silent-push monitoring-refresh recovery (commit `e44192c`) actually work. Conclusion: it cannot be relied on, for reasons outside our control. The durable fix is preventing the blackout on-device, not recovering from it.
+
+See also: `docs/SILENT_PUSH_MONITORING_REFRESH.md` (full chain of evidence, FCM/APNs config, gcloud verification, Console.app bisect, web research) and memory `project_silent_push_broken_fcm_auth.md`.
+
+### What was broken, in order (each fixed/ruled out before the next)
+1. **FCM auth** — every server poke failed `messaging/third-party-auth-error`, `poked=0` across 70 runs. Root cause: test devices are **Xcode/debug builds → Development (sandbox) APNs**, but only the Production APNs key slot was populated in Firebase. Fix: same `.p8` uploaded to **both** Development + Production "APNs Authentication Key" slots. After fix: `third-party-auth-error` gone, `poked=1` on 11 runs (2026-06-03). Server side now fully works.
+2. **Google side ruled out** (gcloud, project `screentimerewards`): `fcm.googleapis.com` + `iamcredentials.googleapis.com` enabled; function `monitoringSilenceDetector` runs as `screentimerewards@appspot.gserviceaccount.com` (active, `roles/editor`). No API/SA/permission problem. Do not re-chase this.
+3. **Device delivery — THE WALL** (Console.app device-log bisect, phone tethered to Mac, manual FCM pushes via REST using fcmToken read from Firestore `devices/632C8BA5...`):
+   - Push **always reaches the phone** — SpringBoard logs `Received remote notification ... pushType: Background` every time. APNs delivery is not the problem.
+   - **Suspended app → `dasd Decision: AMNP`** (App May Not Proceed). iOS queues a `pushLaunch` activity, scores it, and **declines to launch the app**. Handler never runs. (Thermal term read `0.00` — *not* the blocker; the deciding factor was the **Application Policy** score for a suspended app being too low.)
+   - **Foreground app → `dasd Decision: AMP`** — `Application Policy {200, 1.00, [appIsForeground]}` flips the decision; iOS delivers `UISHandleRemoteNotificationAction` to the app.
+
+### Two separate problems surfaced (don't conflate them)
+- **(A) iOS won't launch a *suspended* app for a background push** — `dasd`/Application-Policy wall. **Proven, not fixable by us.** Web/dev-community research confirms: `content-available` is locked to priority 5 (no escalation); Background App Refresh must be ON but is necessary-not-sufficient; the Application Policy is an adaptive ML score that rewards *frequently-opened* apps — exactly the opposite of a background app on a child's device. Workarounds are all dead ends for us: PushKit/VoIP wakes terminated apps but is an App Store rejection + CallKit-enforcement trap for non-call apps; significant-location-change only fires on movement (useless for a stationary device) and demands "Always" location (privacy red flag on a kids' app); BGProcessingTask/BGAppRefreshTask already proven unreliable (0 firings in 8 days). Apple's own stance: *"There is no API on iOS that will wake your app from terminated every X minutes."*
+- **(B) Even *foregrounded*, our handler didn't re-arm** — `restartMonitoring()` logs `MONITORING_RESTART` **unconditionally** as its first line (ScreenTimeService.swift:2363); that line is **absent** from the device debug log, so the handler never called it even though iOS delivered the push. Likely FCM foreground routing to `messaging(_:didReceive:)` (which we don't implement) or a `userInfo["type"]` mismatch. **This is a real, fixable code bug** — but it only matters for the foreground case, which is useless for the actual blackout scenario, so it is NOT a priority.
+
+### Architecture correction (important): there is no separate "parent app" on the child device
+One app, used by both roles, installed on the child device. Recovery must happen **on the child device** because that's where monitoring + the extension run. A notification there relies on the **child** tapping it to restore their own limits (won't happen, and counterproductive); a notification to a parent's separate phone can't restart the child device's engine. **So user-tap recovery is structurally weak**, which elevates on-device self-healing from "strongest lever" to "essentially the only dependable one." (Corrects the earlier "parent-visible alert fallback" framing in the silent-push doc — that fallback is much weaker than stated for a single-device setup.)
+
+### The real lever — on-device self-healing (extension re-arms its own window)
+The reliable, free, iOS-granted background wake is the **threshold event**: iOS wakes the extension on every usage marker crossing. Blackout = the sliding window's thresholds get exhausted (usage passes `windowTop`) and nothing re-registers ahead of it. The extension already self-rebuilds from inside the threshold callback (`REBUILD_REQUEST` / `EXT_REBUILD_APP` / `EXT_REBUILD_SUCCESS`, `DeviceActivityCenter.startMonitoring()` directly — no main app needed). This is **event-driven (re-register when near `windowTop`), not a wall-clock timer** — nothing runs on a timer in the background; the extension only runs when a threshold fires.
+
+### Honest open question — the mid-day re-register reliability (the actual next target)
+Earlier (Ali-log analysis) I labeled "EXT_REBUILD_SUCCESS but no events for 2h40m" as a settled **iOS limitation**. That was **overstated** — I observed the symptom and pattern-matched to a prior belief without root-causing it. Correction: it is **intermittent** (the same code tracks fine on other devices and on Ali's device on other days), and an absolute iOS wall would fail *every* time — so it is **not** a hard limit. It is a race/condition-dependent failure with ≥4 unproven candidate causes:
+1. **Commit race** — ephemeral extension dies before `startMonitoring` commits; `EXT_REBUILD_SUCCESS` means our code reached the success line, NOT that iOS committed the schedule (cf. memory `feedback_extension_async_pitfall`).
+2. **Usage leaps past the new window** — a catch-up burst vaults cumulative past the freshly-registered thresholds (Ali's day had such bursts) → nothing left to fire.
+3. **iOS's own flaky `DeviceActivityMonitor` delivery** — forum-confirmed, independent of us.
+4. **Our `SKIP_REGRESSION` filter** dropping out-of-order catch-up events — *looks* like "no events fired" but is us rejecting them.
+
+Caveat: "tracking works sometimes" doesn't yet prove the *extension self-rebuild* carries the good days — could be a main-app open or a non-exhausted window. Need a log where `EXT_REBUILD_SUCCESS` is followed by continued event firing **with no app open in between**.
+
+### Next step (when we resume)
+Root-cause properly (not by assumption): **diff a log where the mid-day re-register HELD against Ali's where it STALLED** — same `EXT_REBUILD_SUCCESS`, what differs immediately after? The distinguishing signal between resume-on-new-thresholds vs catch-up-then-silence is the root cause. Need: a recent log from a device where mid-day tracking held without anyone opening the app. Verdict that follows: keep silent push as opportunistic-only; harden the extension self-rebuild so blackouts are prevented, not recovered.
+
+---
+
+## 2026-06-04 — Reward-app unshield deferral + chained BURST_REVERT erasing real usage (5-device fleet)
+
+Diagnostic build (`REBUILD_VERIFY_*`, branch `diag/ext-rebuild-commit-verify`) deployed to the kid devices. Fleet analysis vs iOS Screen Time ground truth surfaced two chained bugs in reward-app tracking after a goal unshields the app. See memory `project_unshield_deferral_burst_revert.md`.
+
+### Fleet results (Roblox, 2026-06-04)
+| Device | hw | iOS | our app | what happened |
+|---|---|---|---|---|
+| Imane | newer | 93 | 93 | clean — min.1 fired ~69s after unshield, 60s cadence |
+| Iness | newer | (n/a) | 81 | clean — min.1 ~67s after unshield, 60s cadence; app=log |
+| Sami | 9th-gen | 126 | **84** | deferred 54min → catch-up flush to 126 → **BURST_REVERT erased 42min** |
+| Ali | 9th-gen | (played) | recovered late | deferred ~3h; first event only after app-open at 21:51 |
+| Alex | newer | — | held | baseline, no reward stall |
+
+### Bug 1 — unshield cold-start deferral (condition/device-specific, NOT universal)
+On goal-met the shield drops; the May 25 design keeps the **5-sentinel** window and relies on the child's **first play-event to bootstrap** promotion (5→30→90). When iOS **defers** that first event, the app is untracked AND its daily limit is unenforced until iOS flushes the backlog as a catch-up burst. Critically, **the same code path is clean on Imane/Iness (min.1 in ~67–69s) and deferred on Sami/Ali (54min / 3h)** — so it is not an inherent design flaw; some condition makes iOS defer on certain devices. Sami's deferral was **device-wide** (Mobile Legends also deferred 26min), pointing at a device-level cause.
+
+### Bug 2 — chained BURST_REVERT erases real usage
+The deferred usage flushes as a giant catch-up burst (Sami Roblox 84→126 in ~5s at 21:43). The burst-budget filter saw `growth=46min > budget=39min`, judged over-budget, and reverted: `BURST_REVERT … 2146685D(7560s→5040s)` — **126→84, erasing 42min of real, iOS-confirmed usage**. The filter cannot distinguish deferred-real-catch-up from phantom (shape, not physics). **Fixing Bug 1 (no deferral → no giant burst) also eliminates Bug 2** — the over-budget revert never triggers.
+
+### The obvious fix was already tried and REMOVED — do not naively re-add
+Re-register-on-unshield existed and was pulled **May 10** (cascade rollback; comment at `DeviceActivityMonitorExtension.swift` ~line 2845): *"Shield-drop rebuild trigger removed … causing a runaway loop with iOS dumping queued events on each rebuild … keep bookkeeping for next attempt with proper debouncing."* Any re-add needs debouncing or it recreates the loop. (User had assumed re-register-on-unshield still existed; it does not.)
+
+### Hardware hypothesis (unconfirmed)
+Ali & Sami are **9th-gen iPads** (older/slower); Imane/Iness/iPhone newer. Today's correlation: 9th-gen deferred, newer clean. Cautions: (a) on **May 9** the same 9th-gen-degraded-delivery inference was made and corrected — a 9th-gen fired at normal cadence, cause was state-level (`feedback_no_device_class_assumptions`); (b) the "slow device chokes on many thresholds at once" mechanism is **contradicted** — Iness has the MOST reward apps (~20) yet was clean.
+
+### Diagnostic validated
+`REBUILD_VERIFY_*` works: captured held rebuilds (`delaySinceRebuild` ~4–6s) and deferrals (Sami Mobile Legends `delaySinceRebuild=1585s`). Limitation: `hasTracking` reads `activities.contains(name)` = activity-name presence only, not whether a given app's thresholds are live (same weak signal as the `MONITORING_ALREADY_ACTIVE` guard, `ScreenTimeService.swift:1703`).
+
+### Next step (resume 2026-06-05)
+User has 7 days of logs per device. Build a **per-device deferral-rate table**: for each `REMOVED shield for <id>` → first subsequent `EVENT` for that id = unshield→first-event delay; classify clean (~60–90s) vs deferred (minutes+); filter idle gaps by resume pattern (clean min.1→2 at 60s = idle/benign; catch-up jump = real deferral). If 9th-gens defer consistently and newer never do → hardware → **device-targeted** fix; any clean 9th-gen day → state/condition → **universal**. Decide BEFORE coding; respect the May 10 runaway-loop history (debounce required if re-registering on unshield).
+
+---
+
+## 2026-06-06 — ROOT CAUSE FOUND: threshold ownership (main-app vs extension client) — Console bisect on Ali
+
+This session moved the reward-app tracking failure from theory to **proven mechanism**, using paired iOS Console captures (deviceactivityd / UsageTrackingAgent) from a broken device (Ali, 9th-gen) and clean devices (Amine, Alex). The whole bug reduces to **who "owns" a registered threshold.**
+
+### The core fact (proven)
+Every registered threshold has an owner ("client") in iOS — the process iOS resolves to deliver the event to. Two possibilities:
+- `KQ5KZR3DQ5.i6dev.ScreenTimeRewards` = **main app** → **deliverable** (event fires, usage counts).
+- `…i6dev.ScreenTimeRewards.ScreenTimeActivityExtension` = **extension** → **UNDELIVERABLE**. iOS logs `Failed to get bundle for client …ScreenTimeActivityExtension … Code=-10814` (kLSApplicationNotFoundErr) and the event never fires.
+
+Proof (clean vs broken, "seconds remaining" lines from UsageTrackingAgent):
+- **Alex (clean):** 2,508 thresholds, **2,508 main-app-owned, 0 extension-owned, 0 × -10814.**
+- **Ali (broken), mid-session:** **2,250 extension-owned per reward app**, thousands of -10814.
+
+### What determines the owner (the five-capture chain, Ali, 2026-06-06)
+All captures taken with the **main app force-quit** (pure-extension conditions) unless noted.
+
+1. **Midnight rebuild (00:00), app force-quit — clean on BOTH devices.** The extension's midnight `extensionRebuildSlidingWindow` produced **100% main-app-owned, deliverable** thresholds on Ali AND Amine. 0 × -10814. → **Refutes "extension registration is inherently undeliverable."** It is not — at the interval boundary it comes out main-app-owned.
+2. **Learning app played 0→35 min, app force-quit — tracked perfectly.** min.1…min.35 all fired, main-app-owned, clean 60s cadence. Deliverable window extended to **min.55** and slid ~20 ahead of usage **without the main app running.** → **Refutes "window dies at the goal/30-min depth."** (My "30-cap" read was a snapshot artifact: UsageTrackingAgent only prints "seconds remaining" for thresholds near current usage, so an early 2-min capture showed only min.1–30 of a deeper window.) The actively-played, **unshielded** app stays deliverable.
+3. **Shielded reward apps = orphaned.** While shielded, each reward app carried **20 deliverable (main-app) vs ~2,250 orphaned (extension)** alarms; the 2,134 × -10814 in that window were **all** the extension client, **all** for shielded reward apps. The played learning app had **0** orphaned alarms. → The fault line is **shielded reward apps**, not learning-vs-reward as categories.
+4. **Goal met but reward stayed LOCKED for 27 min.** Goal met 00:30:17; the extension repeatedly **read** `shield.applications` but **never wrote** the drop. Reward stayed shielded until the app was opened. → Confirms the user's hypothesis: **on these devices the unlock is stuck until a human opens the app.**
+5. **Open main app → instant heal.** Main app booted 00:57:51; **dropped the shield 2 seconds later (00:57:53)** — shield write by client `ScreenTimeRewards` (the main app, never the extension). Then the reward app, played 2 min, **fired min.1 main-app-owned, delivered.** → Opening the app drops the shield AND registers a deliverable window; tracking resumes.
+
+### The mechanism, in one sentence
+**The main app must be alive to do mid-session work. The extension, alone, can neither drop a shield nor register a deliverable threshold window** — its registrations are stamped with the extension's client identity, which iOS cannot resolve (-10814). The ONE exception is the **interval boundary (midnight)**, where iOS re-arms the schedule under the app's identity regardless of who called it.
+
+### Why it heals on app-open, and why it's invisible
+On a low-RAM 9th-gen device the main app is not resident in the background, so: rewards stay locked AND their windows are orphaned → silent blackout. A human opening the app (often the kid, worried the reward didn't unlock) re-registers everything under the main-app identity → unlock + tracking both heal. Because opening the app **is** the fix, no one ever reports a problem, and the device "works sometimes" (whenever someone opens it). Blackouts last exactly as long as nobody opens the app — matches Ali Roblox 93-tracked vs 112-iOS (2h40m blackout, 2026-06-02).
+
+### Theories this killed (do not revisit)
+- ❌ "Extension-initiated registration is always undeliverable" — refuted by capture #1 (midnight clean on broken device).
+- ❌ "App dead vs asleep is the trigger" — refuted: app was force-quit in #1 too, yet midnight came out clean.
+- ❌ "Window dies at goal depth / 30 min" — refuted by #2 (sailed to min.55 force-quit).
+- ❌ Learning-vs-reward as categories; midnight rollover; hardware tier as a *direct* cause (it's an indirect contributor via RAM/eviction, not the mechanism).
+
+### STILL OPEN — the two questions to resume on
+1. **Why these devices and not the others — and is the heal durable?** Clean devices show 100% main-app-owned all day; broken devices fall to extension-owned mid-session. Working hypothesis: on clean (more RAM) devices the **main app stays resident / re-registers**, keeping ownership; on low-RAM 9th-gens it's evicted, so only the extension acts → orphaned. NOT directly proven. Also unresolved: after an app-open heal, the reward's deliverable window is only ~25 deep with 900 orphaned alarms behind it — **does it keep extending deliverably during a long session (like the unshielded learning app did), or go dark again past ~25 min?** Next capture: after unlock, play a reward app continuously past ~25 min with the app **backgrounded (not force-quit)**.
+2. **⚠️ CRITICAL — regression, not inherent limitation. Tracking USED TO WORK correctly on these exact devices.** This bug appeared at some point; it is not how the engine always behaved. The central question to resume on is **what changed: our code or the device OS?**
+   - **If our code:** suspect commits that moved window registration / re-register / rebuild work **into the extension** (and away from the main app), or that increased how often the extension calls `startMonitoring` mid-session. The whole tiered-window + extension-self-rebuild + heal lineage (2026-05-14 → 06-04) is the prime suspect surface. Bisect: find the last build where these devices tracked reward apps to iOS ground truth, and diff the registration/ownership path.
+   - **If the OS:** an iOS update may have tightened how it resolves the client identity for extension-initiated `startMonitoring` (previously tolerant → now -10814 for the extension bundle). Check the device iOS versions against the date tracking broke.
+   - This regression framing is the **primary focus** next session — it likely points straight at the fix (revert the registration path to main-app-owned, or stop relying on extension-initiated mid-session registration).
+
+### Evidence chain (files, this session)
+`Build Reports/Alex-console-log.rtf` (clean baseline, 2508/0); `Ali-console-midnight.rtf` (midnight clean + learning 0–17); `Ali-console-log-15min.rtf` (goal met, no drop); `Ali-console-35min.rtf` (learning to min.35, window to 55); `ali-console-mainApp-launch.rtf` (app boot + shield drop at 00:57:53); `ali-console-2min-rewardApp.rtf` (reward min.1 delivered post-heal). Console grep key: `'seconds remaining'` lines → owner via `i6dev.ScreenTimeRewards has` vs `ScreenTimeActivityExtension has`; `-10814` = undeliverable extension-client.
+
+### 2026-06-06 (later) — Clean-device capture: dasd background-wake is the device differentiator (first evidence on "why these devices")
+`Build Reports/Alex-console-unshield-5min.rtf` — clean device (Alex), learning app run ~5 min until reward unshielded. Result: **0 × -10814, all 770 thresholds main-app-owned.** The mechanism that kept it clean, captured live:
+```
+12:50:02  SpringBoard  Received remote notification … pushType: Background, hasContentAvailable: 1
+12:50:02  dasd         Activity com.apple.pushLaunch.i6dev.ScreenTimeRewards  launch reason …
+12:50:02  SpringBoard  OpenApplication(…ScreenTimeRewards…) ForRequester(dasd.60073)
+12:50:02  SpringBoard  Scene state: BG-Opportunistic[40] … running-active (role: Background)
+12:50:03  ScreenTimeRewards  Setting "shield.applications" …     ← MAIN APP, in BACKGROUND, 1s later
+```
+A **silent/background push woke the main app and dasd launched it in the BACKGROUND** (never foregrounded — `role: Background`); 1 second later the **main app** did shield/monitoring work. This is the intended mid-session main-app wake **succeeding** on a clean device — and it is the **same wake documented FAILING on Ali** (dasd `Decision: AMNP`, see `project_silent_push_broken_fcm_auth` / SILENT_PUSH doc). So the emerging answer to "why these devices and not others": **the engine depends on the main app being wakeable in the background to do mid-session work; clean devices allow it (dasd AMP), low-RAM/thermally-throttled 9th-gens refuse it (dasd AMNP) → only the extension acts → orphaned + stuck.**
+
+**Honest correction to the Ali read:** on Alex the **extension itself** also wrote a shield drop at goal-met (12:52:16) and it **worked.** So "only the main app can drop a shield" was too strong — the extension *can* write shields when the device is healthy (ManagedSettings writes are not the -10814 problem). The surviving through-line is narrower: **(a) `-10814` threshold-ownership = the tracking blackout, and (b) whether iOS will wake the app at all.** Shield-drop-stuck on Ali is likely downstream of (b) / stale monitoring, not an inherent extension inability.
+
+**Regression implication:** if mid-session correctness now leans on a background main-app wake (silent-push refresh, `e44192c`, mid-May), devices where iOS refuses that wake break, and devices that allow it stay invisible. Check the date tracking broke on Ali/Sami against the silent-push / extension-registration lineage.
+
+### 2026-06-06 (later) — Step-by-step midnight bisect on Ali (Q1–Q8 distilled)
+Walking the midnight console captures in order pinned the mechanism exactly:
+
+1. **Midnight is clean.** Both learning AND reward apps register under the **main app** (deliverable). 0 × `-10814`, no app-type difference. **The bug is not at midnight.**
+2. **The break starts with first usage, not the clock.** The `-10814` storm began at **00:16:23 — the exact instant the first usage event fired** (learning min.1). That event woke the extension, which ran its self-rebuild.
+3. **The extension ADDS a parallel list; it does not replace.** At 00:16:23 the main app's thresholds were still present and still delivering (learning min.1 fired main-app-owned at that second). The extension laid an **orphaned (extension-owned) set next to it** — two coexisting lists.
+4. **The orphaned set covers ALL apps** — learning and reward alike (one `extensionRebuildSlidingWindow` call = all 22 apps in the extension's name).
+5. **Orphaned thresholds only error when iOS evaluates them.** The learning app's orphans sat at min.77–106, *ahead* of its actual usage (min.1–35), so iOS never evaluated them → **learning got 0 × `-10814`** and tracked fine on its main-app window.
+6. **Learning never errored in any capture** — it only reached min.35; its orphans start at min.77.
+7. **Reward apps errored without even being used** — their orphaned thresholds were in iOS's evaluated range. And when a reward app *was* played (01:03 capture), it **still didn't track cleanly**: only min.1, late (~93s) and repeated, no min.2 — lag/under-delivery, not 60s cadence.
+8. **The shield didn't lift when the goal was hit — only opening the main app lifted it.** Goal met 00:30:17; the extension read `shield.applications` repeatedly but **never wrote the drop**. Shield stayed up **27 minutes** until the main app was opened at 00:57:51, which dropped it 2s later. So the **unlock fails the same way as tracking** — the extension alone can't complete it; the main app must.
+
+**Through-line:** the main app's midnight registration is good. The extension's **usage-triggered self-rebuild** (`triggerRebuildIfNearWindowTop` → line ② `extensionRebuildSlidingWindow`, DeviceActivityMonitorExtension.swift:704/2534) creates a **parallel, orphaned copy of every app's window**. Harmless where it sits ahead of usage (learning), fatal where the app actually gets used (reward). Plus the extension can't complete the shield drop. Both symptoms = one cause: **the extension cannot produce deliverable state mid-session; only the main app can, and on these devices it isn't woken to.**
+
+---
+
 ## Decision log
 
 ### 2026-05-18 — Shadow first before active routing
