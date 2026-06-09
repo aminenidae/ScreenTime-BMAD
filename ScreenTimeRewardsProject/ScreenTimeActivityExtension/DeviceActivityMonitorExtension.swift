@@ -4,6 +4,7 @@ import Darwin // For mach_task_self_ and task_info
 import ManagedSettings
 import UserNotifications
 import os.log
+import os // os_proc_available_memory()
 
 /// Memory-optimized DeviceActivityMonitor extension with continuous tracking support
 /// Target: <6MB memory usage
@@ -1051,7 +1052,18 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Log FIRST - before any processing that could fail
         if let defaults = UserDefaults(suiteName: appGroupIdentifier) {
-            debugLog("THRESHOLD_CALL event=\(event.rawValue)", defaults: defaults)
+            // MEM DIAG: extension footprint + headroom-before-kill (6MB cap) + whole-device RAM/free
+            // + gap-since-last-event (burst indicator). gap≈60s = normal; gap=1-4s = burst.
+            // devRAM ~3.0GB = 9th-gen (pressured); devFree = whole-device available (noisy, directional).
+            let nowTs = Date().timeIntervalSince1970
+            let lastEventTs = defaults.double(forKey: "mem_diag_last_event_ts")
+            let gap = lastEventTs > 0 ? Int(nowTs - lastEventTs) : -1
+            defaults.set(nowTs, forKey: "mem_diag_last_event_ts")
+            let memStr = String(format: "%.1f", getMemoryUsageMB())
+            let freeStr = String(format: "%.1f", availableMemoryMB())
+            let devRAMStr = String(format: "%.1f", deviceTotalRAMGB())
+            let devFreeStr = String(format: "%.0f", deviceFreeMemoryMB())
+            debugLog("THRESHOLD_CALL event=\(event.rawValue) mem=\(memStr)MB free=\(freeStr)MB devRAM=\(devRAMStr)GB devFree=\(devFreeStr)MB gap=\(gap)s", defaults: defaults)
             // Increment persistent counter to track total events received
             let eventCount = defaults.integer(forKey: "ext_total_events_received") + 1
             defaults.set(eventCount, forKey: "ext_total_events_received")
@@ -2601,6 +2613,39 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
 
         // Convert bytes to MB (phys_footprint is more accurate than resident_size)
         return Double(info.phys_footprint) / (1024.0 * 1024.0)
+    }
+
+    /// Headroom in MB before iOS terminates this extension for exceeding its memory limit.
+    /// os_proc_available_memory() returns bytes remaining before the per-process cap (0 if unavailable).
+    private nonisolated func availableMemoryMB() -> Double {
+        let bytes = os_proc_available_memory()
+        guard bytes > 0 else { return 0.0 }
+        return Double(bytes) / (1024.0 * 1024.0)
+    }
+
+    /// Total physical RAM of the device in GB (static). Confirms device class:
+    /// ~3 GB = 9th-gen iPad (memory-pressured), 4-6 GB+ = newer/clean devices.
+    private nonisolated func deviceTotalRAMGB() -> Double {
+        Double(ProcessInfo.processInfo.physicalMemory) / (1024.0 * 1024.0 * 1024.0)
+    }
+
+    /// Device-wide available memory in MB (free + inactive/reclaimable pages).
+    /// Whole-device pressure signal — distinct from the extension's own 6 MB cap.
+    /// Noisy on iOS (the OS keeps memory in cached states) but directional. 0 if unavailable.
+    private nonisolated func deviceFreeMemoryMB() -> Double {
+        let host = mach_host_self()
+        var stats = vm_statistics64_data_t()
+        var count = mach_msg_type_number_t(MemoryLayout<vm_statistics64_data_t>.size / MemoryLayout<integer_t>.size)
+        let kr = withUnsafeMutablePointer(to: &stats) { ptr in
+            ptr.withMemoryRebound(to: integer_t.self, capacity: Int(count)) { intPtr in
+                host_statistics64(host, HOST_VM_INFO64, intPtr, &count)
+            }
+        }
+        mach_port_deallocate(mach_task_self_, host)
+        guard kr == KERN_SUCCESS else { return 0.0 }
+        let pageSize = Double(vm_page_size)
+        let availablePages = Double(stats.free_count) + Double(stats.inactive_count)
+        return availablePages * pageSize / (1024.0 * 1024.0)
     }
 
     /// Ensure appID is in the tracked app list (for efficient enumeration without dictionaryRepresentation)
