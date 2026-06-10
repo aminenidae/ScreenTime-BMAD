@@ -2697,47 +2697,18 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// devices with several apps exceeded the budget — observed silent stretches
     /// and burst dumps. See SMART_THRESHOLD_FILTERING.md "iOS threshold-count budget".
     private func windowSize(for logicalID: String, category: AppUsage.AppCategory, isShielded: Bool) -> Int {
-        let unlimitedSentinel = 1440 // matches DailyLimits.unlimited
-        let rewardLookaheadCap = 90
-        let shieldedSentinel = 5
-
+        // Window plan (2026-06-09): reward apps always 5; learning apps = goal + 5.
         switch category {
         case .reward:
-            if isShielded {
-                return shieldedSentinel
-            }
-            // Tiered windows (May 25, 2026): the extension sets window_size_<id>
-            // based on actual usage — 5 (sentinel), 30 (first use), or 90 (25+ min).
-            // Respect whatever the extension decided. Fall back to sentinel if unset.
-            // Cross-check: if window says 30+ but app has 0 usage today, the value
-            // is stale from a previous build or day — reset to sentinel.
-            // window_size reflects the extension's tier (5 sentinel / 30 / 90),
-            // set by tier promotion and the shield check. Heal no longer batches,
-            // so there's no deferral value to special-case here.
-            if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") {
-                let extensionWindow = defaults.integer(forKey: "window_size_\(logicalID)")
-                if extensionWindow > 0 {
-                    let usageToday = defaults.integer(forKey: "usage_\(logicalID)_today")
-                    if extensionWindow > shieldedSentinel && usageToday == 0 {
-                        return shieldedSentinel
-                    }
-                    return extensionWindow
-                }
-            }
-            return shieldedSentinel
+            return 5 // reward apps always 5 (shielded or not)
         default:
-            // Learning: the todayLimit==0 short-circuit still applies — a learning
-            // app marked off today has no shield-drop pathway that could activate
-            // it mid-day, so 0 thresholds is the correct answer.
+            // Learning: a learning app marked off today has no shield-drop pathway → 0 thresholds.
             if let schedule = AppScheduleService.shared.getSchedule(for: logicalID),
                schedule.dailyLimits.todayLimit == 0 {
                 return 0
             }
             let goalMin = lowestLearningGoalMinutes(for: logicalID)
-            if goalMin > 0 {
-                return max(15, min(goalMin + 15, 60))
-            }
-            return 30
+            return goalMin > 0 ? goalMin + 5 : 30 // learning = goal + 5 (fallback 30 if no goal config)
         }
     }
 
