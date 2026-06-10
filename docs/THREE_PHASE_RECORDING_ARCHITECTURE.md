@@ -1694,3 +1694,31 @@ BlockingCoordinator's 60s periodic timer (`refreshAllBlockingStates`) was runnin
 
 ### 2026-05-18 — Section markers, not function extraction, for Step 2
 Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helper. Revised to add prominent section markers in place without moving code. Rationale: extraction would change inline state-write ordering (e.g., `last_event_arrival_<id>` is updated at the top of the to-be-removed SKIP_FLOOD filter and reading it from a different position could change the burst-context behavior of OTHER filters). Extraction lands once Phase B is active and the legacy filters are being removed (Step 5).
+
+## 2026-06-09 — Steady-delivery regression fixed: at-top single rebuild (keep 5/30/90 tiers)
+
+**Symptom:** On the memory-pressured 9th-gen devices (Ali, Sami), threshold events arrived in **bursts/clumps**, not the steady ~60s cadence — leading to deferred tracking, late shield enforcement, and multi-hour blackouts. Recording was *correct in total* (SET-to-max), but never real-time.
+
+**Diagnostic chain (controlled, same device / same iOS, only code changed):**
+- Built the **Apr-16 known-good engine** (`a50dfe6`) on Sami → delivered **steady sequential ~60s**, sailing clean through and past its min.60 window-top rebuild. Same device that bursted minutes earlier on the current build. **This proved the regression is OUR CODE, not iOS throttling or the 6 MB extension memory cap** (both earlier theories — refuted).
+- Diff `a50dfe6` (steady) vs `dd919a3` (pre-experiment mainline, bursty), delivery path only:
+  - **Apr-16:** rebuilds the sliding window **once, AT the top** (`thresholdMin >= windowTopMin`), a **single** `extensionRebuildSlidingWindow`, deep 60-window → no mid-session re-registration min.1–59 → iOS delivers undisturbed.
+  - **dd919a3:** `triggerRebuildIfNearWindowTop` (per-event) fires at `windowTopMin - 5` (5 min EARLY) and does a **DOUBLE** rebuild — `requestMainAppWindowRebuild` (main-app `restartMonitoring`) **AND** `extensionRebuildSlidingWindow`. With shallow windows, "near the top" is almost always true → re-registers nearly every minute → each `startMonitoring` makes iOS answer with a catch-up **burst** instead of the next clean tick.
+
+**Root cause (one line):** the **near-top, doubled, per-event re-registration** added around three-phase is what shatters steady delivery. Three-phase recording itself is NOT at fault — it credits correctly; the advance machinery bolted on beside it is the culprit.
+
+**Window-sizing detour (two wrong turns, recorded so we don't repeat them):**
+- **Flat-5 reward windows** (reward apps always 5): a long-played reward app rebuilds every 5 min → usage arrives in **5-minute bursts** with no steady delivery. Proven on Sami Roblox 2026-06-09: events landed exactly on `min.5/10/15/20/25/30/35` clumps, ~5 events each in seconds, recorded **35 vs iOS 59** (lagging, catching up only 5 min per rebuild). REJECTED.
+- **60-for-all** (uniform deep windows): registration overflowed on Ali (587 thresholds, 0 fired, nothing recorded). REJECTED. (User: not a strict ~500 budget issue — cause unresolved, but the count was clearly too high.)
+- **Correct answer = the existing 5/30/90 tiers** (`promoteTierIfNeeded`): idle/shielded reward apps stay at **5** (low count, no overflow); a *played* reward app promotes **5→30→90** → deep window → steady delivery. Self-adjusting: shallow where it doesn't matter, deep where it does.
+
+**THE FIX (commit `07d6fd9`, branch `fix/restore-apr16-threshold-delivery`):** `dd919a3` + **only** the at-top single-rebuild change, window sizing untouched (tiers kept):
+- `triggerRebuildIfNearWindowTop` + state `WINDOW_TOP_HIT`: `windowTopMin - 5` → `windowTopMin` (rebuild AT top, not 5 early).
+- Both: drop `requestMainAppWindowRebuild` (the main-app double); **single** `extensionRebuildSlidingWindow` only.
+- Net diff vs dd919a3 = 5 lines in `DeviceActivityMonitorExtension.swift`. `post-flood-recovery` rebuild and all midnight/rollover code left intact.
+
+**Expected behavior:** a played reward app promotes to 90 → tracks steady ~60s (no 5-min bursts); idle apps stay at 5 (no Ali overflow); the single at-top rebuild is gentle (validated on Apr-16 past min.60).
+
+**Midnight transition — verified intact (2026-06-09):** `intervalDidStart` → `MIDNIGHT_START` → `resetAllDailyCounters` (usage/lastThreshold/ext_usage → 0) → `extensionRebuildSlidingWindow("midnight-ext-rebuild")` → `checkAndUpdateShields`, plus `midnight_pending_refresh` fallback + 2 hr timeout and the `day-rollover-rebuild` backstop. Unchanged from dd919a3. Note: `resetAllDailyCounters` does NOT clear `window_size` (tier state carries over the midnight) — harmless (re-shielded apps' stale windows don't fire; apps rebuild fresh when played), existing dd919a3 behavior. An optional one-line `window_size` reset at midnight was offered but not applied.
+
+**STATUS: awaiting real-world validation.** User will hand the build to the kids and **test the 2 broken devices (Ali + Sami) starting after midnight 2026-06-10** — fresh day, clean reset, new build. Success = on a long-played reward app: `TIER_PROMOTE …→30 →90`, then threshold firings ~60s apart (not clumps), and recorded ≈ iOS Screen Time. Riskiest watch: reward delivery while the app is still climbing through the 5→30 tiers before it reaches 90.
