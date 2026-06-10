@@ -634,7 +634,6 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// (sentinel). Promote to 30 on first use, and to min(dailyLimit, 90) at 25 min.
     /// Each promotion triggers a window rebuild so iOS has the wider threshold range.
     private nonisolated func promoteTierIfNeeded(appID: String, thresholdSeconds: Int, defaults: UserDefaults) {
-        return // 2026-06-09 plan: reward windows stay flat at 5 — no tier promotion (remove this line to restore tiering)
         let category = defaults.string(forKey: "map_\(appID)_category") ?? "Learning"
         guard category == "Reward" else { return }
 
@@ -673,7 +672,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
         guard windowTopMin > 0 else { return }
         let threshMin = threshold / 60
-        guard threshMin >= windowTopMin else { return } // Apr-16 restore: rebuild AT top, not 5 min early
+        guard threshMin >= windowTopMin else { return } // rebuild AT window top, not 5 min early (gentle advance)
 
         // Heal mode: when a heal catch-up is in flight, heal_active_until is in
         // the future. During that window we shrink the per-app debounce from
@@ -701,7 +700,7 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
         debugLog("REBUILD_REQUEST appID=\(appID.prefix(8))... threshMin=\(threshMin) windowTop=\(windowTopMin) — approaching window top, requesting refresh", defaults: defaults)
         Self.logger.notice("REBUILD_REQUEST app=\(appID.prefix(8))... threshMin=\(threshMin)")
-        // Apr-16 restore: single extension rebuild only (dropped main-app double-rebuild that disrupted iOS delivery)
+        // Single extension rebuild only (dropped main-app double-rebuild that disrupted iOS delivery)
         _ = extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "credit-near-top-\(appID.prefix(8))")
     }
 
@@ -2185,14 +2184,14 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         // caused 4 rebuilds in 28s, crediting 18 min in that window).
         let recordedTodayMin = defaults.integer(forKey: "usage_\(appID)_today") / 60
         let windowTopMin = defaults.integer(forKey: "window_top_min_\(appID)")
-        if windowTopMin > 0 && recordedTodayMin >= windowTopMin { // Apr-16 restore: AT top, not 5 min early
+        if windowTopMin > 0 && recordedTodayMin >= windowTopMin { // rebuild AT top, not 5 min early
             let rebuildRequestKey = "window_rebuild_request_\(appID)"
             let lastRequest = defaults.double(forKey: rebuildRequestKey)
             let elapsed = nowTimestamp - lastRequest
             if elapsed > 60 {
                 defaults.set(nowTimestamp, forKey: rebuildRequestKey)
-                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → ext rebuild (Apr-16 single)", defaults: defaults)
-                // Apr-16 restore: single extension rebuild only (dropped main-app double-rebuild)
+                debugLog("WINDOW_TOP_HIT appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) → ext rebuild (single)", defaults: defaults)
+                // Single extension rebuild only (dropped main-app double-rebuild)
                 extensionRebuildSlidingWindow(defaults: defaults, triggerAppID: appID, reason: "window-top-\(appID.prefix(8))")
             } else {
                 debugLog("WINDOW_TOP_HIT_DEBOUNCED appID=\(appID.prefix(8))... today=\(recordedTodayMin)min top=\(windowTopMin) — rebuild requested \(Int(elapsed))s ago", defaults: defaults)
