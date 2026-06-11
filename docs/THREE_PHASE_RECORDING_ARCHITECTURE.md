@@ -1722,3 +1722,22 @@ Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helpe
 **Midnight transition — verified intact (2026-06-09):** `intervalDidStart` → `MIDNIGHT_START` → `resetAllDailyCounters` (usage/lastThreshold/ext_usage → 0) → `extensionRebuildSlidingWindow("midnight-ext-rebuild")` → `checkAndUpdateShields`, plus `midnight_pending_refresh` fallback + 2 hr timeout and the `day-rollover-rebuild` backstop. Unchanged from dd919a3. Note: `resetAllDailyCounters` does NOT clear `window_size` (tier state carries over the midnight) — harmless (re-shielded apps' stale windows don't fire; apps rebuild fresh when played), existing dd919a3 behavior. An optional one-line `window_size` reset at midnight was offered but not applied.
 
 **STATUS: awaiting real-world validation.** User will hand the build to the kids and **test the 2 broken devices (Ali + Sami) starting after midnight 2026-06-10** — fresh day, clean reset, new build. Success = on a long-played reward app: `TIER_PROMOTE …→30 →90`, then threshold firings ~60s apart (not clumps), and recorded ≈ iOS Screen Time. Riskiest watch: reward delivery while the app is still climbing through the 5→30 tiers before it reaches 90.
+
+## 2026-06-10 — Orphaning may be DIRTY-INSTALL CRUFT, not a code regression (clean-base test)
+
+**Pivot finding.** After days chasing the `-10814` orphaning / iOS-deferral on the broken 9th-gen devices (Sami especially), a clean-install test reframes it:
+
+**Setup:** uninstalled completely → **clean App Store install of 1.0.4(11)** (wipes all iOS-side DeviceActivity registrations) → then installed **1.0.5(1) over it** via Xcode. **Result at midnight:**
+- **Sami: 0 orphans** (was **813** at midnight on the dirty test builds). Ali: 0. Both: clean midnight rebuild, tiered windows (1-5/1-30/1-90), 0 extension kills.
+
+**Hypothesis:** the orphaning is **largely accumulated cruft from the dirty install history** — repeatedly pushing test builds *over* test builds via Xcode left iOS holding hundreds of stale **extension-owned** threshold registrations that never got cleared. A clean App Store base wipes them, and **our 1.0.5 code did NOT re-orphan** through midnight. So the poison was (mostly) the **install methodology**, not the code per se. This walks back both the "post-1.0.4 code regression" framing AND the naive "clean install of the test build" idea — the truth is "our code is clean **on a clean iOS-side base**."
+
+**Likely explains production history too:** real-world degradation into blackouts (Ali Roblox 93-vs-112) may be cruft accumulating slowly across app updates/restarts over weeks — which a reinstall clears.
+
+**DECISIVE TEST PENDING (2026-06-11 AM):** real Roblox session on Sami, then console. **Orphans stay ~0** → it was install cruft; fix is operational (clean slate — App Store gives real users this automatically; we can also force it programmatically: stop-all + clear registrations on version change), no code bisect needed. **Orphans climb back to hundreds** → there's a real code contribution and the clean base only bought a reset → resume the bisect.
+
+**Regression-hunt context (PAUSED pending the above):** 1.0.4(11) baseline pinned to `84d985c` (May 25, 1:35 PM — last commit before the 8:19 PM upload; **includes the tier promotion**, so tiers are NOT the regression). If a code regression IS confirmed, the window is the 12 commits `84d985c..dd919a3` (decide-at-close / burst-budget-enforce / heal / the `8d6d90c` startMonitoring-handoff change). Bisect from `8d6d90c` on Sami.
+
+## 2026-06-11 — clean-slate fix IMPLEMENTED + shipped in 1.0.5(2)
+
+`ScreenTimeService.startMonitoring` (success case, before the `MONITORING_ALREADY_ACTIVE` guard): on a build change (current `CFBundleVersion` ≠ stored `last_clean_slate_build` in the app group), call `deviceActivityCenter.stopMonitoring()` (no-arg = stop ALL activities) to wipe stale/orphaned DeviceActivity registrations from prior builds (the `-10814` cruft), set `isMonitoring = false` so re-registration proceeds, store the new build, log `CLEAN_SLATE`. This makes long-lived production installs self-clean across every update so they can't degrade into blackouts. Shipped in **1.0.5(2)** on `fix/restore-apr16-threshold-delivery` (= dd919a3 prod candidate + at-top-single delivery fix `07d6fd9` + UI hourly-buckets fix `84ad0f9`).

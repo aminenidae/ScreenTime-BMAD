@@ -1693,6 +1693,21 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             guard let self else { return }
             switch result {
             case .success:
+                // CLEAN SLATE on build change (2026-06-11): iOS retains an app's DeviceActivity
+                // registrations across build installs. Stale extension-owned thresholds accumulate
+                // as undeliverable -10814 cruft — the root cause of the broken-device blackouts
+                // (validated: a clean App Store reinstall made the worst device track perfectly).
+                // On any build change, wipe ALL registrations before re-registering fresh so a
+                // long-lived install self-cleans across updates and can't degrade into blackouts.
+                if let csDefaults = UserDefaults(suiteName: self.appGroupIdentifier) {
+                    let currentBuild = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "?"
+                    if csDefaults.string(forKey: "last_clean_slate_build") != currentBuild {
+                        self.deviceActivityCenter.stopMonitoring() // no-arg = stop ALL activities → clears stale/orphaned registrations
+                        self.isMonitoring = false
+                        csDefaults.set(currentBuild, forKey: "last_clean_slate_build")
+                        self.lifecycleLog("CLEAN_SLATE — build change → \(currentBuild): cleared all DeviceActivity registrations before re-register")
+                    }
+                }
                 // Skip if monitoring is already registered with iOS (e.g., init recovery already started it).
                 // Reverted May 11 (was `force-refresh on every call`): the forced refresh added
                 // ~5–10 extra restarts per day per device, and each restart triggered iOS catch-up
