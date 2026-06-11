@@ -621,6 +621,23 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         if credited > 0 {
             let currentTotal = defaults.integer(forKey: "ext_usage_\(appID)_total")
             defaults.set(currentTotal + credited, forKey: "ext_usage_\(appID)_total")
+
+            // Hourly buckets — feeds the "Today's Hourly Usage" chart (local + synced
+            // to parent). The three-phase migration moved crediting into applyCredit
+            // but left the hourly-bucket write behind in the now-unreachable legacy
+            // block, so buckets stopped being written and both charts went blank.
+            // Re-arm the same logic here: reset all 24 buckets on day change, then
+            // add the credited seconds to the current hour.
+            let hour = Self.calendar.component(.hour, from: Date(timeIntervalSince1970: now))
+            let storedHourlyDate = defaults.string(forKey: "ext_usage_\(appID)_hourly_date")
+            if storedHourlyDate != dateString {
+                for h in 0..<24 {
+                    defaults.set(0, forKey: "ext_usage_\(appID)_hourly_\(h)")
+                }
+                defaults.set(dateString, forKey: "ext_usage_\(appID)_hourly_date")
+            }
+            let currentHourlySeconds = defaults.integer(forKey: "ext_usage_\(appID)_hourly_\(hour)")
+            defaults.set(currentHourlySeconds + credited, forKey: "ext_usage_\(appID)_hourly_\(hour)")
         }
         defaults.set(now, forKey: "ext_usage_\(appID)_timestamp")
 

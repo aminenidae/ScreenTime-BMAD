@@ -972,6 +972,7 @@ private struct HourlyUsageChartCard: View {
     let accentColor: Color
 
     @Environment(\.colorScheme) private var colorScheme
+    @State private var selectedHour: Date?
 
     private var hourlyData: [(date: Date, minutes: Int)] {
         let calendar = Calendar.current
@@ -1010,6 +1011,7 @@ private struct HourlyUsageChartCard: View {
             if totalMinutes == 0 {
                 emptyStateView
             } else {
+                let maxY = max(Double(hourlyData.map { $0.minutes }.max() ?? 0), 1) * 1.15
                 Chart {
                     ForEach(hourlyData, id: \.date) { item in
                         BarMark(
@@ -1018,6 +1020,31 @@ private struct HourlyUsageChartCard: View {
                         )
                         .foregroundStyle(accentColor.gradient)
                         .cornerRadius(AppTheme.CornerRadius.small)
+                    }
+
+                    // Selection indicator
+                    if let selectedHour = selectedHour,
+                       let item = hourlyData.first(where: { Calendar.current.isDate($0.date, equalTo: selectedHour, toGranularity: .hour) }) {
+                        RuleMark(x: .value("Selected", selectedHour, unit: .hour))
+                            .foregroundStyle(accentColor.opacity(0.3))
+                            .lineStyle(StrokeStyle(lineWidth: 2, dash: [4, 2]))
+                            .annotation(position: .top, alignment: .center, spacing: 4) {
+                                VStack(spacing: 2) {
+                                    Text(selectedHourLabel(for: selectedHour))
+                                        .font(.system(size: 10, weight: .medium))
+                                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
+                                    Text("\(item.minutes)m")
+                                        .font(.system(size: 14, weight: .bold))
+                                        .foregroundColor(accentColor)
+                                }
+                                .padding(.horizontal, 8)
+                                .padding(.vertical, 4)
+                                .background(
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .fill(AppTheme.card(for: colorScheme))
+                                        .shadow(color: Color.black.opacity(0.15), radius: 2, y: 1)
+                                )
+                            }
                     }
                 }
                 .frame(height: 160)
@@ -1047,12 +1074,41 @@ private struct HourlyUsageChartCard: View {
                             .foregroundStyle(AppTheme.brandedText(for: colorScheme).opacity(0.1))
                     }
                 }
+                .chartXScale(domain: {
+                    let calendar = Calendar.current
+                    let start = calendar.startOfDay(for: Date())
+                    let end = calendar.date(byAdding: .hour, value: 24, to: start)!
+                    return start...end
+                }())
+                .chartYScale(domain: 0...maxY)
                 .chartPlotStyle { plotArea in
                     plotArea
                         .background(
                             RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small)
                                 .fill(accentColor.opacity(0.03))
                         )
+                }
+                .chartOverlay { proxy in
+                    GeometryReader { geometry in
+                        Rectangle()
+                            .fill(Color.clear)
+                            .contentShape(Rectangle())
+                            .gesture(
+                                DragGesture(minimumDistance: 0)
+                                    .onChanged { value in
+                                        let xPos = value.location.x - geometry[proxy.plotAreaFrame].origin.x
+                                        if let date: Date = proxy.value(atX: xPos) {
+                                            let dates = hourlyData.map(\.date)
+                                            if let closest = dates.min(by: { abs($0.timeIntervalSince(date)) < abs($1.timeIntervalSince(date)) }) {
+                                                selectedHour = closest
+                                            }
+                                        }
+                                    }
+                                    .onEnded { _ in
+                                        selectedHour = nil
+                                    }
+                            )
+                    }
                 }
             }
         }
@@ -1084,6 +1140,12 @@ private struct HourlyUsageChartCard: View {
     private func hourLabel(for date: Date) -> String {
         let hour = Calendar.current.component(.hour, from: date)
         return String(format: "%02d", hour)
+    }
+
+    private func selectedHourLabel(for date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "h a"
+        return formatter.string(from: date)
     }
 }
 
