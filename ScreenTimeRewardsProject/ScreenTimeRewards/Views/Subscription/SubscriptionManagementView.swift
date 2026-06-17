@@ -1,10 +1,12 @@
 import SwiftUI
 import StoreKit
+import RevenueCatUI
 struct SubscriptionManagementView: View {
     @EnvironmentObject var subscriptionManager: SubscriptionManager
     @EnvironmentObject var deviceModeManager: DeviceModeManager
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.dismiss) private var dismiss
+    @State private var showCustomerCenter = false
     @State private var showPaywall = false
     @State private var paywallInitialTier: SubscriptionTier = .individual
     @State private var showChildPaywall = false
@@ -528,27 +530,21 @@ private extension SubscriptionManagementView {
     var managementCard: some View {
         VStack(spacing: 0) {
             Button {
-                Task {
-                    if let scene = UIApplication.shared.connectedScenes.first(where: { $0.activationState == .foregroundActive }) as? UIWindowScene {
-                        try? await AppStore.showManageSubscriptions(in: scene)
-                    } else {
-                        // Fallback if scene is not found
-                        if let url = URL(string: "https://apps.apple.com/account/subscriptions") {
-                            await UIApplication.shared.open(url)
-                        }
-                    }
-                }
+                showCustomerCenter = true
             } label: {
                 HStack {
-                    Text("Manage in App Store")
+                    Text("Manage Subscription")
                         .font(.system(size: 15, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     Spacer()
-                    Image(systemName: "arrow.up.forward.app")
+                    Image(systemName: "chevron.right")
                         .font(.system(size: 14))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
                 }
                 .padding(16)
+            }
+            .sheet(isPresented: $showCustomerCenter) {
+                CustomerCenterView()
             }
             
             Divider()

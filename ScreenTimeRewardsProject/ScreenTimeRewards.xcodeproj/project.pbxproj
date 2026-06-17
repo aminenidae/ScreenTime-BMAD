@@ -10,11 +10,12 @@
 		432838612ED2977500B0EC3D /* ManagedSettings.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43E0F00B2EA0258700567890 /* ManagedSettings.framework */; };
 		432838622ED2977500B0EC3D /* ManagedSettingsUI.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43575C3A2EA1D9BF00AA226E /* ManagedSettingsUI.framework */; };
 		4328386A2ED2977500B0EC3D /* ShieldConfigurationExtension.appex in Embed App Extensions */ = {isa = PBXBuildFile; fileRef = 432838602ED2977500B0EC3D /* ShieldConfigurationExtension.appex */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		43294F082FDF6EFF00282D1C /* RevenueCatUI in Frameworks */ = {isa = PBXBuildFile; productRef = 43294F072FDF6EFF00282D1C /* RevenueCatUI */; };
 		4399B18E2F949CE6003A3769 /* FirebaseCore in Frameworks */ = {isa = PBXBuildFile; productRef = 4399B18D2F949CE6003A3769 /* FirebaseCore */; };
 		4399B1902F949CF8003A3769 /* FirebaseFunctions in Frameworks */ = {isa = PBXBuildFile; productRef = 4399B18F2F949CF8003A3769 /* FirebaseFunctions */; };
 		4399B1922F949CFF003A3769 /* FirebaseFirestore in Frameworks */ = {isa = PBXBuildFile; productRef = 4399B1912F949CFF003A3769 /* FirebaseFirestore */; };
-		43BEEF022F949D00003A3769 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 43BEEF012F949D00003A3769 /* FirebaseMessaging */; };
 		43BC1A1D2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BC1A1C2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift */; };
+		43BEEF022F949D00003A3769 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 43BEEF012F949D00003A3769 /* FirebaseMessaging */; };
 		43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */; };
 		43C5A1C201000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
 		43C5A1C202000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
@@ -172,6 +173,7 @@
 				43EC484E2F12E73600E5D3AD /* RevenueCat in Frameworks */,
 				43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */,
 				4399B1922F949CFF003A3769 /* FirebaseFirestore in Frameworks */,
+				43294F082FDF6EFF00282D1C /* RevenueCatUI in Frameworks */,
 				43BEEF022F949D00003A3769 /* FirebaseMessaging in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -302,6 +304,7 @@
 				4399B1912F949CFF003A3769 /* FirebaseFirestore */,
 				43BEEF012F949D00003A3769 /* FirebaseMessaging */,
 				43D7273A2FA42D5E00DA58EE /* FirebaseAnalytics */,
+				43294F072FDF6EFF00282D1C /* RevenueCatUI */,
 			);
 			productName = ScreenTimeRewards;
 			productReference = 436830132E9F172A0058C9C1 /* ScreenTimeRewards.app */;
@@ -998,6 +1001,11 @@
 /* End XCRemoteSwiftPackageReference section */
 
 /* Begin XCSwiftPackageProductDependency section */
+		43294F072FDF6EFF00282D1C /* RevenueCatUI */ = {
+			isa = XCSwiftPackageProductDependency;
+			package = 43EC484A2F12E44E00E5D3AD /* XCRemoteSwiftPackageReference "purchases-ios" */;
+			productName = RevenueCatUI;
+		};
 		4399B18D2F949CE6003A3769 /* FirebaseCore */ = {
 			isa = XCSwiftPackageProductDependency;
 			package = 43EC48472F0E1EF500E5D3AD /* XCRemoteSwiftPackageReference "firebase-ios-sdk" */;
