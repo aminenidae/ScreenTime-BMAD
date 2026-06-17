@@ -204,6 +204,8 @@ struct ParentRemoteDashboardView: View {
                 }
             }
             .onAppear {
+                AppAnalytics.shared.trackScreenView("parent_dashboard")
+
                 // Only load data on first appearance, not when navigating back from child views
                 guard !hasLoadedInitialData else { return }
                 hasLoadedInitialData = true

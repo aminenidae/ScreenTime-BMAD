@@ -126,6 +126,9 @@ struct ChildDashboardView: View {
         }
         .animation(.easeInOut(duration: 0.3), value: subscriptionManager.hasAccess)
         .animation(.easeInOut(duration: 0.3), value: syncService.hasFullAccess)
+        .onAppear {
+            AppAnalytics.shared.trackScreenView("child_dashboard")
+        }
     }
 
     // MARK: - Subviews

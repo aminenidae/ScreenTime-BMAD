@@ -61,6 +61,11 @@ enum AnalyticsEvent: String {
     case pairingFailed              = "pairing_failed"
     case pairingUnpaired            = "pairing_unpaired"
 
+    // App Store review prompt — Apple never reports whether the system dialog
+    // actually appeared or what the user did with it, so this only covers the ask.
+    case reviewPromptRequested      = "review_prompt_requested"
+    case reviewPromptSkipped        = "review_prompt_skipped"
+
     // Reward redemption
     case rewardUnlocked             = "reward_unlocked"
     case rewardAppBlockedAgain      = "reward_app_blocked_again"
@@ -118,6 +123,22 @@ final class AppAnalytics {
 
         #if DEBUG
         print("📊 [AppAnalytics] \(event.rawValue) \(cleaned)")
+        #endif
+    }
+
+    /// Report a screen view using Firebase's native screen_view event, with a stable
+    /// friendly name. Without this, Firebase's automatic tracking logs the raw
+    /// SwiftUI/UIHostingController class name instead of a readable screen name.
+    func trackScreenView(_ screenName: String) {
+        #if canImport(FirebaseAnalytics)
+        Analytics.logEvent(AnalyticsEventScreenView, parameters: [
+            AnalyticsParameterScreenName: screenName,
+            AnalyticsParameterScreenClass: screenName
+        ])
+        #endif
+
+        #if DEBUG
+        print("📊 [AppAnalytics] screen_view \(screenName)")
         #endif
     }
 

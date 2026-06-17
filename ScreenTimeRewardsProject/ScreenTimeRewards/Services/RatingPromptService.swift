@@ -55,17 +55,20 @@ final class RatingPromptService {
         let flagKey = firedFlagKey(for: trigger)
         if defaults.bool(forKey: flagKey) {
             print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_SKIPPED: already_fired (trigger=\(trigger.rawValue))")
+            AppAnalytics.shared.track(.reviewPromptSkipped, parameters: ["trigger": trigger.rawValue, "reason": "already_fired"])
             return
         }
 
         let session = SessionManager.shared
         guard session.isParentAuthenticated || session.isParentDeviceAuthenticated else {
             print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_SKIPPED: parent_not_authenticated (trigger=\(trigger.rawValue))")
+            AppAnalytics.shared.track(.reviewPromptSkipped, parameters: ["trigger": trigger.rawValue, "reason": "parent_not_authenticated"])
             return
         }
 
         guard let scene = activeForegroundScene() else {
             print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_SKIPPED: no_active_scene (trigger=\(trigger.rawValue))")
+            AppAnalytics.shared.track(.reviewPromptSkipped, parameters: ["trigger": trigger.rawValue, "reason": "no_active_scene"])
             return
         }
 
@@ -76,6 +79,7 @@ final class RatingPromptService {
         }
         defaults.set(true, forKey: flagKey)
         print("[RatingPromptService] DEBUG_LOG_RATING_PROMPT_FIRED: trigger=\(trigger.rawValue)")
+        AppAnalytics.shared.track(.reviewPromptRequested, parameters: ["trigger": trigger.rawValue])
     }
 
     /// One-time migration from the legacy single-flag scheme (pre-Option-B).

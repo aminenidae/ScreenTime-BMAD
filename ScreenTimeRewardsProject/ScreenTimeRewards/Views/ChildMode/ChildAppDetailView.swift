@@ -212,6 +212,7 @@ struct ChildAppDetailView: View {
         .onAppear {
             // Ensure streaks are loaded
             StreakService.shared.loadStreaksForChild(childDeviceID: DeviceModeManager.shared.deviceID)
+            AppAnalytics.shared.trackScreenView("reward_unlock_detail")
         }
     }
 }
