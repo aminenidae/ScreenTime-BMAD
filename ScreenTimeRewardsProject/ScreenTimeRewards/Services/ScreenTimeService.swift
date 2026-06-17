@@ -2881,9 +2881,14 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
             if appWindow <= 0 {
                 continue
             }
-            // For pinned apps, register from min.1 (iOS counts new-since-restart).
-            // For unpinned apps, register from currentMinutes+1 (iOS counts cumulative-since-midnight).
-            let isPinnedForRegistration = effectivePinnedForRegistration.contains(logicalID)
+            // For pinned apps with NO usage yet, register from min.1 (iOS counts new-since-restart).
+            // Once an app has real usage (current > 0), always register from currentMinutes+1
+            // (iOS counts cumulative-since-midnight) regardless of pin state — re-registering
+            // from min.1 on an app with existing usage causes iOS to deliver min.1,2,3… which
+            // all get SKIP_REGRESSION rejected (below lastThreshold), killing tracking entirely.
+            // (2026-06-15: Roblox froze at 273min after reward-app unshield because pin
+            // re-anchored window at 1 instead of 274, iOS delivered min.1-28, all rejected.)
+            let isPinnedForRegistration = effectivePinnedForRegistration.contains(logicalID) && currentMinutes == 0
             let windowStart = isPinnedForRegistration ? 1 : (currentMinutes + 1)
             let windowEnd = windowStart + appWindow - 1
             let minutesToRegister = Array(windowStart...windowEnd)
@@ -2982,7 +2987,17 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
 
         let events = monitoredEvents.reduce(into: [DeviceActivityEvent.Name: DeviceActivityEvent]()) { result, entry in
             let logicalID = entry.value.applications.first?.logicalID ?? ""
-            let isPinned = pinnedAppsToday.contains(logicalID)
+            // Effective pin (2026-06-14): the includesPastActivity:false pin exists to stop
+            // iOS replaying usage we never tracked when an app is genuinely fresh. But once
+            // an app has accumulated real usage today (current > 0), re-registering it with
+            // includesPastActivity:false RESETS iOS's cumulative counter back to 0 — its
+            // fresh min.1,2,3… then all fall below the app's lastThreshold and SKIP_REGRESSION
+            // rejects every one, killing tracking for the rest of the day. Observed after a
+            // daily-limit extension: Roblox froze at 249min while iOS counted 397 (Sami) /
+            // 242 vs 339 (Ali). The sliding window is anchored at current+1, so
+            // includesPastActivity:true cannot replay/flood an app whose usage we already
+            // know. Keep the pin ONLY while current == 0 (the case it was designed for).
+            let isPinned = pinnedAppsToday.contains(logicalID) && (appCurrentMinutes[logicalID] ?? 0) == 0
             result[entry.key] = entry.value.deviceActivityEvent(includesPastActivity: !isPinned)
         }
 
@@ -2998,8 +3013,10 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         for (logicalID, _) in appTemplates {
             let mins = appCurrentMinutes[logicalID] ?? 0
             let appWindow = perAppWindowSize[logicalID] ?? 60
-            let pinnedTag = pinnedAppsToday.contains(logicalID) ? " [PINNED:noPastActivity]" : ""
-            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(mins + 1)-\(mins + appWindow) (\(appWindow) thresholds) windowTop=\(mins + appWindow)\(pinnedTag)")
+            let isPinnedForLog = pinnedAppsToday.contains(logicalID) && mins == 0
+            let pinnedTag = isPinnedForLog ? " [PINNED:noPastActivity]" : ""
+            let logWindowStart = isPinnedForLog ? 1 : (mins + 1)
+            lifecycleLog("SLIDING_WINDOW \(logicalID.prefix(8))... current=\(mins)min range=\(logWindowStart)-\(logWindowStart + appWindow - 1) (\(appWindow) thresholds) windowTop=\(logWindowStart + appWindow - 1)\(pinnedTag)")
             midnightDiagnosticLog("SCHEDULE_WINDOW \(logicalID.prefix(8))... current=\(mins)min thresholds=\(mins + 1)-\(mins + appWindow)")
         }
 

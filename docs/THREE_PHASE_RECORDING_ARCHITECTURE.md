@@ -1741,3 +1741,96 @@ Original Step 2 plan: extract Phase A filters into a `passesHardRejects()` helpe
 ## 2026-06-11 — clean-slate fix IMPLEMENTED + shipped in 1.0.5(2)
 
 `ScreenTimeService.startMonitoring` (success case, before the `MONITORING_ALREADY_ACTIVE` guard): on a build change (current `CFBundleVersion` ≠ stored `last_clean_slate_build` in the app group), call `deviceActivityCenter.stopMonitoring()` (no-arg = stop ALL activities) to wipe stale/orphaned DeviceActivity registrations from prior builds (the `-10814` cruft), set `isMonitoring = false` so re-registration proceeds, store the new build, log `CLEAN_SLATE`. This makes long-lived production installs self-clean across every update so they can't degrade into blackouts. Shipped in **1.0.5(2)** on `fix/restore-apr16-threshold-delivery` (= dd919a3 prod candidate + at-top-single delivery fix `07d6fd9` + UI hourly-buckets fix `84ad0f9`).
+
+## 2026-06-14 — Burst investigation (post-clean-slate) + daily-limit-extension pin bug
+
+**Context:** Tracking is in its best-ever state on the user's device and two newer child devices (3+ weeks, no under/overcount). The ONLY open issue is **delivery stability on older 3GB devices (Ali + Sami)** — Roblox tracks in bursts, not steady. We are REFINING, not redesigning.
+
+### A. Root cause of bursts is iOS, not our code (proven 2026-06-11 via full system logs)
+`dasd` suspends iOS's own `UsageTrackingAgent` (the daemon that fires our DeviceActivityMonitor events) during sustained heavy foreground play — trigger `com.apple.duetactivityscheduler.deviceactivitypolicy.inusestatus` ("device in use"). While suspended, ZERO events reach our extension. The daemon wakes on a device state-change (display/lock) and flushes the backlog OUT OF ORDER in seconds = the "burst", then resumes ~60s delivery. NO minutes lost (totals reconcile); cost is enforcement timeliness. Mornings/light apps are clean because they don't push the device into sustained "in use". Proven identically on Ali + Sami (logs `Build Reports/Ali-console-fullLog.rtf`, `Sami-console-FullLog.rtf`).
+
+### B. Category-vs-burst test — REFUTED the simple "reward bursts / learning steady" idea, but isolated a real differentiator
+- Roblox as **learning, sole tracked app** (Sami 06-13): tracked to **min.812 (13.5h)**, **~70% steady**.
+- Roblox as **reward, sole reward app** (Sami 06-14): **~24% steady**, 16 deferrals of 6–24 min over 243 recorded min.
+- Same device, same game, same load. **Category label itself doesn't matter to iOS** (proven 06-13: Roblox-as-learning still bursts on Ali, which had the 18-app unlock).
+
+**"Rebuilds cause bursts" — RETRACTED.** Measured rebuild counts: steady day = **27 rebuilds** (all 30-threshold windows); bursty day = **5 rebuilds** (mostly 90-threshold). MORE rebuilds went with BETTER delivery. The tier-promotion-rebuild-disruption theory is dead.
+
+**Remaining candidate differences (NOT yet decided — no conclusion):**
+1. **Window depth 30 vs 90** — steady day used shallow 30-min windows (rebuilt every ~30 min); bursty day used deep 90-min windows after tier promotion.
+2. **Shield/unshield cycle** — reward Roblox shields/unshields (goal-met, daily-limit); learning Roblox never shields.
+
+**Test plan (user-driven):** (1) Re-run Roblox as **unlinked learning** on BOTH devices → expect ~70% steady → confirms baseline is reliable & device-independent. (2) Then Roblox as **linked learning + many reward apps** → if it drops to bursty, the disruptor is the reward-app unlock cascade, pointing at the shield/unshield path. Capture iOS Screen Time total each day to confirm totals stay accurate.
+
+### C. Daily-limit-extension froze reward tracking (pin reset) — FIX SHIPPED, validation pending
+**Bug:** After a parent extends a daily limit mid-day, the reward app stops recording for the rest of the day. Sami 249min recorded vs iOS 397 (6h37m); Ali 242 vs 339.
+**Mechanism:** App pinned at midnight as `NEW_APPS_PINNED` (current=0 → `includesPastActivity:false`, correct & harmless at 0). Pin is STICKY all day (`pinned_apps_today`, Apr-25 anti-replay design). Limit extension → `scheduleActivity()` re-registers with pin STILL active → `includesPastActivity:false` again, now at current=243 → **resets iOS cumulative counter to 0** → iOS fires fresh min.1,2,3 → all below `lastThreshold=14580` → **SKIP_REGRESSION rejects every event** → tracking dead. (ANOMALY detector at DeviceActivityMonitorExtension.swift ~1777 logs this exact signature but takes no action.)
+**Fix (ScreenTimeService.swift `scheduleActivity()` events-build ~line 2985):** effective pin = `pinnedAppsToday.contains(id) && (appCurrentMinutes[id] ?? 0) == 0`. Keep pin ONLY while current==0; once the app has real usage, register `includesPastActivity:true` (window anchored at current+1, so true cannot replay/flood). Log tag at ~3001 also gated on `mins == 0`. Extension self-rebuild (~line 2478) already used `includesPastActivity:true` — unaffected.
+**Safe vs Apr-25 flood regression:** change only fires when current>0 (reliable state + window above cumulative). current==0 case unchanged.
+**Validation status:** 06-14 retest was CONTAMINATED — the morning pre-fix `includesPastActivity:false` reset had already desynced iOS's counter and left stale min.1-5 events that flushed (and were correctly rejected) at the 19:23 retest. The 19:23 registration line confirms the fix is ACTIVE (no `[PINNED]` tag, window 244-248, `includesPastActivity:true`), but the day's state is poisoned. **Clean test = a FRESH day** (midnight counter reset, fixed build installed, no contamination): play → hit limit → extend → keep playing → expect continuous min.244+ `recorded=true` matching iOS.
+
+## 2026-06-15 — Pin bug part 2: window-start reset on main-app re-registration (reconfigured high-usage app)
+
+**This is the SAME pin family as the 06-14 limit-extension bug, but a SECOND code path that the 06-14 fix did not cover.** Found via the linked-reward-app test on Ali.
+
+**Reproduction:** Roblox flipped reward→learning *today* (12:36) → treated as `NEW_APPS_PINNED` (newly-added) → enters sticky `pinned_apps_today`. Kid plays Roblox to min.273 over 4.5h (EXTENSION rebuilds correctly the whole time — 9 rebuilds, `current+1`, `includesPastActivity:true`; the pin does NOT affect the extension, which is why tracking was flawless to 273). Then a MAIN-APP `scheduleActivity()` fires (18:38 "foreground health check") → re-registers Roblox → sticky pin still active → window forced to **min.1** and `includesPastActivity:false`. iOS resets cumulative→0, delivers min.1-28, all below `lastThreshold=273min` → SKIP_REGRESSION rejects every one → tracking frozen for the rest of the day. iOS Screen Time 5h28 vs ours stuck at 4h33.
+
+**Why we never saw it in normal use (user-validated):** opening the main app does NOT reset normal apps — the reset ONLY hits an app in `pinned_apps_today`, and an app is pinned ONLY when newly-ADDED or category-FLIPPED that same day. The user's own device never resets because apps aren't reconfigured daily. The bug needs the rare combo: (1) app added/flipped today (→ pinned), (2) played to high usage, (3) a MAIN-APP re-registration (health check / schedule edit / unshield) fires while usage is high. The stress test created exactly this.
+
+**Two separate pin switches — 06-14 fixed only one:**
+- `includesPastActivity` flag (ScreenTimeService.swift ~3000) — fixed 06-14.
+- **window start position** (min.1 vs current+1, ~2891) — STILL bit on 06-15; fixed now.
+- Also the SLIDING_WINDOW log (~3016) was LYING: printed "274-303" while actually registering "1-30" (it used the gated tag but the un-gated windowStart). Fixed to reflect actual registration.
+
+**Fix:** gate BOTH pin switches on `currentMinutes == 0` (`isPinnedForRegistration = effectivePinnedForRegistration.contains(id) && currentMinutes == 0`; `isPinned = pinnedAppsToday.contains(id) && (appCurrentMinutes[id] ?? 0) == 0`). Pin applies ONLY to a genuinely-fresh app (0 recorded usage) — its only legitimate purpose. An app with real usage registers at `current+1` with `includesPastActivity:true` and continues normally.
+
+**Audit (all pin decision points):** window-start (2891) ✅ gated; includesPastActivity (3000) ✅ gated; log tag (3016) ✅ gated; extension rebuild (2478) ✅ never pins. Real flood defense `SKIP_PIN_REPLAY` (DeviceActivityMonitorExtension.swift ~1599) is a wall-clock check independent of the pin flag — still active, and verified to PASS Roblox's legit min.274 (6h wall-clock since pin > 4.5h usage).
+
+**⚠️ KNOWN RESIDUAL CAVEAT (accepted, not chased):** a genuinely-NEW app that the kid ALREADY used earlier the same day, hit by a main-app restart shortly after being added, could leak a few minutes of pre-add usage on the 2nd registration (includesPastActivity:true exposes pre-pin cumulative). BOUNDED by SKIP_PIN_REPLAY's wall-clock ceiling (can't exceed minutes-since-added); rare combination; far less harmful than the total-tracking-death bug it replaces. Per "validate root fix first / no speculative secondary fixes" — left as documented residual, not fixed.
+
+**Validation pending:** rebuild + re-run today's test (flip Roblox to learning → play heavy → trigger unshield/health-check). Success = Roblox keeps recording past the restart, events arrive as min.274+ (not min.1), recorded=true, total matches iOS.
+
+## 2026-06-16 — Phantom over-count slipped through filters during rapid restart churn (DEFERRED — fix later)
+
+**Not pin-related. Not the 06-14/15 pin bug.** Found on Ali while stress-testing (added 20 reward apps + extended learning goal 15→30→45 in ~14 min).
+
+**Facts:**
+- Learning app CC8ED7FF (numeric 122199) — the long-standing, never-reconfigured learning app. **NEVER pinned** (only the 20 new reward apps were in `NEW_APPS_PINNED` at 18:08:21; an earlier claim that CC8ED7FF was pinned was a FALSE grep match — corrected).
+- iOS Screen Time ground truth = **20 min**. App was idle at min.20 since 16:54.
+- At **18:08:32** (timeSinceKill=8s — 8s after the extension relaunched from adding 20 apps), iOS fired a spurious `usage.app.12219905...min.31`. `EVENT min=31 currentToday=1200s lastThresh=1200s` → `RECORDED oldToday=1200s set newToday=1860s (+660s)`. SET-to-max credited **+11 min phantom** (20→31), GOAL_CHECK then read usage=31.
+
+**Why it passed the filters (the actionable bug):**
+- `SHADOW_BUDGET_CHECK total_growth=1min wallclock=1min budget=1min verdict=within` — the physical-ceiling/burst-budget check measured the jump as **1 min growth** while the actual credit was **+660s = 11 min**. So a SINGLE event crediting many minutes (SET-to-max collapsing min.21→31 into one +660s credit) is NOT being measured in seconds-credited — it slips past the budget defense.
+- `SHADOW_BURST_JUDGE verdict=legit`, `SKIP_PIN_REPLAY` not armed (app not pinned). So nothing caught it.
+
+**Root trigger:** rapid schedule-edit churn (3 monitoring restarts + 20 app registrations in 14 min) → iOS coughed up a bad catch-up event (min.31 when real=20). iOS's exact internal over-count mechanism is unconfirmed; correlation with the restart is clear (fired 8s post-relaunch).
+
+**Suspected secondary (UNCONFIRMED — log ended 18:22:54, 3s after the 45-min edit):** "no thresholds fired after the 45-min goal" while using the learning app — likely iOS deferral from the same rapid-edit churn. Needs the extended log to confirm.
+
+**FIX DIRECTION (deferred — user healed to recover accuracy and resumed testing):** the budget/physical-ceiling check should bound on **actual seconds credited (newToday − oldToday)** vs wall-clock since last credit, NOT event count. A single +660s credit after a restart with only ~8s elapsed is physically impossible and should be clamped/flagged. Verify in the SHADOW_BUDGET_CHECK / decide-at-close ceiling code (DeviceActivityMonitorExtension.swift). Heal recovers accuracy in the meantime.
+
+## 2026-06-16 — Clean-day dual-device validation (PRELIMINARY — confirm 06-17)
+
+First fully-clean day with the windowStart pin fix (built ~22:30 06-15) on BOTH 9th-gen 3GB devices. No pin contamination (configs not re-flipped at start of day; midnight cleared pin set + iOS counters).
+
+**Accuracy — EXACT vs iOS Screen Time ground truth (4/4):**
+| Device | App | iOS | Ours |
+|---|---|---|---|
+| Sami | Roblox | 6h20m=380 | min.380 ✅ |
+| Sami | AbacusFlashMath (learning) | 30 | min.30 ✅ |
+| Ali | Roblox | 3h14m=194 | min.194 ✅ |
+| Ali | AbacusFlashMath (learning) | 46 | min.46 ✅ |
+
+**Delivery quality (steady ~60s vs catch-up burst):**
+- Sami (no heal — true benchmark): Roblox **81% steady** (299/64 burst), Learning **89%** (0 bursts). Largest natural iOS-deferral burst ~22 min (held then flushed; no loss, total exact). Burst sizes: 2/6/8/11/21/22 min.
+- Ali (healed twice this afternoon — 17:47 phantom recovery + 18:46 rebuild): raw 64% but skewed by heal REPLAY (heal re-fires min.1→N as a flood). Pre-heal real-time ~67%. Largest "burst" 35 min = the 17:47 heal catch-up, NOT a deferral.
+
+**Validated this clean day (pending final confirm 06-17):**
+- Roblox self-tracks with NO external trigger (197+ min steady before any unshield).
+- Learning app steady through the unshield (min.1-15 @60s, no disruption); console confirmed no UTA suspension / dasd denial at unshield.
+- Roblox steady AFTER unshield (min.199+); also steady after 20 reward apps added + flip.
+- **Pin fix held under a real mid-day category flip** (Roblox flipped at current=206 → registered 207-236, NO pin tag, climbed to 314; the 12 freshly-added reward apps pinned correctly, Roblox NOT).
+
+**Residual (non-blocking, heal recovers):** (1) iOS deferral holds up to ~20 min before flushing — OS-level, totals stay exact, real-time enforcement can lag that much under heavy play; (2) phantom budget-check gap (see 06-16 phantom section) — deferred fix.
+
+**Conclusion (PRELIMINARY):** the week's multi-hour blackouts were dirty-install cruft + the pin bug, NOT an inherent unshield/many-apps problem. Fixed build delivers exact totals + ~80-90% real-time steady on 3GB devices. Re-confirm with one more clean day 06-17 before marking the investigation closed.
