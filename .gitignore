@@ -68,3 +68,8 @@ firebase-debug*.log
 
 # Website (separate repo)
 i6dev-website/
+# Gemini local config
+.gemini/
+
+# Firebase extension runtime logs
+firebase-functions/ext-log-*.log
