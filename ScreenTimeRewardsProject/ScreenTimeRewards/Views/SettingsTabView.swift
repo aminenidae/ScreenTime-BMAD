@@ -170,6 +170,14 @@ struct SettingsTabView: View {
                                 .padding(.horizontal, 4)
                         }
 
+                        // Usage accuracy — parent-facing (ships in Release).
+                        // The heal action rebuilds today's totals from iOS's
+                        // authoritative Screen Time count. Safe to ship (no log
+                        // upload, unlike the DEBUG diagnostics section below).
+                        settingsSection(title: "USAGE") {
+                            healUsageRow
+                        }
+
                         // Diagnostics Section — Debug-only. The silent diagnostic
                         // report upload sends extension logs to Firebase, which
                         // requires a privacy-policy update before it can ship in
@@ -177,7 +185,6 @@ struct SettingsTabView: View {
                         #if DEBUG
                         settingsSection(title: "DIAGNOSTICS") {
                             refreshTrackingRow
-                            healUsageRow
                             sendDiagnosticReportRow
                             extensionLogExportRow
                             diagnosticMappingRow
@@ -258,16 +265,16 @@ struct SettingsTabView: View {
             Text(diagnosticUploadAlertMessage)
         }
 
-        .alert("Heal Usage Data?", isPresented: $showHealConfirm) {
+        .alert("Recalculate Usage?", isPresented: $showHealConfirm) {
             Button("Cancel", role: .cancel) { }
-            Button("Heal", role: .destructive) {
+            Button("Recalculate", role: .destructive) {
                 Task { await runHealUsage() }
             }
         } message: {
-            Text("Clears today's recorded usage and asks iOS for the correct values. Totals rebuild from iOS's authoritative count and can take a few minutes to finish climbing — they keep refreshing on their own, so there's no need to heal again. The hourly chart will flatten to the current hour.")
+            Text("This rechecks today's totals against Apple's official Screen Time and corrects them. The numbers rebuild on their own over a few minutes — you won't need to do this again. Today's hourly chart will reset to the current hour.")
         }
 
-        .alert("Heal Complete", isPresented: Binding(
+        .alert("Usage Updated", isPresented: Binding(
             get: { healResultMessage != nil },
             set: { if !$0 { healResultMessage = nil } }
         )) {
@@ -968,11 +975,11 @@ private extension SettingsTabView {
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(isHealingUsage ? "Updating from iOS… (a few min)" : "Heal Usage Data")
+                    Text(isHealingUsage ? "Updating from Screen Time… (a few min)" : "Recalculate Usage")
                         .font(.system(size: 15, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                    Text("Clear today's totals and rebuild from iOS")
+                    Text("If a number looks off, recheck today's totals against Apple Screen Time")
                         .font(.system(size: 12, weight: .medium))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 }
