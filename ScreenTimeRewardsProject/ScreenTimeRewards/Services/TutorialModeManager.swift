@@ -268,7 +268,7 @@ class TutorialModeManager: ObservableObject {
             // Clear persisted state
             UserDefaults.standard.removeObject(forKey: "tutorial_progress_step")
 
-            AppAnalytics.shared.track(.onboardingCompleted, parameters: [
+            AppAnalytics.shared.track(.tutorialCompleted, parameters: [
                 "tutorial_steps_completed": stepCompletionStatus.filter(\.value).count,
                 "total_steps": TutorialStep.allCases.count
             ])

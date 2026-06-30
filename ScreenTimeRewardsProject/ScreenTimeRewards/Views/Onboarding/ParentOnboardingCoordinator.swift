@@ -65,10 +65,29 @@ struct ParentOnboardingCoordinator: View {
             }
         }
         .animation(.easeInOut(duration: 0.25), value: currentStep)
+        .onAppear { trackStepViewed(currentStep) }
+        .onChange(of: currentStep) { step in trackStepViewed(step) }
     }
 
     private func completeParentOnboarding() {
         parentComplete = true
+        AppAnalytics.shared.track(.onboardingCompleted, parameters: ["flow": "parent"])
         onComplete()
+    }
+
+    private func trackStepViewed(_ step: ParentStep) {
+        AppAnalytics.shared.track(.onboardingScreenViewed, parameters: [
+            "flow": "parent",
+            "screen_name": screenName(for: step)
+        ])
+    }
+
+    private func screenName(for step: ParentStep) -> String {
+        switch step {
+        case .welcome:           return "parent_welcome"
+        case .paywall:           return "parent_paywall"
+        case .installationGuide: return "parent_setup_guide"
+        case .pairing:           return "parent_pairing"
+        }
     }
 }

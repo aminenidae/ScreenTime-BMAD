@@ -38,6 +38,7 @@ struct OnboardingContainerView: View {
                 SetupPathSelectionView { path in
                     onboarding.selectPath(path)
                 }
+                .onAppear { onboarding.logScreenView(screenNumber: 3) }
                 .transition(.asymmetric(
                     insertion: .move(edge: .trailing),
                     removal: .move(edge: .leading)
@@ -63,6 +64,7 @@ struct OnboardingContainerView: View {
                         }
                     }
                 )
+                .onAppear { onboarding.logScreenView(screenNumber: 5) }
                 .transition(.asymmetric(
                     insertion: .move(edge: .trailing),
                     removal: .move(edge: .leading)

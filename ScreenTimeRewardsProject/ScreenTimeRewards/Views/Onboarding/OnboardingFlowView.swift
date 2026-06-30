@@ -29,8 +29,10 @@ struct OnboardingFlowView: View {
                 switch onboardingStep {
                 case .welcome:
                     OnboardingWelcomeStep {
+                        AppAnalytics.shared.track(.onboardingWelcomeCtaTapped)
                         withAnimation { onboardingStep = .deviceSelection }
                     }
+                    .onAppear { AppAnalytics.shared.track(.onboardingWelcomeViewed) }
 
                 case .deviceSelection:
                     DeviceSelectionView(
@@ -40,6 +42,7 @@ struct OnboardingFlowView: View {
                         },
                         onBack: { onboardingStep = .welcome }
                     )
+                    .onAppear { AppAnalytics.shared.track(.onboardingDeviceSelectionViewed) }
 
                 case .parentFlow:
                     ParentOnboardingCoordinator(
@@ -64,6 +67,9 @@ struct OnboardingFlowView: View {
 
     private func handleDeviceSelection(mode: DeviceMode, name: String) {
         deviceName = name
+        AppAnalytics.shared.track(.onboardingDeviceTypeSelected, parameters: [
+            "device_type": mode == .parentDevice ? "parent" : "child"
+        ])
         deviceModeManager.setDeviceMode(mode, deviceName: name)
         onboardingStep = mode == .parentDevice ? .parentFlow : .childFlow
     }

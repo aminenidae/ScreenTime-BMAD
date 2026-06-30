@@ -120,7 +120,10 @@ struct Screen7_ActivationView: View {
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
             onboarding.logScreenView(screenNumber: 7)
-            onboarding.logEvent("onboarding_completed")
+            AppAnalytics.shared.track(.onboardingCompleted, parameters: [
+                "flow": "child",
+                "path": onboarding.selectedPath?.rawValue ?? "unknown"
+            ])
             startStepAnimations()
         }
     }

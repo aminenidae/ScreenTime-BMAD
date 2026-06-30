@@ -18,6 +18,13 @@ import FirebaseAnalytics
 /// renaming breaks Firebase dashboards. Add new cases; do not rename existing ones.
 enum AnalyticsEvent: String {
     // Onboarding flow (screen views + interactions)
+    // Front-of-funnel: the welcome + device-selection screens that precede the
+    // child/parent flows. Without these, installs that drop before choosing a
+    // device type are invisible.
+    case onboardingWelcomeViewed        = "onboarding_welcome_viewed"
+    case onboardingWelcomeCtaTapped     = "onboarding_welcome_cta_tapped"
+    case onboardingDeviceSelectionViewed = "onboarding_device_selection_viewed"
+    case onboardingDeviceTypeSelected   = "onboarding_device_type_selected"
     case onboardingScreenViewed     = "onboarding_screen_viewed"
     case onboardingCtaTapped        = "onboarding_cta_tapped"
     case onboardingPathSelected     = "onboarding_path_selected"
@@ -25,6 +32,7 @@ enum AnalyticsEvent: String {
     case onboardingSkipConfirmed    = "onboarding_skip_confirmed"
     case onboardingTutorialStep     = "onboarding_tutorial_step"
     case onboardingTutorialDropped  = "onboarding_tutorial_dropped"
+    case tutorialCompleted          = "tutorial_completed"
     case onboardingCompleted        = "onboarding_completed"
     case onboardingAttemptStarted   = "onboarding_attempt_started"
 
