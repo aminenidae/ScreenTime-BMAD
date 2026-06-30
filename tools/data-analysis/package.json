@@ -1,0 +1,14 @@
+{
+  "name": "screentime-data-analysis",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "description": "Read-only scripts to export and analyze Firestore (and optionally RevenueCat) data.",
+  "scripts": {
+    "firestore": "node firestore-export.js",
+    "revenuecat": "node revenuecat-export.js"
+  },
+  "dependencies": {
+    "firebase-admin": "^12.7.0"
+  }
+}

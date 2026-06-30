@@ -62,3 +62,6 @@ firebase-functions/lib/
 
 # Website (separate repo)
 i6dev-website/
+# Live data exports (never commit)
+tools/data-analysis/export/
+tools/data-analysis/node_modules/
