@@ -32,12 +32,20 @@ CPP search keywords are selectable **only from the keyword field** (no free-text
 phrases are *ignored* by the CPP keyword system even when duplicated into the field. If
 true, the duplication buys nothing on either front.
 
-**Verification test (do before any dedupe)**: in App Analytics → Acquisition, check
-impressions for the CPP assigned to "parental control" terms. With no ads pointing at it,
-impressions > 0 = the workaround works (keep those duplicates deliberately). Zero
-impressions over several weeks while the default page gets search impressions = the words
-are ignored; reclaim the characters and track title terms via Astro ranks + App Analytics
-search terms instead.
+**Verification status (July 2, 2026 — evidence favors KEEPING the duplicates)**:
+Sample day: 23 unique impressions, 19 attributed to CPPs, 4 to the default page. With no
+ads running, CPP impressions can only come from organic searches on assigned keywords —
+so CPP keyword routing is demonstrably firing. Per-CPP breakdown is hidden until a CPP
+reaches ~5 downloads, so which assignments fire is not yet confirmed.
+
+**To disambiguate (no metadata risk):**
+1. By construction — each keyword combo maps to exactly one CPP; if all assigned keywords
+   are title-duplicated terms, the 19 impressions are already proof.
+2. Rotation test — unassign all CPPs except the title-phrase one for a week (~150
+   impressions of signal at current traffic); if CPP-attributed share holds ~80%, the
+   title-term assignment works. Reassign afterward.
+
+**Decision**: keep duplicates until the rotation test says otherwise.
 
 Duplicates in the keyword field:
 
@@ -110,10 +118,21 @@ the US field; use it for terms that didn't fit.
 
 ---
 
+## Conversion finding: the page leaks harder than the traffic lacks
+
+Baseline (July 2026): ~23 unique impressions/day ≈ 700/month, vs ~12 lifetime downloads.
+At the category-typical 3–5% impression→download rate, this traffic should produce
+~20–30 downloads/month. It doesn't — the product page itself is the leak (no rating
+stars below 11 ratings; screenshot story doesn't sell the mechanic). Screenshot narrative
++ ratings prompt are therefore the highest-yield items in the whole plan: they multiply
+traffic that already exists, before any ad spend.
+
+---
+
 ## Workshop agenda (desktop session with Astro MCP)
 
-0. Run the CPP impressions verification test (finding 1) — determines whether dedupe
-   is on the table at all
+0. Review CPP disambiguation (finding 1): map current keyword→CPP assignments; run the
+   rotation test if ambiguous. Default: duplicates stay.
 1. Pull volume/difficulty/current-rank for every current + candidate term
 2. Decide final 100-char US keyword field (informed by the CPP test; choose replacements)
 3. Subtitle decision: keep `Kids Lock App, Learning, Games` vs. reclaim `lock`/`app`
