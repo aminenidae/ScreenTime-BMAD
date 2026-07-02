@@ -21,10 +21,25 @@ Do not relitigate without new data.
 
 ---
 
-## Audit finding 1: ~43 wasted keyword-field characters
+## Audit finding 1: ~43 duplicated keyword-field characters — CONDITIONAL
 
-Apple indexes title + subtitle + keyword field as one pool; repeating a word adds no
-weight. Duplicates in the keyword field:
+For **ranking**, Apple indexes title + subtitle + keyword field as one pool; repeating a
+word adds no weight. However, the duplicates here are deliberate: they exist so Custom
+Product Pages can be assigned to title-phrase searches ("parental control app"), because
+CPP search keywords are selectable **only from the keyword field** (no free-text entry).
+
+**Unresolved question**: ASO sources (Phiture, AppTweak, Yodel) report that title/subtitle
+phrases are *ignored* by the CPP keyword system even when duplicated into the field. If
+true, the duplication buys nothing on either front.
+
+**Verification test (do before any dedupe)**: in App Analytics → Acquisition, check
+impressions for the CPP assigned to "parental control" terms. With no ads pointing at it,
+impressions > 0 = the workaround works (keep those duplicates deliberately). Zero
+impressions over several weeks while the default page gets search impressions = the words
+are ignored; reclaim the characters and track title terms via Astro ranks + App Analytics
+search terms instead.
+
+Duplicates in the keyword field:
 
 | Duplicate | Already in | Chars wasted (incl. comma) |
 |---|---|---|
@@ -82,10 +97,25 @@ the US field; use it for terms that didn't fit.
 
 ---
 
+## CPP keyword mechanics (reference)
+
+- CPP search keywords: select-only from the 100-char keyword field of the latest approved
+  version; ASC errors on terms not in the field
+- Each unique keyword combination can map to only one CPP
+- CPP is searchable only once approved and set to visible
+- At low volume, CPP analytics are sparse (privacy thresholds) — don't spend indexing
+  characters on measurement before there's traffic to measure
+- Native fit: CPPs for keyword-field terms (e.g., an "earn screen time" CPP whose
+  screenshots lead with the reward mechanic), not for title terms
+
+---
+
 ## Workshop agenda (desktop session with Astro MCP)
 
+0. Run the CPP impressions verification test (finding 1) — determines whether dedupe
+   is on the table at all
 1. Pull volume/difficulty/current-rank for every current + candidate term
-2. Decide final 100-char US keyword field (dedupe is the floor; choose replacements)
+2. Decide final 100-char US keyword field (informed by the CPP test; choose replacements)
 3. Subtitle decision: keep `Kids Lock App, Learning, Games` vs. reclaim `lock`/`app`
    chars for mechanic terms — measure risk to current ranks first
 4. Fill es-MX + en-GB/AU/CA fields

@@ -57,11 +57,14 @@ not an ad-spend market.
 
 1. **Title stays as-is for now.** "Parental control app" rank momentum (96→30) is worth
    protecting. Any title/subtitle change happens only in the Astro data workshop.
-2. **Keyword field dedupe (safe, data-independent win)**: `parental`, `control`, `kids`,
-   `lock`, `app`, `games` in the keyword field duplicate title/subtitle words — ~43 of 100
-   characters add zero ranking weight. Reclaim them for net-new terms (candidates to
-   validate in Astro: `earn`, `reward`, `limit`, `timer`, `study`, `reading`, `routine`,
-   `focus`, `allowance`, `education`). See `ASO_WORKSHEET.md`.
+2. **Keyword field dedupe (CONDITIONAL — verify first)**: `parental`, `control`, `kids`,
+   `lock`, `app`, `games` duplicate title/subtitle words and add zero *ranking* weight,
+   but they were added deliberately to enable Custom Product Page tracking of title-phrase
+   searches (CPP keywords are selectable only from the keyword field). Whether that
+   workaround actually functions is unverified — run the CPP impressions test in
+   `ASO_WORKSHEET.md` before reclaiming any characters. Replacement candidates if freed:
+   `earn`, `reward`, `limit`, `timer`, `study`, `reading`, `routine`, `focus`,
+   `allowance`, `education`.
 3. **Localization multiplier**: the US storefront also indexes es-MX metadata — a second
    free keyword field for the US. en-GB/en-AU/en-CA variants are near copy-paste.
 4. **Screenshots sell the mechanic in the first 3 frames**: ① the daily battle ends
