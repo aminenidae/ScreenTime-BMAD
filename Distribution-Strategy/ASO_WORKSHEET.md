@@ -32,20 +32,20 @@ CPP search keywords are selectable **only from the keyword field** (no free-text
 phrases are *ignored* by the CPP keyword system even when duplicated into the field. If
 true, the duplication buys nothing on either front.
 
-**Verification status (July 2, 2026 — evidence favors KEEPING the duplicates)**:
-Sample day: 23 unique impressions, 19 attributed to CPPs, 4 to the default page. With no
-ads running, CPP impressions can only come from organic searches on assigned keywords —
-so CPP keyword routing is demonstrably firing. Per-CPP breakdown is hidden until a CPP
-reaches ~5 downloads, so which assignments fire is not yet confirmed.
+**VERIFIED (July 2, 2026): duplicates are functional — KEEP them.**
+Sample day: 23 unique impressions, 19 attributed to CPPs, 4 to the default page. No ads
+running, so CPP impressions can only come from organic searches on assigned keywords.
+The three live CPPs are assigned to "Parental Control App" (all title words),
+"Kids Lock App" (all subtitle words), and "Kids Mode" (subtitle word + field-native
+`mode`). Every assignment contains title/subtitle-duplicated words, so whichever CPP
+fired, duplicated-word matching works. The blog claim that Apple ignores title/subtitle
+words for CPP assignment is refuted by live data.
 
-**To disambiguate (no metadata risk):**
-1. By construction — each keyword combo maps to exactly one CPP; if all assigned keywords
-   are title-duplicated terms, the 19 impressions are already proof.
-2. Rotation test — unassign all CPPs except the title-phrase one for a week (~150
-   impressions of signal at current traffic); if CPP-attributed share holds ~80%, the
-   title-term assignment works. Reassign afterward.
-
-**Decision**: keep duplicates until the rotation test says otherwise.
+**Revised dedupe math**: load-bearing for CPP tracking: `parental`, `control`, `app`,
+`kids`, `lock` (+ native `mode`). Only duplicated word unused by any CPP: `games`
+(~6 reclaimable chars). Keyword expansion must come from: (a) `games` + `kit` if Astro
+shows no volume, (b) replacing weak native terms, (c) localized keyword fields (es-MX
+indexes for the US storefront; en-GB/AU/CA are empty real estate).
 
 Duplicates in the keyword field:
 
@@ -131,10 +131,12 @@ traffic that already exists, before any ad spend.
 
 ## Workshop agenda (desktop session with Astro MCP)
 
-0. Review CPP disambiguation (finding 1): map current keyword→CPP assignments; run the
-   rotation test if ambiguous. Default: duplicates stay.
-1. Pull volume/difficulty/current-rank for every current + candidate term
-2. Decide final 100-char US keyword field (informed by the CPP test; choose replacements)
+0. ~~CPP disambiguation~~ RESOLVED: duplicates verified functional, they stay. Once any
+   CPP crosses ~5 downloads, note which terms convert (nice-to-have, not blocking).
+1. Pull volume/difficulty/current-rank for every current + candidate term — especially
+   `kit`, `safe`, `homework` (replacement candidates) and `games` (~6 free chars)
+2. Decide final 100-char US keyword field (CPP-load-bearing words are untouchable:
+   `parental`, `control`, `app`, `kids`, `lock`, `mode`)
 3. Subtitle decision: keep `Kids Lock App, Learning, Games` vs. reclaim `lock`/`app`
    chars for mechanic terms — measure risk to current ranks first
 4. Fill es-MX + en-GB/AU/CA fields
