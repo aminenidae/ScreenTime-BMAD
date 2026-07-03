@@ -1,7 +1,7 @@
 import SwiftUI
 
-/// Screen 1: Problem Recognition (C1)
-/// Hero image showing the "five more minutes" struggle with empathetic messaging
+/// Screen 1: Parental Control Confirmation (C1)
+/// Hero image showing the resolved, calm outcome — confirms parental control + earn-to-unlock mechanic
 struct Screen1_ProblemView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @Environment(\.colorScheme) private var colorScheme
@@ -15,10 +15,9 @@ struct Screen1_ProblemView: View {
     }
 
     private let bullets = [
-        "your child begs",
-        "you either give up",
-        "or say no... and you are the \"bad guy\"",
-        "there is a better way"
+        "you decide what's safe — enforced automatically",
+        "learning apps earn real time on the apps they love",
+        "no timers to manage. no fights to referee."
     ]
 
     var body: some View {
@@ -33,7 +32,7 @@ struct Screen1_ProblemView: View {
             Spacer(minLength: layout.isLandscape ? 12 : 24)
 
             // Headline
-            Text("THE \"FIVE MORE MINUTES\"\nBATTLE CAN END TODAY")
+            Text("REAL PARENTAL CONTROL.\nZERO ARGUMENTS.")
                 .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
@@ -182,13 +181,13 @@ private struct ProblemHeroCard: View {
 
                 // Text overlay
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("THE DAILY STRUGGLE")
+                    Text("PARENTAL CONTROL, MADE SIMPLE")
                         .font(.system(size: layout.isIpad ? 21 : 13, weight: .semibold)) // Reduced from 24/16
                         .foregroundColor(.white)
                         .textCase(.uppercase)
                         .tracking(2)
 
-                    Text("Sound Familiar? Screen Time Negotiations Don't Have To Be This Hard.")
+                    Text("You Set What's Safe. They Earn What's Fun.")
                         .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
