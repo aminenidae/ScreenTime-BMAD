@@ -19,6 +19,7 @@ struct Screen6_TrialPaywallView: View {
 
     @State private var selectedPlan: SubscriptionPlanOption = .annual
     @State private var showSaveOffer = false
+    @State private var showTrialEnded = false
     @State private var isPurchasing = false
     @State private var purchaseError: String?
     @State private var showRestoreSuccess = false
@@ -210,16 +211,22 @@ struct Screen6_TrialPaywallView: View {
             .disabled(isPurchasing)
             .padding(.bottom, 8)
 
-            // Not now — triggers the "last card" free-trial save offer (exit intent)
+            // Not now — offer the no-card trial ONLY if it's still available.
             Button(action: {
                 AppAnalytics.shared.track(.onboardingSkipTapped, parameters: [
                     "from_screen": "paywall",
                     "plan_shown": selectedPlan == .annual ? "annual" : "monthly"
                 ])
-                AppAnalytics.shared.track(.onboardingFreemiumOfferShown, parameters: [
-                    "tier": displayTier.rawValue
-                ])
-                showSaveOffer = true
+                if subscriptionManager.hasAccess {
+                    // Trial still active — show the "last card" freemium save.
+                    AppAnalytics.shared.track(.onboardingFreemiumOfferShown, parameters: [
+                        "tier": displayTier.rawValue
+                    ])
+                    showSaveOffer = true
+                } else {
+                    // Free trial already used up — be honest, keep them on the paywall.
+                    showTrialEnded = true
+                }
             }) {
                 Text("Not now")
                     .font(.system(size: 13, weight: .regular))
@@ -275,6 +282,11 @@ struct Screen6_TrialPaywallView: View {
             Text(subscriptionManager.hasAccess
                  ? "Your subscription has been restored."
                  : "No previous purchases found.")
+        }
+        .alert("Your free trial has ended", isPresented: $showTrialEnded) {
+            Button("OK", role: .cancel) { }
+        } message: {
+            Text("Subscribe to keep using Tic Lock. Your setup is saved.")
         }
         .overlay {
             if isPurchasing {
