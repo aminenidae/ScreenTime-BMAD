@@ -45,7 +45,7 @@ struct DeviceSelectionView: View {
                 ScrollView {
                     VStack(spacing: AppTheme.Spacing.xLarge) {
                         // Headline Text Component
-                        Text("WHO WILL BE USING THIS DEVICE?")
+                        Text("WHOSE DEVICE IS THIS?")
                             .font(.system(size: 25, weight: .bold)) // Reduced from 28 by 3 pts
                             .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                             .multilineTextAlignment(.center)
@@ -54,23 +54,21 @@ struct DeviceSelectionView: View {
                             .padding(.horizontal, AppTheme.Spacing.regular)
                             .padding(.top, AppTheme.Spacing.regular)
                             .textCase(.uppercase)
-                            .tracking(3)
+                            .tracking(1)
 
                         // Explanation text
-                        Text("The app works differently on each device. Parents monitor & set rules. Kids earn screen time by learning.")
+                        Text("The app does a different job on each device. Pick the one you're setting up.")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                             .multilineTextAlignment(.center)
                             .padding(.horizontal, AppTheme.Spacing.regular)
                             .padding(.top, AppTheme.Spacing.small)
-                            .textCase(.uppercase)
 
                         // Tap instruction
-                        Text("Tap One To Get Started")
+                        Text("Tap one to begin")
                             .font(.system(size: 16, weight: .semibold))
                             .foregroundColor(AppTheme.vibrantTeal)
-                            .textCase(.uppercase)
-                            .tracking(2)
+                            .tracking(1)
                             .padding(.top, AppTheme.Spacing.medium)
 
                         // Image Card Grid - Device Selection
@@ -79,7 +77,7 @@ struct DeviceSelectionView: View {
                             DeviceImageCard(
                                 imageName: "onboarding_0_2",
                                 title: "Parent's Device",
-                                subtitle: "Monitor Progress Remotely",
+                                subtitle: "Track every minute — from anywhere.",
                                 isSelected: selectedMode == .parentDevice,
                                 colorScheme: colorScheme
                             ) {
@@ -92,7 +90,7 @@ struct DeviceSelectionView: View {
                             DeviceImageCard(
                                 imageName: "onboarding_0_3",
                                 title: "Child's Device",
-                                subtitle: "Set Rules & Earn Screen Time",
+                                subtitle: "Learn first. Play after.",
                                 isSelected: selectedMode == .childDevice,
                                 colorScheme: colorScheme
                             ) {
@@ -107,13 +105,12 @@ struct DeviceSelectionView: View {
                         // Text Field Component - Dynamic based on selected mode
                         if let mode = selectedMode {
                             VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                                Text(mode == .parentDevice ? "Parent's Name" : "Child's Name")
+                                Text(mode == .parentDevice ? "Parent's name" : "Child's name")
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                    .textCase(.uppercase)
 
                                 TextField(
-                                    mode == .parentDevice ? "e.g., MOM, DAD, SARAH" : "e.g., SAM, EMMA, ALEX",
+                                    mode == .parentDevice ? "e.g. Mom, Dad, Sarah" : "e.g. Sam, Emma, Alex",
                                     text: $deviceName
                                 )
                                 .font(.system(size: 16))
@@ -145,7 +142,7 @@ struct DeviceSelectionView: View {
                             }
                         }
                     }) {
-                        Text("Get Started")
+                        Text("Continue")
                             .font(.system(size: 18, weight: .bold))
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -229,7 +226,6 @@ private struct DeviceImageCard: View {
                     Text(subtitle)
                         .font(.system(size: 14, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
-                        .textCase(.uppercase)
                 }
                 .padding(AppTheme.Spacing.regular)
 
@@ -239,12 +235,12 @@ private struct DeviceImageCard: View {
                         HStack {
                             Spacer()
                             ZStack {
-                                // Glowing background circle that pulses
+                                // Soft glow behind the tap icon (gentle pulse)
                                 Circle()
                                     .fill(AppTheme.vibrantTeal)
-                                    .frame(width: isPulsing ? 44 : 36, height: isPulsing ? 44 : 36)
+                                    .frame(width: isPulsing ? 42 : 38, height: isPulsing ? 42 : 38)
                                     .blur(radius: 4)
-                                    .opacity(isPulsing ? 0.6 : 0.3)
+                                    .opacity(isPulsing ? 0.35 : 0.2)
 
                                 // Main tap icon circle
                                 Circle()
@@ -256,8 +252,7 @@ private struct DeviceImageCard: View {
                                     .foregroundColor(.white)
                             }
                             .padding(AppTheme.Spacing.medium)
-                            .scaleEffect(isPulsing ? 1.15 : 1.0)
-                            .opacity(isPulsing ? 0.85 : 1.0)
+                            .scaleEffect(isPulsing ? 1.06 : 1.0)
                         }
                         Spacer()
                     }
@@ -305,7 +300,7 @@ private struct DeviceImageCard: View {
         .onAppear {
             // Start pulsing animation for unselected cards
             if !isSelected {
-                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                     isPulsing = true
                 }
             }
@@ -318,7 +313,7 @@ private struct DeviceImageCard: View {
                 }
             } else {
                 // Resume pulsing when deselected
-                withAnimation(.easeInOut(duration: 1.0).repeatForever(autoreverses: true)) {
+                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
                     isPulsing = true
                 }
             }

@@ -18,7 +18,7 @@ struct Screen6_TrialPaywallView: View {
     @Environment(\.verticalSizeClass) private var vSizeClass
 
     @State private var selectedPlan: SubscriptionPlanOption = .annual
-    @State private var showConfirmSkip = false
+    @State private var showSaveOffer = false
     @State private var isPurchasing = false
     @State private var purchaseError: String?
     @State private var showRestoreSuccess = false
@@ -98,31 +98,42 @@ struct Screen6_TrialPaywallView: View {
                         .cornerRadius(AppTheme.CornerRadius.large)
                         .padding(.horizontal, layout.horizontalPadding)
 
-                    // Value propositions
+                    // Headline — lead with "free"
+                    VStack(spacing: 6) {
+                        Text("TRY IT FREE FOR 14 DAYS")
+                            .font(.system(size: layout.isRegular ? 26 : 23, weight: .bold))
+                            .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                            .multilineTextAlignment(.center)
+                            .textCase(.uppercase)
+                            .tracking(1)
+
+                        Text("No charge today. Cancel anytime.")
+                            .font(.system(size: 15))
+                            .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                            .multilineTextAlignment(.center)
+                    }
+                    .frame(maxWidth: 500)
+                    .padding(.horizontal, layout.horizontalPadding)
+
+                    // Value propositions — echo the App Store promises
                     VStack(alignment: .leading, spacing: 10) {
                         HStack(spacing: 12) {
                             Image(systemName: "gift.fill")
                                 .foregroundColor(AppTheme.vibrantTeal)
-                            Text("KIDS EARN REWARDS. NOT JUST RULES.")
-                                .textCase(.uppercase)
-                                .tracking(1.5)
+                            Text("Learn first. Play after — automatically.")
                         }
                         HStack(spacing: 12) {
                             Image(systemName: "trophy.fill")
                                 .foregroundColor(AppTheme.vibrantTeal)
-                            Text("LEARNING FEELS LIKE WINNING.")
-                                .textCase(.uppercase)
-                                .tracking(1.5)
+                            Text("Reward apps unlock the moment goals are met.")
                         }
                         HStack(spacing: 12) {
                             Image(systemName: "heart.fill")
                                 .foregroundColor(AppTheme.vibrantTeal)
-                            Text("PARENTS RELAX. KIDS STAY ENGAGED.")
-                                .textCase(.uppercase)
-                                .tracking(1.5)
+                            Text("No more battles. The app handles it.")
                         }
                     }
-                    .font(.system(size: 13, weight: .medium))
+                    .font(.system(size: 15, weight: .medium))
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .frame(maxWidth: 500)
                     .padding(.horizontal, layout.horizontalPadding)
@@ -178,7 +189,6 @@ struct Screen6_TrialPaywallView: View {
                 .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.bottom, 6)
-                .textCase(.uppercase)
 
             // Terms & Privacy links (required for all subscription flows)
             HStack(spacing: 12) {
@@ -196,23 +206,24 @@ struct Screen6_TrialPaywallView: View {
                 Text("Restore Purchases")
                     .font(.system(size: 14, weight: .medium))
                     .foregroundColor(AppTheme.vibrantTeal)
-                    .textCase(.uppercase)
             }
             .disabled(isPurchasing)
             .padding(.bottom, 8)
 
-            // Skip link
+            // Not now — triggers the "last card" free-trial save offer (exit intent)
             Button(action: {
                 AppAnalytics.shared.track(.onboardingSkipTapped, parameters: [
                     "from_screen": "paywall",
                     "plan_shown": selectedPlan == .annual ? "annual" : "monthly"
                 ])
-                showConfirmSkip = true
+                AppAnalytics.shared.track(.onboardingFreemiumOfferShown, parameters: [
+                    "tier": displayTier.rawValue
+                ])
+                showSaveOffer = true
             }) {
-                Text("Skip trial and delete setup")
-                    .font(.system(size: 12, weight: .regular))
-                    .foregroundColor(.red.opacity(0.8))
-                    .textCase(.uppercase)
+                Text("Not now")
+                    .font(.system(size: 13, weight: .regular))
+                    .foregroundColor(AppTheme.textSecondary(for: colorScheme))
             }
             .padding(.bottom, 4)
 
@@ -233,13 +244,25 @@ struct Screen6_TrialPaywallView: View {
             Spacer().frame(height: layout.isLandscape ? 12 : 20)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
-        .alert("Delete setup?", isPresented: $showConfirmSkip) {
-            Button("Cancel", role: .cancel) { }
-            Button("Delete", role: .destructive) {
-                onboarding.resetSetup()
-            }
-        } message: {
-            Text("This will remove all settings you just created. You can always set it up again later.")
+        .fullScreenCover(isPresented: $showSaveOffer) {
+            TrialSaveOfferView(
+                onAccept: {
+                    // Keep setup, enter the app on the no-card local trial.
+                    AppAnalytics.shared.track(.onboardingFreemiumOfferAccepted, parameters: [
+                        "tier": displayTier.rawValue
+                    ])
+                    onboarding.trialStartDate = Date()
+                    showSaveOffer = false
+                    onboarding.advanceScreen()
+                },
+                onDecline: {
+                    // Leave — but keep their setup saved for when they return.
+                    AppAnalytics.shared.track(.onboardingFreemiumOfferDeclined, parameters: [
+                        "tier": displayTier.rawValue
+                    ])
+                    showSaveOffer = false
+                }
+            )
         }
         .alert("Purchases Restored", isPresented: $showRestoreSuccess) {
             Button("OK") {
@@ -395,23 +418,19 @@ private struct AnnualPlanCard: View {
                                 Text("\(package.localizedPriceString) / year")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                    .textCase(.uppercase)
 
                                 Text("just \(weeklyEquivalent) / week")
                                     .font(.system(size: 14, weight: .bold))
                                     .foregroundColor(AppTheme.vibrantTeal)
-                                    .textCase(.uppercase)
                             } else if let price = fallbackPrice {
                                 // StoreKit fallback
                                 Text("\(price) / year")
                                     .font(.system(size: 18, weight: .bold))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                    .textCase(.uppercase)
 
                                 Text("just \(storeKitWeeklyEquivalent) / week")
                                     .font(.system(size: 14, weight: .regular))
                                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                                    .textCase(.uppercase)
                             } else {
                                 Text("Loading...")
                                     .font(.system(size: 18, weight: .bold))
@@ -424,7 +443,6 @@ private struct AnnualPlanCard: View {
                             Text("~\(pct)% off today")
                                 .font(.system(size: 15, weight: .bold))
                                 .foregroundColor(AppTheme.vibrantTeal)
-                                .textCase(.uppercase)
                         }
                     }
 
@@ -463,7 +481,6 @@ private struct AnnualPlanCard: View {
                 Text("No commitment. Cancel anytime.")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.vibrantTeal)
-                    .textCase(.uppercase)
             }
             .multilineTextAlignment(.center)
             .padding(.bottom, 12)
@@ -499,13 +516,11 @@ private struct MonthlyPlanCard: View {
                             Text("\(package.localizedPriceString) / month")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                .textCase(.uppercase)
                         } else if let price = fallbackPrice {
                             // StoreKit fallback
                             Text("\(price) / month")
                                 .font(.system(size: 18, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                                .textCase(.uppercase)
                         } else {
                             Text("Loading...")
                                 .font(.system(size: 18, weight: .bold))
@@ -515,7 +530,6 @@ private struct MonthlyPlanCard: View {
                         Text("Cancel anytime")
                             .font(.system(size: 12, weight: .regular))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                            .textCase(.uppercase)
                     }
 
                     Spacer()
@@ -549,7 +563,6 @@ private struct MonthlyPlanCard: View {
                 Text("No commitment. Cancel anytime.")
                     .font(.system(size: 13, weight: .semibold))
                     .foregroundColor(AppTheme.vibrantTeal)
-                    .textCase(.uppercase)
             }
             .multilineTextAlignment(.center)
             .padding(.bottom, 12)
@@ -562,6 +575,98 @@ private struct MonthlyPlanCard: View {
                         .stroke(isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme), lineWidth: isSelected ? 2 : 1)
                 )
         )
+    }
+}
+
+// MARK: - Trial Save Offer (exit-intent "last card")
+
+/// Shown only when a user tries to leave the paywall. Offers the no-card
+/// 14-day trial as a last resort so we keep the user (and their setup)
+/// instead of losing them. Deliberately NOT surfaced on the paywall itself,
+/// so it never competes with the card-on-file trial.
+private struct TrialSaveOfferView: View {
+    @Environment(\.colorScheme) private var colorScheme
+    let onAccept: () -> Void
+    let onDecline: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            Spacer()
+
+            VStack(spacing: 20) {
+                Image(systemName: "hand.wave.fill")
+                    .font(.system(size: 52))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
+                VStack(spacing: 12) {
+                    Text("WAIT — KEEP YOUR SETUP")
+                        .font(.system(size: 24, weight: .bold))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .textCase(.uppercase)
+                        .tracking(1)
+
+                    Text("You've already done the hard part. Try everything free for 14 days — no payment now. We'll only ask if you decide to keep it.")
+                        .font(.system(size: 16))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(.horizontal, 24)
+
+                VStack(alignment: .leading, spacing: 12) {
+                    SaveOfferRow(text: "Full access for 14 days.")
+                    SaveOfferRow(text: "No card required — nothing charged today.")
+                    SaveOfferRow(text: "Your setup stays exactly as you left it.")
+                }
+                .padding(.horizontal, 40)
+                .padding(.top, 4)
+            }
+
+            Spacer()
+
+            VStack(spacing: 12) {
+                Button(action: onAccept) {
+                    Text("Start My 14 Days Free")
+                        .font(.system(size: 18, weight: .bold))
+                        .foregroundColor(.white)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 16)
+                        .background(AppTheme.vibrantTeal)
+                        .cornerRadius(AppTheme.CornerRadius.medium)
+                        .textCase(.uppercase)
+                }
+
+                Button(action: onDecline) {
+                    Text("No thanks")
+                        .font(.system(size: 15, weight: .regular))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+                .padding(.top, 4)
+            }
+            .padding(.horizontal, 24)
+            .padding(.bottom, 32)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
+    }
+}
+
+private struct SaveOfferRow: View {
+    let text: String
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 11) {
+            Image(systemName: "checkmark.circle.fill")
+                .font(.system(size: 16))
+                .foregroundColor(AppTheme.vibrantTeal)
+            Text(text)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme).opacity(0.8))
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer()
+        }
     }
 }
 

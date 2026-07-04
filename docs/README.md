@@ -25,6 +25,12 @@ Everything in this folder is current work. Historical material — old App Revie
 | [PARENT_LAUNCH_CACHE.md](PARENT_LAUNCH_CACHE.md) | Cache-first render on parent launch |
 | [PAIRING_AND_CONFIG_SYNC_FIXES_2026-04-26.md](PAIRING_AND_CONFIG_SYNC_FIXES_2026-04-26.md) | Bidirectional parent↔child config sync foundation |
 
+## Onboarding & conversion
+
+| Doc | What it's for |
+|---|---|
+| [onboarding-redesign-plan.md](onboarding-redesign-plan.md) | Living spec for the onboarding redesign — funnel/conversion goals, App Store voice, the design system, and per-screen status |
+
 ## Open issues & pending work
 
 | Doc | Status |

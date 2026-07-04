@@ -30,6 +30,10 @@ enum AnalyticsEvent: String {
     case onboardingPathSelected     = "onboarding_path_selected"
     case onboardingSkipTapped       = "onboarding_skip_tapped"
     case onboardingSkipConfirmed    = "onboarding_skip_confirmed"
+    // Freemium "last card" save offer (exit intent on the Solo paywall)
+    case onboardingFreemiumOfferShown    = "onboarding_freemium_offer_shown"
+    case onboardingFreemiumOfferAccepted = "onboarding_freemium_offer_accepted"
+    case onboardingFreemiumOfferDeclined = "onboarding_freemium_offer_declined"
     case onboardingTutorialStep     = "onboarding_tutorial_step"
     case onboardingTutorialDropped  = "onboarding_tutorial_dropped"
     case tutorialCompleted          = "tutorial_completed"

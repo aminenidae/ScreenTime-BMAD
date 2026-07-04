@@ -15,10 +15,10 @@ struct Screen1_ProblemView: View {
     }
 
     private let bullets = [
-        "your child begs",
-        "you either give up",
-        "or say no... and you are the \"bad guy\"",
-        "there is a better way"
+        "Your child begs for more.",
+        "You give in — or you're the bad guy.",
+        "Either way, everyone loses.",
+        "No more battles. The app handles it."
     ]
 
     var body: some View {
@@ -39,7 +39,7 @@ struct Screen1_ProblemView: View {
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                 .textCase(.uppercase)
-                .tracking(3)
+                .tracking(1)
                 .padding(.horizontal, layout.horizontalPadding)
                 .frame(maxWidth: 600)
 
@@ -51,6 +51,7 @@ struct Screen1_ProblemView: View {
                     ProblemBulletRow(
                         text: bullets[index],
                         isVisible: visibleBullets.contains(index),
+                        isPayoff: index == bullets.count - 1,
                         layout: layout,
                         colorScheme: colorScheme
                     )
@@ -104,7 +105,7 @@ struct Screen1_ProblemView: View {
         animationStarted = true
 
         for index in bullets.indices {
-            let delay = Double(index) * 1.0
+            let delay = Double(index) * 0.4
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
                 withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
                     _ = visibleBullets.insert(index)
@@ -119,6 +120,7 @@ struct Screen1_ProblemView: View {
 private struct ProblemBulletRow: View {
     let text: String
     let isVisible: Bool
+    let isPayoff: Bool
     let layout: ResponsiveCardLayout
     let colorScheme: ColorScheme
 
@@ -128,16 +130,16 @@ private struct ProblemBulletRow: View {
     }
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: "circle.fill")
-                .font(.system(size: 6))
-                .foregroundColor(AppTheme.vibrantTeal)
+        HStack(alignment: .top, spacing: 11) {
+            Circle()
+                .fill(AppTheme.vibrantTeal)
+                .frame(width: 6, height: 6)
+                .padding(.top, layout.isRegular ? 8 : 7)
 
             Text(text)
-                .font(.system(size: layout.isRegular ? 17 : 15, weight: .medium))
-                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                .textCase(.uppercase)
-                .tracking(1)
+                .font(.system(size: layout.isRegular ? 17 : 15, weight: isPayoff ? .semibold : .medium))
+                .foregroundColor(isPayoff ? AppTheme.vibrantTeal : AppTheme.textPrimary(for: colorScheme).opacity(0.7))
+                .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
         }
@@ -191,11 +193,10 @@ private struct ProblemHeroCard: View {
                         .textCase(.uppercase)
                         .tracking(2)
 
-                    Text("Sound Familiar? Screen Time Negotiations Don't Have To Be This Hard.")
+                    Text("Screen-time negotiations don't have to be this hard.")
                         .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
-                        .textCase(.uppercase)
                 }
                 .padding(layout.isIpad ? 20 : 12)
             }

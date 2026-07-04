@@ -29,31 +29,34 @@ struct Screen7_ActivationView: View {
     }
 
     /// Delay between each step animation (in seconds)
-    private let stepAnimationDelay: Double = 1.0
+    private let stepAnimationDelay: Double = 0.4
 
     private let steps: [ActivationStepCard] = [
-        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss With Your Child", subtitle: "Explain The Learning & Reward System Together"),
-        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try Not To Adjust For 48 Hours. Let Them Experience The Rhythm."),
-        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 Days, Review Learning And Ask \"Does This Feel Fair?\"")
+        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss With Your Child", subtitle: "Explain the learning-and-reward system together."),
+        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try not to adjust for 48 hours — let them find the rhythm."),
+        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 days, review together and ask: does this feel fair?")
     ]
 
     var body: some View {
         VStack(spacing: 0) {
             // Header
-            VStack(spacing: 8) {
+            VStack(spacing: 10) {
+                Image(systemName: "checkmark.seal.fill")
+                    .font(.system(size: layout.isLandscape ? 34 : 44))
+                    .foregroundColor(AppTheme.vibrantTeal)
+
                 Text("YOUR SYSTEM IS LIVE")
                     .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
                     .lineLimit(2)
                     .multilineTextAlignment(.center)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                     .textCase(.uppercase)
-                    .tracking(3)
+                    .tracking(1)
 
-                Text("HERE'S WHAT TO DO NEXT WITH YOUR CHILD")
-                    .font(.system(size: layout.isRegular ? 15 : 13, weight: .regular)) // Reduced from 18/16
+                Text("Here's what to do next with your child.")
+                    .font(.system(size: layout.isRegular ? 15 : 13))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                    .textCase(.uppercase)
-                    .tracking(2)
+                    .multilineTextAlignment(.center)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.vertical, layout.isLandscape ? 12 : 20)
@@ -203,13 +206,12 @@ private struct ActivationImageCard: View {
                         .font(.system(size: layout.isIpad ? 17 : 11, weight: .semibold)) // Reduced from 20/14
                         .foregroundColor(.white)
                         .textCase(.uppercase)
-                        .tracking(2)
+                        .tracking(1)
 
                     Text(step.subtitle)
                         .font(.system(size: layout.isIpad ? 14 : 11, weight: .regular))
                         .foregroundColor(.white.opacity(0.9))
                         .lineLimit(2)
-                        .textCase(.uppercase)
                 }
                 .padding(layout.isIpad ? 20 : 10)
             }

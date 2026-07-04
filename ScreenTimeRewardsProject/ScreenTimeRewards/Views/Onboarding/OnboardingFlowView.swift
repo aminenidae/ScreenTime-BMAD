@@ -98,50 +98,66 @@ private struct OnboardingWelcomeStep: View {
 
             ScrollView(showsIndicators: false) {
                 VStack(spacing: 0) {
-                    // Hero Image (no text overlay)
-                    Image("onboarding_0_1")
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(width: imageWidth, height: imageHeight)
-                        .clipped()
-                        .cornerRadius(14)
-                        .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                        .padding(.horizontal, 24)
-                        .padding(.top, 16)
+                    // Hero image card with gradient overlay + caption
+                    ZStack(alignment: .bottomLeading) {
+                        Image("onboarding_0_1")
+                            .resizable()
+                            .aspectRatio(contentMode: .fill)
+                            .frame(width: imageWidth, height: imageHeight)
+                            .clipped()
 
-                    // Title slogan below image
-                    Text("Kid's Screen Time Reinvented... The right Way")
-                        .font(.system(size: isLandscape ? 15 : 17, weight: .bold)) // Increased by 2 pts
+                        LinearGradient(
+                            colors: [Color.clear, Color.black.opacity(0.5)],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .frame(width: imageWidth, height: imageHeight)
+
+                        VStack(alignment: .leading, spacing: 5) {
+                            Text("Parental Control, Made Simple")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundColor(.white)
+                                .textCase(.uppercase)
+                                .tracking(1.5)
+                            Text("You set what's safe. They earn what's fun.")
+                                .font(.system(size: 13))
+                                .foregroundColor(.white.opacity(0.9))
+                        }
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 18)
+                        .padding(.bottom, 16)
+                    }
+                    .frame(width: imageWidth, height: imageHeight)
+                    .cornerRadius(20)
+                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 16)
+
+                    // Headline
+                    Text("Real Parental Control.\nZero Arguments.")
+                        .font(.system(size: isLandscape ? 20 : 28, weight: .bold))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                         .textCase(.uppercase)
-                        .tracking(3)
+                        .tracking(1)
                         .padding(.horizontal, 24)
                         .padding(.top, isLandscape ? 12 : 20)
 
                     Spacer(minLength: isLandscape ? 12 : 16)
 
-                    // Feature rows with custom icons
-                    VStack(alignment: .center, spacing: isLandscape ? 10 : 14) {
-                        IntroFeatureRow(
-                            imageName: "onboarding_icon_1",
-                            title: "Earn By Learning",
-                            subtitle: "Educational Apps Earn Points Automatically",
+                    // Confirmation lines
+                    VStack(alignment: .leading, spacing: isLandscape ? 10 : 16) {
+                        ConfirmationLine(
+                            text: "You decide what's safe — enforced automatically",
                             colorScheme: colorScheme
                         )
-
-                        IntroFeatureRow(
-                            imageName: "onboarding_icon_2",
-                            title: "Unlock Rewards",
-                            subtitle: "Points Unlock Games And Fun Apps",
+                        ConfirmationLine(
+                            text: "Learning apps earn real time on the apps they love",
                             colorScheme: colorScheme
                         )
-
-                        IntroFeatureRow(
-                            imageName: "onboarding_icon_3",
-                            title: "Monitor Progress",
-                            subtitle: "Track Learning Time From Any Device",
+                        ConfirmationLine(
+                            text: "No timers to manage. No fights to referee.",
                             colorScheme: colorScheme
                         )
                     }
@@ -150,7 +166,7 @@ private struct OnboardingWelcomeStep: View {
                     Spacer(minLength: isLandscape ? 12 : 20)
 
                     Button(action: onContinue) {
-                        Text("Get Started")
+                        Text("Show Me How")
                             .font(.system(size: 18, weight: .bold)) // Keep at 18 for now, standardize later
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -169,35 +185,23 @@ private struct OnboardingWelcomeStep: View {
     }
 }
 
-private struct IntroFeatureRow: View {
-    let imageName: String
-    let title: String
-    let subtitle: String
+private struct ConfirmationLine: View {
+    let text: String
     let colorScheme: ColorScheme
 
     var body: some View {
-        HStack(spacing: 12) {
-            Image(imageName)
-                .resizable()
-                .aspectRatio(contentMode: .fit)
-                .frame(width: 44, height: 44)
-                .clipShape(RoundedRectangle(cornerRadius: AppTheme.CornerRadius.small))
+        HStack(alignment: .top, spacing: 11) {
+            Circle()
+                .fill(AppTheme.vibrantTeal)
+                .frame(width: 6, height: 6)
+                .padding(.top, 6)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    .textCase(.uppercase)
-                    .tracking(2)
-
-                Text(subtitle)
-                    .font(.system(size: 13)) // Reduced from 15
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
-                    .textCase(.uppercase)
-            }
-
-            Spacer()
+            Text(text)
+                .font(.system(size: 15, weight: .medium))
+                .foregroundColor(AppTheme.textPrimary(for: colorScheme).opacity(0.7))
+                .textCase(.uppercase)
+                .fixedSize(horizontal: false, vertical: true)
         }
-        .frame(maxWidth: 400)
+        .frame(maxWidth: 400, alignment: .leading)
     }
 }
