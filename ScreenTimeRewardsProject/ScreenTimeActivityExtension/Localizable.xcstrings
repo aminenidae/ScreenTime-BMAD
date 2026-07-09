@@ -1,14 +1,86 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "%@: %@ remaining today": {},
-    "%lld min": {},
-    "%lldh": {},
-    "%lldh %lldm": {},
-    "Approaching Limit": {},
-    "Goal Complete!": {},
-    "Reward App": {},
-    "You've earned %@ of reward time. Enjoy your games!": {}
+    "%@: %@ remaining today": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ : %@ restant aujourd'hui"
+          }
+        }
+      }
+    },
+    "%lld min": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lld min"
+          }
+        }
+      }
+    },
+    "%lldh": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh"
+          }
+        }
+      }
+    },
+    "%lldh %lldm": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%lldh %lldm"
+          }
+        }
+      }
+    },
+    "Approaching Limit": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite bientôt atteinte"
+          }
+        }
+      }
+    },
+    "Goal Complete!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Objectif atteint!"
+          }
+        }
+      }
+    },
+    "Reward App": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Appli récompense"
+          }
+        }
+      }
+    },
+    "You've earned %@ of reward time. Enjoy your games!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as gagné %@ de temps de récompense. Amuse-toi bien!"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }

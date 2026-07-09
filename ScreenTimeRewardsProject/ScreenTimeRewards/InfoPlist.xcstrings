@@ -8,6 +8,12 @@
             "state" : "translated",
             "value" : "This app needs access to the camera to scan QR codes for device pairing with parent devices."
           }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette appli a besoin d'accéder à la caméra pour scanner les codes QR d'association avec les appareils des parents."
+          }
         }
       }
     },
@@ -18,6 +24,12 @@
             "state" : "translated",
             "value" : "Parent mode requires authentication to access app settings and controls"
           }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Le mode Parent nécessite une authentification pour accéder aux paramètres et aux contrôles de l'appli."
+          }
         }
       }
     },
@@ -27,6 +39,12 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "This app needs access to Screen Time data to track educational app usage and reward learning activities."
+          }
+        },
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Cette appli a besoin d'accéder aux données Temps d'écran pour suivre l'utilisation des applis éducatives et récompenser les activités d'apprentissage."
           }
         }
       }

@@ -1,32 +1,266 @@
 {
   "sourceLanguage": "en",
   "strings": {
-    "Complete %lld minutes on your learning apps to unlock this app. Let's get started!": {},
-    "Complete your learning goal to unlock this app.": {},
-    "Complete your learning goal to unlock this category.": {},
-    "Daily Limit Reached": {},
-    "Downtime Active": {},
-    "Learning Time First!": {},
-    "Not Available Today": {},
-    "OK": {},
-    "Reward Time Finished": {},
-    "This app is in downtime. Check back later.": {},
-    "This app is only available:\n%@": {},
-    "This app is only available:\n%@ between %@ and %@": {},
-    "This app is only available:\nAfter %@": {},
-    "This app is taking a break today.": {},
-    "This app is taking a break today. Come back on %@!": {},
-    "This app is taking a break today. Come back tomorrow!": {},
-    "This website category has been blocked by your parent.": {},
-    "This website has been blocked by your parent.": {},
-    "Website Blocked": {},
-    "You used your %lld minutes for today. Come back on %@!": {},
-    "You used your %lld minutes for today. Come back tomorrow!": {},
-    "You've reached your daily limit. Come back on %@!": {},
-    "You've reached your daily limit. Come back tomorrow!": {},
-    "You've reached your daily limit. Try again tomorrow!": {},
-    "You've used %lld minutes of today's reward time. Complete more learning to earn more!": {},
-    "Your reward time has expired. Complete more learning to unlock again!": {}
+    "Complete %lld minutes on your learning apps to unlock this app. Let's get started!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine %lld minutes sur tes applis d'apprentissage pour débloquer cette appli. C'est parti!"
+          }
+        }
+      }
+    },
+    "Complete your learning goal to unlock this app.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine ton objectif d'apprentissage pour débloquer cette appli."
+          }
+        }
+      }
+    },
+    "Complete your learning goal to unlock this category.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Termine ton objectif d'apprentissage pour débloquer cette catégorie."
+          }
+        }
+      }
+    },
+    "Daily Limit Reached": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Limite quotidienne atteinte"
+          }
+        }
+      }
+    },
+    "Downtime Active": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Période de repos en cours"
+          }
+        }
+      }
+    },
+    "Learning Time First!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "D'abord le temps d'apprentissage!"
+          }
+        }
+      }
+    },
+    "Not Available Today": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Non disponible aujourd'hui"
+          }
+        }
+      }
+    },
+    "OK": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OK"
+          }
+        }
+      }
+    },
+    "Reward Time Finished": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Temps de récompense terminé"
+          }
+        }
+      }
+    },
+    "This app is in downtime. Check back later.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli est en période de repos. Reviens plus tard."
+          }
+        }
+      }
+    },
+    "This app is only available:\n%@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli est disponible seulement :\n%@"
+          }
+        }
+      }
+    },
+    "This app is only available:\n%@ between %@ and %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli est disponible seulement :\n%@ entre %@ et %@"
+          }
+        }
+      }
+    },
+    "This app is only available:\nAfter %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli est disponible seulement :\nAprès %@"
+          }
+        }
+      }
+    },
+    "This app is taking a break today.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli fait une pause aujourd'hui."
+          }
+        }
+      }
+    },
+    "This app is taking a break today. Come back on %@!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli fait une pause aujourd'hui. Reviens %@!"
+          }
+        }
+      }
+    },
+    "This app is taking a break today. Come back tomorrow!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette appli fait une pause aujourd'hui. Reviens demain!"
+          }
+        }
+      }
+    },
+    "This website category has been blocked by your parent.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette catégorie de site web a été bloquée par ton parent."
+          }
+        }
+      }
+    },
+    "This website has been blocked by your parent.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce site web a été bloqué par ton parent."
+          }
+        }
+      }
+    },
+    "Website Blocked": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Site web bloqué"
+          }
+        }
+      }
+    },
+    "You used your %lld minutes for today. Come back on %@!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as utilisé tes %lld minutes pour aujourd'hui. Reviens %@!"
+          }
+        }
+      }
+    },
+    "You used your %lld minutes for today. Come back tomorrow!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as utilisé tes %lld minutes pour aujourd'hui. Reviens demain!"
+          }
+        }
+      }
+    },
+    "You've reached your daily limit. Come back on %@!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as atteint ta limite quotidienne. Reviens %@!"
+          }
+        }
+      }
+    },
+    "You've reached your daily limit. Come back tomorrow!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as atteint ta limite quotidienne. Reviens demain!"
+          }
+        }
+      }
+    },
+    "You've reached your daily limit. Try again tomorrow!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as atteint ta limite quotidienne. Réessaie demain!"
+          }
+        }
+      }
+    },
+    "You've used %lld minutes of today's reward time. Complete more learning to earn more!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tu as utilisé %lld minutes de ton temps de récompense aujourd'hui. Continue d'apprendre pour en gagner plus!"
+          }
+        }
+      }
+    },
+    "Your reward time has expired. Complete more learning to unlock again!": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ton temps de récompense est épuisé. Continue d'apprendre pour le débloquer à nouveau!"
+          }
+        }
+      }
+    }
   },
   "version": "1.0"
 }
