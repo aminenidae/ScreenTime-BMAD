@@ -2056,7 +2056,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "CONFIRMER LE NIP"
+            "value": "CONFIRMER LE CODE PIN"
           }
         }
       }
@@ -2096,7 +2096,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "CRÉER UN NIP"
+            "value": "CRÉER UN CODE PIN"
           }
         }
       }
@@ -2256,7 +2256,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Changer le NIP"
+            "value": "Changer le code PIN"
           }
         }
       }
@@ -2326,7 +2326,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vérifier l'état du NIP"
+            "value": "Vérifier l'état du code PIN"
           }
         }
       }
@@ -2886,7 +2886,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirmer le NIP"
+            "value": "Confirmer le code PIN"
           }
         }
       }
@@ -2906,7 +2906,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Confirmez votre NIP"
+            "value": "Confirmez votre code PIN"
           }
         }
       }
@@ -3136,7 +3136,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Créer le NIP du parent"
+            "value": "Créer le code PIN du parent"
           }
         }
       }
@@ -3186,7 +3186,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "NIP actuel"
+            "value": "Code PIN actuel"
           }
         }
       }
@@ -3866,7 +3866,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "ENTRER LE NIP"
+            "value": "ENTRER LE CODE PIN"
           }
         }
       }
@@ -4076,7 +4076,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entrez votre NIP de nouveau pour confirmer"
+            "value": "Entrez votre code PIN de nouveau pour confirmer"
           }
         }
       }
@@ -4086,7 +4086,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entrez votre NIP actuel"
+            "value": "Entrez votre code PIN actuel"
           }
         }
       }
@@ -4096,7 +4096,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Entrez votre nouveau NIP"
+            "value": "Entrez votre nouveau code PIN"
           }
         }
       }
@@ -4636,7 +4636,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forcer la saisie du NIP"
+            "value": "Forcer la saisie du code PIN"
           }
         }
       }
@@ -4646,7 +4646,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Forcer la configuration du NIP"
+            "value": "Forcer la configuration du code PIN"
           }
         }
       }
@@ -5186,7 +5186,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "NIP incorrect. %lld tentative(s) restante(s)."
+            "value": "Code PIN incorrect. %lld tentative(s) restante(s)."
           }
         }
       }
@@ -5196,7 +5196,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "NIP incorrect. Veuillez réessayer."
+            "value": "Code PIN incorrect. Veuillez réessayer."
           }
         }
       }
@@ -6386,7 +6386,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouveau NIP"
+            "value": "Nouveau code PIN"
           }
         }
       }
@@ -6396,7 +6396,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Nouveau NIP (4 chiffres)"
+            "value": "Nouveau code PIN (4 chiffres)"
           }
         }
       }
@@ -7246,7 +7246,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "NIP configuré : %@"
+            "value": "Code PIN configuré : %@"
           }
         }
       }
@@ -7256,7 +7256,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le NIP doit comporter 4 chiffres"
+            "value": "Le code PIN doit comporter 4 chiffres"
           }
         }
       }
@@ -7266,7 +7266,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les NIP ne correspondent pas"
+            "value": "Les codes PIN ne correspondent pas"
           }
         }
       }
@@ -7276,7 +7276,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les NIP ne correspondent pas. Veuillez réessayer."
+            "value": "Les codes PIN ne correspondent pas. Veuillez réessayer."
           }
         }
       }
@@ -7286,7 +7286,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Les NIP ne correspondent pas. Veuillez réessayer."
+            "value": "Les codes PIN ne correspondent pas. Veuillez réessayer."
           }
         }
       }
@@ -7476,7 +7476,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le NIP du parent n'a pas été configuré. Veuillez configurer un NIP."
+            "value": "Le code PIN du parent n'a pas été configuré. Veuillez configurer un code PIN."
           }
         }
       }
@@ -7486,7 +7486,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Le NIP du parent est requis pour accéder au mode Parent."
+            "value": "Le code PIN du parent est requis pour accéder au mode Parent."
           }
         }
       }
@@ -7606,7 +7606,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Veuillez choisir un NIP plus sécuritaire"
+            "value": "Veuillez choisir un code PIN plus sécurisé"
           }
         }
       }
@@ -7916,7 +7916,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "SAISISSEZ DE NOUVEAU VOTRE NIP"
+            "value": "SAISISSEZ DE NOUVEAU VOTRE CODE PIN"
           }
         }
       }
@@ -8796,7 +8796,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Enregistrer le NIP"
+            "value": "Enregistrer le code PIN"
           }
         }
       }
@@ -10116,7 +10116,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Tester la détection de NIP faible"
+            "value": "Tester la détection de code PIN faible"
           }
         }
       }
@@ -10256,7 +10256,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce NIP protégera les paramètres du mode Parent"
+            "value": "Ce code PIN protégera les paramètres du mode Parent"
           }
         }
       }
@@ -11246,7 +11246,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Mettre à jour votre NIP parent"
+            "value": "Mettre à jour votre code PIN parent"
           }
         }
       }
@@ -11516,7 +11516,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vérifier le NIP"
+            "value": "Vérifier le code PIN"
           }
         }
       }
@@ -11756,7 +11756,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Jours de semaine : %@, Fins de semaine : %@"
+            "value": "Jours de semaine : %@, Week-ends : %@"
           }
         }
       }
@@ -11766,7 +11766,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Fins de semaine"
+            "value": "Week-ends"
           }
         }
       }
@@ -11946,7 +11946,7 @@
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Vous définissez ce qui est sécuritaire. Ils gagnent ce qui est amusant."
+            "value": "Vous définissez ce qui est sûr. Ils gagnent ce qui est amusant."
           }
         }
       }
