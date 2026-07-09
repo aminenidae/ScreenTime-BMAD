@@ -13,10 +13,10 @@ enum SubscriptionTier: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .trial: return "Free Trial"
-        case .solo: return "Solo"
-        case .individual: return "Individual"
-        case .family: return "Family"
+        case .trial: return String(localized: "Free Trial")
+        case .solo: return String(localized: "Solo")
+        case .individual: return String(localized: "Individual")
+        case .family: return String(localized: "Family")
         }
     }
 
@@ -162,11 +162,11 @@ enum SubscriptionStatus: String, Codable {
 
     var displayText: String {
         switch self {
-        case .trial: return "Free Trial Active"
-        case .active: return "Active"
-        case .grace: return "Grace Period"
-        case .expired: return "Expired"
-        case .cancelled: return "Cancelled"
+        case .trial: return String(localized: "Free Trial Active")
+        case .active: return String(localized: "Active")
+        case .grace: return String(localized: "Grace Period")
+        case .expired: return String(localized: "Expired")
+        case .cancelled: return String(localized: "Cancelled")
         }
     }
 }

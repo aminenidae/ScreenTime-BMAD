@@ -114,24 +114,24 @@ struct SettingsTabView: View {
 
 
                         // Account Section
-                        settingsSection(title: "ACCOUNT") {
+                        settingsSection(title: String(localized: "ACCOUNT")) {
                             exitParentModeRow
                         }
 
                         // Subscription Section
-                        settingsSection(title: "SUBSCRIPTION") {
+                        settingsSection(title: String(localized: "SUBSCRIPTION")) {
                             subscriptionRow
                         }
 
                         // Web Restrictions Section
-                        settingsSection(title: "WEB RESTRICTIONS") {
+                        settingsSection(title: String(localized: "WEB RESTRICTIONS")) {
                             blockedWebsitesRow
                             blockBrowsersRow
                             adultContentStatusRow
                         }
 
                         // Devices Section
-                        settingsSection(title: "DEVICES") {
+                        settingsSection(title: String(localized: "DEVICES")) {
                             pairingStatusRow
 
                             if pairingService.isPaired() {
@@ -140,17 +140,17 @@ struct SettingsTabView: View {
                         }
 
                         // Child Section - for editing this device's name
-                        settingsSection(title: "CHILD") {
+                        settingsSection(title: String(localized: "CHILD")) {
                             editChildNameRow
                         }
 
                         // Security Section
-                        settingsSection(title: "SECURITY") {
+                        settingsSection(title: String(localized: "SECURITY")) {
                             changePINRow
                         }
 
                         // General Section
-                        settingsSection(title: "GENERAL") {
+                        settingsSection(title: String(localized: "GENERAL")) {
                             notificationSettingsRow
                             helpSupportRow
                             aboutRow
@@ -159,7 +159,7 @@ struct SettingsTabView: View {
 
                         // Danger Zone Section
                         VStack(alignment: .leading, spacing: 8) {
-                            settingsSection(title: "DANGER ZONE") {
+                            settingsSection(title: String(localized: "DANGER ZONE")) {
                                 resetDeviceRow
                                 deleteAccountRow
                             }
@@ -174,7 +174,7 @@ struct SettingsTabView: View {
                         // The heal action rebuilds today's totals from iOS's
                         // authoritative Screen Time count. Safe to ship (no log
                         // upload, unlike the DEBUG diagnostics section below).
-                        settingsSection(title: "USAGE") {
+                        settingsSection(title: String(localized: "USAGE")) {
                             healUsageRow
                         }
 
@@ -183,7 +183,7 @@ struct SettingsTabView: View {
                         // requires a privacy-policy update before it can ship in
                         // Release. Hide the entire section in Release builds.
                         #if DEBUG
-                        settingsSection(title: "DIAGNOSTICS") {
+                        settingsSection(title: String(localized: "DIAGNOSTICS")) {
                             refreshTrackingRow
                             sendDiagnosticReportRow
                             extensionLogExportRow
@@ -1228,10 +1228,10 @@ private extension SettingsTabView {
 
     private var sendDiagnosticReportSubtitle: String {
         switch diagnosticUploadState {
-        case .idle: return "Tap to send logs to support"
-        case .uploading: return "Sending…"
-        case .success(let id): return "Sent ✓  Reference: \(id)"
-        case .failure: return "Tap to retry"
+        case .idle: return String(localized: "Tap to send logs to support")
+        case .uploading: return String(localized: "Sending…")
+        case .success(let id): return String(localized: "Sent ✓  Reference: \(id)")
+        case .failure: return String(localized: "Tap to retry")
         }
     }
 

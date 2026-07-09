@@ -536,8 +536,8 @@ private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View 
 
                 // Legend with totals
                 HStack(spacing: 20) {
-                    chartLegendItem(color: AppTheme.vibrantTeal, label: "Learning", value: totalLearningMinutes)
-                    chartLegendItem(color: AppTheme.playfulCoral, label: "Rewards", value: totalRewardMinutes)
+                    chartLegendItem(color: AppTheme.vibrantTeal, label: String(localized: "Learning"), value: totalLearningMinutes)
+                    chartLegendItem(color: AppTheme.playfulCoral, label: String(localized: "Rewards"), value: totalRewardMinutes)
                 }
             }
         }
@@ -681,10 +681,10 @@ private struct ChartBar: View {
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {
-                return "Today"
+                return String(localized: "Today")
             } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
                       calendar.isDate(date, inSameDayAs: yesterday) {
-                return "Yest."
+                return String(localized: "Yest.")
             } else {
                 formatter.dateFormat = "EEE"
                 return String(formatter.string(from: date).prefix(3))
@@ -717,14 +717,14 @@ private struct TodaySummaryCards: View {
                 SummaryStatCard(
                     icon: "book.fill",
                     value: TimeFormatting.formatSecondsCompact(TimeInterval(learningTime)),
-                    label: "Learning",
+                    label: String(localized: "Learning"),
                     color: AppTheme.vibrantTeal
                 )
 
                 SummaryStatCard(
                     icon: "gamecontroller.fill",
                     value: TimeFormatting.formatSecondsCompact(TimeInterval(rewardTime)),
-                    label: "Rewards",
+                    label: String(localized: "Rewards"),
                     color: AppTheme.playfulCoral
                 )
             }
@@ -1226,7 +1226,7 @@ private struct AppConfigRow: View {
         }
         let category = app.category ?? "Unknown"
         let appNumber = abs((app.logicalID ?? "").hashValue) % 100
-        return "Privacy Protected \(category) App #\(appNumber)"
+        return String(localized: "Privacy Protected \(category) App #\(appNumber)")
     }
 
     /// Today's usage from daily history
@@ -1314,7 +1314,7 @@ private struct FullAppConfigRow: View {
             return config.displayName
         }
         let appNumber = abs(config.logicalID.hashValue) % 100
-        return "Privacy Protected \(config.category) App #\(appNumber)"
+        return String(localized: "Privacy Protected \(config.category) App #\(appNumber)")
     }
 
     var usageTime: String {
@@ -1495,7 +1495,7 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "crown.fill",
-                title: "Manage Subscription",
+                title: String(localized: "Manage Subscription"),
                 subtitle: subscriptionStatusText,
                 iconColor: .yellow
             ) {
@@ -1507,15 +1507,15 @@ private struct ParentDeviceSettingsTabView: View {
     private var subscriptionStatusText: String {
         switch subscriptionManager.currentStatus {
         case .active:
-            return "Premium Active"
+            return String(localized: "Premium Active")
         case .trial:
-            return "Trial Period"
+            return String(localized: "Trial Period")
         case .grace:
-            return "Grace Period"
+            return String(localized: "Grace Period")
         case .expired:
-            return "Expired"
+            return String(localized: "Expired")
         case .cancelled:
-            return "Cancelled"
+            return String(localized: "Cancelled")
         }
     }
 
@@ -1527,8 +1527,8 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "link",
-                title: "Linked Devices",
-                subtitle: "Manage paired child devices",
+                title: String(localized: "Linked Devices"),
+                subtitle: String(localized: "Manage paired child devices"),
                 iconColor: .blue
             ) {
                 showingLinkedDevices = true
@@ -1536,8 +1536,8 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "lock.fill",
-                title: "Change PIN",
-                subtitle: "Update your parent PIN",
+                title: String(localized: "Change PIN"),
+                subtitle: String(localized: "Update your parent PIN"),
                 iconColor: .purple
             ) {
                 showingChangePIN = true
@@ -1553,8 +1553,8 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "globe",
-                title: "Website Blocking",
-                subtitle: "Manage blocked websites and browsers",
+                title: String(localized: "Website Blocking"),
+                subtitle: String(localized: "Manage blocked websites and browsers"),
                 iconColor: .red
             ) {
                 showingWebRestrictions = true
@@ -1570,8 +1570,8 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "bell.fill",
-                title: "Notification Settings",
-                subtitle: "Configure alerts and reminders",
+                title: String(localized: "Notification Settings"),
+                subtitle: String(localized: "Configure alerts and reminders"),
                 iconColor: .orange
             ) {
                 showingNotificationSettings = true
@@ -1587,8 +1587,8 @@ private struct ParentDeviceSettingsTabView: View {
 
             settingsButton(
                 icon: "info.circle.fill",
-                title: "About",
-                subtitle: "Version, privacy, and support",
+                title: String(localized: "About"),
+                subtitle: String(localized: "Version, privacy, and support"),
                 iconColor: .gray
             ) {
                 showingAbout = true

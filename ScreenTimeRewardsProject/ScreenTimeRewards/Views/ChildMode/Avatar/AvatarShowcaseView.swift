@@ -162,28 +162,28 @@ struct AvatarShowcaseView: View {
                 spacing: AppTheme.Spacing.medium
             ) {
                 StatCard(
-                    title: "Total Learning",
+                    title: String(localized: "Total Learning"),
                     value: formatMinutes(avatarService.totalLearningMinutes),
                     icon: "book.fill",
                     color: AppTheme.vibrantTeal
                 )
 
                 StatCard(
-                    title: "Evolution Level",
+                    title: String(localized: "Evolution Level"),
                     value: "Level \(avatarService.currentEvolutionLevel)",
                     icon: "arrow.up.circle.fill",
                     color: stageColor
                 )
 
                 StatCard(
-                    title: "Accessories",
+                    title: String(localized: "Accessories"),
                     value: "\(unlockedAccessoriesCount)",
                     icon: "sparkles",
                     color: AppTheme.playfulCoral
                 )
 
                 StatCard(
-                    title: "Mood",
+                    title: String(localized: "Mood"),
                     value: currentMoodText,
                     icon: moodIcon,
                     color: AppTheme.sunnyYellow

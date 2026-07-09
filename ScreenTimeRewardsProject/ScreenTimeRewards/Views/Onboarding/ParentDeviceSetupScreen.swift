@@ -8,8 +8,8 @@ struct ParentDeviceSetupScreen: View {
     var body: some View {
         VStack(spacing: 24) {
             ParentOnboardingStepHeader(
-                title: "Set Up Remote Monitoring",
-                subtitle: "You'll need access to the child device for a few minutes.",
+                title: String(localized: "Set Up Remote Monitoring"),
+                subtitle: String(localized: "You'll need access to the child device for a few minutes."),
                 step: 1,
                 totalSteps: 2,
                 onBack: onBack
@@ -57,11 +57,11 @@ struct ParentDeviceSetupScreen: View {
 
     private var instructionSteps: [InstructionStep] {
         [
-            .init(number: "1", title: "Download on the child device", detail: "Install Tic Lock on your child's iPhone or iPad."),
-            .init(number: "2", title: "Complete their setup", detail: "Follow the guided child onboarding so permissions and learning apps are configured."),
+            .init(number: "1", title: String(localized: "Download on the child device"), detail: "Install Tic Lock on your child's iPhone or iPad."),
+            .init(number: "2", title: String(localized: "Complete their setup"), detail: "Follow the guided child onboarding so permissions and learning apps are configured."),
             .init(
                 number: "3",
-                title: "Return to this device",
+                title: String(localized: "Return to this device"),
                 detail: "We'll generate a QR code so the child device can pair with \(deviceName.isEmpty ? "your parent device" : deviceName)."
             )
         ]

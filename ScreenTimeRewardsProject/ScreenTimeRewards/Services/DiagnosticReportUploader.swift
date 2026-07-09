@@ -143,9 +143,9 @@ final class DiagnosticReportUploader {
 
         var errorDescription: String? {
             switch self {
-            case .noLogs: return "No diagnostic logs to upload yet."
-            case .invalidResponse: return "Upload completed but server returned an unexpected response."
-            case .firebaseUnavailable: return "Firebase isn't available in this build."
+            case .noLogs: return String(localized: "No diagnostic logs to upload yet.")
+            case .invalidResponse: return String(localized: "Upload completed but server returned an unexpected response.")
+            case .firebaseUnavailable: return String(localized: "Firebase isn't available in this build.")
             }
         }
     }

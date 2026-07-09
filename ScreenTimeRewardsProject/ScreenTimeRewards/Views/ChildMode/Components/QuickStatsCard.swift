@@ -24,9 +24,9 @@ struct QuickStatsCard: View {
 
             // Stats grid
             VStack(spacing: 12) {
-                statRow(icon: "calendar", label: "Used this week", value: "\(daysUsedThisWeek) days")
-                statRow(icon: "timer", label: "Longest session", value: "\(longestSessionMinutes) min")
-                statRow(icon: "gift", label: "Total earned this month", value: "\(totalEarnedThisMonth) min")
+                statRow(icon: "calendar", label: String(localized: "Used this week"), value: "\(daysUsedThisWeek) days")
+                statRow(icon: "timer", label: String(localized: "Longest session"), value: "\(longestSessionMinutes) min")
+                statRow(icon: "gift", label: String(localized: "Total earned this month"), value: "\(totalEarnedThisMonth) min")
             }
         }
         .padding(20)

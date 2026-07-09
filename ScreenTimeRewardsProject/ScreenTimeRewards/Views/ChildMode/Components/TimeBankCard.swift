@@ -95,7 +95,7 @@ struct TimeBankCard: View {
             // Earned chip
             balanceChip(
                 value: earnedMinutes,
-                label: "EARNED",
+                label: String(localized: "EARNED"),
                 color: AppTheme.vibrantTeal
             )
 
@@ -107,7 +107,7 @@ struct TimeBankCard: View {
             // Used chip
             balanceChip(
                 value: usedMinutes,
-                label: "USED",
+                label: String(localized: "USED"),
                 color: AppTheme.playfulCoral
             )
         }

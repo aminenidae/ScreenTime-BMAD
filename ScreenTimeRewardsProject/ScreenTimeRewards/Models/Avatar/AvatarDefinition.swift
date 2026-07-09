@@ -54,10 +54,10 @@ enum AvatarCategory: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .creature: return "Creatures"
-        case .robot: return "Robots"
-        case .nature: return "Nature"
-        case .space: return "Space"
+        case .creature: return String(localized: "Creatures")
+        case .robot: return String(localized: "Robots")
+        case .nature: return String(localized: "Nature")
+        case .space: return String(localized: "Space")
         }
     }
 
@@ -81,10 +81,10 @@ enum AgeRange: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .young: return "Ages 6-8"
-        case .middle: return "Ages 8-10"
-        case .older: return "Ages 10-12"
-        case .all: return "All Ages"
+        case .young: return String(localized: "Ages 6-8")
+        case .middle: return String(localized: "Ages 8-10")
+        case .older: return String(localized: "Ages 10-12")
+        case .all: return String(localized: "All Ages")
         }
     }
 

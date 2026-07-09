@@ -2449,10 +2449,10 @@ extension AppUsageViewModel {
         }
 
         if let entry = combinedEntries.first {
-        return "An app (token hash: \(entry.tokenHash)) is assigned to both Learning and Reward categories. Please fix the conflict."
+        return String(localized: "An app (token hash: \(entry.tokenHash)) is assigned to both Learning and Reward categories. Please fix the conflict.")
         }
 
-        return "An app is assigned to both Learning and Reward categories. Please fix the conflict."
+        return String(localized: "An app is assigned to both Learning and Reward categories. Please fix the conflict.")
     }
 
     #if DEBUG
@@ -2926,15 +2926,15 @@ extension AppUsageViewModel {
     // Task M: Add method to get removal warning message
     func getRemovalWarningMessage(for token: ApplicationToken) -> String {
         guard let category = categoryAssignments[token] else {
-            return "Are you sure you want to remove this app?"
+            return String(localized: "Are you sure you want to remove this app?")
         }
         
         let appName = resolvedDisplayName(for: token) ?? "Unknown App"
         
         if category == .reward {
-            return "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Remove the shield/block for this app\n• Reset usage time to zero\n\nDo you want to continue?"
+            return String(localized: "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Remove the shield/block for this app\n• Reset usage time to zero\n\nDo you want to continue?")
         } else {
-            return "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Reset usage time to zero\n\nDo you want to continue?"
+            return String(localized: "Removing \"\(appName)\" will:\n• Clear all earned points for this app\n• Reset usage time to zero\n\nDo you want to continue?")
         }
     }
     

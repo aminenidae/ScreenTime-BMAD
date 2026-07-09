@@ -175,7 +175,7 @@ private struct AppUsageDetailRow: View {
     private var displayName: String {
         if app.displayName.isEmpty || app.displayName.hasPrefix("Unknown") {
             let appNumber = abs(app.id.hashValue) % 100
-            return "Privacy Protected App #\(appNumber)"
+            return String(localized: "Privacy Protected App #\(appNumber)")
         }
         return app.displayName
     }

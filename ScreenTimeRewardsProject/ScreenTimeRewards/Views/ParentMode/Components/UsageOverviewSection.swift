@@ -41,7 +41,7 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
                 // Learning Time Card - Tappable
                 UsageStatCard(
                     icon: "book.fill",
-                    label: "LEARNING",
+                    label: String(localized: "LEARNING"),
                     minutes: dataProvider.learningTimeSeconds / 60,
                     color: AppTheme.vibrantTeal,
                     appCount: dataProvider.learningAppDetails.count
@@ -59,7 +59,7 @@ struct UsageOverviewSection<Provider: DashboardDataProvider>: View {
                 // Reward Time Card - Tappable
                 UsageStatCard(
                     icon: "gamecontroller.fill",
-                    label: "REWARD",
+                    label: String(localized: "REWARD"),
                     minutes: dataProvider.rewardTimeSeconds / 60,
                     color: AppTheme.playfulCoral,
                     appCount: dataProvider.rewardAppDetails.count

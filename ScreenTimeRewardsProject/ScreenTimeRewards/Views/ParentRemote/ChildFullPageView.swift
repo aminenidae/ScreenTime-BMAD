@@ -83,14 +83,14 @@ private struct DeviceHeaderSection: View {
 
     var lastSyncText: String {
         guard let lastSync = device.lastSyncDate else {
-            return "Never synced"
+            return String(localized: "Never synced")
         }
 
         let now = Date()
         let interval = now.timeIntervalSince(lastSync)
 
         if interval < 60 {
-            return "Just now"
+            return String(localized: "Just now")
         } else if interval < 3600 {
             let minutes = Int(interval / 60)
             return "\(minutes)m ago"

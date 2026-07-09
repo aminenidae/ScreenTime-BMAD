@@ -19,18 +19,15 @@ struct ModeSelectionView: View {
     @Environment(\.colorScheme) var colorScheme
 
     /// Gets the child's name for display in "Child's Space" button
-    /// Uses the device name if it's a child device, otherwise falls back to "Child"
-    private var childSpaceName: String {
+    /// Uses the device name if it's a child device, otherwise falls back to "Child".
+    /// Possessive form lives in the display string keys (not here) so translations
+    /// can use their own grammar (e.g. French "ESPACE DE %@").
+    private var childSpaceLabel: String {
         let name = modeManager.deviceName.trimmingCharacters(in: .whitespacesAndNewlines)
         if name.isEmpty {
-            return "Child's"
+            return String(localized: "CHILD'S SPACE")
         }
-        // Add possessive form
-        if name.lowercased().hasSuffix("s") {
-            return "\(name)'"
-        } else {
-            return "\(name)'s"
-        }
+        return String(localized: "\(name.uppercased())'S SPACE")
     }
 
     var body: some View {
@@ -79,7 +76,7 @@ struct ModeSelectionView: View {
                             .padding(.bottom, 20)
 
                         // Title - Dynamic name
-                        Text("\(childSpaceName.uppercased()) SPACE")
+                        Text(childSpaceLabel)
                             .font(.system(size: 28, weight: .bold))
                             .tracking(3)
                             .foregroundColor(AppTheme.lightCream)

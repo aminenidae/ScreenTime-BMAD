@@ -129,27 +129,27 @@ enum FirebaseValidationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .notConfigured:
-            return "Firebase validation is not configured"
+            return String(localized: "Firebase validation is not configured")
         case .invalidToken:
-            return "The pairing code is invalid or has already been used"
+            return String(localized: "The pairing code is invalid or has already been used")
         case .tokenExpired:
-            return "The pairing code has expired. Ask for a new code."
+            return String(localized: "The pairing code has expired. Ask for a new code.")
         case .tokenAlreadyUsed:
-            return "This pairing code has already been used"
+            return String(localized: "This pairing code has already been used")
         case .subscriptionExpired:
-            return "The parent's subscription has expired"
+            return String(localized: "The parent's subscription has expired")
         case .deviceLimitReached:
-            return "Maximum number of child devices reached for this subscription"
+            return String(localized: "Maximum number of child devices reached for this subscription")
         case .parentLimitReached:
-            return "Maximum number of parent devices reached for this family"
+            return String(localized: "Maximum number of parent devices reached for this family")
         case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
+            return String(localized: "Network error: \(error.localizedDescription)")
         case .serverError(let message):
-            return "Server error: \(message)"
+            return String(localized: "Server error: \(message)")
         case .invalidPayload:
             return "Invalid QR code format"
         case .sameAccountPairing:
-            return "Cannot pair with your own account"
+            return String(localized: "Cannot pair with your own account")
         }
     }
 }

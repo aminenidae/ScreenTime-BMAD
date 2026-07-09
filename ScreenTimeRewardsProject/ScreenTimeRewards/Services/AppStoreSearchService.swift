@@ -249,11 +249,11 @@ enum AppStoreSearchError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidQuery:
-            return "Invalid search query"
+            return String(localized: "Invalid search query")
         case .invalidResponse:
-            return "Invalid response from App Store"
+            return String(localized: "Invalid response from App Store")
         case .httpError(let statusCode):
-            return "App Store returned error: \(statusCode)"
+            return String(localized: "App Store returned error: \(statusCode)")
         }
     }
 }

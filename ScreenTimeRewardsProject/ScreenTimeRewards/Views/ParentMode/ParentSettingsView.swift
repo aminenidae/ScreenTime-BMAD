@@ -84,7 +84,7 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "crown.fill",
-                title: "Manage Subscription",
+                title: String(localized: "Manage Subscription"),
                 subtitle: subscriptionStatusText,
                 iconColor: .yellow
             ) {
@@ -96,15 +96,15 @@ struct ParentSettingsView: View {
     private var subscriptionStatusText: String {
         switch subscriptionManager.currentStatus {
         case .active:
-            return "Premium Active"
+            return String(localized: "Premium Active")
         case .trial:
-            return "Trial Period"
+            return String(localized: "Trial Period")
         case .grace:
-            return "Grace Period"
+            return String(localized: "Grace Period")
         case .expired:
-            return "Expired"
+            return String(localized: "Expired")
         case .cancelled:
-            return "Cancelled"
+            return String(localized: "Cancelled")
         }
     }
 
@@ -116,8 +116,8 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "link",
-                title: "Linked Devices",
-                subtitle: "Manage paired child devices",
+                title: String(localized: "Linked Devices"),
+                subtitle: String(localized: "Manage paired child devices"),
                 iconColor: .blue
             ) {
                 showingLinkedDevices = true
@@ -125,8 +125,8 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "lock.fill",
-                title: "Change PIN",
-                subtitle: "Update your parent PIN",
+                title: String(localized: "Change PIN"),
+                subtitle: String(localized: "Update your parent PIN"),
                 iconColor: .purple
             ) {
                 showingChangePIN = true
@@ -142,8 +142,8 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "globe",
-                title: "Website Blocking",
-                subtitle: "Manage blocked websites and browsers",
+                title: String(localized: "Website Blocking"),
+                subtitle: String(localized: "Manage blocked websites and browsers"),
                 iconColor: .red
             ) {
                 showingWebRestrictions = true
@@ -159,8 +159,8 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "bell.fill",
-                title: "Notification Settings",
-                subtitle: "Configure alerts and reminders",
+                title: String(localized: "Notification Settings"),
+                subtitle: String(localized: "Configure alerts and reminders"),
                 iconColor: .orange
             ) {
                 showingNotificationSettings = true
@@ -176,8 +176,8 @@ struct ParentSettingsView: View {
 
             settingsButton(
                 icon: "info.circle.fill",
-                title: "About",
-                subtitle: "Version, privacy, and support",
+                title: String(localized: "About"),
+                subtitle: String(localized: "Version, privacy, and support"),
                 iconColor: .gray
             ) {
                 showingAbout = true

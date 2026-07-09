@@ -175,10 +175,10 @@ struct DiagnosticsLogExportView: View {
 
     private static func formattedBatteryLine() -> String {
         guard let defaults = UserDefaults(suiteName: ExtensionFileLogger.appGroupID) else {
-            return "App Group unavailable"
+            return String(localized: "App Group unavailable")
         }
         let ts = defaults.double(forKey: "battery_state_timestamp")
-        guard ts > 0 else { return "No snapshot yet — open this app once with battery monitoring enabled." }
+        guard ts > 0 else { return String(localized: "No snapshot yet — open this app once with battery monitoring enabled.") }
         let stateInt = defaults.integer(forKey: "last_known_battery_state")
         let level = defaults.double(forKey: "last_known_battery_level")
         let stateStr: String

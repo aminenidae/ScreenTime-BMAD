@@ -67,16 +67,16 @@ extension RegisteredDevice {
         public var displayText: String {
             switch self {
             case .active:
-                return "Connected"
+                return String(localized: "Connected")
             case .inactive(let hours):
                 if hours >= 48 {
-                    return "Last seen \(hours / 24) days ago"
+                    return String(localized: "Last seen \(hours / 24) days ago")
                 }
-                return "Last seen \(hours) hours ago"
+                return String(localized: "Last seen \(hours) hours ago")
             case .stale:
-                return "Disconnected"
+                return String(localized: "Disconnected")
             case .unknown:
-                return "Unknown"
+                return String(localized: "Unknown")
             }
         }
 

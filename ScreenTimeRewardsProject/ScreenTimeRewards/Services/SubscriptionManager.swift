@@ -1247,15 +1247,15 @@ enum SubscriptionError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .verificationFailed:
-            return "Failed to verify purchase"
+            return String(localized: "Failed to verify purchase")
         case .userCancelled:
-            return "Purchase was cancelled"
+            return String(localized: "Purchase was cancelled")
         case .pending:
-            return "Purchase is pending approval"
+            return String(localized: "Purchase is pending approval")
         case .unknown:
-            return "An unknown error occurred"
+            return String(localized: "An unknown error occurred")
         case .noOfferings:
-            return "No subscription options available"
+            return String(localized: "No subscription options available")
         }
     }
 }

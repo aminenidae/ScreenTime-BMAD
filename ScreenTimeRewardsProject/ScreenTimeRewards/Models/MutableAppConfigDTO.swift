@@ -266,13 +266,13 @@ extension MutableAppConfigDTO {
                 return config.allowedTimeWindow.displayString
             }
         }
-        return "Not set"
+        return String(localized: "Not set")
     }
 
     /// Get linked apps summary for display
     var linkedAppsSummary: String {
         if linkedLearningApps.isEmpty {
-            return "None"
+            return String(localized: "None")
         }
         let count = linkedLearningApps.count
         let modeText = unlockMode == .all ? "all" : "any"

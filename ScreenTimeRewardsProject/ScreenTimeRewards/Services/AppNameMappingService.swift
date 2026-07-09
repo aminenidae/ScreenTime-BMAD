@@ -74,7 +74,7 @@ class AppNameMappingService {
         if let customName = getCustomName(for: logicalID) {
             return customName
         } else {
-            return "Privacy Protected \(category) App #\(appNumber)"
+            return String(localized: "Privacy Protected \(category) App #\(appNumber)")
         }
     }
 

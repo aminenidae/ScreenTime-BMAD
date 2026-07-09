@@ -19,7 +19,7 @@ struct AllowedTimeWindow: Codable, Equatable, Hashable {
 
     /// Returns a formatted string for display (e.g., "8:00 AM - 6:00 PM")
     var displayString: String {
-        if isFullDay { return "All day" }
+        if isFullDay { return String(localized: "All day") }
         return "\(formatTime(hour: startHour, minute: startMinute)) - \(formatTime(hour: endHour, minute: endMinute))"
     }
 
@@ -168,15 +168,15 @@ struct DailyTimeWindows: Codable, Equatable, Hashable {
     /// Formatted summary for display
     var displaySummary: String {
         if isAllFullDay {
-            return "All day"
+            return String(localized: "All day")
         }
         if isWeekdayWeekendPattern {
             if weekdayWindow == weekendWindow {
                 return weekdayWindow.displayString
             }
-            return "Weekdays: \(weekdayWindow.displayString), Weekends: \(weekendWindow.displayString)"
+            return String(localized: "Weekdays: \(weekdayWindow.displayString), Weekends: \(weekendWindow.displayString)")
         }
-        return "Custom schedule"
+        return String(localized: "Custom schedule")
     }
 }
 
@@ -306,12 +306,12 @@ struct DailyLimits: Codable, Equatable, Hashable {
         if uniqueLimits.count == 1 {
             return formatMinutes(monday) + "/day"
         }
-        return "Custom schedule"
+        return String(localized: "Custom schedule")
     }
 
     private func formatMinutes(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "Unlimited"
+            return String(localized: "Unlimited")
         }
         let hours = minutes / 60
         let mins = minutes % 60
@@ -438,15 +438,15 @@ enum UnlockMode: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .all: return "Use all apps"
-        case .any: return "Use any one app"
+        case .all: return String(localized: "Use all apps")
+        case .any: return String(localized: "Use any one app")
         }
     }
 
     var description: String {
         switch self {
-        case .all: return "Child must complete all linked apps"
-        case .any: return "Child can complete any one linked app"
+        case .all: return String(localized: "Child must complete all linked apps")
+        case .any: return String(localized: "Child can complete any one linked app")
         }
     }
 }
@@ -621,7 +621,7 @@ struct AppScheduleConfiguration: Codable, Equatable, Identifiable, Hashable {
 
         let count = linkedLearningApps.count
         let modeText = unlockMode == .all ? "all" : "any"
-        return "Complete \(modeText) \(count) app\(count == 1 ? "" : "s")"
+        return String(localized: "Complete \(modeText) \(count) app\(count == 1 ? "" : "s")")
     }
 }
 

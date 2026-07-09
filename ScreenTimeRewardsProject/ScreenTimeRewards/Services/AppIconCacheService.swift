@@ -232,11 +232,11 @@ enum IconCacheError: LocalizedError {
         case .invalidURL:
             return "Invalid icon URL"
         case .downloadFailed:
-            return "Failed to download icon"
+            return String(localized: "Failed to download icon")
         case .invalidImageData:
-            return "Invalid image data"
+            return String(localized: "Invalid image data")
         case .saveFailed:
-            return "Failed to save icon to cache"
+            return String(localized: "Failed to save icon to cache")
         }
     }
 }

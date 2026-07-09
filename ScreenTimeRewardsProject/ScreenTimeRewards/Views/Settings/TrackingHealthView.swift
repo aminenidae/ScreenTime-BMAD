@@ -142,7 +142,7 @@ struct TrackingHealthView: View {
 
     private func formatRelativeTime(seconds: Int) -> String {
         if seconds == Int.max {
-            return "Never"
+            return String(localized: "Never")
         } else if seconds < 60 {
             return "\(seconds)s ago"
         } else if seconds < 3600 {

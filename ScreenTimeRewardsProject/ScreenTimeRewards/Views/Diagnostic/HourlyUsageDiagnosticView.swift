@@ -83,7 +83,7 @@ struct HourlyUsageDiagnosticView: View {
                 HStack(spacing: 16) {
                     statItem(
                         icon: "clock.fill",
-                        label: "Total Today",
+                        label: String(localized: "Total Today"),
                         value: "\(diagnosticData.getTotalMinutes(for: category))m"
                     )
 
@@ -92,7 +92,7 @@ struct HourlyUsageDiagnosticView: View {
 
                     statItem(
                         icon: "chart.line.uptrend.xyaxis",
-                        label: "Events Fired",
+                        label: String(localized: "Events Fired"),
                         value: "\(diagnosticData.getTotalEvents(for: category))"
                     )
 
@@ -101,7 +101,7 @@ struct HourlyUsageDiagnosticView: View {
 
                     statItem(
                         icon: "exclamationmark.triangle.fill",
-                        label: "Rejected",
+                        label: String(localized: "Rejected"),
                         value: "\(diagnosticData.getRejectedEvents(for: category))"
                     )
                 }

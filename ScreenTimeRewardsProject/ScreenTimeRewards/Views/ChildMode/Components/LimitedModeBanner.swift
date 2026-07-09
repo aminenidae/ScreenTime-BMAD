@@ -115,28 +115,28 @@ struct LimitedModeBanner: View {
         switch syncService.parentSubscriptionStatus {
         case .trial:
             if let days = syncService.trialDaysRemaining, days > 0 {
-                return "Trial: \(days) day\(days == 1 ? "" : "s") left"
+                return String(localized: "Trial: \(days) day\(days == 1 ? "" : "s") left")
             }
-            return "Trial Expired"
+            return String(localized: "Trial Expired")
         case .expired:
-            return "Subscription Expired"
+            return String(localized: "Subscription Expired")
         case .unpaired:
-            return "Not Connected"
+            return String(localized: "Not Connected")
         default:
-            return "Limited Access"
+            return String(localized: "Limited Access")
         }
     }
 
     private var bannerSubtitle: String {
         switch syncService.parentSubscriptionStatus {
         case .trial:
-            return "Ask your parent to set up their device"
+            return String(localized: "Ask your parent to set up their device")
         case .expired:
-            return "Ask your parent to renew"
+            return String(localized: "Ask your parent to renew")
         case .unpaired:
-            return "Connect with your parent to unlock"
+            return String(localized: "Connect with your parent to unlock")
         default:
-            return "Some features are limited"
+            return String(localized: "Some features are limited")
         }
     }
 

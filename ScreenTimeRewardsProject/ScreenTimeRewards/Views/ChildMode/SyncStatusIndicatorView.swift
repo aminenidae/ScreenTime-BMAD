@@ -32,13 +32,13 @@ struct SyncStatusIndicatorView: View {
     private var syncStatusText: String {
         switch syncService.syncStatus {
         case .idle:
-            return "Sync idle"
+            return String(localized: "Sync idle")
         case .syncing:
-            return "Syncing..."
+            return String(localized: "Syncing...")
         case .success:
-            return "Synced"
+            return String(localized: "Synced")
         case .error:
-            return "Sync error"
+            return String(localized: "Sync error")
         }
     }
 }

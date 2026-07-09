@@ -143,28 +143,28 @@ struct UsageAccuracyDiagnosticsView: View {
                 )
 
                 StatRow(
-                    label: "Device Model",
+                    label: String(localized: "Device Model"),
                     value: snapshot.deviceModel,
                     icon: "ipad",
                     color: .purple
                 )
 
                 StatRow(
-                    label: "Apps Monitored",
+                    label: String(localized: "Apps Monitored"),
                     value: "\(snapshot.totalAppsMonitored)",
                     icon: "app.badge",
                     color: AppTheme.vibrantTeal
                 )
 
                 StatRow(
-                    label: "Total Tracked Usage",
+                    label: String(localized: "Total Tracked Usage"),
                     value: formatDuration(snapshot.trackedUsageSeconds),
                     icon: "clock.fill",
                     color: AppTheme.sunnyYellow
                 )
 
                 StatRow(
-                    label: "Threshold Events Fired",
+                    label: String(localized: "Threshold Events Fired"),
                     value: "\(snapshot.thresholdEventsFired)",
                     icon: "bell.fill",
                     color: .orange
@@ -172,7 +172,7 @@ struct UsageAccuracyDiagnosticsView: View {
 
                 if let reliability = snapshot.extensionReliabilityRate {
                     StatRow(
-                        label: "Extension Reliability",
+                        label: String(localized: "Extension Reliability"),
                         value: "\(Int(reliability * 100))%",
                         icon: "checkmark.circle.fill",
                         color: reliability > 0.9 ? .green : .orange
@@ -296,13 +296,13 @@ struct UsageAccuracyDiagnosticsView: View {
     private var statusDescription: String {
         switch validationService.validationStatus {
         case .unknown:
-            return "No validation has been performed yet. Use the app to generate tracking data."
+            return String(localized: "No validation has been performed yet. Use the app to generate tracking data.")
         case .healthy:
-            return "Usage tracking appears accurate. No significant issues detected."
+            return String(localized: "Usage tracking appears accurate. No significant issues detected.")
         case .warning:
-            return "Minor tracking issues detected. Review recommendations below."
+            return String(localized: "Minor tracking issues detected. Review recommendations below.")
         case .error:
-            return "Significant tracking issues detected. Please review detected issues and follow recommended actions."
+            return String(localized: "Significant tracking issues detected. Please review detected issues and follow recommended actions.")
         }
     }
 

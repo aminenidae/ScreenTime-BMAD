@@ -1,0 +1,32 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "Complete %lld minutes on your learning apps to unlock this app. Let's get started!": {},
+    "Complete your learning goal to unlock this app.": {},
+    "Complete your learning goal to unlock this category.": {},
+    "Daily Limit Reached": {},
+    "Downtime Active": {},
+    "Learning Time First!": {},
+    "Not Available Today": {},
+    "OK": {},
+    "Reward Time Finished": {},
+    "This app is in downtime. Check back later.": {},
+    "This app is only available:\n%@": {},
+    "This app is only available:\n%@ between %@ and %@": {},
+    "This app is only available:\nAfter %@": {},
+    "This app is taking a break today.": {},
+    "This app is taking a break today. Come back on %@!": {},
+    "This app is taking a break today. Come back tomorrow!": {},
+    "This website category has been blocked by your parent.": {},
+    "This website has been blocked by your parent.": {},
+    "Website Blocked": {},
+    "You used your %lld minutes for today. Come back on %@!": {},
+    "You used your %lld minutes for today. Come back tomorrow!": {},
+    "You've reached your daily limit. Come back on %@!": {},
+    "You've reached your daily limit. Come back tomorrow!": {},
+    "You've reached your daily limit. Try again tomorrow!": {},
+    "You've used %lld minutes of today's reward time. Complete more learning to earn more!": {},
+    "Your reward time has expired. Complete more learning to unlock again!": {}
+  },
+  "version": "1.0"
+}

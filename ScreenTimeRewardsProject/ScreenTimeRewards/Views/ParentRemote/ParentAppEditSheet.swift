@@ -70,11 +70,11 @@ struct ParentAppEditSheet: View {
     /// is stale.
     private var ratioChangeMessage: String {
         guard let proposedSchedule = localConfig.scheduleConfig else {
-            return "Past days keep the rate they were earned at."
+            return String(localized: "Past days keep the rate they were earned at.")
         }
         let l = max(1, proposedSchedule.ratioLearningMinutes)
         let r = max(0, proposedSchedule.rewardMinutesEarned)
-        return "Starting tomorrow, \(l) minute\(l == 1 ? "" : "s") of learning will grant \(r) minute\(r == 1 ? "" : "s") of reward. Past days keep the rate they were earned at."
+        return String(localized: "Starting tomorrow, \(l) minute\(l == 1 ? "" : "s") of learning will grant \(r) minute\(r == 1 ? "" : "s") of reward. Past days keep the rate they were earned at.")
     }
 
     var body: some View {
@@ -453,9 +453,9 @@ struct ParentAppEditSheet: View {
     private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
             if timeWindow.isFullDay {
-                return "Your child can use this app anytime"
+                return String(localized: "Your child can use this app anytime")
             } else {
-                return "Your child can use this app \(timeRange)"
+                return String(localized: "Your child can use this app \(timeRange)")
             }
         } else {
             return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
@@ -472,20 +472,20 @@ struct ParentAppEditSheet: View {
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "Sunday"
-        case 2: return "Monday"
-        case 3: return "Tuesday"
-        case 4: return "Wednesday"
-        case 5: return "Thursday"
-        case 6: return "Friday"
-        case 7: return "Saturday"
+        case 1: return String(localized: "Sunday")
+        case 2: return String(localized: "Monday")
+        case 3: return String(localized: "Tuesday")
+        case 4: return String(localized: "Wednesday")
+        case 5: return String(localized: "Thursday")
+        case 6: return String(localized: "Friday")
+        case 7: return String(localized: "Saturday")
         default: return ""
         }
     }
 
     private func formatDuration(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "Unlimited"
+            return String(localized: "Unlimited")
         }
         let hours = minutes / 60
         let mins = minutes % 60

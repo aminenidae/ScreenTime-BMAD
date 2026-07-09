@@ -347,11 +347,11 @@ private extension ChildSubscriptionView {
 
     var buttonText: String {
         if selectedBillingPeriod == .annual {
-            return "Start 14-Day Free Trial"
+            return String(localized: "Start 14-Day Free Trial")
         } else if let package = selectedPackage {
-            return "Subscribe for \(package.localizedPriceString)"
+            return String(localized: "Subscribe for \(package.localizedPriceString)")
         }
-        return "Subscribe"
+        return String(localized: "Subscribe")
     }
 
     var orDivider: some View {

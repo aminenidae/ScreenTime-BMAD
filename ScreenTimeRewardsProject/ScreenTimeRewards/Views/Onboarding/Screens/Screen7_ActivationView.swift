@@ -32,9 +32,9 @@ struct Screen7_ActivationView: View {
     private let stepAnimationDelay: Double = 0.4
 
     private let steps: [ActivationStepCard] = [
-        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: "Discuss With Your Child", subtitle: "Explain the learning-and-reward system together."),
-        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: "Let It Run", subtitle: "Try not to adjust for 48 hours — let them find the rhythm."),
-        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: "Check Progress", subtitle: "After 3 days, review together and ask: does this feel fair?")
+        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: String(localized: "Discuss With Your Child"), subtitle: String(localized: "Explain the learning-and-reward system together.")),
+        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: String(localized: "Let It Run"), subtitle: String(localized: "Try not to adjust for 48 hours — let them find the rhythm.")),
+        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: String(localized: "Check Progress"), subtitle: String(localized: "After 3 days, review together and ask: does this feel fair?"))
     ]
 
     var body: some View {

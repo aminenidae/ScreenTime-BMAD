@@ -614,7 +614,7 @@ private extension SubscriptionManagementView {
 
     var formattedTrialEndDate: String {
         guard let trialEnd = subscriptionManager.subscription?.trialEndDate else {
-            return "Unknown"
+            return String(localized: "Unknown")
         }
         let formatter = DateFormatter()
         formatter.dateStyle = .medium

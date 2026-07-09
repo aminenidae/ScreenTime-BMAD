@@ -24,7 +24,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
                 let fallback = "Screen Time authorization was not granted."
                 return error?.localizedDescription ?? fallback
             case .monitoringFailed(let error):
-                return "Unable to start monitoring: \(error.localizedDescription)"
+                return String(localized: "Unable to start monitoring: \(error.localizedDescription)")
             }
         }
     }
@@ -1820,7 +1820,7 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
     /// Get extension debug log (circular buffer of last 50 entries)
     func getExtensionDebugLog() -> String {
         guard let sharedDefaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            return "Unable to access App Group"
+            return String(localized: "Unable to access App Group")
         }
         return sharedDefaults.string(forKey: "extension_debug_log") ?? "No extension logs yet"
     }
@@ -2329,12 +2329,12 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         lifecycleLog("HEAL_USAGE_REQUEST — reason: \(reason) (extension will perform the work)")
 
         guard let defaults = UserDefaults(suiteName: appGroupIdentifier) else {
-            return "Couldn't access shared storage."
+            return String(localized: "Couldn't access shared storage.")
         }
 
         let appIDs = defaults.stringArray(forKey: "tracked_app_ids") ?? []
         guard !appIDs.isEmpty else {
-            return "No apps are being tracked yet."
+            return String(localized: "No apps are being tracked yet.")
         }
 
         // Snapshot pre-heal totals so the success message can show what was
@@ -2362,9 +2362,9 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         await restartMonitoring(reason: "heal-usage:\(reason)", force: true)
 
         if preHealMin > 0 {
-            return "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding today's totals now — they'll update over the next ~30 seconds."
+            return String(localized: "Cleared \(preHealMin) minutes of recorded usage. iOS is rebuilding today's totals now — they'll update over the next ~30 seconds.")
         } else {
-            return "No usage recorded yet today. iOS will deliver today's usage now if any."
+            return String(localized: "No usage recorded yet today. iOS will deliver today's usage now if any.")
         }
     }
 

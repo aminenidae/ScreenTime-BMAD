@@ -333,9 +333,9 @@ struct ShieldStateDTO: Identifiable {
                 formatter.timeStyle = .short
                 return "Unlocked at \(formatter.string(from: unlockedAt))"
             }
-            return "Unlocked"
+            return String(localized: "Unlocked")
         } else {
-            return "Blocked"
+            return String(localized: "Blocked")
         }
     }
 
@@ -552,7 +552,7 @@ struct ExtensionSyncStatusDTO {
     /// Human-readable status message for display
     var displayStatus: String {
         guard let timestamp = lastAttemptTimestamp else {
-            return "Extension has not synced yet"
+            return String(localized: "Extension has not synced yet")
         }
 
         let timeAgo = timeSinceLastAttempt ?? 0

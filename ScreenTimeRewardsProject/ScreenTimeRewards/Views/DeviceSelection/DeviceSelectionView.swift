@@ -76,8 +76,8 @@ struct DeviceSelectionView: View {
                             // Parent Device Card
                             DeviceImageCard(
                                 imageName: "onboarding_0_2",
-                                title: "Parent's Device",
-                                subtitle: "Track every minute — from anywhere.",
+                                title: String(localized: "Parent's Device"),
+                                subtitle: String(localized: "Track every minute — from anywhere."),
                                 isSelected: selectedMode == .parentDevice,
                                 colorScheme: colorScheme
                             ) {
@@ -89,8 +89,8 @@ struct DeviceSelectionView: View {
                             // Child Device Card
                             DeviceImageCard(
                                 imageName: "onboarding_0_3",
-                                title: "Child's Device",
-                                subtitle: "Learn first. Play after.",
+                                title: String(localized: "Child's Device"),
+                                subtitle: String(localized: "Learn first. Play after."),
                                 isSelected: selectedMode == .childDevice,
                                 colorScheme: colorScheme
                             ) {

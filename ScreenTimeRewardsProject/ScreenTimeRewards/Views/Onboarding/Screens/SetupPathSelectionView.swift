@@ -16,8 +16,8 @@ enum SetupPath: String, Codable {
 
     var displayName: String {
         switch self {
-        case .solo: return "Solo"
-        case .family: return "Family"
+        case .solo: return String(localized: "Solo")
+        case .family: return String(localized: "Family")
         }
     }
 }
@@ -190,15 +190,15 @@ private struct PathOptionCard: View {
 
     private var title: String {
         switch path {
-        case .solo: return "On This Device Only"
-        case .family: return "From a Parent Device"
+        case .solo: return String(localized: "On This Device Only")
+        case .family: return String(localized: "From a Parent Device")
         }
     }
 
     private var subtitle: String {
         switch path {
-        case .solo: return "Monitor your child's usage directly on their device"
-        case .family: return "Monitor remotely from your phone or tablet"
+        case .solo: return String(localized: "Monitor your child's usage directly on their device")
+        case .family: return String(localized: "Monitor remotely from your phone or tablet")
         }
     }
 }

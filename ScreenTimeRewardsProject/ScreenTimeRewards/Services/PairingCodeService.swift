@@ -134,11 +134,11 @@ enum PairingCodeError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .invalidCode:
-            return "Invalid pairing code. Please check the code and try again."
+            return String(localized: "Invalid pairing code. Please check the code and try again.")
         case .codeExpired:
-            return "This pairing code has expired. Please generate a new one."
+            return String(localized: "This pairing code has expired. Please generate a new one.")
         case .codeAlreadyUsed:
-            return "This pairing code has already been used."
+            return String(localized: "This pairing code has already been used.")
         }
     }
 }

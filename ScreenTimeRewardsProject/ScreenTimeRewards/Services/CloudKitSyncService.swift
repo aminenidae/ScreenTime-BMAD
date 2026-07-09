@@ -22,11 +22,11 @@ class CloudKitSyncService: ObservableObject {
         var errorDescription: String? {
             switch self {
             case .zoneNotFound(let deviceID):
-                return "Could not find shared zone for device: \(deviceID)"
+                return String(localized: "Could not find shared zone for device: \(deviceID)")
             case .commandEncodingFailed:
-                return "Failed to encode command payload"
+                return String(localized: "Failed to encode command payload")
             case .recordNotFound:
-                return "Record not found in CloudKit"
+                return String(localized: "Record not found in CloudKit")
             }
         }
     }

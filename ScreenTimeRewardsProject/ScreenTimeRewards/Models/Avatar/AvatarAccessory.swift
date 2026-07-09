@@ -27,10 +27,10 @@ enum AccessoryCategory: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .hat: return "Hats"
-        case .glasses: return "Glasses"
-        case .background: return "Backgrounds"
-        case .effect: return "Effects"
+        case .hat: return String(localized: "Hats")
+        case .glasses: return String(localized: "Glasses")
+        case .background: return String(localized: "Backgrounds")
+        case .effect: return String(localized: "Effects")
         }
     }
 
@@ -64,11 +64,11 @@ enum AccessoryRarity: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .common: return "Common"
-        case .uncommon: return "Uncommon"
-        case .rare: return "Rare"
-        case .epic: return "Epic"
-        case .legendary: return "Legendary"
+        case .common: return String(localized: "Common")
+        case .uncommon: return String(localized: "Uncommon")
+        case .rare: return String(localized: "Rare")
+        case .epic: return String(localized: "Epic")
+        case .legendary: return String(localized: "Legendary")
         }
     }
 
@@ -113,13 +113,13 @@ struct AccessoryUnlockCriteria: Codable, Hashable {
             let hours = value / 60
             return hours > 0 ? "Learn for \(hours) hours" : "Learn for \(value) minutes"
         case .streakDays:
-            return "Maintain a \(value)-day streak"
+            return String(localized: "Maintain a \(value)-day streak")
         case .badgesEarned:
-            return "Earn \(value) badges"
+            return String(localized: "Earn \(value) badges")
         case .evolutionLevel:
-            return "Reach evolution level \(value)"
+            return String(localized: "Reach evolution level \(value)")
         case .challengesCompleted:
-            return "Complete \(value) challenges"
+            return String(localized: "Complete \(value) challenges")
         }
     }
 }

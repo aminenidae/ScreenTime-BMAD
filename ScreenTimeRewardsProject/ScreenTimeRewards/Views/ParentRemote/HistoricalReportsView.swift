@@ -106,21 +106,21 @@ private struct DailyTotalCard: View {
 
             VStack(spacing: 8) {
                 StatItem(
-                    title: "Learning",
+                    title: String(localized: "Learning"),
                     value: TimeFormatting.formatSeconds(learningSeconds),
                     icon: "book",
                     color: AppTheme.vibrantTeal
                 )
 
                 StatItem(
-                    title: "Reward",
+                    title: String(localized: "Reward"),
                     value: TimeFormatting.formatSeconds(rewardSeconds),
                     icon: "gamecontroller",
                     color: AppTheme.playfulCoral
                 )
 
                 StatItem(
-                    title: "Total",
+                    title: String(localized: "Total"),
                     value: TimeFormatting.formatSeconds(learningSeconds + rewardSeconds),
                     icon: "clock",
                     color: AppTheme.textSecondary(for: colorScheme)
@@ -365,13 +365,13 @@ private struct CategoryBreakdownView: View {
 
                     HStack {
                         StatBadge(
-                            title: "Learning",
+                            title: String(localized: "Learning"),
                             value: TimeFormatting.formatSeconds(totalLearning),
                             color: AppTheme.vibrantTeal
                         )
 
                         StatBadge(
-                            title: "Reward",
+                            title: String(localized: "Reward"),
                             value: TimeFormatting.formatSeconds(totalReward),
                             color: AppTheme.playfulCoral
                         )

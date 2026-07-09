@@ -40,11 +40,11 @@ struct Screen2_SolutionView: View {
     private let cardAnimationDelays: [Double] = [0.0, 1.0, 2.5, 4.5, 6.5]
 
     private let steps: [SolutionStepCard] = [
-        SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: "Agree On A Goal", subtitle: "Parent & Child Discuss Learning Targets"),
-        SolutionStepCard(id: 1, imageName: "onboarding_C2_2", stepNumber: "2", title: "Child Learns", subtitle: "Educational Apps Unlock With Every Milestone"),
-        SolutionStepCard(id: 2, imageName: "onboarding_C2_3", stepNumber: "3", title: "Automatic Unlock", subtitle: "No Asking. Just Automatic Rewards."),
-        SolutionStepCard(id: 3, imageName: "onboarding_C2_4", stepNumber: "4", title: "Enjoy Rewards", subtitle: "Guilt-Free Entertainment They've Earned"),
-        SolutionStepCard(id: 4, imageName: "onboarding_C2_5", stepNumber: "5", title: "Auto-Lock", subtitle: "Time's Up. No Negotiations. Peaceful Transition.")
+        SolutionStepCard(id: 0, imageName: "onboarding_C2_1", stepNumber: "1", title: String(localized: "Agree On A Goal"), subtitle: String(localized: "Parent & Child Discuss Learning Targets")),
+        SolutionStepCard(id: 1, imageName: "onboarding_C2_2", stepNumber: "2", title: String(localized: "Child Learns"), subtitle: String(localized: "Educational Apps Unlock With Every Milestone")),
+        SolutionStepCard(id: 2, imageName: "onboarding_C2_3", stepNumber: "3", title: String(localized: "Automatic Unlock"), subtitle: String(localized: "No Asking. Just Automatic Rewards.")),
+        SolutionStepCard(id: 3, imageName: "onboarding_C2_4", stepNumber: "4", title: String(localized: "Enjoy Rewards"), subtitle: String(localized: "Guilt-Free Entertainment They've Earned")),
+        SolutionStepCard(id: 4, imageName: "onboarding_C2_5", stepNumber: "5", title: String(localized: "Auto-Lock"), subtitle: String(localized: "Time's Up. No Negotiations. Peaceful Transition."))
     ]
 
     var body: some View {

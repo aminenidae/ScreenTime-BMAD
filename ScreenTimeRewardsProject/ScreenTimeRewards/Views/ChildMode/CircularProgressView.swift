@@ -68,7 +68,7 @@ struct CircularProgressView_Previews: PreviewProvider {
     static var previews: some View {
         HStack(spacing: 24) {
             CircularProgressView(
-                title: "Learning Goal",
+                title: String(localized: "Learning Goal"),
                 current: 45,
                 total: 60,
                 color: AppTheme.vibrantTeal,
@@ -76,7 +76,7 @@ struct CircularProgressView_Previews: PreviewProvider {
             )
 
             CircularProgressView(
-                title: "Reward Earned",
+                title: String(localized: "Reward Earned"),
                 current: 15,
                 total: 30,
                 color: AppTheme.sunnyYellow,

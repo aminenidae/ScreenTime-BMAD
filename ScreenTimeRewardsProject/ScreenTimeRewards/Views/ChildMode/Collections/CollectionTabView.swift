@@ -19,8 +19,8 @@ struct CollectionTabView: View {
 
         var title: String {
             switch self {
-            case .badges: return "Badges"
-            case .cards: return "Cards"
+            case .badges: return String(localized: "Badges")
+            case .cards: return String(localized: "Cards")
             }
         }
 

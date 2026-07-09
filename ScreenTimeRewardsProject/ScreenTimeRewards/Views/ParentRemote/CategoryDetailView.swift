@@ -131,7 +131,7 @@ struct CategoryDetailView: View {
 
         // 2. Check local custom name (parent's overrides)
         guard let logicalID = app.logicalID else {
-            return "Unknown App"
+            return String(localized: "Unknown App")
         }
         if let customName = namingService.getCustomName(for: logicalID) {
             return customName
@@ -140,7 +140,7 @@ struct CategoryDetailView: View {
         // 3. Fallback to privacy-protected naming
         let category = app.category ?? "Unknown"
         let appNumber = abs(logicalID.hashValue) % 100
-        return "Privacy Protected \(category) App #\(appNumber)"
+        return String(localized: "Privacy Protected \(category) App #\(appNumber)")
     }
 
     private func formatSeconds(_ seconds: Int) -> String {
@@ -173,7 +173,7 @@ struct AppNameEditorSheet: View {
     private var defaultName: String {
         let category = app.category ?? "Unknown"
         let appNumber = abs((app.logicalID ?? "").hashValue) % 100
-        return "Privacy Protected \(category) App #\(appNumber)"
+        return String(localized: "Privacy Protected \(category) App #\(appNumber)")
     }
 
     var body: some View {

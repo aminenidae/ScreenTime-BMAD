@@ -63,16 +63,16 @@ struct SetupCompleteScreen: View {
                         // Tip 1
                         TipCard(
                             icon: "lightbulb.fill",
-                            title: "Explore Together:",
-                            description: "Show your child how to earn rewards by using their Learning Apps.",
+                            title: String(localized: "Explore Together:"),
+                            description: String(localized: "Show your child how to earn rewards by using their Learning Apps."),
                             colorScheme: colorScheme
                         )
 
                         // Tip 2
                         TipCard(
                             icon: "gearshape.fill",
-                            title: "Adjust Goals:",
-                            description: "You can easily change daily time targets from the Parent Dashboard.",
+                            title: String(localized: "Adjust Goals:"),
+                            description: String(localized: "You can easily change daily time targets from the Parent Dashboard."),
                             colorScheme: colorScheme
                         )
                     }

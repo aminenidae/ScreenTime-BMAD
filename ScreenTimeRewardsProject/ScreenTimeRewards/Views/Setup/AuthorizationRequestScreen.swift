@@ -86,20 +86,20 @@ struct AuthorizationRequestScreen: View {
                     // Features list
                     VStack(spacing: 16) {
                         FeatureItem(
-                            title: "Set Learning Apps",
-                            description: "Designate educational apps for your child to focus on.",
+                            title: String(localized: "Set Learning Apps"),
+                            description: String(localized: "Designate educational apps for your child to focus on."),
                             colorScheme: colorScheme
                         )
 
                         FeatureItem(
-                            title: "Unlock Reward Apps",
-                            description: "Time spent on learning unlocks access to their favorite games and apps.",
+                            title: String(localized: "Unlock Reward Apps"),
+                            description: String(localized: "Time spent on learning unlocks access to their favorite games and apps."),
                             colorScheme: colorScheme
                         )
 
                         FeatureItem(
-                            title: "Ensure Focus",
-                            description: "We'll gently guide your child back to learning apps if they get distracted.",
+                            title: String(localized: "Ensure Focus"),
+                            description: String(localized: "We'll gently guide your child back to learning apps if they get distracted."),
                             colorScheme: colorScheme
                         )
                     }

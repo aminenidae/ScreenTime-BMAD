@@ -335,9 +335,9 @@ private extension SubscriptionPaywallView {
         case .individual:
             return "1 child, 2 parent devices"
         case .family:
-            return "Up to 5 children, 2 parents each"
+            return String(localized: "Up to 5 children, 2 parents each")
         case .trial:
-            return "Full access for 14 days"
+            return String(localized: "Full access for 14 days")
         }
     }
 
@@ -432,17 +432,17 @@ private extension SubscriptionPaywallView {
 
     var buttonText: String {
         if isOnboarding {
-            return "Start Free Trial"
+            return String(localized: "Start Free Trial")
         } else if let package = selectedPackage {
             if selectedBillingPeriod == .annual {
-                return "Start 14-Day Free Trial"
+                return String(localized: "Start 14-Day Free Trial")
             } else {
-                return "Subscribe for \(package.localizedPriceString)"
+                return String(localized: "Subscribe for \(package.localizedPriceString)")
             }
         } else if selectedStoreKitProduct != nil {
             return selectedBillingPeriod == .annual ? "Start 14-Day Free Trial" : "Subscribe"
         } else {
-            return "Continue"
+            return String(localized: "Continue")
         }
     }
 

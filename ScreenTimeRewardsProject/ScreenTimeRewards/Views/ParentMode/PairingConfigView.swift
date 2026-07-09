@@ -286,7 +286,7 @@ struct PairingConfigView: View {
             // Autocomplete Text Field
             AppNameAutocompleteField(
                 text: bindingForLearning(app),
-                placeholder: "Enter app name (e.g., Khan Academy)...",
+                placeholder: String(localized: "Enter app name (e.g., Khan Academy)..."),
                 isFocused: focusedAppID == app.logicalID,
                 accentColor: AppTheme.vibrantTeal,
                 onFocus: { focusedAppID = app.logicalID },
@@ -376,7 +376,7 @@ struct PairingConfigView: View {
             // Autocomplete Text Field
             AppNameAutocompleteField(
                 text: bindingForReward(app),
-                placeholder: "Enter app name (e.g., YouTube)...",
+                placeholder: String(localized: "Enter app name (e.g., YouTube)..."),
                 isFocused: focusedAppID == app.logicalID,
                 accentColor: AppTheme.playfulCoral,
                 onFocus: { focusedAppID = app.logicalID },

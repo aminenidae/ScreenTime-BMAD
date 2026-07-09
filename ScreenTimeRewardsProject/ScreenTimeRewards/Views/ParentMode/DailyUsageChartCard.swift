@@ -85,13 +85,13 @@ struct DailyUsageChartCard: View {
             HStack(spacing: 32) {
                 legendItem(
                     color: AppTheme.vibrantTeal,
-                    label: "Learning",
+                    label: String(localized: "Learning"),
                     value: totalLearningMinutes
                 )
 
                 legendItem(
                     color: AppTheme.playfulCoral,
-                    label: "Reward",
+                    label: String(localized: "Reward"),
                     value: totalRewardMinutes
                 )
             }
@@ -122,10 +122,10 @@ struct DailyUsageChartCard: View {
         }()
         let xAxisName: String = {
             switch selectedPeriod {
-            case .hourly: return "Hour"
-            case .daily: return "Day"
-            case .weekly: return "Week"
-            case .monthly: return "Month"
+            case .hourly: return String(localized: "Hour")
+            case .daily: return String(localized: "Day")
+            case .weekly: return String(localized: "Week")
+            case .monthly: return String(localized: "Month")
             }
         }()
 
@@ -461,9 +461,9 @@ struct DailyUsageChartCard: View {
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {
-                return "Today"
+                return String(localized: "Today")
             } else if calendar.isDate(date, inSameDayAs: calendar.date(byAdding: .day, value: -1, to: today)!) {
-                return "Yest."
+                return String(localized: "Yest.")
             } else {
                 formatter.dateFormat = "EEE" // Mon, Tue, etc.
                 return formatter.string(from: date)

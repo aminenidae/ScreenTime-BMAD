@@ -8,18 +8,18 @@ enum DeviceMode: String, Codable {
     var displayName: String {
         switch self {
         case .parentDevice:
-            return "Parent Device"
+            return String(localized: "Parent Device")
         case .childDevice:
-            return "Child Device"
+            return String(localized: "Child Device")
         }
     }
     
     var description: String {
         switch self {
         case .parentDevice:
-            return "Monitor and configure child devices remotely"
+            return String(localized: "Monitor and configure child devices remotely")
         case .childDevice:
-            return "Run monitoring on this device with parental controls"
+            return String(localized: "Run monitoring on this device with parental controls")
         }
     }
     

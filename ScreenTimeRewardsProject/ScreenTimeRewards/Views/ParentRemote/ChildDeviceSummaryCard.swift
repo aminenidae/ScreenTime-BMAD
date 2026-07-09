@@ -39,21 +39,21 @@ struct ChildDeviceSummaryCard: View {
             } else if let summary = todayUsage {
                 HStack(spacing: 32) {
                     StatItem(
-                        title: "Screen Time",
+                        title: String(localized: "Screen Time"),
                         value: TimeFormatting.formatSecondsCompact(TimeInterval(summary.totalSeconds)),
                         icon: "clock.fill",
                         color: .blue
                     )
 
                     StatItem(
-                        title: "Points Earned",
+                        title: String(localized: "Points Earned"),
                         value: "\(summary.totalPoints)",
                         icon: "star.fill",
                         color: .orange
                     )
 
                     StatItem(
-                        title: "Apps Used",
+                        title: String(localized: "Apps Used"),
                         value: "\(summary.appCount)",
                         icon: "app.fill",
                         color: .green
@@ -82,12 +82,12 @@ struct ChildDeviceSummaryCard: View {
 
     private var lastSyncText: String {
         guard let lastSync = device.lastSyncDate else {
-            return "Never"
+            return String(localized: "Never")
         }
 
         let interval = Date().timeIntervalSince(lastSync)
         if interval < 60 {
-            return "Just now"
+            return String(localized: "Just now")
         } else if interval < 3600 {
             return "\(Int(interval / 60))m ago"
         } else if interval < 86400 {

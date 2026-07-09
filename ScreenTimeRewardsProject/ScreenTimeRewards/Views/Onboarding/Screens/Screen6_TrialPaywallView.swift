@@ -63,9 +63,9 @@ struct Screen6_TrialPaywallView: View {
         if selectedPlan == .annual {
             let price = annualPackage?.localizedPriceString ?? annualFallbackPrice
             if let price {
-                return "Free for 14 days, then \(price)/year.\n\n\(appleBoilerplate)"
+                return String(localized: "Free for 14 days, then \(price)/year.\n\n\(appleBoilerplate)")
             }
-            return "Free for 14 days.\n\n\(appleBoilerplate)"
+            return String(localized: "Free for 14 days.\n\n\(appleBoilerplate)")
         } else {
             let price = monthlyPackage?.localizedPriceString ?? monthlyFallbackPrice
             if let price {

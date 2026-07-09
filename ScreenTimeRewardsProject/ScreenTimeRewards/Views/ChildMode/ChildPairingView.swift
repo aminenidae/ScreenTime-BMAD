@@ -224,11 +224,11 @@ private extension ChildPairingView {
 
     var scanCardSubtitle: String {
         if !canAddParent {
-            return "Maximum of \(maxParentDevices) parent devices reached."
+            return String(localized: "Maximum of \(maxParentDevices) parent devices reached.")
         } else if pairedParents.isEmpty {
-            return "Ask your parent for their code to scan it with the camera."
+            return String(localized: "Ask your parent for their code to scan it with the camera.")
         } else {
-            return "You can connect up to \(maxParentDevices) parent devices."
+            return String(localized: "You can connect up to \(maxParentDevices) parent devices.")
         }
     }
 

@@ -36,36 +36,36 @@ struct Screen2_SolutionStepView: View {
             id: 0,
             imageName: "onboarding_C2_1",
             stepNumber: 1,
-            title: "PARENTS SET LEARNING GOALS",
-            subtitle: "Together, you and your child agree on the daily target."
+            title: String(localized: "PARENTS SET LEARNING GOALS"),
+            subtitle: String(localized: "Together, you and your child agree on the daily target.")
         ),
         SolutionStep(
             id: 1,
             imageName: "onboarding_C2_2",
             stepNumber: 2,
-            title: "KIDS EARN SCREEN TIME",
-            subtitle: "Learning apps award points for every minute of progress."
+            title: String(localized: "KIDS EARN SCREEN TIME"),
+            subtitle: String(localized: "Learning apps award points for every minute of progress.")
         ),
         SolutionStep(
             id: 2,
             imageName: "onboarding_C2_3",
             stepNumber: 3,
-            title: "UNLOCK APPS AUTOMATICALLY",
-            subtitle: "No asking. No nagging. Apps unlock when goals are met."
+            title: String(localized: "UNLOCK APPS AUTOMATICALLY"),
+            subtitle: String(localized: "No asking. No nagging. Apps unlock when goals are met.")
         ),
         SolutionStep(
             id: 3,
             imageName: "onboarding_C2_4",
             stepNumber: 4,
-            title: "KIDS PLAY GUILT-FREE",
-            subtitle: "Reward apps unlock — entertainment they've earned."
+            title: String(localized: "KIDS PLAY GUILT-FREE"),
+            subtitle: String(localized: "Reward apps unlock — entertainment they've earned.")
         ),
         SolutionStep(
             id: 4,
             imageName: "onboarding_C2_5",
             stepNumber: 5,
-            title: "LIMIT SCREEN TIME, AUTOMATICALLY",
-            subtitle: "Time's up. The app locks. No negotiations needed."
+            title: String(localized: "LIMIT SCREEN TIME, AUTOMATICALLY"),
+            subtitle: String(localized: "Time's up. The app locks. No negotiations needed.")
         )
     ]
 

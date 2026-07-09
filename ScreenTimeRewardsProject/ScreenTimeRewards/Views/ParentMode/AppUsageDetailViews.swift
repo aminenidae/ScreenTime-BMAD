@@ -1289,13 +1289,13 @@ private struct AppUsageChart: View {
 
             if calendar.isDate(date, inSameDayAs: today) {
 
-                return "Today"
+                return String(localized: "Today")
 
             } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
 
                       calendar.isDate(date, inSameDayAs: yesterday) {
 
-                return "Yest."
+                return String(localized: "Yest.")
 
             } else {
 

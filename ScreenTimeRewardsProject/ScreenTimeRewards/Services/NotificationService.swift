@@ -105,7 +105,7 @@ final class NotificationService: ObservableObject {
         // Streak Milestone Category
         let milestoneOpen = UNNotificationAction(
             identifier: Action.openStreaks.rawValue,
-            title: "View Streak",
+            title: String(localized: "View Streak"),
             options: .foreground
         )
         let milestoneCategory = UNNotificationCategory(
@@ -117,7 +117,7 @@ final class NotificationService: ObservableObject {
         // Learning Goal Category
         let learningOpen = UNNotificationAction(
             identifier: Action.openLearning.rawValue,
-            title: "Start Learning",
+            title: String(localized: "Start Learning"),
             options: .foreground
         )
         let learningCategory = UNNotificationCategory(
@@ -143,7 +143,7 @@ final class NotificationService: ObservableObject {
         // Time Bank Low Category
         let timeBankOpen = UNNotificationAction(
             identifier: Action.openLearning.rawValue,
-            title: "Earn More Time",
+            title: String(localized: "Earn More Time"),
             options: .foreground
         )
         let timeBankCategory = UNNotificationCategory(
@@ -155,12 +155,12 @@ final class NotificationService: ObservableObject {
         // Streak at Risk Category
         let riskOpen = UNNotificationAction(
             identifier: Action.openLearning.rawValue,
-            title: "Start Now",
+            title: String(localized: "Start Now"),
             options: .foreground
         )
         let riskSnooze = UNNotificationAction(
             identifier: Action.snooze1Hour.rawValue,
-            title: "Remind in 1 hour",
+            title: String(localized: "Remind in 1 hour"),
             options: []
         )
         let riskCategory = UNNotificationCategory(
@@ -172,7 +172,7 @@ final class NotificationService: ObservableObject {
         // Subscription Reminder Category
         let subscribeAction = UNNotificationAction(
             identifier: Action.openSubscription.rawValue,
-            title: "Subscribe",
+            title: String(localized: "Subscribe"),
             options: .foreground
         )
         let subscriptionCategory = UNNotificationCategory(
@@ -773,7 +773,7 @@ final class NotificationService: ObservableObject {
             childDeviceID: DeviceModeManager.shared.deviceID,
             childDeviceName: DeviceModeManager.shared.deviceName,
             notificationType: .dailyLimitReached,
-            title: "Daily Limit Reached",
+            title: String(localized: "Daily Limit Reached"),
             body: "\(DeviceModeManager.shared.deviceName) has reached their daily limit for \(appName)",
             timestamp: Date(),
             metadata: [
@@ -801,7 +801,7 @@ final class NotificationService: ObservableObject {
             childDeviceID: DeviceModeManager.shared.deviceID,
             childDeviceName: DeviceModeManager.shared.deviceName,
             notificationType: .learningGoalCompleted,
-            title: "Learning Goal Complete!",
+            title: String(localized: "Learning Goal Complete!"),
             body: "\(DeviceModeManager.shared.deviceName) completed their learning goal and earned \(Self.formatRewardDuration(earnedMinutes))",
             timestamp: Date(),
             metadata: [
@@ -831,7 +831,7 @@ final class NotificationService: ObservableObject {
             childDeviceID: DeviceModeManager.shared.deviceID,
             childDeviceName: DeviceModeManager.shared.deviceName,
             notificationType: .streakMilestone,
-            title: "Streak Milestone!",
+            title: String(localized: "Streak Milestone!"),
             body: "\(DeviceModeManager.shared.deviceName) reached a \(milestone)-day streak on \(appName)!",
             timestamp: Date(),
             metadata: [

@@ -32,8 +32,8 @@ struct ParentPairingScreen: View {
     var body: some View {
         VStack(spacing: 24) {
             ParentOnboardingStepHeader(
-                title: "Connect Devices",
-                subtitle: "Generate a QR code and scan it from the child device.",
+                title: String(localized: "Connect Devices"),
+                subtitle: String(localized: "Generate a QR code and scan it from the child device."),
                 step: 2,
                 totalSteps: 2,
                 onBack: onBack

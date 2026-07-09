@@ -210,8 +210,8 @@ struct ParentPaywallView: View {
 
     private var billingToggle: some View {
         HStack(spacing: 0) {
-            billingOption(period: .monthly, label: "Monthly")
-            billingOption(period: .annual, label: "Annual")
+            billingOption(period: .monthly, label: String(localized: "Monthly"))
+            billingOption(period: .annual, label: String(localized: "Annual"))
         }
         .background(
             RoundedRectangle(cornerRadius: 12)
@@ -607,7 +607,7 @@ private struct TierOptionCard: View {
         case .individual:
             return "1 child device, 2 parent devices"
         case .family:
-            return "Up to 5 children, 2 parents each"
+            return String(localized: "Up to 5 children, 2 parents each")
         default:
             return ""
         }

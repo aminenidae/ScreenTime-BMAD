@@ -20,17 +20,17 @@ enum AuthError: Error, LocalizedError {
     var errorDescription: String? {
         switch self {
         case .authenticationFailed:
-            return "Authentication failed. Please try again."
+            return String(localized: "Authentication failed. Please try again.")
         case .userCancel:
-            return "Authentication was cancelled."
+            return String(localized: "Authentication was cancelled.")
         case .parentalApprovalRequired:
-            return "Parental approval is required to access Parent Mode."
+            return String(localized: "Parental approval is required to access Parent Mode.")
         case .pinRequired:
-            return "Parent PIN is required to access Parent Mode."
+            return String(localized: "Parent PIN is required to access Parent Mode.")
         case .pinValidationFailed:
-            return "Incorrect PIN. Please try again."
+            return String(localized: "Incorrect PIN. Please try again.")
         case .pinNotConfigured:
-            return "Parent PIN has not been configured. Please set up a PIN."
+            return String(localized: "Parent PIN has not been configured. Please set up a PIN.")
         case .pinInvalid(let message):
             return message
         }

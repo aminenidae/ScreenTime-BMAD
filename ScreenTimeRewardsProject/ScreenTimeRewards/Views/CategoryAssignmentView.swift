@@ -34,22 +34,22 @@ struct CategoryAssignmentView: View {
     private var pointsSummaryTitle: String {
         switch fixedCategory {
         case .learning:
-            return "Learning Points Summary"
+            return String(localized: "Learning Points Summary")
         case .reward:
-            return "Reward Points Summary"
+            return String(localized: "Reward Points Summary")
         case .none:
-            return "Reward Points Summary"
+            return String(localized: "Reward Points Summary")
         }
     }
 
     private var totalPointsLabel: String {
         switch fixedCategory {
         case .learning:
-            return "Total Learning Points:"
+            return String(localized: "Total Learning Points:")
         case .reward:
-            return "Total Reward Points:"
+            return String(localized: "Total Reward Points:")
         case .none:
-            return "Total Reward Points:"
+            return String(localized: "Total Reward Points:")
         }
     }
 
@@ -205,9 +205,9 @@ struct CategoryAssignmentView: View {
     private func pointsLabel(for category: AppUsage.AppCategory) -> String {
         switch category {
         case .learning:
-            return "Earn per minute:"
+            return String(localized: "Earn per minute:")
         case .reward:
-            return "Cost per minute:"
+            return String(localized: "Cost per minute:")
         }
     }
 

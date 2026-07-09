@@ -39,10 +39,10 @@ class UsageValidationService: ObservableObject {
 
         var displayText: String {
             switch self {
-            case .unknown: return "Not Yet Validated"
-            case .healthy: return "Tracking Healthy"
-            case .warning: return "Minor Issues Detected"
-            case .error: return "Significant Issues Detected"
+            case .unknown: return String(localized: "Not Yet Validated")
+            case .healthy: return String(localized: "Tracking Healthy")
+            case .warning: return String(localized: "Minor Issues Detected")
+            case .error: return String(localized: "Significant Issues Detected")
             }
         }
 
@@ -133,10 +133,10 @@ class UsageValidationService: ObservableObject {
 
                 let issue = ValidationIssue(
                     severity: .critical,
-                    title: "Duplicate Threshold Fire Detected",
-                    description: "Event '\(eventID)' fired twice within \(String(format: "%.1f", timeDiff)) seconds. This is a symptom of iOS Screen Time API bugs.",
+                    title: String(localized: "Duplicate Threshold Fire Detected"),
+                    description: String(localized: "Event '\(eventID)' fired twice within \(String(format: "%.1f", timeDiff)) seconds. This is a symptom of iOS Screen Time API bugs."),
                     timestamp: timestamp,
-                    recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time. This is a known iOS 17.6.1+ bug."
+                    recommendedAction: String(localized: "Disable 'Share Across Devices' in iOS Settings → Screen Time. This is a known iOS 17.6.1+ bug.")
                 )
                 detectedIssues.append(issue)
                 updateValidationStatus(issues: [issue])
@@ -161,10 +161,10 @@ class UsageValidationService: ObservableObject {
 
                 let issue = ValidationIssue(
                     severity: .critical,
-                    title: "Rate Limit Exceeded",
-                    description: "App '\(appID)' fired events \(String(format: "%.1f", timeSinceLastFire))s apart. Physically impossible (minimum 55s between events, threshold accounts for clock precision).",
+                    title: String(localized: "Rate Limit Exceeded"),
+                    description: String(localized: "App '\(appID)' fired events \(String(format: "%.1f", timeSinceLastFire))s apart. Physically impossible (minimum 55s between events, threshold accounts for clock precision)."),
                     timestamp: timestamp,
-                    recommendedAction: "This is likely the iOS Screen Time API overcounting bug. Disable 'Share Across Devices'."
+                    recommendedAction: String(localized: "This is likely the iOS Screen Time API overcounting bug. Disable 'Share Across Devices'.")
                 )
                 detectedIssues.append(issue)
                 updateValidationStatus(issues: [issue])
@@ -194,10 +194,10 @@ class UsageValidationService: ObservableObject {
 
             let issue = ValidationIssue(
                 severity: .critical,
-                title: "Event Cascade Detected",
-                description: "App '\(appID)' fired \(fires.count + 1) events within 5 seconds. This is the iOS Screen Time API cascade bug.",
+                title: String(localized: "Event Cascade Detected"),
+                description: String(localized: "App '\(appID)' fired \(fires.count + 1) events within 5 seconds. This is the iOS Screen Time API cascade bug."),
                 timestamp: timestamp,
-                recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time."
+                recommendedAction: String(localized: "Disable 'Share Across Devices' in iOS Settings → Screen Time.")
             )
             detectedIssues.append(issue)
             updateValidationStatus(issues: [issue])
@@ -257,10 +257,10 @@ class UsageValidationService: ObservableObject {
             if reliability < extensionReliabilityWarningThreshold {
                 issues.append(ValidationIssue(
                     severity: .warning,
-                    title: "Extension Missed Events",
-                    description: "DeviceActivityMonitor extension missed \(missedEvents) threshold events (\(Int(reliability * 100))% reliability). This may occur when the app is force-closed.",
+                    title: String(localized: "Extension Missed Events"),
+                    description: String(localized: "DeviceActivityMonitor extension missed \(missedEvents) threshold events (\(Int(reliability * 100))% reliability). This may occur when the app is force-closed."),
                     timestamp: Date(),
-                    recommendedAction: "Keep the app running in background instead of force-closing it for best accuracy."
+                    recommendedAction: String(localized: "Keep the app running in background instead of force-closing it for best accuracy.")
                 ))
             }
         }
@@ -269,10 +269,10 @@ class UsageValidationService: ObservableObject {
         if ourTotal > expectedTotal * 1.5 {
             issues.append(ValidationIssue(
                 severity: .critical,
-                title: "Potential Overcounting Detected",
-                description: "Tracked usage (\(Int(ourTotal))s) is significantly higher than expected (\(Int(expectedTotal))s). This may indicate iOS Screen Time API overcounting bug.",
+                title: String(localized: "Potential Overcounting Detected"),
+                description: String(localized: "Tracked usage (\(Int(ourTotal))s) is significantly higher than expected (\(Int(expectedTotal))s). This may indicate iOS Screen Time API overcounting bug."),
                 timestamp: Date(),
-                recommendedAction: "Disable 'Share Across Devices' in iOS Settings → Screen Time. Ensure no other devices are using this Apple ID."
+                recommendedAction: String(localized: "Disable 'Share Across Devices' in iOS Settings → Screen Time. Ensure no other devices are using this Apple ID.")
             ))
         }
 
@@ -280,10 +280,10 @@ class UsageValidationService: ObservableObject {
         if ourTotal < expectedTotal * 0.5 {
             issues.append(ValidationIssue(
                 severity: .warning,
-                title: "Potential Undercounting Detected",
-                description: "Tracked usage (\(Int(ourTotal))s) is significantly lower than expected (\(Int(expectedTotal))s).",
+                title: String(localized: "Potential Undercounting Detected"),
+                description: String(localized: "Tracked usage (\(Int(ourTotal))s) is significantly lower than expected (\(Int(expectedTotal))s)."),
                 timestamp: Date(),
-                recommendedAction: "Ensure Screen Time permissions are granted. Try resetting the challenge."
+                recommendedAction: String(localized: "Ensure Screen Time permissions are granted. Try resetting the challenge.")
             ))
         }
 

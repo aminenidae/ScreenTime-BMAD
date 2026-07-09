@@ -258,7 +258,7 @@ struct AppConfigurationSheet: View {
 
     private var applyToAllAlertTitle: String {
         let count = otherRewardAppNames.count
-        return "Apply to \(count) other reward app\(count == 1 ? "" : "s")?"
+        return String(localized: "Apply to \(count) other reward app\(count == 1 ? "" : "s")?")
     }
 
     private var applyToAllAlertMessage: String {
@@ -536,9 +536,9 @@ struct AppConfigurationSheet: View {
     private func formatFullLine(_ minutes: Int, timeWindow: AllowedTimeWindow, timeRange: String) -> String {
         if minutes >= 1440 || (minutes >= timeWindow.durationInMinutes && !timeWindow.isFullDay) {
             if timeWindow.isFullDay {
-                return "Your child can use this app anytime"
+                return String(localized: "Your child can use this app anytime")
             } else {
-                return "Your child can use this app \(timeRange)"
+                return String(localized: "Your child can use this app \(timeRange)")
             }
         } else {
             return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
@@ -555,20 +555,20 @@ struct AppConfigurationSheet: View {
 
     private func dayName(for weekday: Int) -> String {
         switch weekday {
-        case 1: return "Sunday"
-        case 2: return "Monday"
-        case 3: return "Tuesday"
-        case 4: return "Wednesday"
-        case 5: return "Thursday"
-        case 6: return "Friday"
-        case 7: return "Saturday"
+        case 1: return String(localized: "Sunday")
+        case 2: return String(localized: "Monday")
+        case 3: return String(localized: "Tuesday")
+        case 4: return String(localized: "Wednesday")
+        case 5: return String(localized: "Thursday")
+        case 6: return String(localized: "Friday")
+        case 7: return String(localized: "Saturday")
         default: return ""
         }
     }
 
     private func formatDuration(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "Unlimited"
+            return String(localized: "Unlimited")
         }
         let hours = minutes / 60
         let mins = minutes % 60

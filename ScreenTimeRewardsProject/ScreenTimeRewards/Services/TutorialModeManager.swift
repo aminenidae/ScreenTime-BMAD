@@ -41,45 +41,45 @@ class TutorialModeManager: ObservableObject {
             switch self {
             // Learning flow
             case .tapLearningTab:
-                return "Tap the Learning tab to add educational apps."
+                return String(localized: "Tap the Learning tab to add educational apps.")
             case .tapAddLearningApps:
-                return "Tap here to select which apps count as learning time."
+                return String(localized: "Tap here to select which apps count as learning time.")
             case .selectLearningApps:
-                return "Select the apps you want to count as learning time, then tap Done."
+                return String(localized: "Select the apps you want to count as learning time, then tap Done.")
             case .tapFirstLearningApp:
-                return "Tap your first learning app to configure it."
+                return String(localized: "Tap your first learning app to configure it.")
             case .configTimeWindowLearning:
-                return "Set when this app can be used (e.g., 8 AM - 8 PM)."
+                return String(localized: "Set when this app can be used (e.g., 8 AM - 8 PM).")
             case .configDailyLimitsLearning:
-                return "Set how long your child can use this app each day."
+                return String(localized: "Set how long your child can use this app each day.")
             case .reviewSummaryLearning:
-                return "Review the configuration summary. This shows what you've set up."
+                return String(localized: "Review the configuration summary. This shows what you've set up.")
             case .tapSaveLearning:
-                return "Tap Save to apply these settings."
+                return String(localized: "Tap Save to apply these settings.")
 
             // Reward flow
             case .tapRewardsTab:
-                return "Now tap the Rewards tab to add fun apps."
+                return String(localized: "Now tap the Rewards tab to add fun apps.")
             case .tapAddRewardApps:
-                return "Tap here to select which apps are rewards."
+                return String(localized: "Tap here to select which apps are rewards.")
             case .selectRewardApps:
-                return "Select your child's favorite apps as rewards, then tap Done."
+                return String(localized: "Select your child's favorite apps as rewards, then tap Done.")
             case .tapFirstRewardApp:
-                return "Now tap your first reward app to configure it."
+                return String(localized: "Now tap your first reward app to configure it.")
             case .configTimeWindowReward:
-                return "Set when reward time is available."
+                return String(localized: "Set when reward time is available.")
             case .configDailyLimitsReward:
-                return "Set the maximum reward time per day."
+                return String(localized: "Set the maximum reward time per day.")
             case .configLinkedApps:
-                return "Choose which learning apps unlock this reward."
+                return String(localized: "Choose which learning apps unlock this reward.")
             case .reviewSummaryReward:
-                return "Review the reward app settings before saving."
+                return String(localized: "Review the reward app settings before saving.")
             case .tapSaveReward:
-                return "Tap Save to complete reward app setup."
+                return String(localized: "Tap Save to complete reward app setup.")
 
             // Final
             case .configureSettings:
-                return "Almost done! Set how much learning unlocks reward time."
+                return String(localized: "Almost done! Set how much learning unlocks reward time.")
             }
         }
 

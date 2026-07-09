@@ -55,7 +55,7 @@ struct ExtensionDiagnosticsView: View {
                 statusRow(
                     icon: data.isExtensionInitialized ? "checkmark.circle.fill" : "xmark.circle.fill",
                     color: data.isExtensionInitialized ? .green : .red,
-                    title: "Extension Initialized",
+                    title: String(localized: "Extension Initialized"),
                     value: data.isExtensionInitialized ? "Yes" : "No"
                 )
 
@@ -63,7 +63,7 @@ struct ExtensionDiagnosticsView: View {
                     statusRow(
                         icon: "clock.fill",
                         color: .blue,
-                        title: "Last Init",
+                        title: String(localized: "Last Init"),
                         value: formatRelativeTime(initTime)
                     )
                 }
@@ -71,7 +71,7 @@ struct ExtensionDiagnosticsView: View {
                 statusRow(
                     icon: "memorychip.fill",
                     color: memoryColor(data.memoryUsageMB),
-                    title: "Memory Usage",
+                    title: String(localized: "Memory Usage"),
                     value: String(format: "%.1f MB / 6 MB", data.memoryUsageMB)
                 )
             }
@@ -94,7 +94,7 @@ struct ExtensionDiagnosticsView: View {
                 statusRow(
                     icon: data.isHeartbeatHealthy ? "heart.fill" : "heart.slash.fill",
                     color: data.isHeartbeatHealthy ? .green : .red,
-                    title: "Status",
+                    title: String(localized: "Status"),
                     value: data.isHeartbeatHealthy ? "Healthy" : "Unhealthy"
                 )
 
@@ -102,14 +102,14 @@ struct ExtensionDiagnosticsView: View {
                     statusRow(
                         icon: "clock.arrow.circlepath",
                         color: .secondary,
-                        title: "Last Heartbeat",
+                        title: String(localized: "Last Heartbeat"),
                         value: formatRelativeTime(lastHeartbeat)
                     )
 
                     statusRow(
                         icon: "hourglass",
                         color: data.heartbeatGapSeconds > 120 ? .orange : .green,
-                        title: "Gap",
+                        title: String(localized: "Gap"),
                         value: "\(data.heartbeatGapSeconds)s"
                     )
                 } else {

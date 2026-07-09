@@ -45,7 +45,7 @@ struct ParentAppDetailView: View {
             return config.displayName
         }
         let appNumber = abs(config.logicalID.hashValue) % 100
-        return "Privacy Protected \(config.category) App #\(appNumber)"
+        return String(localized: "Privacy Protected \(config.category) App #\(appNumber)")
     }
 
     var categoryColor: Color {
@@ -610,7 +610,7 @@ struct ParentAppDetailView: View {
         }
 
         // 3. Final fallback
-        return "Learning App"
+        return String(localized: "Learning App")
     }
 
     /// Filter linked apps to only include those that exist in childLearningApps
@@ -944,10 +944,10 @@ private struct UsageBarChart: View {
         case .daily:
             let today = calendar.startOfDay(for: Date())
             if calendar.isDate(date, inSameDayAs: today) {
-                return "Today"
+                return String(localized: "Today")
             } else if let yesterday = calendar.date(byAdding: .day, value: -1, to: today),
                       calendar.isDate(date, inSameDayAs: yesterday) {
-                return "Yest."
+                return String(localized: "Yest.")
             } else {
                 formatter.dateFormat = "EEE"
                 return String(formatter.string(from: date).prefix(3))

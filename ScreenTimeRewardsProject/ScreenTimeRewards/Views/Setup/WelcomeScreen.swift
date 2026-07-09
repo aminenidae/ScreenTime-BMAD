@@ -58,8 +58,8 @@ struct WelcomeScreen: View {
                     // Feature 1
                     FeatureRow(
                         icon: "brain.head.profile",
-                        title: "Set Learning Goals",
-                        description: "Turn educational apps into exciting challenges.",
+                        title: String(localized: "Set Learning Goals"),
+                        description: String(localized: "Turn educational apps into exciting challenges."),
                         iconColor: AppTheme.vibrantTeal,
                         colorScheme: colorScheme
                     )
@@ -67,8 +67,8 @@ struct WelcomeScreen: View {
                     // Feature 2
                     FeatureRow(
                         icon: "trophy.fill",
-                        title: "Reward Achievements",
-                        description: "Unlock games and fun apps as they learn.",
+                        title: String(localized: "Reward Achievements"),
+                        description: String(localized: "Unlock games and fun apps as they learn."),
                         iconColor: AppTheme.playfulCoral,
                         colorScheme: colorScheme
                     )
@@ -76,8 +76,8 @@ struct WelcomeScreen: View {
                     // Feature 3
                     FeatureRow(
                         icon: "figure.2.and.child.holdinghands",
-                        title: "Foster Healthy Habits",
-                        description: "Create a balanced and positive digital life.",
+                        title: String(localized: "Foster Healthy Habits"),
+                        description: String(localized: "Create a balanced and positive digital life."),
                         iconColor: AppTheme.vibrantTeal,
                         colorScheme: colorScheme
                     )

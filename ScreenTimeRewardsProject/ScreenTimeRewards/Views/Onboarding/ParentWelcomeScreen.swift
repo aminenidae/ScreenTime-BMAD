@@ -8,9 +8,9 @@ struct ParentWelcomeScreen: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let featureRows: [FeatureRow] = [
-        .init(icon: "network", title: "MONITOR FROM ANYWHERE", detail: "Check in on every paired child device from a single dashboard."),
-        .init(icon: "trophy.fill", title: "CREATE MEANINGFUL REWARDS", detail: "Launch challenges that motivate learning and good habits."),
-        .init(icon: "qrcode.viewfinder", title: "CONNECT DEVICES SECURELY", detail: "Pair whenever you're ready—no pressure to finish right now.")
+        .init(icon: "network", title: String(localized: "MONITOR FROM ANYWHERE"), detail: "Check in on every paired child device from a single dashboard."),
+        .init(icon: "trophy.fill", title: String(localized: "CREATE MEANINGFUL REWARDS"), detail: "Launch challenges that motivate learning and good habits."),
+        .init(icon: "qrcode.viewfinder", title: String(localized: "CONNECT DEVICES SECURELY"), detail: "Pair whenever you're ready—no pressure to finish right now.")
     ]
 
     var body: some View {

@@ -18,7 +18,7 @@ struct AvatarCatalog {
     static let starBuddy = AvatarDefinition(
         id: "star_buddy",
         name: "Star Buddy",
-        description: "A friendly star creature who loves to learn!",
+        description: String(localized: "A friendly star creature who loves to learn!"),
         baseAsset: "star.fill",
         lottieFile: nil, // Replace with Lottie file when available
         evolutionStages: [
@@ -71,7 +71,7 @@ struct AvatarCatalog {
     static let roboHelper = AvatarDefinition(
         id: "robo_helper",
         name: "Robo Helper",
-        description: "A smart robot friend who grows smarter with you!",
+        description: String(localized: "A smart robot friend who grows smarter with you!"),
         baseAsset: "cpu.fill",
         lottieFile: nil,
         evolutionStages: [
@@ -124,7 +124,7 @@ struct AvatarCatalog {
     static let forestSprite = AvatarDefinition(
         id: "forest_sprite",
         name: "Forest Sprite",
-        description: "A magical forest friend who grows with nature!",
+        description: String(localized: "A magical forest friend who grows with nature!"),
         baseAsset: "leaf.fill",
         lottieFile: nil,
         evolutionStages: [

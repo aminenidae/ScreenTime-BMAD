@@ -33,13 +33,13 @@ struct ParentRemoteDashboardView: View {
     private var lastSyncedCaption: String? {
         guard let last = lastRefreshDate else { return nil }
         let seconds = Int(Date().timeIntervalSince(last))
-        if seconds < 60 { return "Just now" }
+        if seconds < 60 { return String(localized: "Just now") }
         let minutes = seconds / 60
-        if minutes < 60 { return "Updated \(minutes)m ago" }
+        if minutes < 60 { return String(localized: "Updated \(minutes)m ago") }
         let hours = minutes / 60
-        if hours < 24 { return "Updated \(hours)h ago" }
+        if hours < 24 { return String(localized: "Updated \(hours)h ago") }
         let days = hours / 24
-        return "Updated \(days)d ago"
+        return String(localized: "Updated \(days)d ago")
     }
 
     /// Returns true when exactly one child device is linked (skip carousel)
@@ -73,7 +73,7 @@ struct ParentRemoteDashboardView: View {
                             if showingRefreshIndicator {
                                 SyncingOverlayView(
                                     deviceName: device.deviceName,
-                                    message: "Syncing with \(device.deviceName ?? "Device")..."
+                                    message: String(localized: "Syncing with \(device.deviceName ?? String(localized: "Device"))...")
                                 )
                                 .transition(.opacity)
                             }

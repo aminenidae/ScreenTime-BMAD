@@ -205,7 +205,7 @@ private struct LearningAppRow: View {
     private var displayName: String {
         if snapshot.displayName.isEmpty || snapshot.displayName.hasPrefix("Unknown") {
             let appNumber = abs(snapshot.tokenHash.hashValue) % 100
-            return "Privacy Protected App #\(appNumber)"
+            return String(localized: "Privacy Protected App #\(appNumber)")
         }
         return snapshot.displayName
     }
@@ -295,7 +295,7 @@ private struct RewardAppRow: View {
     private var displayName: String {
         if snapshot.displayName.isEmpty || snapshot.displayName.hasPrefix("Unknown") {
             let appNumber = abs(snapshot.tokenHash.hashValue) % 100
-            return "Privacy Protected App #\(appNumber)"
+            return String(localized: "Privacy Protected App #\(appNumber)")
         }
         return snapshot.displayName
     }

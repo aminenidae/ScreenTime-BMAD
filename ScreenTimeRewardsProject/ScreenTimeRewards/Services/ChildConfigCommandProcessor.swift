@@ -529,13 +529,13 @@ class ChildConfigCommandProcessor {
         var errorDescription: String? {
             switch self {
             case .invalidPayload:
-                return "Invalid command payload"
+                return String(localized: "Invalid command payload")
             case .decodingFailed(let error):
-                return "Failed to decode payload: \(error.localizedDescription)"
+                return String(localized: "Failed to decode payload: \(error.localizedDescription)")
             case .applicationFailed(let error):
-                return "Failed to apply configuration: \(error.localizedDescription)"
+                return String(localized: "Failed to apply configuration: \(error.localizedDescription)")
             case .configNotFound:
-                return "Configuration not found on device"
+                return String(localized: "Configuration not found on device")
             }
         }
     }

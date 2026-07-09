@@ -22,31 +22,31 @@ enum PairingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .maxParentsReached(let limit):
-            return "This child device is already paired with the maximum number of parent devices (\(limit)). Please unpair from one parent before adding another."
+            return String(localized: "This child device is already paired with the maximum number of parent devices (\(limit)). Please unpair from one parent before adding another.")
         case .deviceLimitReached:
-            return "Device limit reached. Upgrade to the Family plan to add more child devices."
+            return String(localized: "Device limit reached. Upgrade to the Family plan to add more child devices.")
         case .shareNotFound:
-            return "Pairing invitation not found or expired."
+            return String(localized: "Pairing invitation not found or expired.")
         case .invalidQRCode:
-            return "Invalid QR code. Please scan a valid pairing QR code."
+            return String(localized: "Invalid QR code. Please scan a valid pairing QR code.")
         case .networkError(let error):
-            return "Network error: \(error.localizedDescription)"
+            return String(localized: "Network error: \(error.localizedDescription)")
         case .sameAccountPairing:
-            return "Cannot pair devices using the same iCloud account. The parent and child devices must use different Apple IDs for data sync to work properly."
+            return String(localized: "Cannot pair devices using the same iCloud account. The parent and child devices must use different Apple IDs for data sync to work properly.")
         case .firebaseValidationFailed(let error):
             return error.errorDescription
         case .tokenExpired:
-            return "The pairing code has expired. Please ask the parent to generate a new code."
+            return String(localized: "The pairing code has expired. Please ask the parent to generate a new code.")
         case .tokenAlreadyUsed:
-            return "This pairing code has already been used. Please ask the parent to generate a new code."
+            return String(localized: "This pairing code has already been used. Please ask the parent to generate a new code.")
         case .subscriptionExpired:
-            return "The parent's subscription has expired. Please ask the parent to renew their subscription."
+            return String(localized: "The parent's subscription has expired. Please ask the parent to renew their subscription.")
         case .soloCannotPair:
-            return "Solo subscription does not support device pairing. Upgrade to Individual or Family plan for remote monitoring."
+            return String(localized: "Solo subscription does not support device pairing. Upgrade to Individual or Family plan for remote monitoring.")
         case .parentInTrial:
-            return "The parent is still in their free trial. Please ask the parent to subscribe before connecting."
+            return String(localized: "The parent is still in their free trial. Please ask the parent to subscribe before connecting.")
         case .parentNotSubscribed:
-            return "The parent doesn't have an active subscription. Please ask the parent to subscribe first."
+            return String(localized: "The parent doesn't have an active subscription. Please ask the parent to subscribe first.")
         }
     }
 }

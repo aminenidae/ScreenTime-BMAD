@@ -253,16 +253,16 @@ struct OnboardingPlaceholderCard: View {
     VStack(spacing: 20) {
         OnboardingImageCard(
             imageName: "onboarding_C2_1",
-            title: "Agree on a Goal",
-            subtitle: "Parent & child discuss learning targets",
+            title: String(localized: "Agree on a Goal"),
+            subtitle: String(localized: "Parent & child discuss learning targets"),
             stepNumber: "1"
         )
         .padding(.horizontal)
 
         OnboardingImageCard(
             imageName: "onboarding_0_2",
-            title: "Parent's Device",
-            subtitle: "Set rules & monitor progress",
+            title: String(localized: "Parent's Device"),
+            subtitle: String(localized: "Set rules & monitor progress"),
             isSelected: true,
             aspectRatio: 660.0 / 1170.0,
             showCheckmark: true
@@ -273,8 +273,8 @@ struct OnboardingPlaceholderCard: View {
 
 #Preview("Placeholder Card") {
     OnboardingPlaceholderCard(
-        title: "Missing Image",
-        subtitle: "This is a placeholder for a missing image",
+        title: String(localized: "Missing Image"),
+        subtitle: String(localized: "This is a placeholder for a missing image"),
         stepNumber: "1"
     )
     .padding()
