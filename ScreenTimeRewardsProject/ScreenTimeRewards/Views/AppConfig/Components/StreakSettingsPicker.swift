@@ -83,7 +83,7 @@ struct StreakSettingsPicker: View {
         if settings.bonusType == .fixedMinutes {
             // e.g. 5 min * 7 days = 35 min
             let total = value * days
-            message = "Your child will earn \(total) minutes bonus at completion of \(days)-day streak."
+            message = String(localized: "Your child will earn \(total) minutes bonus at completion of \(days)-day streak.")
         } else {
             // e.g. 10% * 7 days = 70%
             let totalPercent = value * days
@@ -91,9 +91,9 @@ struct StreakSettingsPicker: View {
             
             if estimatedDailyReward > 0 {
                  let minutes = Int(Double(estimatedDailyReward) * Double(totalPercent) / 100.0)
-                 message = "Your child will earn \(minutes) minutes bonus at completion of \(days)-day streak."
+                 message = String(localized: "Your child will earn \(minutes) minutes bonus at completion of \(days)-day streak.")
             } else {
-                 message = "Your child will earn \(percentStr) bonus at completion of \(days)-day streak."
+                 message = String(localized: "Your child will earn \(percentStr) bonus at completion of \(days)-day streak.")
             }
         }
 

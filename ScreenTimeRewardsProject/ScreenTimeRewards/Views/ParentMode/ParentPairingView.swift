@@ -505,7 +505,7 @@ struct ParentPairingView: View {
                 self.showSubscriptionPaywall = true
                 self.errorMessage = nil
             } else if case PairingError.soloCannotPair = error {
-                self.errorMessage = "Solo subscription doesn't support device pairing. Please upgrade to Individual or Family plan."
+                self.errorMessage = String(localized: "Solo subscription doesn't support device pairing. Please upgrade to Individual or Family plan.")
             } else if case PairingError.firebaseValidationFailed(let fbError) = error {
                 self.errorMessage = fbError.errorDescription ?? "Validation failed. Please try again."
             } else if case PairingError.networkError(let ckError) = error {
@@ -513,19 +513,19 @@ struct ParentPairingView: View {
                     self.cloudKitStatus = .notAuthenticated
                     self.errorMessage = nil
                 } else if isCloudKitQuotaExceeded(ckError) {
-                    self.errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again."
+                    self.errorMessage = String(localized: "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again.")
                 } else {
-                    self.errorMessage = "Connection error. Please check your internet and try again."
+                    self.errorMessage = String(localized: "Connection error. Please check your internet and try again.")
                 }
             } else if isCloudKitQuotaExceeded(error) {
-                self.errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again."
+                self.errorMessage = String(localized: "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, or upgrade your iCloud+ plan, then try again.")
             } else if let ckError = error as? CKError {
                 switch ckError.code {
                 case .notAuthenticated:
                     self.cloudKitStatus = .notAuthenticated
                     self.errorMessage = nil
                 case .networkUnavailable, .networkFailure:
-                    self.errorMessage = "No internet connection. Please connect and try again."
+                    self.errorMessage = String(localized: "No internet connection. Please connect and try again.")
                 default:
                     self.errorMessage = "iCloud error: \(ckError.localizedDescription)"
                 }

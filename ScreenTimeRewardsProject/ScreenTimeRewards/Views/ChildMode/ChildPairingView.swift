@@ -323,7 +323,7 @@ private extension ChildPairingView {
         case .success(let jsonString):
             pairWithParent(jsonString: jsonString)
         case .failure(let error):
-            errorMessage = "Failed to scan QR code: \(error.localizedDescription)"
+            errorMessage = String(localized: "Failed to scan QR code: \(error.localizedDescription)")
         }
     }
 
@@ -361,7 +361,7 @@ private extension ChildPairingView {
                     } else if case PairingError.maxParentsReached(_) = error {
                         self.errorMessage = error.localizedDescription
                     } else {
-                        self.errorMessage = "Failed to pair: \(error.localizedDescription)"
+                        self.errorMessage = String(localized: "Failed to pair: \(error.localizedDescription)")
                     }
                 }
             }

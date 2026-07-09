@@ -190,7 +190,7 @@ struct ParentPINEntryView: View {
             } else {
                 attemptCount += 1
                 let remaining = max(0, 3 - attemptCount)
-                errorMessage = "Incorrect PIN. \(remaining) attempts remaining."
+                errorMessage = String(localized: "Incorrect PIN. \(remaining) attempts remaining.")
                 pin = ""
             }
         }

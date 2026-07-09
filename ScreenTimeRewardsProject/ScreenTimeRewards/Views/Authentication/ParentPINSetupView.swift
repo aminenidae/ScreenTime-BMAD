@@ -221,7 +221,7 @@ struct ParentPINSetupView: View {
 
         // Check for weak PINs
         if isWeakPIN(pin) {
-            errorMessage = "Please choose a stronger PIN"
+            errorMessage = String(localized: "Please choose a stronger PIN")
             return
         }
 
@@ -266,7 +266,7 @@ struct ParentPINSetupView: View {
             }
         } else {
             isSettingUp = false
-            errorMessage = "PINs do not match. Please try again."
+            errorMessage = String(localized: "PINs do not match. Please try again.")
             confirmPIN = ""
             isConfirming = false
         }

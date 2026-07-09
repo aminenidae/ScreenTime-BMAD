@@ -122,10 +122,10 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: lightCream,
             iconName: "ShieldLockIcon",  // Custom cute lock icon
-            title: "Learning Time First!",
+            title: String(localized: "Learning Time First!"),
             titleColor: UIColor(red: 0.2, green: 0.2, blue: 0.2, alpha: 1),  // Dark gray for contrast
             subtitleColor: UIColor(red: 0.3, green: 0.3, blue: 0.3, alpha: 0.9),  // Slightly lighter
-            primaryButtonLabel: "OK",
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: vibrantTeal,
             primaryButtonTextColor: .white  // White text on teal button
         )
@@ -135,8 +135,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: coralRed.withAlphaComponent(0.95),
             iconName: "clock.badge.xmark.fill",
-            title: "Daily Limit Reached",
-            primaryButtonLabel: "OK",
+            title: String(localized: "Daily Limit Reached"),
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: .systemOrange
         )
     }
@@ -148,8 +148,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: coralRed.withAlphaComponent(0.95),
             iconName: "moon.zzz.fill",
-            title: "Not Available Today",
-            primaryButtonLabel: "OK",
+            title: String(localized: "Not Available Today"),
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: .systemOrange
         )
     }
@@ -158,8 +158,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: nightPurple.withAlphaComponent(0.95),
             iconName: "moon.zzz.fill",
-            title: "Downtime Active",
-            primaryButtonLabel: "OK",
+            title: String(localized: "Downtime Active"),
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: .systemIndigo
         )
     }
@@ -168,8 +168,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: warmOrange.withAlphaComponent(0.95),
             iconName: "timer",
-            title: "Reward Time Finished",
-            primaryButtonLabel: "OK",
+            title: String(localized: "Reward Time Finished"),
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: .systemOrange
         )
     }
@@ -178,8 +178,8 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         ShieldTheme(
             backgroundColor: blockRed.withAlphaComponent(0.95),
             iconName: "globe.badge.chevron.backward",
-            title: "Website Blocked",
-            primaryButtonLabel: "OK",
+            title: String(localized: "Website Blocked"),
+            primaryButtonLabel: String(localized: "OK"),
             primaryButtonColor: .systemGray
         )
     }
@@ -243,7 +243,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     private func generateMessage(for blockingInfo: AppBlockingInfo?, context: String = "app") -> String {
         guard let info = blockingInfo else {
             // Fallback to generic learning goal message
-            return "Complete your learning goal to unlock this \(context)."
+            return genericLearningGoalMessage(context: context)
         }
 
         switch info.reasonType {
@@ -261,10 +261,18 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     /// Generate message for learning goal blocking
     private func generateLearningGoalMessage(info: AppBlockingInfo, context: String) -> String {
         guard let target = info.learningTargetMinutes else {
-            return "Complete your learning goal to unlock this \(context)."
+            return genericLearningGoalMessage(context: context)
         }
 
-        return "Complete \(target) minutes on your learning apps to unlock this app. Let's get started!"
+        return String(localized: "Complete \(target) minutes on your learning apps to unlock this app. Let's get started!")
+    }
+
+    /// Whole-sentence variants per context — sentences must never be stitched from
+    /// fragments or they can't be translated (word order differs across languages).
+    private func genericLearningGoalMessage(context: String) -> String {
+        context == "category"
+            ? String(localized: "Complete your learning goal to unlock this category.")
+            : String(localized: "Complete your learning goal to unlock this app.")
     }
 
     /// Generate message for daily limit reached
@@ -274,9 +282,12 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         // when known. Avoid "your parent" copy so the parent isn't cast as the bad guy.
         if info.dailyLimitMinutes == 0 {
             if let nextDay = info.nextAllowedDayName {
-                return "This app is taking a break today. Come back \(formattedNextDayPhrase(nextDay))!"
+                if nextDay.lowercased() == "tomorrow" {
+                    return String(localized: "This app is taking a break today. Come back tomorrow!")
+                }
+                return String(localized: "This app is taking a break today. Come back on \(nextDay)!")
             }
-            return "This app is taking a break today."
+            return String(localized: "This app is taking a break today.")
         }
 
         guard let limit = info.dailyLimitMinutes else {
@@ -284,22 +295,23 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
         }
 
         if let nextDay = info.nextAllowedDayName {
-            return "You used your \(limit) minutes for today. Come back \(formattedNextDayPhrase(nextDay))!"
+            if nextDay.lowercased() == "tomorrow" {
+                return String(localized: "You used your \(limit) minutes for today. Come back tomorrow!")
+            }
+            return String(localized: "You used your \(limit) minutes for today. Come back on \(nextDay)!")
         }
-        return "You used your \(limit) minutes for today. Come back tomorrow!"
+        return String(localized: "You used your \(limit) minutes for today. Come back tomorrow!")
     }
 
     /// Fallback when dailyLimitMinutes wasn't persisted (older extension writes).
     private func generateGenericLimitMessage(info: AppBlockingInfo) -> String {
         if let nextDay = info.nextAllowedDayName {
-            return "You've reached your daily limit. Come back \(formattedNextDayPhrase(nextDay))!"
+            if nextDay.lowercased() == "tomorrow" {
+                return String(localized: "You've reached your daily limit. Come back tomorrow!")
+            }
+            return String(localized: "You've reached your daily limit. Come back on \(nextDay)!")
         }
-        return "You've reached your daily limit. Try again tomorrow!"
-    }
-
-    /// "tomorrow" → "tomorrow"; "Monday" → "on Monday". Lets call sites build natural copy.
-    private func formattedNextDayPhrase(_ nextDay: String) -> String {
-        nextDay.lowercased() == "tomorrow" ? "tomorrow" : "on \(nextDay)"
+        return String(localized: "You've reached your daily limit. Try again tomorrow!")
     }
 
     /// Generate message for downtime blocking
@@ -307,7 +319,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     private func generateDowntimeMessage(info: AppBlockingInfo) -> String {
         // Use pre-computed summary from config if available
         if let summary = info.downtimeSummaryMessage {
-            return "This app is only available:\n\(summary)"
+            return String(localized: "This app is only available:\n\(summary)")
         }
 
         // Fallback to full time window format
@@ -318,25 +330,25 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
            let dayName = info.downtimeDayName {
             let startTime = formatTime(hour: startHour, minute: startMinute)
             let endTime = formatTime(hour: endHour, minute: endMinute)
-            return "This app is only available:\n\(dayName) between \(startTime) and \(endTime)"
+            return String(localized: "This app is only available:\n\(dayName) between \(startTime) and \(endTime)")
         }
 
         // Fallback to legacy format
         if let endHour = info.downtimeEndHour,
            let endMinute = info.downtimeEndMinute {
             let timeString = formatTime(hour: endHour, minute: endMinute)
-            return "This app is only available:\nAfter \(timeString)"
+            return String(localized: "This app is only available:\nAfter \(timeString)")
         }
 
-        return "This app is in downtime. Check back later."
+        return String(localized: "This app is in downtime. Check back later.")
     }
 
     /// Generate message for reward time expired
     private func generateRewardExpiredMessage(info: AppBlockingInfo) -> String {
         if let usedMinutes = info.rewardUsedMinutes, usedMinutes > 0 {
-            return "You've used \(usedMinutes) minutes of today's reward time. Complete more learning to earn more!"
+            return String(localized: "You've used \(usedMinutes) minutes of today's reward time. Complete more learning to earn more!")
         }
-        return "Your reward time has expired. Complete more learning to unlock again!"
+        return String(localized: "Your reward time has expired. Complete more learning to unlock again!")
     }
 
     /// Format time as "7:00 AM" or "10:30 PM"
@@ -411,7 +423,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     override func configuration(shielding webDomain: WebDomain) -> ShieldConfiguration {
         // Use website blocked theme for blocked web domains
         let theme = websiteBlockedTheme
-        let subtitle = "This website has been blocked by your parent."
+        let subtitle = String(localized: "This website has been blocked by your parent.")
 
         return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe.badge.chevron.backward")
     }
@@ -419,7 +431,7 @@ class ShieldConfigurationExtension: ShieldConfigurationDataSource {
     override func configuration(shielding webDomain: WebDomain, in category: ActivityCategory) -> ShieldConfiguration {
         // Use website blocked theme for blocked web domain categories
         let theme = websiteBlockedTheme
-        let subtitle = "This website category has been blocked by your parent."
+        let subtitle = String(localized: "This website category has been blocked by your parent.")
 
         return buildConfiguration(theme: theme, subtitle: subtitle, iconOverride: "globe.badge.chevron.backward")
     }

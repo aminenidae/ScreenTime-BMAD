@@ -1,0 +1,14 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "%@: %@ remaining today": {},
+    "%lld min": {},
+    "%lldh": {},
+    "%lldh %lldm": {},
+    "Approaching Limit": {},
+    "Goal Complete!": {},
+    "Reward App": {},
+    "You've earned %@ of reward time. Enjoy your games!": {}
+  },
+  "version": "1.0"
+}

@@ -1,0 +1,36 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    "NSCameraUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app needs access to the camera to scan QR codes for device pairing with parent devices."
+          }
+        }
+      }
+    },
+    "NSFaceIDUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Parent mode requires authentication to access app settings and controls"
+          }
+        }
+      }
+    },
+    "NSFamilyControlsUsageDescription" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "This app needs access to Screen Time data to track educational app usage and reward learning activities."
+          }
+        }
+      }
+    }
+  },
+  "version" : "1.0"
+}

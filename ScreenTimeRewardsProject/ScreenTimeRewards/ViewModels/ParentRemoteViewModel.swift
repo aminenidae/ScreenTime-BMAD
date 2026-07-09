@@ -1390,7 +1390,7 @@ class ParentRemoteViewModel: ObservableObject {
     /// Deletes the CloudKit zone and all associated data
     func unpairChildDevice(_ device: RegisteredDevice) async -> Bool {
         guard let deviceID = device.deviceID else {
-            errorMessage = "Cannot unpair: Device ID is missing"
+            errorMessage = String(localized: "Cannot unpair: Device ID is missing")
             return false
         }
 
@@ -1436,7 +1436,7 @@ class ParentRemoteViewModel: ObservableObject {
             #if DEBUG
             print("[ParentRemoteViewModel] ❌ Failed to unpair child: \(error)")
             #endif
-            errorMessage = "Failed to remove child device: \(error.localizedDescription)"
+            errorMessage = String(localized: "Failed to remove child device: \(error.localizedDescription)")
             isLoadingDevices = false
             return false
         }
@@ -2047,7 +2047,7 @@ class ParentRemoteViewModel: ObservableObject {
     /// Handle CloudKit specific errors
     private func handleCloudKitError(_ error: Error) {
         if isCloudKitQuotaExceeded(error) {
-            errorMessage = "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, then try again."
+            errorMessage = String(localized: "Your iCloud storage is full. Free up space in Settings → [Your Name] → iCloud → Manage Account Storage, then try again.")
             print("[ParentRemoteViewModel] CloudKit quota exceeded: \(error.localizedDescription)")
             return
         }
@@ -2062,13 +2062,13 @@ class ParentRemoteViewModel: ObservableObject {
         case .notAuthenticated:
             errorMessage = "iCloud account not signed in. Please sign in to iCloud in Settings."
         case .networkUnavailable, .networkFailure:
-            errorMessage = "Network unavailable. Please check your connection and try again."
+            errorMessage = String(localized: "Network unavailable. Please check your connection and try again.")
         case .zoneBusy:
             errorMessage = "iCloud is busy. Please try again in a moment."
         case .badContainer, .badDatabase:
             errorMessage = "iCloud configuration error. Please contact support."
         case .permissionFailure:
-            errorMessage = "Insufficient permissions. Please check iCloud settings."
+            errorMessage = String(localized: "Insufficient permissions. Please check iCloud settings.")
         default:
             errorMessage = "iCloud error: \(ckError.localizedDescription)"
         }

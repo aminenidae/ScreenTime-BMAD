@@ -1367,7 +1367,7 @@ class AppUsageViewModel: ObservableObject {
             #if DEBUG
             print("[AppUsageViewModel] ❌ Picker state validation failed - aborting picker presentation")
             #endif
-            errorMessage = "Unable to present app selector. Please try again."
+            errorMessage = String(localized: "Unable to present app selector. Please try again.")
             return
         }
 
@@ -1411,7 +1411,7 @@ class AppUsageViewModel: ObservableObject {
                     print("[AppUsageViewModel] ❌ Authorization failed: \(error)")
                     #endif
                     self.isAuthorizationGranted = false
-                    self.errorMessage = "Authorization required: \(error.errorDescription ?? "Please grant Screen Time permission in Settings")"
+                    self.errorMessage = String(localized: "Authorization required: \(error.errorDescription ?? String(localized: "Please grant Screen Time permission in Settings"))")
                 }
             }
         }
@@ -2050,7 +2050,7 @@ func configureWithTestApplications() {
                 print("[AppUsageViewModel] ❌ Cannot unlock - insufficient points")
                 print("[AppUsageViewModel]   Need: \(pointsNeeded), Available: \(availableLearningPoints)")
                 #endif
-                errorMessage = "Insufficient points. Need \(pointsNeeded) points for \(actualMinutes) minutes."
+                errorMessage = String(localized: "Insufficient points. Need \(pointsNeeded) points for \(actualMinutes) minutes.")
                 return
             }
         }
@@ -2299,7 +2299,7 @@ func configureWithTestApplications() {
         let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         if rewardTokens.isEmpty {
-            errorMessage = "No reward apps assigned. Please assign some apps to 'Reward' category first."
+            errorMessage = String(localized: "No reward apps assigned. Please assign some apps to 'Reward' category first.")
             #if DEBUG
             print("[AppUsageViewModel] ❌ Cannot block - no reward apps assigned")
             #endif
@@ -2333,7 +2333,7 @@ func configureWithTestApplications() {
         let rewardTokens = categoryAssignments.filter { $0.value == AppUsage.AppCategory.reward }.map { $0.key }
 
         if rewardTokens.isEmpty {
-            errorMessage = "No reward apps assigned."
+            errorMessage = String(localized: "No reward apps assigned.")
             #if DEBUG
             print("[AppUsageViewModel] ❌ Cannot unblock - no reward apps assigned")
             #endif

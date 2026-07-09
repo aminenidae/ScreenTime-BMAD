@@ -515,7 +515,7 @@ private extension SubscriptionPaywallView {
             } else if let product = selectedStoreKitProduct {
                 try await subscriptionManager.purchaseStoreKitProduct(product)
             } else {
-                errorMessage = "No subscription package available"
+                errorMessage = String(localized: "No subscription package available")
                 showError = true
                 AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
                     "source": analyticsSource,
@@ -536,7 +536,7 @@ private extension SubscriptionPaywallView {
                     ])
                     finishFlow()
                 } else {
-                    errorMessage = "Purchase recorded but activation is pending. Please tap 'Restore Purchases' or restart the app."
+                    errorMessage = String(localized: "Purchase recorded but activation is pending. Please tap 'Restore Purchases' or restart the app.")
                     showError = true
                     AppAnalytics.shared.track(.paywallPurchaseFailed, parameters: [
                         "source": analyticsSource,

@@ -19,10 +19,10 @@ final class NotificationService: ObservableObject {
     /// ≥60 collapses to "Xh" or "Xh YYm". Mirror in DeviceActivityMonitorExtension.swift.
     fileprivate static func formatRewardDuration(_ minutes: Int) -> String {
         let m = max(0, minutes)
-        if m < 60 { return "\(m) min" }
+        if m < 60 { return String(localized: "\(m) min") }
         let h = m / 60
         let rem = m % 60
-        return rem == 0 ? "\(h)h" : "\(h)h \(rem)m"
+        return rem == 0 ? String(localized: "\(h)h") : String(localized: "\(h)h \(rem)m")
     }
 
     // MARK: - Notification Tracking Keys
@@ -274,8 +274,8 @@ final class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Streak Achievement!"
-        content.body = "\(milestone)-day streak on \(appName)! You earned \(bonusMinutes) bonus minutes!"
+        content.title = String(localized: "Streak Achievement!")
+        content.body = String(localized: "\(milestone)-day streak on \(appName)! You earned \(bonusMinutes) bonus minutes!")
         content.sound = .default
         content.categoryIdentifier = Category.streakMilestone.rawValue
         content.userInfo = [
@@ -322,8 +322,8 @@ final class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Goal Complete!"
-        content.body = "You've earned \(Self.formatRewardDuration(earnedMinutes)) of reward time. Enjoy your games!"
+        content.title = String(localized: "Goal Complete!")
+        content.body = String(localized: "You've earned \(Self.formatRewardDuration(earnedMinutes)) of reward time. Enjoy your games!")
         content.sound = .default
         content.categoryIdentifier = Category.learningGoal.rawValue
         content.userInfo = [
@@ -380,8 +380,8 @@ final class NotificationService: ObservableObject {
         let remaining = limitMinutes - usedMinutes
 
         let content = UNMutableNotificationContent()
-        content.title = "Approaching Limit"
-        content.body = "\(appName): \(Self.formatRewardDuration(remaining)) remaining today"
+        content.title = String(localized: "Approaching Limit")
+        content.body = String(localized: "\(appName): \(Self.formatRewardDuration(remaining)) remaining today")
         content.sound = .default
         content.categoryIdentifier = Category.dailyLimit.rawValue
         content.userInfo = [
@@ -440,8 +440,8 @@ final class NotificationService: ObservableObject {
         dateComponents.minute = warningMinute
 
         let content = UNMutableNotificationContent()
-        content.title = "Downtime Starting Soon"
-        content.body = "\(appName) will be unavailable in \(minutesBefore) minutes"
+        content.title = String(localized: "Downtime Starting Soon")
+        content.body = String(localized: "\(appName) will be unavailable in \(minutesBefore) minutes")
         content.sound = .default
         content.categoryIdentifier = Category.downtimeWarning.rawValue
         content.userInfo = [
@@ -497,8 +497,8 @@ final class NotificationService: ObservableObject {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Time Bank Low"
-        content.body = "Only \(remainingMinutes) minutes left. Use a learning app to earn more!"
+        content.title = String(localized: "Time Bank Low")
+        content.body = String(localized: "Only \(remainingMinutes) minutes left. Use a learning app to earn more!")
         content.sound = .default
         content.categoryIdentifier = Category.timeBankLow.rawValue
         content.userInfo = [
@@ -539,8 +539,10 @@ final class NotificationService: ObservableObject {
         cancelStreakAtRiskReminders(for: appLogicalID)
 
         let content = UNMutableNotificationContent()
-        content.title = "Complete Your Goal"
-        content.body = "Don't lose your \(currentStreak > 0 ? "\(currentStreak)-day " : "")\(appName) streak! Complete your learning goal before bedtime."
+        content.title = String(localized: "Complete Your Goal")
+        content.body = currentStreak > 0
+            ? String(localized: "Don't lose your \(currentStreak)-day \(appName) streak! Complete your learning goal before bedtime.")
+            : String(localized: "Don't lose your \(appName) streak! Complete your learning goal before bedtime.")
         content.sound = .default
         content.categoryIdentifier = Category.streakAtRisk.rawValue
         content.userInfo = [
@@ -585,8 +587,8 @@ final class NotificationService: ObservableObject {
                 downtimeComponents.minute = reminderMinute
 
                 let downtimeContent = UNMutableNotificationContent()
-                downtimeContent.title = "Last Chance!"
-                downtimeContent.body = "1 hour until downtime. Complete your \(appName) goal now!"
+                downtimeContent.title = String(localized: "Last Chance!")
+                downtimeContent.body = String(localized: "1 hour until downtime. Complete your \(appName) goal now!")
                 downtimeContent.sound = .default
                 downtimeContent.categoryIdentifier = Category.streakAtRisk.rawValue
                 downtimeContent.userInfo = content.userInfo
@@ -646,8 +648,8 @@ final class NotificationService: ObservableObject {
         let identifier = "streak_risk_snooze_\(appLogicalID)"
 
         let content = UNMutableNotificationContent()
-        content.title = "Reminder: Complete Your Goal"
-        content.body = "Don't forget to complete your \(appName) learning goal!"
+        content.title = String(localized: "Reminder: Complete Your Goal")
+        content.body = String(localized: "Don't forget to complete your \(appName) learning goal!")
         content.sound = .default
         content.categoryIdentifier = Category.streakAtRisk.rawValue
         content.userInfo = [
@@ -708,12 +710,16 @@ final class NotificationService: ObservableObject {
             components.minute = 0
 
             let content = UNMutableNotificationContent()
-            content.title = isTrial ? "Trial Ending Soon" : "Subscription Expiring"
+            content.title = isTrial ? String(localized: "Trial Ending Soon") : String(localized: "Subscription Expiring")
 
             if daysRemaining == 0 {
-                content.body = "Your \(isTrial ? "free trial" : "subscription") expires today. Subscribe to keep screen time controls active."
+                content.body = isTrial
+                    ? String(localized: "Your free trial expires today. Subscribe to keep screen time controls active.")
+                    : String(localized: "Your subscription expires today. Subscribe to keep screen time controls active.")
             } else {
-                content.body = "Your \(isTrial ? "free trial" : "subscription") expires in \(daysRemaining) days. Renew to avoid interruption."
+                content.body = isTrial
+                    ? String(localized: "Your free trial expires in \(daysRemaining) days. Renew to avoid interruption.")
+                    : String(localized: "Your subscription expires in \(daysRemaining) days. Renew to avoid interruption.")
             }
 
             content.sound = .default
@@ -858,8 +864,8 @@ final class NotificationService: ObservableObject {
         components.minute = 0
 
         let content = UNMutableNotificationContent()
-        content.title = "Weekly Summary Ready"
-        content.body = "See how your child did this week!"
+        content.title = String(localized: "Weekly Summary Ready")
+        content.body = String(localized: "See how your child did this week!")
         content.sound = .default
         content.categoryIdentifier = Category.parentAlert.rawValue
         content.userInfo = ["type": "weeklySummary"]

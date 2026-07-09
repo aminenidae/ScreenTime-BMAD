@@ -168,7 +168,7 @@ struct SetupPINScreen: View {
                 savePIN(enteredPIN)
             } else {
                 // PINs don't match
-                errorMessage = "PINs don't match. Please try again."
+                errorMessage = String(localized: "PINs don't match. Please try again.")
                 pin = ""
                 confirmPIN = ""
                 isConfirming = false

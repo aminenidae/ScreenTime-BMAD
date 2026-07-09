@@ -2919,8 +2919,8 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         }
 
         let content = UNMutableNotificationContent()
-        content.title = "Goal Complete!"
-        content.body = "You've earned \(Self.formatRewardDuration(rewardMinutes)) of reward time. Enjoy your games!"
+        content.title = String(localized: "Goal Complete!")
+        content.body = String(localized: "You've earned \(Self.formatRewardDuration(rewardMinutes)) of reward time. Enjoy your games!")
         content.sound = .default
         content.categoryIdentifier = "learningGoal"
 
@@ -2978,13 +2978,13 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
         let sentKey = "ext_approaching_limit_\(appID)_\(todayKey)"
         guard !defaults.bool(forKey: sentKey) else { return }
 
-        let appName = defaults.string(forKey: "map_\(appID)_name") ?? "Reward App"
-        let displayName = (appName.hasPrefix("Unknown App")) ? "Reward App" : appName
+        let appName = defaults.string(forKey: "map_\(appID)_name") ?? String(localized: "Reward App")
+        let displayName = (appName.hasPrefix("Unknown App")) ? String(localized: "Reward App") : appName
         let remaining = dailyLimit - usedMinutes
 
         let content = UNMutableNotificationContent()
-        content.title = "Approaching Limit"
-        content.body = "\(displayName): \(Self.formatRewardDuration(remaining)) remaining today"
+        content.title = String(localized: "Approaching Limit")
+        content.body = String(localized: "\(displayName): \(Self.formatRewardDuration(remaining)) remaining today")
         content.sound = .default
         content.categoryIdentifier = "dailyLimit"
 
@@ -3368,10 +3368,10 @@ final class ScreenTimeActivityMonitorExtension: DeviceActivityMonitor {
     /// ≥60 collapses to "Xh" or "Xh YYm". Mirror in NotificationService.swift.
     static fileprivate func formatRewardDuration(_ minutes: Int) -> String {
         let m = max(0, minutes)
-        if m < 60 { return "\(m) min" }
+        if m < 60 { return String(localized: "\(m) min") }
         let h = m / 60
         let rem = m % 60
-        return rem == 0 ? "\(h)h" : "\(h)h \(rem)m"
+        return rem == 0 ? String(localized: "\(h)h") : String(localized: "\(h)h \(rem)m")
     }
 
     /// Persist blocking reason for ShieldConfigurationExtension to display correct message.

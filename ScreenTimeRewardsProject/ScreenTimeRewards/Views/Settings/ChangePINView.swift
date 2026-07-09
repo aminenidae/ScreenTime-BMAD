@@ -89,7 +89,7 @@ struct ChangePINView: View {
             isVerifyingCurrent = false
             currentPIN = ""
         } else {
-            errorMessage = "Incorrect PIN. Please try again."
+            errorMessage = String(localized: "Incorrect PIN. Please try again.")
             showError = true
             currentPIN = ""
         }
@@ -97,13 +97,13 @@ struct ChangePINView: View {
 
     private func savePIN() {
         guard newPIN.count == 4 else {
-            errorMessage = "PIN must be 4 digits"
+            errorMessage = String(localized: "PIN must be 4 digits")
             showError = true
             return
         }
 
         guard newPIN == confirmPIN else {
-            errorMessage = "PINs do not match"
+            errorMessage = String(localized: "PINs do not match")
             showError = true
             return
         }

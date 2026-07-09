@@ -221,26 +221,26 @@ struct JoinFamilyView: View {
         case .success(let jsonString):
             validateAndJoin(jsonString: jsonString)
         case .failure(let error):
-            errorMessage = "Failed to scan QR code: \(error.localizedDescription)"
+            errorMessage = String(localized: "Failed to scan QR code: \(error.localizedDescription)")
         }
     }
 
     private func validateAndJoin(jsonString: String) {
         // Parse the QR code
         guard let qrType = FirebaseValidationService.shared.parseQRCode(jsonString) else {
-            errorMessage = "Invalid QR code. Please scan a co-parent invitation code."
+            errorMessage = String(localized: "Invalid QR code. Please scan a co-parent invitation code.")
             return
         }
 
         // Ensure it's a co-parent QR
         guard case .coParent(let payload) = qrType else {
-            errorMessage = "This is not a co-parent invitation code. Please ask your partner to generate a co-parent QR code."
+            errorMessage = String(localized: "This is not a co-parent invitation code. Please ask your partner to generate a co-parent QR code.")
             return
         }
 
         // Check expiration
         if payload.isExpired {
-            errorMessage = "This invitation has expired. Please ask your partner to generate a new code."
+            errorMessage = String(localized: "This invitation has expired. Please ask your partner to generate a new code.")
             return
         }
 
@@ -259,7 +259,7 @@ struct JoinFamilyView: View {
                     } else if let error = result.error {
                         errorMessage = error.localizedDescription
                     } else {
-                        errorMessage = "Failed to join family. Please try again."
+                        errorMessage = String(localized: "Failed to join family. Please try again.")
                     }
                 }
             } catch {
