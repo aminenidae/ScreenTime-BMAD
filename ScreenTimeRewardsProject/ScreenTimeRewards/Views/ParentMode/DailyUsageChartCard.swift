@@ -15,6 +15,15 @@ struct DailyUsageChartCard: View {
 
         var id: String { rawValue }
 
+        var displayName: String {
+            switch self {
+            case .hourly: return String(localized: "Hourly")
+            case .daily: return String(localized: "Daily")
+            case .weekly: return String(localized: "Weekly")
+            case .monthly: return String(localized: "Monthly")
+            }
+        }
+
         var periodsToShow: Int {
             switch self {
             case .hourly: return 24  // Today's hours
@@ -45,13 +54,13 @@ struct DailyUsageChartCard: View {
                 Menu {
                     Picker("Period", selection: $selectedPeriod) {
                         ForEach(TimePeriod.allCases) { period in
-                            Text(period.rawValue).tag(period)
+                            Text(period.displayName).tag(period)
                                 .textCase(.uppercase)
                         }
                     }
                 } label: {
                     HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme spacing
-                        Text(selectedPeriod.rawValue.uppercased())
+                        Text(selectedPeriod.displayName.uppercased())
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
                             .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))

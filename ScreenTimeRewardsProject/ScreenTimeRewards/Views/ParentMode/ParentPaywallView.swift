@@ -229,7 +229,7 @@ struct ParentPaywallView: View {
                                      : AppTheme.brandedText(for: colorScheme))
 
                 if period == .annual {
-                    Text(annualSavingsPercent.map { "Save ~\($0)%" } ?? "Best Value")
+                    Text(annualSavingsPercent.map { String(localized: "Save ~\($0)%") } ?? String(localized: "Best Value"))
                         .font(.system(size: 11, weight: .bold))
                         .foregroundColor(selectedBilling == period
                                          ? AppTheme.sunnyYellow

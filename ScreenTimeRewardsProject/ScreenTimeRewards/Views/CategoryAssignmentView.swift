@@ -145,7 +145,7 @@ struct CategoryAssignmentView: View {
                 if count > 0 {
                     HStack {
                         Text(categoryIcon(for: category))
-                        Text(category.rawValue)
+                        Text(category.displayName)
                         Spacer()
                         Text("\(count) app\(count == 1 ? "" : "s")")
                             .foregroundColor(.secondary)
@@ -317,7 +317,7 @@ private extension CategoryAssignmentView {
             ForEach([AppUsage.AppCategory.learning, AppUsage.AppCategory.reward], id: \.self) { category in
                 HStack {
                     Text(categoryIcon(for: category))
-                    Text(category.rawValue)
+                    Text(category.displayName)
                 }
                 .tag(category)
             }

@@ -297,14 +297,14 @@ struct DailyLimits: Codable, Equatable, Hashable {
     var displaySummary: String {
         if isWeekdayWeekendPattern {
             if weekdayLimit == weekendLimit {
-                return formatMinutes(weekdayLimit) + "/day"
+                return String(localized: "\(formatMinutes(weekdayLimit))/day")
             }
-            return "\(formatMinutes(weekdayLimit)) weekdays, \(formatMinutes(weekendLimit)) weekends"
+            return String(localized: "\(formatMinutes(weekdayLimit)) weekdays, \(formatMinutes(weekendLimit)) weekends")
         }
         // Advanced mode - show a brief summary
         let uniqueLimits = Set([monday, tuesday, wednesday, thursday, friday, saturday, sunday])
         if uniqueLimits.count == 1 {
-            return formatMinutes(monday) + "/day"
+            return String(localized: "\(formatMinutes(monday))/day")
         }
         return String(localized: "Custom schedule")
     }

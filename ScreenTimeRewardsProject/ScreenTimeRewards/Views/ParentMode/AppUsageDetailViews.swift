@@ -183,7 +183,7 @@ struct LearningAppDetailView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     Spacer()
-                    Text(config.todayTimeWindow.isFullDay ? "ALL DAY" : config.todayTimeWindow.displayString.uppercased())
+                    Text(config.todayTimeWindow.isFullDay ? String(localized: "ALL DAY") : config.todayTimeWindow.displayString.uppercased())
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
@@ -448,7 +448,7 @@ struct RewardAppDetailView: View {
                         .font(.system(size: 14, weight: .medium))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     Spacer()
-                    Text(config.todayTimeWindow.isFullDay ? "ALL DAY" : config.todayTimeWindow.displayString.uppercased())
+                    Text(config.todayTimeWindow.isFullDay ? String(localized: "ALL DAY") : config.todayTimeWindow.displayString.uppercased())
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 }
@@ -511,7 +511,7 @@ struct RewardAppDetailView: View {
                 Spacer()
 
                 // Unlock mode badge
-                Text(config.unlockMode == .all ? "ALL" : "ANY")
+                Text(config.unlockMode == .all ? String(localized: "ALL") : String(localized: "ANY"))
                     .font(.system(size: 10, weight: .bold))
                     .foregroundColor(.white)
                     .padding(.horizontal, 8)
@@ -865,6 +865,14 @@ private struct AppUsageChart: View {
         case daily = "Daily"
         case weekly = "Weekly"
         case monthly = "Monthly"
+
+        var displayName: String {
+            switch self {
+            case .daily: return String(localized: "Daily")
+            case .weekly: return String(localized: "Weekly")
+            case .monthly: return String(localized: "Monthly")
+            }
+        }
     }
 
 
@@ -897,7 +905,7 @@ private struct AppUsageChart: View {
 
                         ForEach(ChartPeriod.allCases, id: \.self) { period in
 
-                            Text(period.rawValue).tag(period)
+                            Text(period.displayName).tag(period)
 
                                 .textCase(.uppercase)
 
@@ -909,7 +917,7 @@ private struct AppUsageChart: View {
 
                     HStack(spacing: AppTheme.Spacing.tiny) { // Use AppTheme.Spacing
 
-                        Text(selectedPeriod.rawValue.uppercased())
+                        Text(selectedPeriod.displayName.uppercased())
 
                             .font(.system(size: 11, weight: .medium))
 
@@ -1403,7 +1411,7 @@ struct AppStreakCard: View {
                         .font(.system(size: 36, weight: .bold, design: .rounded))
                         .foregroundColor(AppTheme.sunnyYellow)
                     
-                    Text(currentStreak == 1 ? "DAY" : "DAYS")
+                    Text(currentStreak == 1 ? String(localized: "DAY") : String(localized: "DAYS"))
                         .font(.system(size: 14, weight: .semibold))
                         .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         .padding(.bottom, 4)

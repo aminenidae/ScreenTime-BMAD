@@ -99,7 +99,7 @@ struct ChildAppStreakCard: View {
                     .contentTransition(.numericText())
                     .animation(.spring(response: 0.4), value: currentStreak)
 
-                Text(currentStreak == 1 ? "DAY" : "DAYS")
+                Text(currentStreak == 1 ? String(localized: "DAY") : String(localized: "DAYS"))
                     .font(.system(size: 11, weight: .medium))
                     .tracking(1)
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))

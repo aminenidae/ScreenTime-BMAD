@@ -19,6 +19,13 @@ struct ParentPairingView: View {
     enum QRType: String, CaseIterable {
         case child = "Child Device"
         case coParent = "Co-Parent"
+
+        var displayName: String {
+            switch self {
+            case .child: return String(localized: "Child Device")
+            case .coParent: return String(localized: "Co-Parent")
+            }
+        }
     }
 
     // Polling for new child device
@@ -48,7 +55,7 @@ struct ParentPairingView: View {
             // QR Type Picker
             Picker("QR Type", selection: $selectedQRType) {
                 ForEach(QRType.allCases, id: \.self) { type in
-                    Text(type.rawValue).tag(type)
+                    Text(type.displayName).tag(type)
                 }
             }
             .pickerStyle(.segmented)

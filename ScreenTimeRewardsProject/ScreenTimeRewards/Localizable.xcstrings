@@ -1,6 +1,16 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": ""
+          }
+        }
+      }
+    },
     " ": {
       "localizations": {
         "fr": {
@@ -181,6 +191,16 @@
         }
       }
     },
+    "%@ weekdays, %@ weekends": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ en semaine, %@ le week-end"
+          }
+        }
+      }
+    },
     "%@ will be unavailable in %lld minutes": {
       "localizations": {
         "fr": {
@@ -217,6 +237,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "%@ et %@"
+          }
+        }
+      }
+    },
+    "%@/day": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@/jour"
           }
         }
       }
@@ -981,12 +1011,32 @@
         }
       }
     },
+    "ALL DAY": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TOUTE LA JOURNÉE"
+          }
+        }
+      }
+    },
     "ANY": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "N'IMPORTE LEQUEL"
+          }
+        }
+      }
+    },
+    "APP IN DOWNTIME": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "APPLI EN PÉRIODE DE REPOS"
           }
         }
       }
@@ -1212,6 +1262,7 @@
       }
     },
     "Agree on a Goal": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1961,6 +2012,16 @@
         }
       }
     },
+    "BLOCKED FOR TODAY": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "BLOQUÉE POUR AUJOURD'HUI"
+          }
+        }
+      }
+    },
     "Back": {
       "localizations": {
         "fr": {
@@ -2542,6 +2603,7 @@
       }
     },
     "Child Usage Dashboard": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2787,6 +2849,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "État de CloudKit"
+          }
+        }
+      }
+    },
+    "Co-Parent": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Coparent"
           }
         }
       }
@@ -3371,6 +3443,16 @@
         }
       }
     },
+    "DAILY LIMIT REACHED": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "LIMITE QUOTIDIENNE ATTEINTE"
+          }
+        }
+      }
+    },
     "DAILY STREAK": {
       "localizations": {
         "fr": {
@@ -3497,6 +3579,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "TERMINÉ"
+          }
+        }
+      }
+    },
+    "Daily": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Quotidien"
           }
         }
       }
@@ -3712,6 +3804,7 @@
       }
     },
     "Device Card Carousel": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -4511,6 +4604,36 @@
         }
       }
     },
+    "FINISH ALL GOALS TO UNLOCK": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TERMINE TOUS LES OBJECTIFS POUR DÉBLOQUER"
+          }
+        }
+      }
+    },
+    "FINISH ANY GOAL TO UNLOCK": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TERMINE UN OBJECTIF POUR DÉBLOQUER"
+          }
+        }
+      }
+    },
+    "FINISH YOUR GOAL TO UNLOCK": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TERMINE TON OBJECTIF POUR DÉBLOQUER"
+          }
+        }
+      }
+    },
     "FOR %@!": {
       "localizations": {
         "fr": {
@@ -4751,6 +4874,16 @@
         }
       }
     },
+    "Fixed Minutes": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minutes fixes"
+          }
+        }
+      }
+    },
     "Force PIN Entry": {
       "localizations": {
         "fr": {
@@ -4897,6 +5030,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "POUR COMMENCER"
+          }
+        }
+      }
+    },
+    "GOAL REACHED — STILL LOCKED": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "OBJECTIF ATTEINT — ENCORE VERROUILLÉE"
           }
         }
       }
@@ -5177,6 +5320,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Heure"
+          }
+        }
+      }
+    },
+    "Hourly": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par heure"
           }
         }
       }
@@ -5772,6 +5925,7 @@
       }
     },
     "Learning App Row": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5792,6 +5946,7 @@
       }
     },
     "Learning Goal": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -6282,6 +6437,7 @@
       }
     },
     "Missing Image": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7622,6 +7778,7 @@
       }
     },
     "Parent & child discuss learning targets": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7757,6 +7914,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Par jour"
+          }
+        }
+      }
+    },
+    "Percentage": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pourcentage"
           }
         }
       }
@@ -7922,6 +8089,7 @@
       }
     },
     "Preview not available - requires ApplicationToken": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7932,6 +8100,7 @@
       }
     },
     "Preview not available - requires LearningAppSnapshots": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7942,6 +8111,7 @@
       }
     },
     "Preview requires mock FullAppConfigDTO": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8137,6 +8307,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "APPLIS RÉCOMPENSE"
+          }
+        }
+      }
+    },
+    "REWARD TIME EXPIRED": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "TEMPS DE RÉCOMPENSE ÉPUISÉ"
           }
         }
       }
@@ -8722,6 +8902,7 @@
       }
     },
     "Reward App - Locked": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8732,6 +8913,7 @@
       }
     },
     "Reward App - Unlocked": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8742,6 +8924,7 @@
       }
     },
     "Reward Earned": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -9382,6 +9565,7 @@
       }
     },
     "Set rules & monitor progress": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -10572,6 +10756,7 @@
       }
     },
     "This is a placeholder for a missing image": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -11237,6 +11422,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "DÉBLOQUÉ"
+          }
+        }
+      }
+    },
+    "UNLOCKED — ALL GOALS REACHED": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DÉBLOQUÉE — TOUS LES OBJECTIFS ATTEINTS"
+          }
+        }
+      }
+    },
+    "UNLOCKED — GOAL REACHED": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DÉBLOQUÉE — OBJECTIF ATTEINT"
           }
         }
       }
@@ -12067,6 +12272,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Week-ends (sam-dim) : %@"
+          }
+        }
+      }
+    },
+    "Weekly": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hebdomadaire"
           }
         }
       }

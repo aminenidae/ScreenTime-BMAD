@@ -11,6 +11,13 @@ struct HistoricalReportsView: View {
         case week = "Week"
         case month = "Month"
 
+        var displayName: String {
+            switch self {
+            case .week: return String(localized: "Week")
+            case .month: return String(localized: "Month")
+            }
+        }
+
         var days: Int {
             switch self {
             case .week: return 7
@@ -34,7 +41,7 @@ struct HistoricalReportsView: View {
 
                 Picker("Date Range", selection: $selectedDateRange) {
                     ForEach(DateRange.allCases, id: \.self) { range in
-                        Text(range.rawValue).tag(range)
+                        Text(range.displayName).tag(range)
                     }
                 }
                 .pickerStyle(MenuPickerStyle())

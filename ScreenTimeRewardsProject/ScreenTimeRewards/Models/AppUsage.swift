@@ -106,6 +106,14 @@ struct AppUsage: Codable, Identifiable {
         case learning = "Learning"
         case reward = "Reward"
 
+        /// Display-only name; rawValue is persisted (Codable, CloudKit) and must not change.
+        var displayName: String {
+            switch self {
+            case .learning: return String(localized: "Learning")
+            case .reward: return String(localized: "Reward")
+            }
+        }
+
         /// Case-insensitive parser. Some legacy writers (e.g. PairingConfigView,
         /// CloudKit records from older builds) stored "learning"/"reward" lowercase.
         /// init?(rawValue:) is strict — use this when reading from persistence/CK

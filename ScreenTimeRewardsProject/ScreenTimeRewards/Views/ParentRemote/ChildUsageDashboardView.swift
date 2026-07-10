@@ -462,6 +462,14 @@ private enum ChartTimePeriod: String, CaseIterable, Identifiable {
     case monthly = "Monthly"
 
     var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .daily: return String(localized: "Daily")
+        case .weekly: return String(localized: "Weekly")
+        case .monthly: return String(localized: "Monthly")
+        }
+    }
 }
 
 /// Chart card for remote context using DashboardDataProvider with period selection
@@ -489,12 +497,12 @@ private struct RemoteDailyUsageChartCard<Provider: DashboardDataProvider>: View 
                 Menu {
                     Picker("Period", selection: $selectedPeriod) {
                         ForEach(ChartTimePeriod.allCases) { period in
-                            Text(period.rawValue).tag(period)
+                            Text(period.displayName).tag(period)
                         }
                     }
                 } label: {
                     HStack(spacing: 4) {
-                        Text(selectedPeriod.rawValue.uppercased())
+                        Text(selectedPeriod.displayName.uppercased())
                             .font(.system(size: 11, weight: .medium))
                             .tracking(1)
                             .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))

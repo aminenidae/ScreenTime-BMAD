@@ -163,7 +163,7 @@ struct StreakSettingsPicker: View {
                 }
             )) {
                 ForEach(StreakBonusType.allCases, id: \.self) { type in
-                    Text(type.rawValue.capitalized).tag(type)
+                    Text(type.displayName).tag(type)
                 }
             }
             .pickerStyle(SegmentedPickerStyle())

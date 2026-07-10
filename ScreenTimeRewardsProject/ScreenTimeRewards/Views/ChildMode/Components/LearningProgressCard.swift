@@ -54,9 +54,9 @@ struct LearningProgressCard: View {
         let multi = linkedLearningApps.count >= 2
         if isUnlocked {
             switch (multi, unlockMode) {
-            case (false, _):       return "UNLOCKED — GOAL REACHED"
-            case (true, .all):     return "UNLOCKED — ALL GOALS REACHED"
-            case (true, .any):     return "UNLOCKED — GOAL REACHED"
+            case (false, _):       return String(localized: "UNLOCKED — GOAL REACHED")
+            case (true, .all):     return String(localized: "UNLOCKED — ALL GOALS REACHED")
+            case (true, .any):     return String(localized: "UNLOCKED — GOAL REACHED")
             }
         }
 
@@ -64,10 +64,10 @@ struct LearningProgressCard: View {
         // show that instead — the goal might already be met.
         if let reason = blockingReason {
             switch reason {
-            case .downtime:         return "APP IN DOWNTIME"
+            case .downtime:         return String(localized: "APP IN DOWNTIME")
             case .dailyLimitReached:
-                return dailyLimit == 0 ? "BLOCKED FOR TODAY" : "DAILY LIMIT REACHED"
-            case .rewardTimeExpired: return "REWARD TIME EXPIRED"
+                return dailyLimit == 0 ? String(localized: "BLOCKED FOR TODAY") : String(localized: "DAILY LIMIT REACHED")
+            case .rewardTimeExpired: return String(localized: "REWARD TIME EXPIRED")
             case .learningGoal:
                 break // fall through to goal-not-met copy
             }
@@ -76,13 +76,13 @@ struct LearningProgressCard: View {
         // No reason given, or reason is goal-not-met. If goals look met, the lock
         // is somewhere else we can't name — show neutral copy.
         if goalsMet {
-            return "GOAL REACHED — STILL LOCKED"
+            return String(localized: "GOAL REACHED — STILL LOCKED")
         }
 
         switch (multi, unlockMode) {
-        case (false, _):       return "FINISH YOUR GOAL TO UNLOCK"
-        case (true, .all):     return "FINISH ALL GOALS TO UNLOCK"
-        case (true, .any):     return "FINISH ANY GOAL TO UNLOCK"
+        case (false, _):       return String(localized: "FINISH YOUR GOAL TO UNLOCK")
+        case (true, .all):     return String(localized: "FINISH ALL GOALS TO UNLOCK")
+        case (true, .any):     return String(localized: "FINISH ANY GOAL TO UNLOCK")
         }
     }
 

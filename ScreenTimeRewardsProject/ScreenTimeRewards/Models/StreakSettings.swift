@@ -8,6 +8,14 @@ enum StreakRule: String, Codable, CaseIterable {
 enum StreakBonusType: String, Codable, CaseIterable {
     case percentage = "Percentage"
     case fixedMinutes = "Fixed Minutes"
+
+    /// Display-only name; rawValue is persisted (Codable) and must not change.
+    var displayName: String {
+        switch self {
+        case .percentage: return String(localized: "Percentage")
+        case .fixedMinutes: return String(localized: "Fixed Minutes")
+        }
+    }
 }
 
 struct StreakSettings: Codable, Equatable {

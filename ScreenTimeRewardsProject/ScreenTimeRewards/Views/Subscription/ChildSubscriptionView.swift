@@ -28,6 +28,13 @@ struct ChildSubscriptionView: View {
     enum BillingPeriod: String, CaseIterable {
         case monthly = "Monthly"
         case annual = "Annual"
+
+        var displayName: String {
+            switch self {
+            case .monthly: return String(localized: "Monthly")
+            case .annual: return String(localized: "Annual")
+            }
+        }
     }
 
     private var selectedPackage: Package? {
@@ -222,11 +229,11 @@ private extension ChildSubscriptionView {
                     }
                 } label: {
                     VStack(spacing: 2) {
-                        Text(period.rawValue)
+                        Text(period.displayName)
                             .font(.system(size: 14, weight: .semibold))
 
                         if period == .annual {
-                            Text(annualSavingsPercent.map { "Save ~\($0)%" } ?? "Best Value")
+                            Text(annualSavingsPercent.map { String(localized: "Save ~\($0)%") } ?? String(localized: "Best Value"))
                                 .font(.system(size: 10, weight: .medium))
                                 .foregroundColor(selectedBillingPeriod == period ? .white : AppTheme.sunnyYellow)
                         }

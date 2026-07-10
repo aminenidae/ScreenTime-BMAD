@@ -34,6 +34,13 @@ struct SubscriptionPaywallView: View {
     enum BillingPeriod: String, CaseIterable {
         case monthly = "Monthly"
         case annual = "Annual"
+
+        var displayName: String {
+            switch self {
+            case .monthly: return String(localized: "Monthly")
+            case .annual: return String(localized: "Annual")
+            }
+        }
     }
 
     var body: some View {
@@ -192,11 +199,11 @@ private extension SubscriptionPaywallView {
                     }
                 } label: {
                     VStack(spacing: 4) {
-                        Text(period.rawValue)
+                        Text(period.displayName)
                             .font(.system(size: 16, weight: .semibold))
 
                         if period == .annual {
-                            Text(annualSavingsPercent(for: selectedTier).map { "Save ~\($0)%" } ?? "Best Value")
+                            Text(annualSavingsPercent(for: selectedTier).map { String(localized: "Save ~\($0)%") } ?? String(localized: "Best Value"))
                                 .font(.system(size: 11, weight: .medium))
                                 .foregroundColor(AppTheme.sunnyYellow)
                         }

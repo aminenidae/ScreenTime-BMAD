@@ -29,6 +29,14 @@ struct ParentAppDetailView: View {
         case weekly = "Weekly"
         case monthly = "Monthly"
 
+        var displayName: String {
+            switch self {
+            case .daily: return String(localized: "Daily")
+            case .weekly: return String(localized: "Weekly")
+            case .monthly: return String(localized: "Monthly")
+            }
+        }
+
         var days: Int {
             switch self {
             case .daily: return 7
@@ -462,12 +470,12 @@ struct ParentAppDetailView: View {
                 Menu {
                     Picker("Period", selection: $selectedTimeRange) {
                         ForEach(TimeRange.allCases, id: \.self) { period in
-                            Text(period.rawValue).tag(period)
+                            Text(period.displayName).tag(period)
                         }
                     }
                 } label: {
                     HStack(spacing: AppTheme.Spacing.tiny) {
-                        Text(selectedTimeRange.rawValue)
+                        Text(selectedTimeRange.displayName)
                             .font(.system(size: 11, weight: .medium))
                             .tracking(0.5)
                         Image(systemName: "chevron.down")

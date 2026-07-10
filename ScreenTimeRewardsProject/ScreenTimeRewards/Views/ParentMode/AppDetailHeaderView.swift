@@ -52,7 +52,7 @@ struct AppDetailHeaderView: View {
                     Image(systemName: appType == .learning ? "book.fill" : "gift.fill")
                         .font(.system(size: 10))
 
-                    Text(appType == .learning ? "LEARNING" : "REWARD")
+                    Text(appType == .learning ? String(localized: "LEARNING") : String(localized: "REWARD"))
                         .font(.system(size: 10, weight: .semibold))
                         .tracking(1)
                         .textCase(.uppercase)
