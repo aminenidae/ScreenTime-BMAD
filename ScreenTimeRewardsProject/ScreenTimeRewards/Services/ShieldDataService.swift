@@ -26,15 +26,15 @@ struct ShieldChallengeData: Codable {
 
     /// Formatted string for target apps (e.g., "Duolingo and Khan Academy")
     var targetAppsFormatted: String {
-        guard !targetAppNames.isEmpty else { return "learning apps" }
+        guard !targetAppNames.isEmpty else { return String(localized: "learning apps") }
 
         if targetAppNames.count == 1 {
             return targetAppNames[0]
         } else if targetAppNames.count == 2 {
-            return "\(targetAppNames[0]) and \(targetAppNames[1])"
+            return String(localized: "\(targetAppNames[0]) and \(targetAppNames[1])")
         } else {
             let allButLast = targetAppNames.dropLast().joined(separator: ", ")
-            return "\(allButLast), and \(targetAppNames.last!)"
+            return String(localized: "\(allButLast), and \(targetAppNames.last!)")
         }
     }
 }

@@ -637,15 +637,15 @@ class BlockingCoordinator: ObservableObject {
 
         // Simple mode
         let timeWindow = config.allowedTimeWindow
-        let timeRange = timeWindow.isFullDay ? "anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+        let timeRange = timeWindow.isFullDay ? String(localized: "anytime") : String(localized: "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))")
 
         if limits.weekdayLimit == limits.weekendLimit {
             // 1 line - same for all days
             return formatFullLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange)
         } else {
             // 2 lines - weekday vs weekend
-            let weekdayLine = "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))"
-            let weekendLine = "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+            let weekdayLine = String(localized: "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))")
+            let weekendLine = String(localized: "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))")
             return "\(weekdayLine)\n\(weekendLine)"
         }
     }
@@ -663,7 +663,7 @@ class BlockingCoordinator: ObservableObject {
         func summaryFor(weekday: Int) -> String {
             let window = useAdvancedTime ? config.dailyTimeWindows.window(for: weekday) : config.allowedTimeWindow
             let limitMinutes = limits.limit(for: weekday)
-            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? String(localized: "anytime") : String(localized: "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))")
             return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
         }
 
@@ -681,14 +681,14 @@ class BlockingCoordinator: ObservableObject {
         if Set(allKeys).count == 1 {
             // All 7 days identical - show 1 line
             let window = useAdvancedTime ? config.dailyTimeWindows.window(for: 2) : config.allowedTimeWindow
-            let timeRange = window.isFullDay ? "anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? String(localized: "anytime") : String(localized: "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))")
             return formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)
         }
 
         // Check if weekdays same AND weekends same (classic pattern)
         if allWeekdaysSame && weekendSame {
-            let weekdayLine = "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))"
-            let weekendLine = "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
+            let weekdayLine = String(localized: "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+            let weekendLine = String(localized: "Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
             return "\(weekdayLine)\n\(weekendLine)"
         }
 
@@ -696,7 +696,7 @@ class BlockingCoordinator: ObservableObject {
 
         // Weekdays: show grouped or individual
         if allWeekdaysSame {
-            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+            lines.append(String(localized: "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))"))
         } else {
             // Show individual weekdays
             for weekday in 2...6 {
@@ -706,10 +706,10 @@ class BlockingCoordinator: ObservableObject {
 
         // Weekend: show grouped or individual
         if weekendSame {
-            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
+            lines.append(String(localized: "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"))
         } else {
-            lines.append("Saturday: \(summaryFor(weekday: 7))")
-            lines.append("Sunday: \(summaryFor(weekday: 1))")
+            lines.append("\(dayName(for: 7)): \(summaryFor(weekday: 7))")
+            lines.append("\(dayName(for: 1)): \(summaryFor(weekday: 1))")
         }
 
         return lines.joined(separator: "\n")
@@ -723,7 +723,7 @@ class BlockingCoordinator: ObservableObject {
                 return String(localized: "Available \(timeRange)")
             }
         } else {
-            return "Available for \(formatDuration(minutes)) \(timeRange)"
+            return String(localized: "Available for \(formatDuration(minutes)) \(timeRange)")
         }
     }
 
@@ -750,7 +750,7 @@ class BlockingCoordinator: ObservableObject {
 
     private func formatDuration(_ minutes: Int) -> String {
         if minutes >= 1440 {
-            return "unlimited"
+            return String(localized: "unlimited")
         }
         let hours = minutes / 60
         let mins = minutes % 60

@@ -46,21 +46,21 @@ struct TimeWindowPicker: View {
 
             // Mode selector: All day / Same every day / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "All Day", isSelected: isFullDay) {
+                modeButton(title: String(localized: "All Day"), isSelected: isFullDay) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = true
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Same Every Day", isSelected: !isFullDay && !useAdvancedConfig) {
+                modeButton(title: String(localized: "Same Every Day"), isSelected: !isFullDay && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Per-Day", isSelected: !isFullDay && useAdvancedConfig) {
+                modeButton(title: String(localized: "Per-Day"), isSelected: !isFullDay && useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         isFullDay = false
                         useAdvancedConfig = true

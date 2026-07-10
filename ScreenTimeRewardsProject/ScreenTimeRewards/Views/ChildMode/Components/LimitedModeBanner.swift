@@ -239,9 +239,9 @@ struct ChildPairingPromptView: View {
 
     private var instructionsSection: some View {
         VStack(alignment: .leading, spacing: 16) {
-            InstructionStepRow(number: 1, text: "Ask your parent to open Tic Lock")
-            InstructionStepRow(number: 2, text: "They tap 'Add Child Device' in Settings")
-            InstructionStepRow(number: 3, text: "Scan the QR code they show you")
+            InstructionStepRow(number: 1, text: String(localized: "Ask your parent to open Tic Lock"))
+            InstructionStepRow(number: 2, text: String(localized: "They tap 'Add Child Device' in Settings"))
+            InstructionStepRow(number: 3, text: String(localized: "Scan the QR code they show you"))
         }
         .padding(20)
         .background(

@@ -387,7 +387,7 @@ struct AppConfigurationSheet: View {
         } else {
             // Simple mode
             let timeWindow = localConfig.allowedTimeWindow
-            let timeRange = timeWindow.isFullDay ? "Anytime" : "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))"
+            let timeRange = timeWindow.isFullDay ? String(localized: "Anytime") : String(localized: "between \(formatTime(hour: timeWindow.startHour, minute: timeWindow.startMinute)) and \(formatTime(hour: timeWindow.endHour, minute: timeWindow.endMinute))")
 
             if limits.weekdayLimit == limits.weekendLimit {
                 // 1 line - same for all days
@@ -395,8 +395,8 @@ struct AppConfigurationSheet: View {
             } else {
                 // 2 lines - weekday vs weekend
                 lines = [
-                    "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))",
-                    "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))"
+                    String(localized: "Weekdays (Mon-Fri): \(formatUsageLine(limits.weekdayLimit, timeWindow: timeWindow, timeRange: timeRange))"),
+                    String(localized: "Weekends (Sat-Sun): \(formatUsageLine(limits.weekendLimit, timeWindow: timeWindow, timeRange: timeRange))")
                 ]
             }
         }
@@ -427,7 +427,7 @@ struct AppConfigurationSheet: View {
             }
         } else {
             // Summarize for 5+ apps
-            let modeText = localConfig.unlockMode == .all ? "all" : "any"
+            let modeText = localConfig.unlockMode == .all ? String(localized: "all") : String(localized: "any")
             HStack(alignment: .top, spacing: AppTheme.Spacing.small) {
                 Text("•")
                     .font(.system(size: 11))
@@ -441,7 +441,7 @@ struct AppConfigurationSheet: View {
 
     /// Single row for an unlock app requirement with inline icons
     private func unlockAppRow(app: LinkedLearningApp, snapshot: LearningAppSnapshot) -> some View {
-        let periodText = app.goalPeriod == .daily ? "Day" : "Week"
+        let periodText = app.goalPeriod == .daily ? String(localized: "Day") : String(localized: "Week")
         return HStack(alignment: .center, spacing: 4) {
             Text("•")
                 .font(.system(size: 11))
@@ -480,7 +480,7 @@ struct AppConfigurationSheet: View {
         func summaryFor(weekday: Int) -> String {
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: weekday) : localConfig.allowedTimeWindow
             let limitMinutes = limits.limit(for: weekday)
-            let timeRange = window.isFullDay ? "Anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? String(localized: "Anytime") : String(localized: "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))")
             return formatUsageLine(limitMinutes, timeWindow: window, timeRange: timeRange)
         }
 
@@ -498,15 +498,15 @@ struct AppConfigurationSheet: View {
         if Set(allKeys).count == 1 {
             // All 7 days identical - show 1 line
             let window = useAdvancedTime ? localConfig.dailyTimeWindows.window(for: 2) : localConfig.allowedTimeWindow
-            let timeRange = window.isFullDay ? "Anytime" : "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))"
+            let timeRange = window.isFullDay ? String(localized: "Anytime") : String(localized: "between \(formatTime(hour: window.startHour, minute: window.startMinute)) and \(formatTime(hour: window.endHour, minute: window.endMinute))")
             return [formatFullLine(limits.limit(for: 2), timeWindow: window, timeRange: timeRange)]
         }
 
         // Check if weekdays same AND weekends same (classic pattern)
         if allWeekdaysSame && weekendSame {
             return [
-                "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))",
-                "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"
+                String(localized: "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))"),
+                String(localized: "Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
             ]
         }
 
@@ -514,7 +514,7 @@ struct AppConfigurationSheet: View {
 
         // Weekdays: show grouped or individual
         if allWeekdaysSame {
-            lines.append("Weekdays (Mon-Fri): \(summaryFor(weekday: 2))")
+            lines.append(String(localized: "Weekdays (Mon-Fri): \(summaryFor(weekday: 2))"))
         } else {
             // Show individual weekdays
             for weekday in 2...6 {
@@ -524,10 +524,10 @@ struct AppConfigurationSheet: View {
 
         // Weekend: show grouped or individual
         if weekendSame {
-            lines.append("Weekends (Sat-Sun): \(summaryFor(weekday: 7))")
+            lines.append(String(localized: "Weekends (Sat-Sun): \(summaryFor(weekday: 7))"))
         } else {
-            lines.append("Saturday: \(summaryFor(weekday: 7))")
-            lines.append("Sunday: \(summaryFor(weekday: 1))")
+            lines.append("\(dayName(for: 7)): \(summaryFor(weekday: 7))")
+            lines.append("\(dayName(for: 1)): \(summaryFor(weekday: 1))")
         }
 
         return lines
@@ -541,7 +541,7 @@ struct AppConfigurationSheet: View {
                 return String(localized: "Your child can use this app \(timeRange)")
             }
         } else {
-            return "Your child can use this app for \(formatDuration(minutes)) \(timeRange)"
+            return String(localized: "Your child can use this app for \(formatDuration(minutes)) \(timeRange)")
         }
     }
 

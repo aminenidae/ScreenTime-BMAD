@@ -100,36 +100,36 @@ enum SubscriptionTier: String, Codable, CaseIterable {
         switch self {
         case .trial:
             return [
-                "14-day free trial",
-                "Full access to all features",
-                "Up to 5 child devices",
-                "2 parent devices per child",
-                "Unlimited challenges"
+                String(localized: "14-day free trial"),
+                String(localized: "Full access to all features"),
+                String(localized: "Up to 5 child devices"),
+                String(localized: "2 parent devices per child"),
+                String(localized: "Unlimited challenges")
             ]
         case .solo:
             return [
-                "Single device setup",
-                "Monitor on same device",
-                "Unlimited challenges",
-                "Learning & reward tracking",
-                "Basic analytics"
+                String(localized: "Single device setup"),
+                String(localized: "Monitor on same device"),
+                String(localized: "Unlimited challenges"),
+                String(localized: "Learning & reward tracking"),
+                String(localized: "Basic analytics")
             ]
         case .individual:
             return [
-                "1 child device",
-                "2 parent devices",
-                "Remote monitoring",
-                "Unlimited challenges",
-                "Learning & reward tracking"
+                String(localized: "1 child device"),
+                String(localized: "2 parent devices"),
+                String(localized: "Remote monitoring"),
+                String(localized: "Unlimited challenges"),
+                String(localized: "Learning & reward tracking")
             ]
         case .family:
             return [
-                "Up to 5 child devices",
-                "2 parent devices per child",
-                "Remote monitoring",
-                "Unlimited challenges",
-                "Multi-child dashboard",
-                "Priority support"
+                String(localized: "Up to 5 child devices"),
+                String(localized: "2 parent devices per child"),
+                String(localized: "Remote monitoring"),
+                String(localized: "Unlimited challenges"),
+                String(localized: "Multi-child dashboard"),
+                String(localized: "Priority support")
             ]
         }
     }

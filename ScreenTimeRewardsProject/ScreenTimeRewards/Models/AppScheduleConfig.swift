@@ -334,16 +334,16 @@ enum GoalPeriod: String, Codable, CaseIterable {
 
     var displayName: String {
         switch self {
-        case .daily: return "per day"
-        case .weekly: return "per week"
+        case .daily: return String(localized: "per day")
+        case .weekly: return String(localized: "per week")
         }
     }
 
     /// Short display name for inline pickers (e.g., "day" or "week")
     var shortDisplayName: String {
         switch self {
-        case .daily: return "day"
-        case .weekly: return "week"
+        case .daily: return String(localized: "day")
+        case .weekly: return String(localized: "week")
         }
     }
 }

@@ -171,6 +171,16 @@
         }
       }
     },
+    "%@ and %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ et %@"
+          }
+        }
+      }
+    },
     "%@ will be unavailable in %lld minutes": {
       "localizations": {
         "fr": {
@@ -197,6 +207,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "ESPACE DE %@"
+          }
+        }
+      }
+    },
+    "%@, and %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "%@ et %@"
           }
         }
       }
@@ -741,6 +761,16 @@
         }
       }
     },
+    "1 child device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "1 appareil d'enfant"
+          }
+        }
+      }
+    },
     "1 hour until downtime. Complete your %@ goal now!": {
       "localizations": {
         "fr": {
@@ -777,6 +807,36 @@
           "stringUnit": {
             "state": "translated",
             "value": "10 pts/min"
+          }
+        }
+      }
+    },
+    "14-day free trial": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Essai gratuit de 14 jours"
+          }
+        }
+      }
+    },
+    "2 parent devices": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 appareils parents"
+          }
+        }
+      }
+    },
+    "2 parent devices per child": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "2 appareils parents par enfant"
           }
         }
       }
@@ -927,6 +987,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "N'IMPORTE LEQUEL"
+          }
+        }
+      }
+    },
+    "AVAILABLE": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "DISPONIBLE"
           }
         }
       }
@@ -1161,6 +1231,16 @@
         }
       }
     },
+    "All Day": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Toute la journée"
+          }
+        }
+      }
+    },
     "All data will be permanently removed from this device and iCloud. You can revoke Screen Time access manually in iOS Settings if desired.": {
       "localizations": {
         "fr": {
@@ -1287,6 +1367,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Annuel"
+          }
+        }
+      }
+    },
+    "Anytime": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "N'importe quand"
           }
         }
       }
@@ -1601,6 +1691,16 @@
         }
       }
     },
+    "Ask your parent to open Tic Lock": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Demande à ton parent d'ouvrir Tic Lock"
+          }
+        }
+      }
+    },
     "Ask your parent to renew": {
       "localizations": {
         "fr": {
@@ -1791,6 +1891,16 @@
         }
       }
     },
+    "Available for %@ %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Disponible pendant %@ %@"
+          }
+        }
+      }
+    },
     "Awesome!": {
       "localizations": {
         "fr": {
@@ -1897,6 +2007,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Badges"
+          }
+        }
+      }
+    },
+    "Basic analytics": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Analyses de base"
           }
         }
       }
@@ -4741,6 +4861,16 @@
         }
       }
     },
+    "Full access to all features": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès complet à toutes les fonctionnalités"
+          }
+        }
+      }
+    },
     "Full daily logs (battery + thresholds)": {
       "localizations": {
         "fr": {
@@ -5621,6 +5751,16 @@
         }
       }
     },
+    "Learning & reward tracking": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivi de l'apprentissage et des récompenses"
+          }
+        }
+      }
+    },
     "Learning App": {
       "localizations": {
         "fr": {
@@ -5921,6 +6061,16 @@
         }
       }
     },
+    "MIN AVAILABLE": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "MIN DISPONIBLES"
+          }
+        }
+      }
+    },
     "MINUTES": {
       "localizations": {
         "fr": {
@@ -6171,6 +6321,16 @@
         }
       }
     },
+    "Monitor on same device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveillance sur le même appareil"
+          }
+        }
+      }
+    },
     "Monitor remotely from your phone or tablet": {
       "localizations": {
         "fr": {
@@ -6237,6 +6397,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Humeur"
+          }
+        }
+      }
+    },
+    "Multi-child dashboard": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tableau de bord multi-enfants"
           }
         }
       }
@@ -6457,6 +6627,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aucun appareil d'enfant lié"
+          }
+        }
+      }
+    },
+    "No Limit": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune limite"
           }
         }
       }
@@ -7571,6 +7751,16 @@
         }
       }
     },
+    "Per-Day": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Par jour"
+          }
+        }
+      }
+    },
     "Period": {
       "localizations": {
         "fr": {
@@ -7767,6 +7957,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Aperçu :"
+          }
+        }
+      }
+    },
+    "Priority support": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Soutien prioritaire"
           }
         }
       }
@@ -8187,6 +8387,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Remarque sur la configuration à distance"
+          }
+        }
+      }
+    },
+    "Remote monitoring": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Surveillance à distance"
           }
         }
       }
@@ -8731,6 +8941,16 @@
         }
       }
     },
+    "Same Every Day": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Identique chaque jour"
+          }
+        }
+      }
+    },
     "Sat - Sun": {
       "localizations": {
         "fr": {
@@ -8847,6 +9067,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Scanner le code du partenaire"
+          }
+        }
+      }
+    },
+    "Scan the QR code they show you": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanne le code QR qu'on te montre"
           }
         }
       }
@@ -9287,6 +9517,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Problèmes de suivi importants détectés. Veuillez examiner les problèmes détectés et suivre les actions recommandées."
+          }
+        }
+      }
+    },
+    "Single device setup": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configuration sur un seul appareil"
           }
         }
       }
@@ -10241,6 +10481,16 @@
         }
       }
     },
+    "They tap 'Add Child Device' in Settings": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il faut toucher « Ajouter un appareil d'enfant » dans Paramètres"
+          }
+        }
+      }
+    },
     "They'll get full access without paying separately": {
       "localizations": {
         "fr": {
@@ -11111,6 +11361,16 @@
         }
       }
     },
+    "Unlimited challenges": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Défis illimités"
+          }
+        }
+      }
+    },
     "Unlock Mode": {
       "localizations": {
         "fr": {
@@ -11227,6 +11487,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Jusqu'à"
+          }
+        }
+      }
+    },
+    "Up to 5 child devices": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jusqu'à 5 appareils d'enfants"
           }
         }
       }
@@ -11741,12 +12011,32 @@
         }
       }
     },
+    "Weekday/Weekend": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Semaine/Week-end"
+          }
+        }
+      }
+    },
     "Weekdays": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Jours de semaine"
+          }
+        }
+      }
+    },
+    "Weekdays (Mon-Fri): %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jours de semaine (lun-ven) : %@"
           }
         }
       }
@@ -11767,6 +12057,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Week-ends"
+          }
+        }
+      }
+    },
+    "Weekends (Sat-Sun): %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Week-ends (sam-dim) : %@"
           }
         }
       }
@@ -12091,6 +12391,16 @@
         }
       }
     },
+    "Your child can use this app for %@ %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre enfant peut utiliser cette appli pendant %@ %@"
+          }
+        }
+      }
+    },
     "Your child will earn %@ bonus at completion of %lld-day streak.": {
       "localizations": {
         "fr": {
@@ -12251,6 +12561,56 @@
         }
       }
     },
+    "all": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "toutes les"
+          }
+        }
+      }
+    },
+    "any": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "n'importe quelles"
+          }
+        }
+      }
+    },
+    "anytime": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "n'importe quand"
+          }
+        }
+      }
+    },
+    "between %@ and %@": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "entre %@ et %@"
+          }
+        }
+      }
+    },
+    "day": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "jour"
+          }
+        }
+      }
+    },
     "days": {
       "localizations": {
         "fr": {
@@ -12307,6 +12667,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "seulement %@ / semaine"
+          }
+        }
+      }
+    },
+    "learning apps": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "applis d'apprentissage"
           }
         }
       }
@@ -12371,6 +12741,16 @@
         }
       }
     },
+    "per week": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "par semaine"
+          }
+        }
+      }
+    },
     "per year": {
       "localizations": {
         "fr": {
@@ -12387,6 +12767,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "aujourd'hui"
+          }
+        }
+      }
+    },
+    "unlimited": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "illimité"
+          }
+        }
+      }
+    },
+    "week": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "semaine"
           }
         }
       }

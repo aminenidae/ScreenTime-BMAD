@@ -43,7 +43,7 @@ struct TimeBalanceRing: View {
     }
 
     private var timeLabel: String {
-        availableMinutes >= 60 ? "AVAILABLE" : "MIN AVAILABLE"
+        availableMinutes >= 60 ? String(localized: "AVAILABLE") : String(localized: "MIN AVAILABLE")
     }
 
     /// Primary hero color — coral when low-balance to draw the eye, brand teal otherwise.

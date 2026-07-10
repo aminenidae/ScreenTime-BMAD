@@ -546,7 +546,7 @@ struct ParentAppDetailView: View {
                             .font(.system(size: 14, weight: .medium))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                         Spacer()
-                        Text(schedule.todayTimeWindow.isFullDay ? "All Day" : schedule.todayTimeWindow.displayString)
+                        Text(schedule.todayTimeWindow.isFullDay ? String(localized: "All Day") : schedule.todayTimeWindow.displayString)
                             .font(.system(size: 14, weight: .semibold))
                             .foregroundColor(AppTheme.brandedText(for: colorScheme))
                     }

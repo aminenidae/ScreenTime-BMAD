@@ -66,14 +66,14 @@ struct DailyLimitsPicker: View {
 
             // Mode selector: No limit / Weekday/Weekend / Per-day
             HStack(spacing: 0) {
-                modeButton(title: "No Limit", isSelected: isNoLimit && !useAdvancedConfig) {
+                modeButton(title: String(localized: "No Limit"), isSelected: isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         setNoLimit()
                         useAdvancedConfig = false
                     }
                 }
 
-                modeButton(title: "Weekday/Weekend", isSelected: !isNoLimit && !useAdvancedConfig) {
+                modeButton(title: String(localized: "Weekday/Weekend"), isSelected: !isNoLimit && !useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit {
@@ -83,7 +83,7 @@ struct DailyLimitsPicker: View {
                     }
                 }
 
-                modeButton(title: "Per-Day", isSelected: useAdvancedConfig) {
+                modeButton(title: String(localized: "Per-Day"), isSelected: useAdvancedConfig) {
                     withAnimation(.easeInOut(duration: 0.2)) {
                         // If coming from no limit, set reasonable defaults
                         if isNoLimit && !useAdvancedConfig {
