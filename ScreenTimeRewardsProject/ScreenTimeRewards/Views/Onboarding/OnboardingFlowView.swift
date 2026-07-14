@@ -149,15 +149,15 @@ private struct OnboardingWelcomeStep: View {
                     // Confirmation lines
                     VStack(alignment: .leading, spacing: isLandscape ? 10 : 16) {
                         ConfirmationLine(
-                            text: "You decide what's safe — enforced automatically",
+                            text: String(localized: "You decide what's safe — enforced automatically"),
                             colorScheme: colorScheme
                         )
                         ConfirmationLine(
-                            text: "Learning apps earn real time on the apps they love",
+                            text: String(localized: "Learning apps earn real time on the apps they love"),
                             colorScheme: colorScheme
                         )
                         ConfirmationLine(
-                            text: "No timers to manage. No fights to referee.",
+                            text: String(localized: "No timers to manage. No fights to referee."),
                             colorScheme: colorScheme
                         )
                     }

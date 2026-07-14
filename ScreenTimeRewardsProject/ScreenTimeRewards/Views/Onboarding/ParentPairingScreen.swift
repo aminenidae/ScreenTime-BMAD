@@ -159,7 +159,7 @@ struct ParentPairingScreen: View {
                 .font(.system(size: 24))
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(status == .success ? "Connected" : "Waiting for scan")
+                Text(status == .success ? String(localized: "Connected") : String(localized: "Waiting for scan"))
                     .font(.headline)
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 

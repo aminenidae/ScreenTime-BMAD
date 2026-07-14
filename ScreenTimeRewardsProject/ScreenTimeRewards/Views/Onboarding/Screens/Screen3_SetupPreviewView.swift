@@ -56,31 +56,31 @@ struct Screen3_SetupPreviewView: View {
                 VStack(alignment: .leading, spacing: layout.isLandscape ? 10 : 14) {
                     BenefitRow(
                         icon: "hand.tap.fill",
-                        text: "Hands-On Interactive Walkthrough",
+                        text: String(localized: "Hands-On Interactive Walkthrough"),
                         colorScheme: colorScheme
                     )
 
                     BenefitRow(
                         icon: "lightbulb.fill",
-                        text: "Real-Time Guidance At Every Step",
+                        text: String(localized: "Real-Time Guidance At Every Step"),
                         colorScheme: colorScheme
                     )
 
                     BenefitRow(
                         icon: "slider.horizontal.3",
-                        text: "See How Incredibly Simple Our Settings Are",
+                        text: String(localized: "See How Incredibly Simple Our Settings Are"),
                         colorScheme: colorScheme
                     )
 
                     BenefitRow(
                         icon: "apps.iphone",
-                        text: "Configure Learning & Reward Apps With Help",
+                        text: String(localized: "Configure Learning & Reward Apps With Help"),
                         colorScheme: colorScheme
                     )
 
                     BenefitRow(
                         icon: "checkmark.circle.fill",
-                        text: "Ready To Use In Just 3 Minutes",
+                        text: String(localized: "Ready To Use In Just 3 Minutes"),
                         colorScheme: colorScheme
                     )
                 }

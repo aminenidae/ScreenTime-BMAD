@@ -263,7 +263,7 @@ private extension ChildSubscriptionView {
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                    Text(selectedBillingPeriod == .monthly ? String(localized: "/month") : String(localized: "/year"))
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                 }
@@ -279,7 +279,7 @@ private extension ChildSubscriptionView {
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                    Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                    Text(selectedBillingPeriod == .monthly ? String(localized: "/month") : String(localized: "/year"))
                         .font(.system(size: 14))
                         .foregroundColor(.secondary)
                 }
@@ -304,7 +304,7 @@ private extension ChildSubscriptionView {
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
         if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
-            return "just \(formatted)/week"
+            return String(localized: "just \(formatted)/week")
         }
         return ""
     }
@@ -405,9 +405,9 @@ private extension ChildSubscriptionView {
 
             // Steps
             VStack(alignment: .leading, spacing: 10) {
-                stepRow(number: 1, text: "Parent subscribes on their phone")
-                stepRow(number: 2, text: "They generate a pairing code")
-                stepRow(number: 3, text: "Scan to connect and unlock this device")
+                stepRow(number: 1, text: String(localized: "Parent subscribes on their phone"))
+                stepRow(number: 2, text: String(localized: "They generate a pairing code"))
+                stepRow(number: 3, text: String(localized: "Scan to connect and unlock this device"))
             }
             .padding(.vertical, 8)
 

@@ -57,12 +57,12 @@ struct ParentDeviceSetupScreen: View {
 
     private var instructionSteps: [InstructionStep] {
         [
-            .init(number: "1", title: String(localized: "Download on the child device"), detail: "Install Tic Lock on your child's iPhone or iPad."),
-            .init(number: "2", title: String(localized: "Complete their setup"), detail: "Follow the guided child onboarding so permissions and learning apps are configured."),
+            .init(number: "1", title: String(localized: "Download on the child device"), detail: String(localized: "Install Tic Lock on your child's iPhone or iPad.")),
+            .init(number: "2", title: String(localized: "Complete their setup"), detail: String(localized: "Follow the guided child onboarding so permissions and learning apps are configured.")),
             .init(
                 number: "3",
                 title: String(localized: "Return to this device"),
-                detail: "We'll generate a QR code so the child device can pair with \(deviceName.isEmpty ? "your parent device" : deviceName)."
+                detail: String(localized: "We'll generate a QR code so the child device can pair with \(deviceName.isEmpty ? String(localized: "your parent device") : deviceName).")
             )
         ]
     }

@@ -22,6 +22,7 @@
       }
     },
     "   Click 'Initialize CloudKit Schema' button above": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -32,6 +33,7 @@
       }
     },
     "   Queries should now work in CloudKit Dashboard": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -42,6 +44,7 @@
       }
     },
     "   Wait 30-60 seconds for schema to sync to CloudKit": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -212,6 +215,7 @@
       }
     },
     "%@ → %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -462,6 +466,7 @@
       }
     },
     "%lld min gap": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -822,6 +827,7 @@
       }
     },
     "1. Initialize CloudKit Schema": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -882,6 +888,7 @@
       }
     },
     "2. Wait for completion": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -902,6 +909,7 @@
       }
     },
     "3. Check CloudKit Dashboard": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1092,6 +1100,7 @@
       }
     },
     "Account Status": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1112,6 +1121,7 @@
       }
     },
     "Actions": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1122,6 +1132,7 @@
       }
     },
     "Activate Test Family (Firebase)": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1813,6 +1824,7 @@
       }
     },
     "Auth Debug": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -1833,6 +1845,7 @@
       }
     },
     "Authentication Status:": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2483,6 +2496,7 @@
       }
     },
     "Check CloudKit Status": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2493,6 +2507,7 @@
       }
     },
     "Check Local Devices": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2503,6 +2518,7 @@
       }
     },
     "Check PIN Status": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2538,6 +2554,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vérifier l'état d'iCloud"
+          }
+        }
+      }
+    },
+    "Check in on every paired child device from a single dashboard.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Consultez chaque appareil d'enfant associé depuis un seul tableau de bord."
           }
         }
       }
@@ -2754,6 +2780,7 @@
       }
     },
     "Cleanup Dummy Records": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2764,6 +2791,7 @@
       }
     },
     "Cleanup Duplicate Devices": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2804,6 +2832,7 @@
       }
     },
     "Clear Logs": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2834,6 +2863,7 @@
       }
     },
     "CloudKit Debug": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -2844,6 +2874,7 @@
       }
     },
     "CloudKit Status": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -3039,6 +3070,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Configurer l'appli"
+          }
+        }
+      }
+    },
+    "Configure Learning & Reward Apps With Help": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurez les applis d'apprentissage et de récompense avec de l'aide"
           }
         }
       }
@@ -3264,6 +3305,7 @@
       }
     },
     "Copy familyId": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -3304,6 +3346,7 @@
       }
     },
     "Create Dummy Records (Alternative)": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -3554,6 +3597,7 @@
       }
     },
     "DIAGNOSTICS": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -3764,6 +3808,7 @@
       }
     },
     "Detected Gaps": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -3784,6 +3829,7 @@
       }
     },
     "Detected via %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -4345,6 +4391,7 @@
       }
     },
     "Error: %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -4884,7 +4931,18 @@
         }
       }
     },
+    "Follow the guided child onboarding so permissions and learning apps are configured.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Suivez l'intégration guidée de l'enfant pour configurer les autorisations et les applis d'apprentissage."
+          }
+        }
+      }
+    },
     "Force PIN Entry": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -4895,6 +4953,7 @@
       }
     },
     "Force PIN Setup": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -4990,6 +5049,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Accès complet pendant 14 jours"
+          }
+        }
+      }
+    },
+    "Full access for 14 days.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Accès complet pendant 14 jours."
           }
         }
       }
@@ -5234,6 +5303,16 @@
         }
       }
     },
+    "Hands-On Interactive Walkthrough": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visite guidée interactive et pratique"
+          }
+        }
+      }
+    },
     "Hats": {
       "localizations": {
         "fr": {
@@ -5245,6 +5324,7 @@
       }
     },
     "Healthy": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5415,6 +5495,7 @@
       }
     },
     "ID: %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5505,6 +5586,7 @@
       }
     },
     "Initialize CloudKit Schema": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5514,7 +5596,18 @@
         }
       }
     },
+    "Install Tic Lock on your child's iPhone or iPad.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Installez Tic Lock sur l'iPhone ou l'iPad de votre enfant."
+          }
+        }
+      }
+    },
     "Instructions": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5825,6 +5918,7 @@
       }
     },
     "Last heartbeat: %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -5860,6 +5954,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Dernière synchronisation : %@"
+          }
+        }
+      }
+    },
+    "Launch challenges that motivate learning and good habits.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Lancez des défis qui motivent l'apprentissage et les bonnes habitudes."
           }
         }
       }
@@ -5992,6 +6096,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Les applis d'apprentissage attribuent des points pour chaque minute de progrès."
+          }
+        }
+      }
+    },
+    "Learning apps earn real time on the apps they love": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les applis d'apprentissage font gagner du vrai temps sur les applis qu'ils adorent"
           }
         }
       }
@@ -6177,6 +6291,7 @@
       }
     },
     "Local Core Data": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -6857,6 +6972,16 @@
         }
       }
     },
+    "No card required — nothing charged today.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune carte requise — rien n'est débité aujourd'hui."
+          }
+        }
+      }
+    },
     "No charge today. Cancel anytime.": {
       "localizations": {
         "fr": {
@@ -6918,6 +7043,7 @@
       }
     },
     "No gaps detected": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -6938,6 +7064,7 @@
       }
     },
     "No heartbeat data yet": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7038,6 +7165,7 @@
       }
     },
     "No recent errors": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7143,6 +7271,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Non merci"
+          }
+        }
+      }
+    },
+    "No timers to manage. No fights to referee.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aucune minuterie à gérer. Aucune dispute à arbitrer."
           }
         }
       }
@@ -7578,6 +7716,7 @@
       }
     },
     "PIN Configured: %@": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -7663,6 +7802,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Associez l'appareil d'un enfant pour commencer à surveiller son temps d'écran."
+          }
+        }
+      }
+    },
+    "Pair whenever you're ready—no pressure to finish right now.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Associez quand vous êtes prêt — aucune pression pour finir maintenant."
           }
         }
       }
@@ -7828,6 +7977,16 @@
         }
       }
     },
+    "Parent subscribes on their phone": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Le parent s'abonne sur son téléphone"
+          }
+        }
+      }
+    },
     "Parent's Device": {
       "localizations": {
         "fr": {
@@ -7949,6 +8108,7 @@
       }
     },
     "Phase 4B Authentication Debug": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8171,6 +8331,16 @@
         }
       }
     },
+    "Private by design. We never see messages, photos, or browsing.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privé par conception. Nous ne voyons jamais les messages, photos ou navigation."
+          }
+        }
+      }
+    },
     "Processing...": {
       "localizations": {
         "fr": {
@@ -8232,6 +8402,7 @@
       }
     },
     "Query CloudKit Directly": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8371,12 +8542,32 @@
         }
       }
     },
+    "Ready To Use In Just 3 Minutes": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prêt à utiliser en seulement 3 minutes"
+          }
+        }
+      }
+    },
     "Real Parental Control.\nZero Arguments.": {
       "localizations": {
         "fr": {
           "stringUnit": {
             "state": "translated",
             "value": "Un vrai contrôle parental.\nZéro dispute."
+          }
+        }
+      }
+    },
+    "Real-Time Guidance At Every Step": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Des conseils en temps réel à chaque étape"
           }
         }
       }
@@ -8432,6 +8623,7 @@
       }
     },
     "Recent Errors": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8502,6 +8694,7 @@
       }
     },
     "Registered Devices": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8702,6 +8895,7 @@
       }
     },
     "Reset Trial": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -8712,6 +8906,7 @@
       }
     },
     "Reset Trial?": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -9284,6 +9479,16 @@
         }
       }
     },
+    "Scan to connect and unlock this device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Scanne pour connecter et débloquer cet appareil"
+          }
+        }
+      }
+    },
     "Scan your parent's QR code to continue": {
       "localizations": {
         "fr": {
@@ -9305,6 +9510,7 @@
       }
     },
     "Schema Initialization": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -9350,6 +9556,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Un code sécurisé à usage unique empêche les abus de partage"
+          }
+        }
+      }
+    },
+    "See How Incredibly Simple Our Settings Are": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Découvrez à quel point nos réglages sont simples"
           }
         }
       }
@@ -9736,6 +9952,7 @@
       }
     },
     "Skip with %@ (Dev)": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -10536,6 +10753,7 @@
       }
     },
     "Test Weak PIN Detection": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -10661,6 +10879,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Ces applis rapporteront 10 points par minute pendant le temps d'apprentissage."
+          }
+        }
+      }
+    },
+    "They generate a pairing code": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Il génère un code d'association"
           }
         }
       }
@@ -10867,6 +11095,7 @@
       }
     },
     "This view helps test the new authentication flows": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -10917,6 +11146,7 @@
       }
     },
     "This will reset your trial to 14 days. Force quit and relaunch the app after resetting.": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -11257,6 +11487,7 @@
       }
     },
     "Tracking Health": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -11496,7 +11727,18 @@
         }
       }
     },
+    "Unable to load subscription. Please try again.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Impossible de charger l'abonnement. Veuillez réessayer."
+          }
+        }
+      }
+    },
     "Unable to present app selector. Please try again.": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -11527,6 +11769,7 @@
       }
     },
     "Unhealthy": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {
@@ -12166,6 +12409,16 @@
         }
       }
     },
+    "We'll generate a QR code so the child device can pair with %@.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nous générerons un code QR pour que l'appareil de l'enfant puisse s'associer avec %@."
+          }
+        }
+      }
+    },
     "We'll gently guide your child back to learning apps if they get distracted.": {
       "localizations": {
         "fr": {
@@ -12442,6 +12695,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Vous pouvez toujours consulter vos données dans les Paramètres."
+          }
+        }
+      }
+    },
+    "You decide what's safe — enforced automatically": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous décidez ce qui est sûr — appliqué automatiquement"
           }
         }
       }
@@ -12726,6 +12989,16 @@
         }
       }
     },
+    "Your setup stays exactly as you left it.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre configuration reste exactement comme vous l'avez laissée."
+          }
+        }
+      }
+    },
     "Your subscription expires in %lld days. Renew to avoid interruption.": {
       "localizations": {
         "fr": {
@@ -12886,6 +13159,16 @@
         }
       }
     },
+    "just %@/week": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "seulement %@/semaine"
+          }
+        }
+      }
+    },
     "learning apps": {
       "localizations": {
         "fr": {
@@ -13006,6 +13289,16 @@
         }
       }
     },
+    "your parent device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "votre appareil parent"
+          }
+        }
+      }
+    },
     "|": {
       "localizations": {
         "fr": {
@@ -13047,6 +13340,7 @@
       }
     },
     "🔓 DEV: Bypass Subscription": {
+      "extractionState": "stale",
       "localizations": {
         "fr": {
           "stringUnit": {

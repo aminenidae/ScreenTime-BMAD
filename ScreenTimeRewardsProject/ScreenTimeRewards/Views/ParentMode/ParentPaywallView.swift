@@ -256,7 +256,7 @@ struct ParentPaywallView: View {
                     .font(.system(size: 36, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                Text(selectedBilling == .annual ? "per year" : "per month")
+                Text(selectedBilling == .annual ? String(localized: "per year") : String(localized: "per month"))
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 
@@ -271,7 +271,7 @@ struct ParentPaywallView: View {
                     .font(.system(size: 36, weight: .bold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
-                Text(selectedBilling == .annual ? "per year" : "per month")
+                Text(selectedBilling == .annual ? String(localized: "per year") : String(localized: "per month"))
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
 

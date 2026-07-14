@@ -274,7 +274,7 @@ private extension SubscriptionPaywallView {
                                 .font(.system(size: 28, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                            Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                            Text(selectedBillingPeriod == .monthly ? String(localized: "/month") : String(localized: "/year"))
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                         }
@@ -291,7 +291,7 @@ private extension SubscriptionPaywallView {
                                 .font(.system(size: 28, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
-                            Text(selectedBillingPeriod == .monthly ? "/month" : "/year")
+                            Text(selectedBillingPeriod == .monthly ? String(localized: "/month") : String(localized: "/year"))
                                 .font(.system(size: 14))
                                 .foregroundColor(.secondary)
                         }
@@ -355,7 +355,7 @@ private extension SubscriptionPaywallView {
         formatter.numberStyle = .currency
         formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
         if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
-            return "just \(formatted)/week"
+            return String(localized: "just \(formatted)/week")
         }
         return ""
     }
@@ -367,7 +367,7 @@ private extension SubscriptionPaywallView {
         formatter.numberStyle = .currency
         formatter.locale = product.priceFormatStyle.locale
         if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
-            return "just \(formatted)/week"
+            return String(localized: "just \(formatted)/week")
         }
         return ""
     }

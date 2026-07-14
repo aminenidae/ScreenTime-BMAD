@@ -129,7 +129,7 @@ struct Screen2_SolutionStepView: View {
 
             // Primary CTA
             Button(action: handleAdvance) {
-                Text(isLastStep ? "Continue" : "Next")
+                Text(isLastStep ? String(localized: "Continue") : String(localized: "Next"))
                     .font(.system(size: 18, weight: .bold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)

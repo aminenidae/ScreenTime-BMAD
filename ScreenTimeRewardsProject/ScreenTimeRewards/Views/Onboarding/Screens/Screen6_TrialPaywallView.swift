@@ -58,7 +58,7 @@ struct Screen6_TrialPaywallView: View {
 
     /// Fine print with dynamic post-trial price (Apple guideline 3.1.2(a))
     private var finePrintText: String {
-        let appleBoilerplate = "Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase."
+        let appleBoilerplate = String(localized: "Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
         
         if selectedPlan == .annual {
             let price = annualPackage?.localizedPriceString ?? annualFallbackPrice
@@ -306,7 +306,7 @@ struct Screen6_TrialPaywallView: View {
 
     private func purchaseAnnual() {
         guard let package = annualPackage else {
-            purchaseError = "Unable to load subscription. Please try again."
+            purchaseError = String(localized: "Unable to load subscription. Please try again.")
             return
         }
         purchase(package)
@@ -314,7 +314,7 @@ struct Screen6_TrialPaywallView: View {
 
     private func purchaseMonthly() {
         guard let package = monthlyPackage else {
-            purchaseError = "Unable to load subscription. Please try again."
+            purchaseError = String(localized: "Unable to load subscription. Please try again.")
             return
         }
         purchase(package)
@@ -627,9 +627,9 @@ private struct TrialSaveOfferView: View {
                 .padding(.horizontal, 24)
 
                 VStack(alignment: .leading, spacing: 12) {
-                    SaveOfferRow(text: "Full access for 14 days.")
-                    SaveOfferRow(text: "No card required — nothing charged today.")
-                    SaveOfferRow(text: "Your setup stays exactly as you left it.")
+                    SaveOfferRow(text: String(localized: "Full access for 14 days."))
+                    SaveOfferRow(text: String(localized: "No card required — nothing charged today."))
+                    SaveOfferRow(text: String(localized: "Your setup stays exactly as you left it."))
                 }
                 .padding(.horizontal, 40)
                 .padding(.top, 4)
