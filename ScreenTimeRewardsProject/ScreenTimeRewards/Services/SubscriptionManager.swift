@@ -85,6 +85,13 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
         Purchases.configure(withAPIKey: RevenueCatConfig.apiKey)
 
+        // Apple Search Ads attribution: hand RevenueCat the AdServices token so
+        // trials/subscriptions can be traced back to the campaign → ad group →
+        // keyword that drove the install. First-party attribution — no ATT prompt,
+        // no IDFA. RevenueCat redeems the token with Apple and tags the customer.
+        // Only affects installs from this build forward; cannot backfill.
+        Purchases.shared.attribution.enableAdServicesAttributionTokenCollection()
+
         // Use device ID for cross-device identification
         Task {
             do {
