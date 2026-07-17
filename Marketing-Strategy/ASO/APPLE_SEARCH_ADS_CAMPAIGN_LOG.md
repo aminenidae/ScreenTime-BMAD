@@ -4,7 +4,7 @@
 
 ---
 
-## Current State (as of 2026-07-16)
+## Current State (as of 2026-07-17)
 
 | Setting | Value |
 |---|---|
@@ -14,7 +14,8 @@
 | Daily budget (US) | **$20/day** |
 | Exact "parental control" bid | **$5.00** |
 | Broad "parental control" bid | **$2.00** |
-| Negative keywords (added 2026-07-16) | parent square, parentsquare, parentvue, infinite campus, school communication, nintendo switch |
+| Negatives round 1 (2026-07-16) | parent square, parentsquare, parentvue, infinite campus, school communication, nintendo switch |
+| Negatives round 2 (2026-07-17) | **parent portal** (catch-all for all school portals), parent vue, tikcotech, google family link, learning genie, roblox, qustodio, bright canary — all BROAD |
 
 ### The strategy in one paragraph
 We are NOT scaling — we are running a **$20/day funnel test**. Question being answered: *can Tic Lock convert a genuinely interested parent (high-intent "parental control" searcher) into a free trial?* Exact match at $5 gets first claim on the budget (quality installs); broad at $2 catches leftovers as a discovery net, now cleaned by negatives. The $20 cap is the risk control, so bids only decide WHO we buy, not how much we spend.
@@ -26,22 +27,47 @@ We are NOT scaling — we are running a **$20/day funnel test**. Question being 
 | Date | Spend | Installs | Trials | Notes |
 |---|---|---|---|---|
 | 2026-07-13 (CA) | $1.52 | 0 | 0 | 114 imps, 1 tap |
-| 2026-07-15 (US) | $102.48 | 14 | **0** | Pre-negatives; ~6+ installs were school-app pollution |
-| _(add rows as data lands)_ | | | | |
+| 2026-07-15 (US) | $113.93 (finalized) | 15 | **0** | Pre-negatives; ~11 of 15 installs were school-app pollution (parent square alone: 9). CPA $7.59 |
+| 2026-07-16 (US) | $20.50 | 4 | **?** | Budget cap kicked in; negatives added mid-day so ~2 of 4 still school leakage. CPA $5.12 |
+| _(2026-07-17 = first fully-clean day — watch this one)_ | | | | |
 
 ---
 
 ## Next Actions
 
-1. **~Jul 17–18:** ASC analytics lag clears → check behavior of first US installs (opens, deletions, paywall reached?). Claude can pull this.
-2. **~Jul 23:** 1-week check — are post-negative installs starting any trials? Update scoreboard.
-3. **~Jul 30:** Re-pull US Search Terms report — LOW_VOLUME mask should be lifting; promote winners to exact keywords, add new negatives.
-4. **Ongoing:** watch for the FIRST trial — it changes the question from "is the funnel broken?" to "what does a trial cost?"
-5. **Parked (do NOT start yet):** review US product page for monitoring-vs-rewards expectation mismatch — searchers may expect a surveillance app and bounce at a rewards app. (US metadata is frozen for organic baseline — reconcile before editing anything in ASC.)
+1. **HIGHEST VALUE — onboarding UX audit (in progress 2026-07-17):** device-selection screen (~42% quit) + Screen Time permission (denials) are the leaks. Audit views end-to-end against the ad→screenshot→onboarding expectation chain; propose fixes. DONE: funnel diagnosis (see 2026-07-17 reframe entry).
+2. **Jul 20 & Jul 28:** the ONLY 2 real trials (Finland, Belgium) expire — check RevenueCat for conversion. First real trial→paid signal.
+3. **RevenueCat dashboard TODO (user-only):** flip on Apple Search Ads integration (Project Settings → Integrations → Apple Ads). Code side is done but uncommitted; ships next build.
+4. **Watch Jul 17 ad data** — first fully-clean ad day. Judge ads on onboarding-completion rate (via Firebase), not same-day trials.
+5. **~Jul 30:** Re-pull US Search Terms — LOW_VOLUME mask lifting; promote winners to exact, add new negatives.
+6. **Parked:** US product-page monitoring-vs-rewards mismatch review. (US metadata frozen for organic baseline — reconcile before editing anything in ASC.)
 
 ---
 
 ## Log
+
+### 2026-07-17 — THE REFRAME: onboarding funnel is the problem, not ads/paywall/price
+Full BigQuery funnel analysis (Firebase Analytics export `analytics_518672259`, complete funnel valid from 2026-07-03 when welcome/device-selection events shipped):
+- **Jul 3–16, all users:** 24 saw welcome → 17 reached "parent or child?" → 14 picked → 11 hit Screen Time permission → 7 granted (3 denied) → **4 reached paywall decision → 3 tapped "Not Now" → ALL 3 accepted the freemium trial rescue** → 1 purchase (Winnipeg = own sandbox test).
+- **Design intent confirmed by CEO:** paywall-FIRST; the no-card free trial is an exit-intent rescue behind the "Not Now" button — NOT a default trial for everyone. The mechanic works: 3/3 acceptance.
+- **Fake conversions identified:** the 4 `subscription_started` (Jul 1–3) = `rc_promo_Family_lifetime` grant + own Canada sandbox Solo purchase. Zero real revenue ever.
+- **Only 2 real humans have ever started a trial:** Helsinki, Finland (Jul 6 → expires ~Jul 20) and Belgium (Jul 14 → expires ~Jul 28). Both European; Belgium = French-localization target. These 2 trials are the first real trial→paid test.
+- **~83% of app-openers die before the paywall.** Killers: device-selection screen ("parent or child?", ~42% quit at/before it — consistent across 2 weeks) and Screen Time permission (3 of 11 denied, 1 abandoned).
+- **No ad-driven install (Jul 15–16) has EVER reached the paywall.** Last onboarding completion was Jul 14, pre-ads.
+- **Decision: priority shifts from ad tuning to onboarding UX.** Kill-line logic revised: trials lag installs (paywall is at END of onboarding, and the freemium rescue means "trial" ≠ "payment intent"); judge ads on onboarding-completion rate, not same-day trials.
+- **Access note:** Firebase/BigQuery access confirmed working via `bq` CLI (gcloud project `screentimerewards`), Analytics dataset `analytics_518672259`, intraday table available same-day.
+
+### 2026-07-17 — Negatives round 2 + budget cap confirmed working
+July 16 data proved the round-1 negatives + $20 cap worked: spend crashed $113.93 → $20.50, CPA $7.59 → $5.12, parent square $60 → ~$2.50, parentvue/nintendo → ~$0. Small residual leaks were timing (negatives added mid-day Jul 16). New leaks surfaced → round-2 negatives added (all BROAD):
+- **parent portal** — catch-all: blocks any search with "parent" + "portal" (focus parent portal, infinite campus parent portal, + all future school portals in one entry).
+- parent vue (two-word gap past "parentvue"), tikcotech, google family link, learning genie, roblox, qustodio, bright canary.
+- **Rule established:** use BROAD negatives to kill a *category*; exact only to block one phrase while keeping variants (rare).
+- **2026-07-17 is the first fully-clean test day** — first day $20 buys only genuine parental-control searchers.
+
+### 2026-07-17 — RevenueCat attribution wired (code) + "customers" list explained
+- **Code change (uncommitted):** added `Purchases.shared.attribution.enableAdServicesAttributionTokenCollection()` in `SubscriptionManager.swift` configureRevenueCat(). Enables Apple Search Ads → RevenueCat keyword-level trial/subscriber attribution. First-party, no ATT prompt. Verified method exists in RC 5.56.1 SDK source. Ships in next build; cannot backfill existing installs. **Still TODO:** flip on Apple Search Ads integration in RevenueCat dashboard (Project Settings → Integrations), + ship build.
+- **App already has (discovered):** RevenueCat fully configured (Solo/Individual/Family, 14-day trial); Firebase Analytics (`AppAnalytics.swift`) with FULL onboarding→paywall→purchase funnel events + install-week cohorts. The onboarding-checkpoint tracking I worried was missing is already built.
+- **RevenueCat "Customers" list = app OPENERS, not payers.** A record is created on app launch (configure + logIn deviceID). CSV export (new_customers.csv) showed ~47 records back to Jun 20, ALL with blank status/store/product = zero subscriptions/trials. Count inflated by anonymous+identified duplicate pairs (same device, same timestamp). **Key insight:** zero conversions across a month of ORGANIC users too — not just ad traffic. Points to app funnel (onboarding/paywall/trial mechanics), not ad targeting, as the conversion problem. → Firebase onboarding funnel is now the highest-value diagnostic.
 
 ### 2026-07-16 — Bids reshaped for quality-first testing
 - Exact "parental control" bid raised $2.50 → **$5.00** (back to day-1 level; auctions were clearing at ~$3.50/tap, producing installs at $5.77–$7.00 with 50–60% tap→install rates — our best traffic).
