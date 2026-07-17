@@ -45,7 +45,7 @@ struct DeviceSelectionView: View {
                 ScrollView {
                     VStack(spacing: AppTheme.Spacing.xLarge) {
                         // Headline Text Component
-                        Text("WHOSE DEVICE IS THIS?")
+                        Text("Where does your child spend screen time?")
                             .font(.system(size: 25, weight: .bold)) // Reduced from 28 by 3 pts
                             .foregroundColor(AppTheme.textPrimary(for: colorScheme))
                             .multilineTextAlignment(.center)
@@ -53,11 +53,9 @@ struct DeviceSelectionView: View {
                             .fixedSize(horizontal: false, vertical: true)
                             .padding(.horizontal, AppTheme.Spacing.regular)
                             .padding(.top, AppTheme.Spacing.regular)
-                            .textCase(.uppercase)
-                            .tracking(1)
 
                         // Explanation text
-                        Text("The app does a different job on each device. Pick the one you're setting up.")
+                        Text("Setup takes about 3 minutes. Pick what fits today — you can add the other device later.")
                             .font(.system(size: 15, weight: .regular))
                             .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                             .multilineTextAlignment(.center)
@@ -72,25 +70,14 @@ struct DeviceSelectionView: View {
                             .padding(.top, AppTheme.Spacing.medium)
 
                         // Image Card Grid - Device Selection
+                        // Cards describe the parent's SITUATION, not device ownership —
+                        // answerable even when the parent installs alone on their own phone.
                         VStack(spacing: AppTheme.Spacing.regular) {
-                            // Parent Device Card
-                            DeviceImageCard(
-                                imageName: "onboarding_0_2",
-                                title: String(localized: "Parent's Device"),
-                                subtitle: String(localized: "Track every minute — from anywhere."),
-                                isSelected: selectedMode == .parentDevice,
-                                colorScheme: colorScheme
-                            ) {
-                                withAnimation(.easeInOut(duration: 0.2)) {
-                                    selectedMode = .parentDevice
-                                }
-                            }
-
-                            // Child Device Card
+                            // Child uses THIS device → child flow
                             DeviceImageCard(
                                 imageName: "onboarding_0_3",
-                                title: String(localized: "Child's Device"),
-                                subtitle: String(localized: "Learn first. Play after."),
+                                title: String(localized: "On this device"),
+                                subtitle: String(localized: "Set up learning goals and app locks right here."),
                                 isSelected: selectedMode == .childDevice,
                                 colorScheme: colorScheme
                             ) {
@@ -98,14 +85,29 @@ struct DeviceSelectionView: View {
                                     selectedMode = .childDevice
                                 }
                             }
+
+                            // Child has their own device → this phone becomes the remote
+                            DeviceImageCard(
+                                imageName: "onboarding_0_2",
+                                title: String(localized: "On their own device"),
+                                subtitle: String(localized: "Turn this phone into your remote dashboard."),
+                                isSelected: selectedMode == .parentDevice,
+                                colorScheme: colorScheme
+                            ) {
+                                withAnimation(.easeInOut(duration: 0.2)) {
+                                    selectedMode = .parentDevice
+                                }
+                            }
                         }
                         .padding(.horizontal, AppTheme.Spacing.regular)
                         .frame(maxWidth: 512)
 
-                        // Text Field Component - Dynamic based on selected mode
+                        // Text Field Component - Dynamic based on selected mode.
+                        // Optional by design: never block Continue on a name, never style
+                        // an empty field as an error (funnel data showed this gate cost installs).
                         if let mode = selectedMode {
                             VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                                Text(mode == .parentDevice ? "Parent's name" : "Child's name")
+                                Text(mode == .parentDevice ? "Your name (optional)" : "Child's name (optional)")
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
@@ -120,7 +122,7 @@ struct DeviceSelectionView: View {
                                 .cornerRadius(AppTheme.CornerRadius.medium)
                                 .overlay(
                                     RoundedRectangle(cornerRadius: AppTheme.CornerRadius.medium)
-                                        .stroke(deviceName.isEmpty ? AppTheme.error.opacity(0.5) : AppTheme.border(for: colorScheme), lineWidth: 1)
+                                        .stroke(AppTheme.border(for: colorScheme), lineWidth: 1)
                                 )
                                 .autocapitalization(.words)
                             }
@@ -134,11 +136,16 @@ struct DeviceSelectionView: View {
 
                     // Get Started Button - inside ScrollView
                     Button(action: {
-                        if let mode = selectedMode, !trimmedDeviceName.isEmpty {
+                        if let mode = selectedMode {
+                            // Name is optional — fall back to a friendly default so
+                            // downstream display sites (Settings, pairing) never show "".
+                            let name = trimmedDeviceName.isEmpty
+                                ? (mode == .parentDevice ? String(localized: "Parent") : String(localized: "Child"))
+                                : trimmedDeviceName
                             if let callback = onDeviceSelected {
-                                callback(mode, trimmedDeviceName)
+                                callback(mode, name)
                             } else {
-                                modeManager.setDeviceMode(mode, deviceName: trimmedDeviceName)
+                                modeManager.setDeviceMode(mode, deviceName: name)
                             }
                         }
                     }) {
@@ -147,11 +154,11 @@ struct DeviceSelectionView: View {
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
                             .frame(height: 56)
-                            .background((selectedMode != nil && !trimmedDeviceName.isEmpty) ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.5))
+                            .background(selectedMode != nil ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.5))
                             .cornerRadius(AppTheme.CornerRadius.medium)
                             .textCase(.uppercase)
                     }
-                    .disabled(selectedMode == nil || trimmedDeviceName.isEmpty)
+                    .disabled(selectedMode == nil)
                     .padding(.horizontal, AppTheme.Spacing.regular)
                     .padding(.top, AppTheme.Spacing.xLarge)
                     .padding(.bottom, AppTheme.Spacing.xxLarge)

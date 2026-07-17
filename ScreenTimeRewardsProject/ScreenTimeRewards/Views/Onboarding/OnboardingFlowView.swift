@@ -165,8 +165,19 @@ private struct OnboardingWelcomeStep: View {
 
                     Spacer(minLength: isLandscape ? 12 : 20)
 
+                    // Expectation-setter: tells the night-time solo installer the cost
+                    // (3 min) and that her own phone is a valid starting point — the two
+                    // facts the funnel showed were missing at this decision moment.
+                    Text("Setup takes about 3 minutes — start on your phone or your child's.")
+                        .font(.system(size: 14, weight: .medium))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 24)
+                        .padding(.bottom, isLandscape ? 8 : 12)
+
                     Button(action: onContinue) {
-                        Text("Show Me How")
+                        Text("Start Setup")
                             .font(.system(size: 18, weight: .bold)) // Keep at 18 for now, standardize later
                             .foregroundColor(.white)
                             .frame(maxWidth: .infinity)
@@ -199,7 +210,6 @@ private struct ConfirmationLine: View {
             Text(text)
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme).opacity(0.7))
-                .textCase(.uppercase)
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(maxWidth: 400, alignment: .leading)

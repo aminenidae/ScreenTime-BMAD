@@ -48,7 +48,7 @@ struct Screen4_AuthorizationView: View {
                 VStack(alignment: .leading, spacing: 12) {
                     AuthReassuranceRow(
                         icon: "lock.fill",
-                        text: String(localized: "Private by design. We never see messages, photos, or browsing.")
+                        text: String(localized: "Private by design. We never see messages, photos, location, or browsing.")
                     )
                     AuthReassuranceRow(
                         icon: "arrow.uturn.backward",
