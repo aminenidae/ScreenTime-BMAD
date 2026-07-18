@@ -69,13 +69,13 @@ struct DeviceSelectionView: View {
                             .tracking(1)
                             .padding(.top, AppTheme.Spacing.medium)
 
-                        // Image Card Grid - Device Selection
-                        // Cards describe the parent's SITUATION, not device ownership —
-                        // answerable even when the parent installs alone on their own phone.
+                        // Choice cards - Device Selection
+                        // Text-only by design: at the decision moment, imagery competes
+                        // with the words. Cards describe the parent's SITUATION, not device
+                        // ownership — answerable even when installing alone on their own phone.
                         VStack(spacing: AppTheme.Spacing.regular) {
                             // Child uses THIS device → child flow
-                            DeviceImageCard(
-                                imageName: "onboarding_0_3",
+                            DeviceChoiceCard(
                                 title: String(localized: "On this device"),
                                 subtitle: String(localized: "Set up learning goals and app locks right here."),
                                 isSelected: selectedMode == .childDevice,
@@ -87,8 +87,7 @@ struct DeviceSelectionView: View {
                             }
 
                             // Child has their own device → this phone becomes the remote
-                            DeviceImageCard(
-                                imageName: "onboarding_0_2",
+                            DeviceChoiceCard(
                                 title: String(localized: "On their own device"),
                                 subtitle: String(localized: "Turn this phone into your remote dashboard."),
                                 isSelected: selectedMode == .parentDevice,
@@ -190,141 +189,71 @@ struct DeviceSelectionView: View {
     }
 }
 
-// MARK: - Device Image Card Component
+// MARK: - Device Choice Card Component
 
-private struct DeviceImageCard: View {
-    let imageName: String
+/// Text-only selection card with a radio-style indicator. Deliberately minimal:
+/// the decision moment should be about reading two lines, not decoding imagery.
+private struct DeviceChoiceCard: View {
     let title: String
     let subtitle: String
     let isSelected: Bool
     let colorScheme: ColorScheme
     let action: () -> Void
 
-    @State private var isPulsing = false
-
     var body: some View {
         Button(action: action) {
-            ZStack(alignment: .bottomLeading) {
-                // Background image
-                Image(imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(height: 180)
-                    .clipped()
-
-                // Gradient overlay
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.5)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-
-                // Text content
+            HStack(alignment: .center, spacing: AppTheme.Spacing.regular) {
                 VStack(alignment: .leading, spacing: AppTheme.Spacing.tiny) {
                     Text(title)
-                        .font(.system(size: 17, weight: .semibold)) // Reduced from 20 by 3 pts
-                        .foregroundColor(.white)
-                        .textCase(.uppercase)
-                        .tracking(2)
+                        .font(.system(size: 17, weight: .semibold))
+                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                     Text(subtitle)
                         .font(.system(size: 14, weight: .regular))
-                        .foregroundColor(.white.opacity(0.9))
-                }
-                .padding(AppTheme.Spacing.regular)
-
-                // Tap indicator when not selected
-                if !isSelected {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            ZStack {
-                                // Soft glow behind the tap icon (gentle pulse)
-                                Circle()
-                                    .fill(AppTheme.vibrantTeal)
-                                    .frame(width: isPulsing ? 42 : 38, height: isPulsing ? 42 : 38)
-                                    .blur(radius: 4)
-                                    .opacity(isPulsing ? 0.35 : 0.2)
-
-                                // Main tap icon circle
-                                Circle()
-                                    .fill(AppTheme.vibrantTeal)
-                                    .frame(width: 36, height: 36)
-
-                                Image(systemName: "hand.tap.fill")
-                                    .font(.system(size: 18, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            .padding(AppTheme.Spacing.medium)
-                            .scaleEffect(isPulsing ? 1.06 : 1.0)
-                        }
-                        Spacer()
-                    }
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                // Selected checkmark overlay
-                if isSelected {
-                    VStack {
-                        HStack {
-                            Spacer()
-                            ZStack {
-                                Circle()
-                                    .fill(AppTheme.vibrantTeal)
-                                    .frame(width: 28, height: 28)
+                Spacer(minLength: AppTheme.Spacing.small)
 
-                                Image(systemName: "checkmark")
-                                    .font(.system(size: 14, weight: .bold))
-                                    .foregroundColor(.white)
-                            }
-                            .padding(AppTheme.Spacing.medium)
-                        }
-                        Spacer()
+                // Radio-style selection indicator
+                ZStack {
+                    Circle()
+                        .strokeBorder(
+                            isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme),
+                            lineWidth: 2
+                        )
+                        .background(Circle().fill(isSelected ? AppTheme.vibrantTeal : Color.clear))
+                        .frame(width: 26, height: 26)
+
+                    if isSelected {
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
                     }
                 }
             }
-            .frame(height: 180)
+            .padding(AppTheme.Spacing.regular)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(AppTheme.card(for: colorScheme))
             .cornerRadius(AppTheme.CornerRadius.large)
             .overlay(
                 RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
                     .stroke(
-                        isSelected ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(isPulsing ? 0.5 : 0.3),
-                        lineWidth: isSelected ? 3 : 2
+                        isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme),
+                        lineWidth: isSelected ? 2.5 : 1
                     )
             )
             .shadow(
-                color: isSelected ? AppTheme.vibrantTeal.opacity(0.4) : AppTheme.vibrantTeal.opacity(isPulsing ? 0.25 : 0.12),
-                radius: isSelected ? 12 : (isPulsing ? 12 : 8),
+                color: isSelected ? AppTheme.vibrantTeal.opacity(0.25) : Color.black.opacity(0.06),
+                radius: isSelected ? 10 : 6,
                 x: 0,
-                y: isSelected ? 6 : (isPulsing ? 5 : 3)
+                y: 3
             )
-            .scaleEffect(isSelected ? 1.02 : (isPulsing ? 1.03 : 1.0))
             .animation(.easeInOut(duration: 0.2), value: isSelected)
         }
         .buttonStyle(.plain)
-        .onAppear {
-            // Start pulsing animation for unselected cards
-            if !isSelected {
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
-        }
-        .onChange(of: isSelected) { newValue in
-            if newValue {
-                // Stop pulsing animation immediately when selected
-                withAnimation(.linear(duration: 0)) {
-                    isPulsing = false
-                }
-            } else {
-                // Resume pulsing when deselected
-                withAnimation(.easeInOut(duration: 1.4).repeatForever(autoreverses: true)) {
-                    isPulsing = true
-                }
-            }
-        }
     }
 }
 
