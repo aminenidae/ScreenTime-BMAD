@@ -107,12 +107,12 @@ struct DeviceSelectionView: View {
                         // an empty field as an error (funnel data showed this gate cost installs).
                         if let mode = selectedMode {
                             VStack(alignment: .leading, spacing: AppTheme.Spacing.small) {
-                                Text(mode == .parentDevice ? "Your name (optional)" : "Child's name (optional)")
+                                Text(mode == .parentDevice ? String(localized: "Your name (optional)") : String(localized: "Child's name (optional)"))
                                     .font(.system(size: 16, weight: .medium))
                                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                                 TextField(
-                                    mode == .parentDevice ? "e.g. Mom, Dad, Sarah" : "e.g. Sam, Emma, Alex",
+                                    mode == .parentDevice ? String(localized: "e.g. Mom, Dad, Sarah") : String(localized: "e.g. Sam, Emma, Alex"),
                                     text: $deviceName
                                 )
                                 .font(.system(size: 16))

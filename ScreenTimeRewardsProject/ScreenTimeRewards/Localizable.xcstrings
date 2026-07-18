@@ -2588,6 +2588,16 @@
         }
       }
     },
+    "Child": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Enfant"
+          }
+        }
+      }
+    },
     "Child Achievement Alerts": {
       "localizations": {
         "fr": {
@@ -2715,6 +2725,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Nom de l'enfant"
+          }
+        }
+      }
+    },
+    "Child's name (optional)": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nom de l'enfant (facultatif)"
           }
         }
       }
@@ -7585,6 +7605,26 @@
         }
       }
     },
+    "On their own device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur son propre appareil"
+          }
+        }
+      }
+    },
+    "On this device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sur cet appareil"
+          }
+        }
+      }
+    },
     "Once connected, you'll have full access to all features and your parent can see your progress.": {
       "localizations": {
         "fr": {
@@ -7912,6 +7952,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Association en cours..."
+          }
+        }
+      }
+    },
+    "Parent": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Parent"
           }
         }
       }
@@ -8327,6 +8377,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Appli protégée #%lld"
+          }
+        }
+      }
+    },
+    "Private by design. We never see messages, photos, location, or browsing.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Privé par conception. Nous ne voyons jamais les messages, photos, position ou navigation."
           }
         }
       }
@@ -9801,6 +9861,16 @@
         }
       }
     },
+    "Set up learning goals and app locks right here.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Configurez les objectifs d'apprentissage et le verrouillage des apps ici même."
+          }
+        }
+      }
+    },
     "Set when reward time is available.": {
       "localizations": {
         "fr": {
@@ -9837,6 +9907,26 @@
           "stringUnit": {
             "state": "translated",
             "value": "Configuration terminée!"
+          }
+        }
+      }
+    },
+    "Setup takes about 3 minutes — start on your phone or your child's.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration prend environ 3 minutes — commencez sur votre téléphone ou sur celui de votre enfant."
+          }
+        }
+      }
+    },
+    "Setup takes about 3 minutes. Pick what fits today — you can add the other device later.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "La configuration prend environ 3 minutes. Choisissez ce qui convient aujourd'hui — vous pourrez ajouter l'autre appareil plus tard."
           }
         }
       }
@@ -10078,6 +10168,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Commencer maintenant"
+          }
+        }
+      }
+    },
+    "Start Setup": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Commencer la configuration"
           }
         }
       }
@@ -11617,6 +11717,16 @@
         }
       }
     },
+    "Turn this phone into your remote dashboard.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faites de ce téléphone votre tableau de bord à distance."
+          }
+        }
+      }
+    },
     "UNLINKED LEARNING": {
       "localizations": {
         "fr": {
@@ -12589,6 +12699,16 @@
         }
       }
     },
+    "Where does your child spend screen time?": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où votre enfant passe-t-il son temps d'écran?"
+          }
+        }
+      }
+    },
     "Why configure on child device?": {
       "localizations": {
         "fr": {
@@ -12965,6 +13085,16 @@
           "stringUnit": {
             "state": "translated",
             "value": "Votre stockage iCloud est plein. Libérez de l'espace dans Réglages → [Votre nom] → iCloud → Gérer le stockage du compte, puis réessayez."
+          }
+        }
+      }
+    },
+    "Your name (optional)": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Votre nom (facultatif)"
           }
         }
       }
