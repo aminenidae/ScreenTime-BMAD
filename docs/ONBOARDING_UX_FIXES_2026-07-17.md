@@ -51,9 +51,11 @@ and a personal-data demand before showing any value.
   list — the #1 surveillance fear for this category.
 
 ### 4. Localization impact (French — `feat/french-localization-prep`)
-Changed/new English literals create new string-catalog keys → French will show English for
-these ~10 strings until translated. **TODO before French release:** add French translations
-for the new keys. Tracked here deliberately; not bundled into this change.
+Changed/new English literals create new string-catalog keys. **DONE (e964de9):** French
+translations added for all 13 new keys directly in Localizable.xcstrings. Also wrapped the
+name-label/placeholder ternaries in String(localized:) — plain ternary literals inside
+Text()/TextField() bypass the catalog at runtime (latent issue inherited from the old labels).
+Still pending: native-speaker review alongside the rest of the 1.0.8 French strings.
 
 ## Verification
 - Build in Xcode (CEO/dev machine) — no automated iOS build available in this environment.
