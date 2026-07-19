@@ -10182,6 +10182,66 @@
         }
       }
     },
+    "Where will you manage the rules?": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Où gérerez-vous les règles?"
+          }
+        }
+      }
+    },
+    "You can change this anytime later.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vous pourrez changer cela à tout moment."
+          }
+        }
+      }
+    },
+    "Right here on this device": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ici, sur cet appareil"
+          }
+        }
+      }
+    },
+    "Everything's set up on this phone. Best for a single or shared device.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tout se configure sur ce téléphone. Idéal pour un appareil unique ou partagé."
+          }
+        }
+      }
+    },
+    "From my own phone": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Depuis mon propre téléphone"
+          }
+        }
+      }
+    },
+    "Use your phone as a remote control — start free for 14 days, pair later.": {
+      "localizations": {
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Utilisez votre téléphone comme télécommande — 14 jours gratuits, jumelez plus tard."
+          }
+        }
+      }
+    },
     "Start Using App": {
       "localizations": {
         "fr": {

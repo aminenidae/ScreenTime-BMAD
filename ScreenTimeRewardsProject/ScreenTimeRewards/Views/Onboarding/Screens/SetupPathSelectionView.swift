@@ -87,13 +87,13 @@ struct SetupPathSelectionView: View {
                 .font(.system(size: 48))
                 .foregroundColor(AppTheme.vibrantTeal)
 
-            Text("How would you like to monitor your child?")
+            Text("Where will you manage the rules?")
                 .font(.system(size: 22, weight: .bold))
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.brandedText(for: colorScheme))
                 .padding(.horizontal, 24)
 
-            Text("Choose how you want to manage screen time")
+            Text("You can change this anytime later.")
                 .font(.system(size: 15))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
                 .multilineTextAlignment(.center)
@@ -113,92 +113,69 @@ private struct PathOptionCard: View {
 
     var body: some View {
         Button(action: onSelect) {
-            HStack(spacing: 16) {
-                // Icon
-                ZStack {
-                    Circle()
-                        .fill(iconBackgroundColor)
-                        .frame(width: 56, height: 56)
-
-                    Image(systemName: iconName)
-                        .font(.system(size: 24))
-                        .foregroundColor(iconColor)
-                }
-
+            HStack(alignment: .center, spacing: 16) {
                 // Content
                 VStack(alignment: .leading, spacing: 6) {
                     Text(title)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(.system(size: 17, weight: .semibold))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                     Text(subtitle)
                         .font(.system(size: 14))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
-                        .lineLimit(2)
+                        .multilineTextAlignment(.leading)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                Spacer()
+                Spacer(minLength: 8)
 
-                // Selection indicator
+                // Radio-style selection indicator (matches DeviceSelectionView)
                 ZStack {
                     Circle()
-                        .stroke(isSelected ? AppTheme.vibrantTeal : Color.gray.opacity(0.3), lineWidth: 2)
-                        .frame(width: 24, height: 24)
+                        .strokeBorder(
+                            isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme),
+                            lineWidth: 2
+                        )
+                        .background(Circle().fill(isSelected ? AppTheme.vibrantTeal : Color.clear))
+                        .frame(width: 26, height: 26)
 
                     if isSelected {
-                        Circle()
-                            .fill(AppTheme.vibrantTeal)
-                            .frame(width: 14, height: 14)
+                        Image(systemName: "checkmark")
+                            .font(.system(size: 13, weight: .bold))
+                            .foregroundColor(.white)
                     }
                 }
             }
             .padding(20)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .background(
-                RoundedRectangle(cornerRadius: 16)
+                RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
                     .fill(AppTheme.card(for: colorScheme))
                     .overlay(
-                        RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? AppTheme.vibrantTeal : Color.clear, lineWidth: 2)
+                        RoundedRectangle(cornerRadius: AppTheme.CornerRadius.large)
+                            .stroke(isSelected ? AppTheme.vibrantTeal : AppTheme.border(for: colorScheme), lineWidth: isSelected ? 2.5 : 1)
                     )
-                    .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 4, x: 0, y: 2)
+                    .shadow(
+                        color: isSelected ? AppTheme.vibrantTeal.opacity(0.25) : Color.black.opacity(0.06),
+                        radius: isSelected ? 10 : 6, x: 0, y: 3
+                    )
             )
+            .animation(.easeInOut(duration: 0.2), value: isSelected)
         }
         .buttonStyle(.plain)
     }
 
-    private var iconName: String {
-        switch path {
-        case .solo: return "iphone"
-        case .family: return "iphone.gen3.radiowaves.left.and.right"
-        }
-    }
-
-    private var iconColor: Color {
-        switch path {
-        case .solo: return AppTheme.sunnyYellow
-        case .family: return AppTheme.vibrantTeal
-        }
-    }
-
-    private var iconBackgroundColor: Color {
-        switch path {
-        case .solo: return AppTheme.sunnyYellow.opacity(0.2)
-        case .family: return AppTheme.vibrantTeal.opacity(0.2)
-        }
-    }
-
     private var title: String {
         switch path {
-        case .solo: return String(localized: "On This Device Only")
-        case .family: return String(localized: "From a Parent Device")
+        case .solo: return String(localized: "Right here on this device")
+        case .family: return String(localized: "From my own phone")
         }
     }
 
     private var subtitle: String {
         switch path {
-        case .solo: return String(localized: "Monitor your child's usage directly on their device")
-        case .family: return String(localized: "Monitor remotely from your phone or tablet")
+        case .solo: return String(localized: "Everything's set up on this phone. Best for a single or shared device.")
+        case .family: return String(localized: "Use your phone as a remote control — start free for 14 days, pair later.")
         }
     }
 }
