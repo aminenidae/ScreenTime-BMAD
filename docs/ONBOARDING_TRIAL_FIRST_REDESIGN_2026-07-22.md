@@ -83,6 +83,73 @@ An entry with zero configured apps shows off nothing, so the trial can burn with
 
 ---
 
+## Analytics / Firebase events — MUST be re-mapped (not optional)
+
+The onboarding funnel in Firebase/BigQuery keys off per-screen events, and several of them point at screens this redesign **deletes or reorders**. If we ship the flow changes without updating the events, the funnel silently corrupts: deleted-screen events stop firing (dashboards show a cliff that isn't real), and the numeric `screen_name` map emits **wrong labels** for the screens that remain. Every flow change below has a matching analytics change.
+
+### Current onboarding events (verified in `Analytics/AppAnalytics.swift` + firing sites)
+
+**Child path** — driven by `OnboardingStateManager`, which fires `onboarding_screen_viewed` / `onboarding_cta_tapped` with a `screen_name` from a numeric map (`screenName(for:)`):
+
+| screen # | current `screen_name` | fate in new flow |
+|---|---|---|
+| 1 | `problem` | merges with welcome — relabel |
+| 2 | `solution` | keep (may shrink to ~3 sub-steps) |
+| 3 | `path_selection` | **DELETED** |
+| 4 | `authorization` | **DELETED as a screen** (permission moves in-app) |
+| 5 | `tutorial` | **removed from sequence** (becomes optional, post-entry) |
+| 6 | `paywall` | **DELETED** |
+| 7 | `activation` | replaced by the finish-line screen |
+
+Plus, fired directly:
+- `onboarding_attempt_started`, `onboarding_welcome_viewed`, `onboarding_welcome_cta_tapped`
+- `onboarding_device_selection_viewed`, `onboarding_device_type_selected` (param `device_mode`: parent/child)
+- `onboarding_path_selected` (param `path`: solo/family) — **retire**
+- `onboarding_screen2_step{0..4}_advanced` (solution sub-steps)
+- `authorization_requested` / `authorization_granted` / `authorization_denied`
+- `onboarding_tutorial_step` / `onboarding_tutorial_dropped` / `tutorial_completed`
+- `paywall_viewed` / `paywall_plan_selected` / `paywall_purchase_*` / `paywall_dismissed` / `paywall_user_cancelled`
+- `onboarding_freemium_offer_shown` / `_accepted` / `_declined`
+- `onboarding_completed`, `onboarding_skip_tapped`, `onboarding_skip_confirmed`
+
+**Parent path** — `ParentOnboardingCoordinator.screenName(for:)`: `parent_welcome`, `parent_paywall`, `parent_setup_guide`, `parent_pairing`.
+
+### Events to RETIRE (stop firing — their screens are gone from onboarding)
+
+- `onboarding_path_selected` — the solo/family question is deleted.
+- All in-onboarding `paywall_*` events — no paywall in onboarding. (The paywall events still exist for the *in-app* conversion paywall later; scope them so onboarding-time vs. conversion-time are distinguishable.)
+- `onboarding_freemium_offer_shown/_accepted/_declined` — the freemium rescue lived on the onboarding paywall; gone.
+- `parent_paywall` screen_name — the parent hard-gate paywall is removed.
+- `onboarding_tutorial_*` / `tutorial_completed` fired as a *mandatory onboarding step* — these move to the optional post-entry config (see new events); don't delete the event names, **re-scope** them so they're attributable to the optional flow, not the onboarding funnel.
+
+### `screen_name` map — MUST be rewritten
+
+`OnboardingStateManager.screenName(for:)` and `ParentOnboardingCoordinator.screenName(for:)` must be rewritten to match the new sequence. Do **not** leave the old numeric→label map in place with screens removed — it will mislabel every remaining step. Recommendation: add a `funnel_version` (or `onboarding_version`) param to every onboarding event so pre/post cohorts never get silently averaged together in BigQuery.
+
+### NEW events to ADD
+
+| Event | When | Why |
+|---|---|---|
+| `trial_started` (or reuse `subscription_started`, tier=`family`, status=`trial`) | On app entry, auto-start | Trial no longer implied by a purchase; must be logged explicitly at entry for both paths |
+| `onboarding_finish_line_shown` | Finish-line celebration screen appears | Marks the new commitment point |
+| `onboarding_finish_line_personalize_tapped` | "Personalize my app" tapped | Primary funnel into config |
+| `onboarding_finish_line_explore_tapped` | "I'll explore on my own" tapped | Measures how many defer config |
+| `config_started` | Config/app-picker opened (from finish-line, empty-state, or Settings), with `source` param | Entry into setup, by source |
+| `first_learning_app_added` / `first_reward_app_added` | First app of each type selected | Building blocks of the primary metric |
+| `config_day1_completed` | ≥1 learning **and** ≥1 reward configured within 24h | **The primary success metric** — the real proxy for "saw it work" |
+| `empty_state_nudge_shown` / `_tapped` | Home-screen "pick first reward" card | Measures the safety net |
+| `settings_config_entry_tapped` | Config opened from Settings tab | Measures the fallback net |
+
+### Permission events change *context*, not name
+
+`authorization_requested/granted/denied` still fire — but now at **first app-pick**, not on a dedicated onboarding screen. Add a `source` param (e.g. `first_app_pick`) so grant-rate can be compared against the old onboarding-screen grant rate. `AppUsageViewModel.requestAuthorizationAndOpenPicker()` (and `Screen4`'s existing calls) are the emit sites to reconcile.
+
+### Definition change to flag loudly
+
+`onboarding_completed` **changes meaning**: today it fires at activation *after* the paywall; in the new flow it should fire at **app entry** (finish line), because that's where onboarding now ends. This is a redefinition — historical "completion rate" is not comparable across the cut. Document the cutover date and use `funnel_version` so dashboards can split the cohorts.
+
+---
+
 ## Success metrics (how we know the bet paid off)
 
 Pull from the existing Firebase/BigQuery onboarding funnel; add events where missing.
@@ -117,6 +184,11 @@ Likely touched:
 - Parent branch (`ParentOnboardingCoordinator`, `ParentPaywallView`) — remove the hard-gate paywall; enter on trial.
 - New: finish-line celebration screen + home-screen empty-state nudge + Settings-tab config entry.
 - Trial start: auto-start the no-card Family trial on app entry for both paths.
-- Analytics: events for finish-line shown/tapped, config-started, day-1 config completion.
+- Analytics (see the dedicated section above — this is required, not a nice-to-have):
+  - `Analytics/AppAnalytics.swift` — add the new event cases; re-scope tutorial/paywall events; add `funnel_version` + `source` params.
+  - `OnboardingStateManager.screenName(for:)` and `ParentOnboardingCoordinator.screenName(for:)` — rewrite the maps to the new sequence (retire `path_selection`, `authorization`, `paywall`, `parent_paywall`).
+  - Emit `trial_started`, finish-line events, config/first-app events, empty-state + settings-entry events.
+  - Reconcile `authorization_*` emit sites (`AppUsageViewModel.requestAuthorizationAndOpenPicker`, `Screen4`) with the new in-context `source`.
+  - Update the BigQuery funnel dashboards to the new step definitions; split cohorts on `funnel_version`.
 
 **Next step:** turn this scope into an actual implementation plan (order of changes, what's verifiable at each step) before writing code.
