@@ -331,28 +331,39 @@ Problem → Solution → Setup-path (Solo/Family) → **Authorization** → Tuto
 
 ### Path B — child's own device ("On their own device") → the parent flow
 
-Welcome → **PAYWALL** → Installation guide → Pairing.
+Welcome → Device selection → **Parent Welcome** → **PAYWALL** → Installation guide → Pairing.
 
-- The parent taps "continue" on a welcome screen and, if not already subscribed, **hits `ParentPaywallView` with `onSkip: nil` — a hard wall, no trial, no "not now," no exploration.** It defaults to Family + Annual (~$75). Subscription is *required here* before they can even reach the install guide or pair a device.
-- This is the exact wall documented as the root cause of **0 ad conversions** (all 5 ad-sourced parents died here, 0 paired) in `project_parent_paywall_conversion_wall`.
-- **This is the ONE place our onboarding violates the universal competitor rule.** 0 of 6 competitors put a hard paywall in front of an uninvested parent — and Path B does exactly that, at the exact moment (parent installing on their own phone) that our paid ad traffic lands.
-- The recent `fix/onboarding-ux` work reworked the *child-side* screens but **did not touch this parent wall** (last real change was July 8; since then only translation edits).
+**CORRECTION (2026-07-22, after seeing the parent path rendered — `~/Downloads/Onboarding v1.0.9/Parent/`):** I earlier claimed from the code that this paywall was "trial-less." **That was wrong.** The rendered "Choose Your Plan" screen *does* offer a 14-day free trial, and it's actually well-built:
+
+- Clear value props (monitor remotely, track learning, control apps, up to 2 parent devices), Individual vs **Family "POPULAR"** (preselected), Monthly vs **Annual "Save ~56%"** (preselected).
+- A best-practice **trial timeline**: *Today — Free Trial → Day 13 — Reminder → Day 15 — First Charge.* This is exactly the Apple-endorsed "no surprise charge" trust pattern.
+- Pricing **$79.99/year framed as "just $1.54/week,"** button **"Start 14-Day Free Trial,"** "No commitment. Cancel anytime." As a *paywall*, this is competently designed.
+
+So the accurate criticism is narrower but still real:
+
+1. **It's a gate, not a step.** There is no "Not now," skip, or "pair first" escape (`ParentPaywallView` is invoked with `onSkip: nil`). The parent cannot pair a device or see anything work without first starting the trial.
+2. **The trial requires a card.** It's an Apple free trial that auto-charges on Day 15 — a bigger ask than the child/Family path, which gives a **no-card** trial (explore now, pay later). That asymmetry is the real inconsistency: same company, two trials, very different friction.
+3. **It's shown before pairing/value.** The paywall is screen 4 of the parent flow — before the install guide and before any pairing. The parent commits a card before they've connected a device or seen a reward unlock.
+4. **A broken promise one screen earlier.** The Parent Welcome screen's third card literally says *"Pair whenever you're ready — no pressure to finish right [now]"* — and the very next screen is a card-required paywall gate. The copy promises no pressure; the flow applies it immediately.
+
+This is still the screen documented as the root cause of **0 ad conversions** in `project_parent_paywall_conversion_wall` (all 5 ad parents died here). But the fix is more precise than "add a trial" (there is one): **let the parent pair and see it work first**, and/or **offer the same no-card trial the child path gives**, and/or **add a real escape** — rather than gating a card-required trial before any value.
 
 ### Side-by-side: our two paths vs the field
 
 | Dimension | Field norm (6 competitors) | Our Path A (child device) | Our Path B (parent device) |
 |---|---|---|---|
-| Screen 1 | Promise or role question | Promise ✅ | Promise (welcome) then wall |
-| Paywall placement | Never a hard wall pre-value; trial or deferred | Deferred + no-card trial ✅ | **Hard wall, no trial, pre-pairing ❌** |
-| Free trial offered? | Yes (5 of 6, or no paywall) | Yes, 14-day, no card ✅ | **No — subscription required ❌** |
+| Screen 1 | Promise or role question | Promise ✅ | Promise (welcome) then gate |
+| Paywall placement | Never a hard gate pre-value; trial or deferred | Deferred + no-card trial ✅ | **Card-required trial GATE, pre-pairing ❌** |
+| Free trial offered? | Yes (5 of 6, or no paywall) | Yes, 14-day, **no card** ✅ | Yes, 14-day, **card required, no escape** ⚠️ |
+| Paywall craft (as a paywall) | Varies | Good | **Good — trial timeline, clear pricing ✅** |
 | Permission coaching | Rare (only Kidslox, FlashGet) | **Mock-dialog + finger callout ✅ (top-tier)** | n/a on this path |
-| Time-to-value | 2–4 min to product/pairing | ~3 min to activation ✅ | Blocked at paywall ❌ |
+| Time-to-value | 2–4 min to product/pairing | ~3 min to activation ✅ | Blocked at paywall until card entered ❌ |
 | Positioning | 5 of 6 surveillance | Rewards-for-learning ✅ (differentiated) | Rewards-for-learning ✅ |
 | Child-device tax | MDM profile in 4 of 6 | No MDM profile ✅ | No MDM profile ✅ |
 
 ### The honest bottom line
 
-Our onboarding is **not uniformly broken — it's half excellent and half self-inflicted.** The child-device path is competitive with or better than the field. The parent-device path contains a single, decisive flaw: a hard, trial-less, un-skippable paywall before the parent has seen anything work — the one move literally none of the six competitors make, sitting precisely where our ad traffic arrives. Two of our own strengths (best-in-class permission coaching, no MDM profile) go completely unspoken in marketing, and one structural quirk — **splitting parents down two paths where only one gives a trial** — means the "start free for 14 days" promise that Path A honors is broken the moment a parent says their child has their own phone.
+Our onboarding is **not uniformly broken — it's half excellent and half self-inflicted.** The child-device path is competitive with or better than the field. The parent-device paywall is *well-crafted as a paywall* — the flaw is its **position and lack of escape**: a card-required trial gate shown before the parent can pair a device or see a single reward unlock, contradicting the "no pressure" promise one screen earlier. It's the one spot where we ask for a card before delivering any value — precisely where our ad traffic lands. Meanwhile two real strengths (best-in-class permission coaching, no MDM profile) go unspoken in marketing, and the **two-trials asymmetry** (no-card on the child path, card-required on the parent path) means "start free" means two different things depending on a choice the parent barely understands.
 
 That's the gap to close. Recommendations to follow.
 
