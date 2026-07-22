@@ -13,6 +13,7 @@ Non-ASO marketing (social, channel strategy, broad market research) stays in `Ma
 ## Files by Intent
 
 ### Execute (paste into App Store Connect)
+- `1.0.6_METADATA_LIVE.md` — **current live metadata** (name, subtitle, keywords) as set for 1.0.6, 2026-06-25. Most recent as-shipped record.
 - `ASO_EXECUTION_PLAN.md` — the live metadata package (name, subtitle, keywords, description, promo text). Deployed 2026-04-17.
 - `app-review-notes.md` — versioned Notes-field block for ASC; paste on every submission
 
