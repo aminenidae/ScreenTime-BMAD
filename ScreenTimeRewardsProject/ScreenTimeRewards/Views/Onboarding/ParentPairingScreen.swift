@@ -57,19 +57,25 @@ struct ParentPairingScreen: View {
                 }) {
                     Text("I've Connected the Child Device")
                         .font(.system(size: 18, weight: .bold))
-                        .foregroundColor(AppTheme.lightCream)
+                        .foregroundColor(.white)
                         .frame(maxWidth: 400)
                         .frame(height: 56)
                         .background(AppTheme.vibrantTeal)
-                        .cornerRadius(14)
+                        .cornerRadius(AppTheme.CornerRadius.medium)
                 }
                 .disabled(qrCodeImage == nil)
                 .opacity(qrCodeImage == nil ? 0.6 : 1)
 
+                // Deferring pairing is a first-class choice (the child device is the
+                // universal drop-off point) — a visible secondary button, not a buried link.
                 Button(action: onSkip) {
-                    Text("Skip for Now")
+                    Text("I'll pair later")
                         .font(.system(size: 16, weight: .semibold))
-                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
+                        .frame(maxWidth: 400)
+                        .frame(height: 52)
+                        .background(AppTheme.vibrantTeal.opacity(0.1))
+                        .cornerRadius(AppTheme.CornerRadius.medium)
                 }
             }
             .padding(.bottom, 16)
@@ -129,7 +135,7 @@ struct ParentPairingScreen: View {
 
                 Button(action: { Task { await generateQRCode() } }) {
                     Label("Generate New Code", systemImage: "arrow.clockwise")
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
                 .buttonStyle(.bordered)
             } else {

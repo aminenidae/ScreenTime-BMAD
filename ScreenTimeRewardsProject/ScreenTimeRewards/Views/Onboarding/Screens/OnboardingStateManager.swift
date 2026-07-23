@@ -102,13 +102,24 @@ class OnboardingStateManager: ObservableObject {
 
     // MARK: - Navigation
 
+    /// Screens removed from the trial-first child flow's linear path, so navigation
+    /// hops over them (2 → 7). The numeric screen scheme stays intact; the screen_name
+    /// map rewrite is deferred to the analytics-remap milestone.
+    ///   3 = Solo/Family question (deleted)
+    ///   4 = dedicated permission screen (permission now fires in-context at first app-pick)
+    ///   5 = mandatory tutorial (now optional config, launched from the finish line)
+    ///   6 = onboarding paywall (deleted; retained only as a simulator screenshot target)
+    private let removedScreens: Set<Int> = [3, 4, 5, 6]
+
     func advanceScreen() {
         logScreenExit(screenNumber: currentScreen)
         if !completedScreens.contains(currentScreen) {
             completedScreens.append(currentScreen)
         }
+        var next = currentScreen + 1
+        while removedScreens.contains(next) { next += 1 }
         withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen += 1
+            currentScreen = next
         }
         // Reset solution sub-step when entering Screen 2
         if currentScreen == 2 {
@@ -141,8 +152,10 @@ class OnboardingStateManager: ObservableObject {
 
     func goBack() {
         guard currentScreen > 1 else { return }
+        var prev = currentScreen - 1
+        while prev > 1 && removedScreens.contains(prev) { prev -= 1 }
         withAnimation(.easeInOut(duration: 0.3)) {
-            currentScreen -= 1
+            currentScreen = prev
         }
         saveState()
     }
@@ -174,7 +187,7 @@ class OnboardingStateManager: ObservableObject {
     }
 
     func resetSetup() {
-        AppAnalytics.shared.track(.onboardingSkipConfirmed, parameters: [
+        AppAnalytics.shared.trackOnboarding(.onboardingSkipConfirmed, parameters: [
             "from_screen": currentScreen,
             "from_screen_name": screenName(for: currentScreen),
             "path": selectedPath?.rawValue ?? "none"
@@ -210,7 +223,7 @@ class OnboardingStateManager: ObservableObject {
 
     func logScreenView(screenNumber: Int) {
         screenEnteredAt[screenNumber] = Date()
-        AppAnalytics.shared.track(.onboardingScreenViewed, parameters: [
+        AppAnalytics.shared.trackOnboarding(.onboardingScreenViewed, parameters: [
             "screen_number": screenNumber,
             "screen_name": screenName(for: screenNumber),
             "attempt": UserDefaults.standard.integer(forKey: attemptKey)
@@ -223,13 +236,13 @@ class OnboardingStateManager: ObservableObject {
             params["time_spent_seconds"] = Date().timeIntervalSince(entered)
         }
         params["screen_name"] = screenName(for: screenNumber)
-        AppAnalytics.shared.track(.onboardingCtaTapped, parameters: params)
+        AppAnalytics.shared.trackOnboarding(.onboardingCtaTapped, parameters: params)
     }
 
     func trackAttemptStart() {
         let count = UserDefaults.standard.integer(forKey: attemptKey) + 1
         UserDefaults.standard.set(count, forKey: attemptKey)
-        AppAnalytics.shared.track(.onboardingAttemptStarted, parameters: ["attempt": count])
+        AppAnalytics.shared.trackOnboarding(.onboardingAttemptStarted, parameters: ["attempt": count])
     }
 
     func logEvent(_ eventName: String, params: [String: Any]? = nil) {
@@ -238,15 +251,15 @@ class OnboardingStateManager: ObservableObject {
         #endif
     }
 
+    /// Trial-first (v2) screen names. Only 1, 2, and 7 are logged in the live flow;
+    /// 6 stays a simulator-only screenshot target. Screens 3 (path selection),
+    /// 4 (permission), and 5 (tutorial) were removed from the flow — never logged.
     private func screenName(for number: Int) -> String {
         switch number {
         case 1: return "problem"
         case 2: return "solution"
-        case 3: return "path_selection"
-        case 4: return "authorization"
-        case 5: return "tutorial"
         case 6: return "paywall"
-        case 7: return "activation"
+        case 7: return "finish_line"
         default: return "unknown"
         }
     }

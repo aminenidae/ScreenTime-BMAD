@@ -4,6 +4,7 @@ struct ParentDeviceSetupScreen: View {
     let deviceName: String
     let onBack: () -> Void
     let onContinue: () -> Void
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         VStack(spacing: 24) {
@@ -25,34 +26,35 @@ struct ParentDeviceSetupScreen: View {
             VStack(alignment: .leading, spacing: 12) {
                 Label("Tip", systemImage: "lightbulb")
                     .font(.headline)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("The child device can use any Apple ID. Pairing only requires that Tic Lock is installed and its onboarding is finished.")
                     .font(.system(size: 15))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
             }
             .padding()
             .frame(maxWidth: 640)
             .background(
                 RoundedRectangle(cornerRadius: 16)
-                    .fill(Color(.secondarySystemBackground))
+                    .fill(AppTheme.vibrantTeal.opacity(0.08))
             )
 
             Spacer()
 
             Button(action: onContinue) {
-                Text("I've Installed the App")
+                Text("Continue")
                     .font(.system(size: 18, weight: .bold))
                     .foregroundColor(.white)
                     .frame(maxWidth: 400)
                     .frame(height: 56)
-                    .background(Color.accentColor)
-                    .cornerRadius(14)
+                    .background(AppTheme.vibrantTeal)
+                    .cornerRadius(AppTheme.CornerRadius.medium)
             }
             .padding(.bottom, 16)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .background(Color(.systemGroupedBackground))
+        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
     }
 
     private var instructionSteps: [InstructionStep] {
@@ -70,6 +72,7 @@ struct ParentDeviceSetupScreen: View {
 
 private struct InstructionCard: View {
     let step: InstructionStep
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(alignment: .top, spacing: 16) {
@@ -77,15 +80,16 @@ private struct InstructionCard: View {
                 .font(.system(size: 20, weight: .bold))
                 .foregroundColor(.white)
                 .frame(width: 40, height: 40)
-                .background(Circle().fill(Color.accentColor))
+                .background(Circle().fill(AppTheme.vibrantTeal))
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(step.title)
                     .font(.system(size: 17, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
 
                 Text(step.detail)
                     .font(.system(size: 15))
-                    .foregroundColor(.secondary)
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
             }
 
             Spacer(minLength: 16)
@@ -93,7 +97,7 @@ private struct InstructionCard: View {
         .padding()
         .background(
             RoundedRectangle(cornerRadius: 18)
-                .fill(Color(.systemBackground))
+                .fill(AppTheme.card(for: colorScheme))
                 .shadow(color: Color.black.opacity(0.05), radius: 8, x: 0, y: 4)
         )
     }

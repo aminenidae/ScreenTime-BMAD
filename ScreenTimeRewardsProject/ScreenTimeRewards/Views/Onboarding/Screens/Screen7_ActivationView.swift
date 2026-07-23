@@ -1,234 +1,108 @@
 import SwiftUI
 
-// MARK: - Activation Step Model
-
-private struct ActivationStepCard: Identifiable {
-    let id: Int
-    let imageName: String
-    let stepNumber: String
-    let title: String
-    let subtitle: String
-}
-
-/// Screen 7: Activation (C7) with image cards
-/// Guides user on first actions after setup completion with visual step cards
-/// Adapts to iPad with side-by-side layout and landscape with smaller cards
+/// Screen 7 (repurposed): the trial-first "finish line".
+/// Reached right after the value slides — config has NOT happened yet. This is the
+/// psychological pivot from prospect to owner: celebrate that the app is live and the
+/// trial has started, then offer optional setup ("Personalize") or a quiet escape
+/// into the app ("Explore"). See docs/ONBOARDING_TRIAL_FIRST_REDESIGN_2026-07-22.md.
 struct Screen7_ActivationView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
-    @State private var visibleSteps: Set<Int> = []
-    @State private var animationStarted = false
 
-    let onShowChildDashboard: () -> Void
-    let onShowParentDashboard: () -> Void
+    /// Start the no-card 14-day trial. Called once, on appear (idempotent upstream).
+    let onStartTrial: () -> Void
+    /// Launch the optional ~30-second setup.
+    let onPersonalize: () -> Void
+    /// Skip setup and drop straight into the app.
+    let onExplore: () -> Void
 
     private var layout: ResponsiveCardLayout {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
-    /// Delay between each step animation (in seconds)
-    private let stepAnimationDelay: Double = 0.4
-
-    private let steps: [ActivationStepCard] = [
-        ActivationStepCard(id: 0, imageName: "onboarding_C7_1", stepNumber: "1", title: String(localized: "Discuss With Your Child"), subtitle: String(localized: "Explain the learning-and-reward system together.")),
-        ActivationStepCard(id: 1, imageName: "onboarding_C7_2", stepNumber: "2", title: String(localized: "Let It Run"), subtitle: String(localized: "Try not to adjust for 48 hours — let them find the rhythm.")),
-        ActivationStepCard(id: 2, imageName: "onboarding_C7_3", stepNumber: "3", title: String(localized: "Check Progress"), subtitle: String(localized: "After 3 days, review together and ask: does this feel fair?"))
-    ]
-
     var body: some View {
         VStack(spacing: 0) {
-            // Header
-            VStack(spacing: 10) {
+            Spacer(minLength: layout.isLandscape ? 16 : 40)
+
+            // Celebration + trial confirmation (ownership framing)
+            VStack(spacing: 16) {
                 Image(systemName: "checkmark.seal.fill")
-                    .font(.system(size: layout.isLandscape ? 34 : 44))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .font(.system(size: layout.isLandscape ? 48 : 64))
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
-                Text("YOUR SYSTEM IS LIVE")
-                    .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
-                    .lineLimit(2)
+                Text("You're all set")
+                    .font(.system(size: layout.isRegular ? 34 : 30, weight: .bold))
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
                     .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                    .textCase(.uppercase)
-                    .tracking(1)
 
-                Text("Here's what to do next with your child.")
-                    .font(.system(size: layout.isRegular ? 15 : 13))
+                Text("Your app is live and your 14-day free trial has started.")
+                    .font(.system(size: layout.isRegular ? 17 : 16))
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
                     .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+
+                // Relationship close — end on the outcome that matters, not the mechanics.
+                Text("Here's to fewer screen-time battles — and more trust between you and your child.")
+                    .font(.system(size: layout.isRegular ? 15 : 14))
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
+                    .multilineTextAlignment(.center)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 24)
+                    .padding(.top, 4)
             }
-            .padding(.horizontal, layout.horizontalPadding)
-            .padding(.vertical, layout.isLandscape ? 12 : 20)
             .frame(maxWidth: 600)
+            .padding(.horizontal, layout.horizontalPadding)
 
-            // Step Image Cards - Vertical scroll with staggered animation
-            ScrollViewReader { proxy in
-                ScrollView(.vertical, showsIndicators: false) {
-                    VStack(spacing: layout.cardSpacing) {
-                        ForEach(steps) { step in
-                            ActivationImageCard(step: step, layout: layout, isVisible: visibleSteps.contains(step.id))
-                                .id(step.id)
-                        }
-                    }
-                    .padding(.horizontal, layout.horizontalPadding)
-                    .padding(.vertical, 8)
-                }
-                .onChange(of: visibleSteps) { newValue in
-                    // Auto-scroll to the latest visible step
-                    if let maxStep = newValue.max() {
-                        withAnimation(.easeInOut(duration: 0.5)) {
-                            proxy.scrollTo(maxStep, anchor: .center)
-                        }
-                    }
-                }
-            }
+            Spacer()
 
-            Spacer(minLength: layout.isLandscape ? 16 : 24)
-
-            // Primary CTA
+            // Primary: owns the moment, pulls into the ~30s setup (where the iOS
+            // Screen Time permission prompt naturally fires at the app picker).
             Button(action: {
-                completeOnboarding()
-                onShowChildDashboard()
+                AppAnalytics.shared.trackOnboarding(.onboardingFinishLinePersonalizeTapped)
+                onPersonalize()
             }) {
-                Text("Show Child Dashboard")
-                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                Text("Personalize My App")
+                    .font(.system(size: 18, weight: .bold))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
-                    .padding(.vertical, 14)
+                    .padding(.vertical, 16)
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(AppTheme.CornerRadius.medium)
-                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
             .padding(.bottom, 12)
 
-            // Secondary CTA
+            // Quiet secondary escape for the curious.
             Button(action: {
-                completeOnboarding()
-                onShowParentDashboard()
+                AppAnalytics.shared.trackOnboarding(.onboardingFinishLineExploreTapped)
+                onExplore()
             }) {
-                Text("Go To Parent Dashboard")
-                    .font(.system(size: 18, weight: .bold)) // Standardized button font size
+                Text("I'll explore on my own")
+                    .font(.system(size: 16, weight: .semibold))
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
                     .padding(.vertical, 14)
-                    .background(AppTheme.vibrantTeal.opacity(0.1)) // Secondary button style
-                    .foregroundColor(AppTheme.vibrantTeal) // Text color for secondary button
-                    .cornerRadius(AppTheme.CornerRadius.medium)
-                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
-            .padding(.bottom, layout.isLandscape ? 16 : 24)
+            .padding(.bottom, layout.isLandscape ? 16 : 32)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
+            onStartTrial()
             onboarding.logScreenView(screenNumber: 7)
-            AppAnalytics.shared.track(.onboardingCompleted, parameters: [
-                "flow": "child",
-                "path": onboarding.selectedPath?.rawValue ?? "unknown"
-            ])
-            startStepAnimations()
+            AppAnalytics.shared.trackOnboarding(.onboardingFinishLineShown)
+            // Redefinition (v2): onboarding now ends at the finish line, so
+            // onboarding_completed fires here — at app entry — not after a paywall.
+            AppAnalytics.shared.trackOnboarding(.onboardingCompleted, parameters: ["flow": "child"])
         }
-    }
-
-    private func completeOnboarding() {
-        onboarding.onboardingComplete = true
-    }
-
-    /// Starts the staggered step animations with 2-second delays
-    private func startStepAnimations() {
-        guard !animationStarted else { return }
-        animationStarted = true
-
-        for step in steps {
-            let delay = Double(step.id) * stepAnimationDelay
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
-                withAnimation(.spring(response: 0.6, dampingFraction: 0.8)) {
-                    _ = visibleSteps.insert(step.id)
-                }
-            }
-        }
-    }
-}
-
-// MARK: - Activation Image Card
-
-private struct ActivationImageCard: View {
-    let step: ActivationStepCard
-    let layout: ResponsiveCardLayout
-    let isVisible: Bool
-
-    /// Card height - responsive based on device
-    private var cardHeight: CGFloat {
-        if layout.isIpad {
-            return 220
-        } else if layout.isLandscape {
-            return 140
-        } else {
-            return 160
-        }
-    }
-
-    /// Vertical offset for enter animation (enters from bottom)
-    private var enterOffset: CGFloat {
-        isVisible ? 0 : 60
-    }
-
-    var body: some View {
-        GeometryReader { geometry in
-            ZStack(alignment: .bottomLeading) {
-                // Background image - explicitly sized to geometry
-                Image(step.imageName)
-                    .resizable()
-                    .aspectRatio(contentMode: .fill)
-                    .frame(width: geometry.size.width, height: cardHeight)
-                    .clipped()
-
-                // Gradient overlay
-                LinearGradient(
-                    gradient: Gradient(colors: [
-                        Color.black.opacity(0.0),
-                        Color.black.opacity(0.55)
-                    ]),
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-                .frame(width: geometry.size.width, height: cardHeight)
-
-                // Text content
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(step.stepNumber)
-                        .font(.system(size: layout.isIpad ? 29 : 17, weight: .bold)) // Reduced from 32/20
-                        .foregroundColor(.white)
-                        .textCase(.uppercase)
-
-                    Text(step.title)
-                        .font(.system(size: layout.isIpad ? 17 : 11, weight: .semibold)) // Reduced from 20/14
-                        .foregroundColor(.white)
-                        .textCase(.uppercase)
-                        .tracking(1)
-
-                    Text(step.subtitle)
-                        .font(.system(size: layout.isIpad ? 14 : 11, weight: .regular))
-                        .foregroundColor(.white.opacity(0.9))
-                        .lineLimit(2)
-                }
-                .padding(layout.isIpad ? 20 : 10)
-            }
-        }
-        .frame(height: cardHeight)
-        .cornerRadius(AppTheme.CornerRadius.large)
-        .shadow(color: Color.black.opacity(isVisible ? 0.15 : 0.05), radius: isVisible ? 12 : 4, x: 0, y: isVisible ? 6 : 2)
-        .opacity(isVisible ? 1.0 : 0.0)
-        .offset(y: enterOffset)
-        .scaleEffect(isVisible ? 1.0 : 0.9)
     }
 }
 
 #Preview {
-    Screen7_ActivationView(
-        onShowChildDashboard: {},
-        onShowParentDashboard: {}
-    )
-    .environmentObject(OnboardingStateManager())
+    Screen7_ActivationView(onStartTrial: {}, onPersonalize: {}, onExplore: {})
+        .environmentObject(OnboardingStateManager())
 }

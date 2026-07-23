@@ -1,13 +1,16 @@
 import SwiftUI
 
-/// Container view that manages the onboarding flow
-/// Flow varies based on path selection:
-/// - Solo: Screen 1-2-3-4-5-6(paywall)-7
-/// - Family: Screen 1-2-3-4-5-7 (skip paywall, 14-day trial)
+/// The child-flow tail of onboarding. After the shared front (merged welcome → value
+/// slides → device question), the child path enters here directly at the finish line:
+/// the no-card 14-day trial auto-starts, then setup is optional — "Personalize" launches
+/// the config in a full-screen cover; "Explore" drops into the app.
 struct OnboardingContainerView: View {
     @StateObject private var onboarding = OnboardingStateManager()
     @EnvironmentObject var appUsageViewModel: AppUsageViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
+
+    /// Presents the optional config (tutorial) on demand from the finish line.
+    @State private var showConfig = false
 
     let onComplete: (OnboardingDestination) -> Void
 
@@ -17,84 +20,28 @@ struct OnboardingContainerView: View {
     }
 
     var body: some View {
-        ZStack {
-            switch onboarding.currentScreen {
-            case 1:
-                Screen1_ProblemView()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    ))
-
-            case 2:
-                Screen2_SolutionStepView()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    ))
-
-            case 3:
-                // Path selection: Solo vs Family
-                SetupPathSelectionView { path in
-                    onboarding.selectPath(path)
-                }
-                .onAppear { onboarding.logScreenView(screenNumber: 3) }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-
-            case 4:
-                Screen4_AuthorizationView()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    ))
-
-            case 5:
-                Screen5_GuidedTutorialView(
-                    onTutorialComplete: {
-                        // After tutorial, go to paywall for Solo or skip to activation for Family
-                        if onboarding.shouldShowPaywall {
-                            onboarding.advanceScreen() // Go to screen 6 (paywall)
-                        } else {
-                            // Family path: skip paywall, start 14-day trial
-                            startFamilyTrial()
-                            onboarding.currentScreen = 7 // Skip to activation
-                        }
-                    }
-                )
-                .onAppear { onboarding.logScreenView(screenNumber: 5) }
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-
-            case 6:
-                // Paywall - only shown for Solo path
-                Screen6_TrialPaywallView()
-                    .transition(.asymmetric(
-                        insertion: .move(edge: .trailing),
-                        removal: .move(edge: .leading)
-                    ))
-
-            case 7:
-                Screen7_ActivationView(
-                    onShowChildDashboard: { onComplete(.childDashboard) },
-                    onShowParentDashboard: { onComplete(.parentDashboard) }
-                )
-                .transition(.asymmetric(
-                    insertion: .move(edge: .trailing),
-                    removal: .move(edge: .leading)
-                ))
-
-            default:
-                // Fallback - should not happen
-                Screen1_ProblemView()
-            }
-        }
+        Screen7_ActivationView(
+            onStartTrial: { startFamilyTrial() },
+            onPersonalize: {
+                AppAnalytics.shared.trackOnboarding(.configStarted, parameters: ["source": "finish_line"])
+                showConfig = true
+            },
+            onExplore: { enterChildDashboard() }
+        )
         .environmentObject(onboarding)
         .environmentObject(subscriptionManager)
+        // Optional config, launched on demand from the finish line ("Personalize").
+        // The app picker inside requests Screen Time permission in-context.
+        .fullScreenCover(isPresented: $showConfig) {
+            Screen5_GuidedTutorialView(
+                onTutorialComplete: {
+                    showConfig = false
+                    enterChildDashboard()
+                }
+            )
+            .environmentObject(appUsageViewModel)
+            .environmentObject(subscriptionManager)
+        }
         .onAppear {
             // Connect the onboarding manager to AppUsageViewModel
             onboarding.appUsageViewModel = appUsageViewModel
@@ -103,28 +50,40 @@ struct OnboardingContainerView: View {
             if completed {
                 // Mark child onboarding as complete in UserDefaults
                 UserDefaults.standard.set(true, forKey: "hasCompletedChildOnboarding")
-
-                // Store the selected path
-                if let path = onboarding.selectedPath {
-                    UserDefaults.standard.set(path.rawValue, forKey: "onboardingSetupPath")
-                }
             }
         }
     }
 
-    /// Start 14-day trial for Family path (no paywall shown to child)
+    /// Start the no-card 14-day Family trial. Idempotent — the finish line fires this
+    /// on appear, and it must not reset the trial clock if entered more than once.
     private func startFamilyTrial() {
+        guard onboarding.trialStartDate == nil else { return }
         onboarding.trialStartDate = Date()
 
         // Start trial via ChildBackgroundSyncService (handles caching and status)
         ChildBackgroundSyncService.shared.startFamilyTrial()
 
+        AppAnalytics.shared.trackOnboarding(.trialStarted, parameters: [
+            "tier": "family",
+            "status": "trial",
+            "device_flow": "child"
+        ])
+
         #if DEBUG
-        print("[Onboarding] Family path - starting 14-day trial (paywall on parent device)")
+        print("[Onboarding] Starting no-card 14-day Family trial (all child-flow users)")
         #endif
 
         // The child will need to pair with a subscribed parent before trial ends
         // NotificationService can schedule reminders for this
+    }
+
+    /// Finish onboarding and drop into the child app. Notification permission is asked
+    /// here — at app entry — now that the dedicated permission screen is gone (it used
+    /// to piggyback the Screen Time ask). Non-blocking; iOS de-dupes the system prompt.
+    private func enterChildDashboard() {
+        Task { _ = await NotificationService.shared.requestAuthorization() }
+        onboarding.onboardingComplete = true
+        onComplete(.childDashboard)
     }
 }
 

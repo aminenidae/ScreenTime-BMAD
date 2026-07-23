@@ -5,6 +5,8 @@ import SwiftUI
 struct OnboardingFlowView: View {
     enum OnboardingStep {
         case welcome
+        case valueSlides
+        case ahaMoment
         case deviceSelection
         case parentFlow
         case childFlow
@@ -28,11 +30,26 @@ struct OnboardingFlowView: View {
             Group {
                 switch onboardingStep {
                 case .welcome:
-                    OnboardingWelcomeStep {
-                        AppAnalytics.shared.track(.onboardingWelcomeCtaTapped)
-                        withAnimation { onboardingStep = .deviceSelection }
-                    }
-                    .onAppear { AppAnalytics.shared.track(.onboardingWelcomeViewed) }
+                    // Merged welcome + problem screen (front-of-funnel, shown to everyone).
+                    Screen1_ProblemView(onContinue: {
+                        AppAnalytics.shared.trackOnboarding(.onboardingWelcomeCtaTapped)
+                        withAnimation { onboardingStep = .valueSlides }
+                    })
+                    .onAppear { AppAnalytics.shared.trackOnboarding(.onboardingWelcomeViewed) }
+
+                case .valueSlides:
+                    // Value slides moved ahead of the device question so both paths see them.
+                    Screen2_SolutionStepView(
+                        onComplete: { withAnimation { onboardingStep = .ahaMoment } },
+                        onBack: { withAnimation { onboardingStep = .welcome } }
+                    )
+
+                case .ahaMoment:
+                    // "See it work" — canned animation of the earn → unlock loop.
+                    OnboardingAhaMomentView(
+                        onContinue: { withAnimation { onboardingStep = .deviceSelection } },
+                        onBack: { withAnimation { onboardingStep = .valueSlides } }
+                    )
 
                 case .deviceSelection:
                     DeviceSelectionView(
@@ -40,9 +57,9 @@ struct OnboardingFlowView: View {
                         onDeviceSelected: { mode, name in
                             handleDeviceSelection(mode: mode, name: name)
                         },
-                        onBack: { onboardingStep = .welcome }
+                        onBack: { onboardingStep = .ahaMoment }
                     )
-                    .onAppear { AppAnalytics.shared.track(.onboardingDeviceSelectionViewed) }
+                    .onAppear { AppAnalytics.shared.trackOnboarding(.onboardingDeviceSelectionViewed) }
 
                 case .parentFlow:
                     ParentOnboardingCoordinator(
@@ -53,7 +70,7 @@ struct OnboardingFlowView: View {
                     .environmentObject(subscriptionManager)
 
                 case .childFlow:
-                    // New 7-screen onboarding flow
+                    // Child tail: enters directly at the finish line (front screens already shown).
                     OnboardingContainerView { destination in
                         handleOnboardingComplete(destination: destination)
                     }
@@ -62,12 +79,31 @@ struct OnboardingFlowView: View {
                 }
             }
             .animation(.easeInOut, value: onboardingStep)
+            // Overall progress through the shared intro (welcome → slides → device
+            // question). Front-only: once the path forks, each path shows its own local
+            // steps, so a single global "of N" would be dishonest across two lengths.
+            .safeAreaInset(edge: .top, spacing: 0) {
+                if let step = frontProgressStep {
+                    OnboardingProgressBar(step: step, total: 4)
+                }
+            }
+        }
+    }
+
+    /// 0-based position in the shared front-of-funnel, or nil once the path forks.
+    private var frontProgressStep: Int? {
+        switch onboardingStep {
+        case .welcome:         return 0
+        case .valueSlides:     return 1
+        case .ahaMoment:       return 2
+        case .deviceSelection: return 3
+        case .parentFlow, .childFlow: return nil
         }
     }
 
     private func handleDeviceSelection(mode: DeviceMode, name: String) {
         deviceName = name
-        AppAnalytics.shared.track(.onboardingDeviceTypeSelected, parameters: [
+        AppAnalytics.shared.trackOnboarding(.onboardingDeviceTypeSelected, parameters: [
             "device_type": mode == .parentDevice ? "parent" : "child"
         ])
         deviceModeManager.setDeviceMode(mode, deviceName: name)
@@ -80,138 +116,50 @@ struct OnboardingFlowView: View {
     }
 }
 
-// MARK: - Shared Intro Steps
+// The merged welcome (Screen1_ProblemView) and value slides (Screen2_SolutionStepView)
+// now live in the shared front-of-funnel above, before the device question.
 
-private struct OnboardingWelcomeStep: View {
-    let onContinue: () -> Void
+/// Shared back button for onboarding screens, so back navigation looks identical
+/// everywhere. Every screen uses one except the first (welcome) and the terminal
+/// finish-line screens.
+struct OnboardingBackButton: View {
+    let action: () -> Void
     @Environment(\.colorScheme) private var colorScheme
-    @Environment(\.verticalSizeClass) private var vSizeClass
-
-    private var isLandscape: Bool {
-        vSizeClass == .compact
-    }
 
     var body: some View {
-        GeometryReader { geometry in
-            let imageWidth = max(100, geometry.size.width - 48) // 24 padding on each side, minimum 100
-            let imageHeight: CGFloat = isLandscape ? 160 : 260
-
-            ScrollView(showsIndicators: false) {
-                VStack(spacing: 0) {
-                    // Hero image card with gradient overlay + caption
-                    ZStack(alignment: .bottomLeading) {
-                        Image("onboarding_0_1")
-                            .resizable()
-                            .aspectRatio(contentMode: .fill)
-                            .frame(width: imageWidth, height: imageHeight)
-                            .clipped()
-
-                        LinearGradient(
-                            colors: [Color.clear, Color.black.opacity(0.5)],
-                            startPoint: .top,
-                            endPoint: .bottom
-                        )
-                        .frame(width: imageWidth, height: imageHeight)
-
-                        VStack(alignment: .leading, spacing: 5) {
-                            Text("Parental Control, Made Simple")
-                                .font(.system(size: 12, weight: .bold))
-                                .foregroundColor(.white)
-                                .textCase(.uppercase)
-                                .tracking(1.5)
-                            Text("You set what's safe. They earn what's fun.")
-                                .font(.system(size: 13))
-                                .foregroundColor(.white.opacity(0.9))
-                        }
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 18)
-                        .padding(.bottom, 16)
-                    }
-                    .frame(width: imageWidth, height: imageHeight)
-                    .cornerRadius(20)
-                    .shadow(color: Color.black.opacity(0.1), radius: 10, x: 0, y: 4)
-                    .padding(.horizontal, 24)
-                    .padding(.top, 16)
-
-                    // Headline
-                    Text("Real Parental Control.\nZero Arguments.")
-                        .font(.system(size: isLandscape ? 20 : 28, weight: .bold))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                        .textCase(.uppercase)
-                        .tracking(1)
-                        .padding(.horizontal, 24)
-                        .padding(.top, isLandscape ? 12 : 20)
-
-                    Spacer(minLength: isLandscape ? 12 : 16)
-
-                    // Confirmation lines
-                    VStack(alignment: .leading, spacing: isLandscape ? 10 : 16) {
-                        ConfirmationLine(
-                            text: String(localized: "You decide what's safe — enforced automatically"),
-                            colorScheme: colorScheme
-                        )
-                        ConfirmationLine(
-                            text: String(localized: "Learning apps earn real time on the apps they love"),
-                            colorScheme: colorScheme
-                        )
-                        ConfirmationLine(
-                            text: String(localized: "No timers to manage. No fights to referee."),
-                            colorScheme: colorScheme
-                        )
-                    }
-                    .padding(.horizontal, 24)
-
-                    Spacer(minLength: isLandscape ? 12 : 20)
-
-                    // Expectation-setter: tells the night-time solo installer the cost
-                    // (3 min) and that her own phone is a valid starting point — the two
-                    // facts the funnel showed were missing at this decision moment.
-                    Text("Setup takes about 3 minutes — start on your phone or your child's.")
-                        .font(.system(size: 14, weight: .medium))
-                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        .multilineTextAlignment(.center)
-                        .fixedSize(horizontal: false, vertical: true)
-                        .padding(.horizontal, 24)
-                        .padding(.bottom, isLandscape ? 8 : 12)
-
-                    Button(action: onContinue) {
-                        Text("Start Setup")
-                            .font(.system(size: 18, weight: .bold)) // Keep at 18 for now, standardize later
-                            .foregroundColor(.white)
-                            .frame(maxWidth: .infinity)
-                            .frame(height: 56)
-                            .background(AppTheme.vibrantTeal)
-                            .cornerRadius(AppTheme.CornerRadius.medium)
-                            .textCase(.uppercase)
-                    }
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 24)
-                }
-                .frame(minHeight: geometry.size.height)
+        Button(action: action) {
+            HStack(spacing: 4) {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 14, weight: .semibold))
+                Text("Back")
+                    .font(.system(size: 14, weight: .semibold))
             }
+            .foregroundColor(AppTheme.accentText(for: colorScheme))
+            .padding(.vertical, 12)
+            .padding(.horizontal, 18)
+            .background(AppTheme.vibrantTeal.opacity(0.1))
+            .cornerRadius(AppTheme.CornerRadius.medium)
         }
-        .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
+        .buttonStyle(.plain)
+        .accessibilityLabel("Back")
     }
 }
 
-private struct ConfirmationLine: View {
-    let text: String
-    let colorScheme: ColorScheme
+/// Thin segmented progress bar for the shared intro. Visual only (no "Step N" text) so
+/// it doesn't collide with the value slides' own "Step X of 3" chip.
+private struct OnboardingProgressBar: View {
+    let step: Int   // 0-based
+    let total: Int
 
     var body: some View {
-        HStack(alignment: .top, spacing: 11) {
-            Circle()
-                .fill(AppTheme.vibrantTeal)
-                .frame(width: 6, height: 6)
-                .padding(.top, 6)
-
-            Text(text)
-                .font(.system(size: 15, weight: .medium))
-                .foregroundColor(AppTheme.textPrimary(for: colorScheme).opacity(0.7))
-                .fixedSize(horizontal: false, vertical: true)
+        HStack(spacing: 6) {
+            ForEach(0..<total, id: \.self) { index in
+                Capsule()
+                    .fill(index <= step ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.2))
+                    .frame(height: 4)
+            }
         }
-        .frame(maxWidth: 400, alignment: .leading)
+        .padding(.horizontal, 24)
+        .padding(.top, 8)
     }
 }

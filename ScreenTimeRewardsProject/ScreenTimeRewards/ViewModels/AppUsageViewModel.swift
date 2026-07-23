@@ -1383,6 +1383,15 @@ class AppUsageViewModel: ObservableObject {
         pickerLoadingTimeout = false
         cancelPickerTimeout()
 
+        // Screen Time permission analytics. The trial-first flow has no dedicated
+        // permission screen — the prompt now fires here, at first app-pick. Only log
+        // when the system prompt is actually shown (status not yet determined) so the
+        // grant-rate isn't inflated by later picker opens that skip the prompt.
+        let willPromptForAuth = AuthorizationCenter.shared.authorizationStatus == .notDetermined
+        if willPromptForAuth {
+            AppAnalytics.shared.track(.authorizationRequested, parameters: ["source": "first_app_pick"])
+        }
+
         service.requestPermission { [weak self] result in
             guard let self = self else { return }
             DispatchQueue.main.async {
@@ -1400,6 +1409,10 @@ class AppUsageViewModel: ObservableObject {
                     }
                     #endif
 
+                    if willPromptForAuth {
+                        AppAnalytics.shared.track(.authorizationGranted, parameters: ["source": "first_app_pick"])
+                    }
+
                     self.isAuthorizationGranted = true
 
                     // No need to wait 0.5s - authorization is already done
@@ -1410,6 +1423,12 @@ class AppUsageViewModel: ObservableObject {
                     #if DEBUG
                     print("[AppUsageViewModel] ❌ Authorization failed: \(error)")
                     #endif
+                    if willPromptForAuth {
+                        AppAnalytics.shared.track(.authorizationDenied, parameters: [
+                            "source": "first_app_pick",
+                            "error_code": String(describing: error)
+                        ])
+                    }
                     self.isAuthorizationGranted = false
                     self.errorMessage = String(localized: "Authorization required: \(error.errorDescription ?? String(localized: "Please grant Screen Time permission in Settings"))")
                 }

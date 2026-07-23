@@ -76,6 +76,14 @@ struct AppTheme {
         scheme == .dark ? lightCream : vibrantTeal
     }
 
+    /// Teal accent for TEXT/ICONS that must stay teal-flavored but readable. Vibrant Teal
+    /// in light mode; a brightened aqua in dark mode (plain vibrantTeal on the dark navy
+    /// background fails contrast — ~2:1). Use for colored text/icons; keep `vibrantTeal`
+    /// for button fills where white text sits on top.
+    static func accentText(for scheme: ColorScheme) -> Color {
+        scheme == .dark ? Color(red: 0.36, green: 0.80, blue: 0.76) : vibrantTeal
+    }
+
     // MARK: - Semantic Colors
 
     /// Primary action color (buttons, links, interactive elements)

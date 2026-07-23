@@ -19,21 +19,7 @@ struct DeviceSelectionView: View {
         VStack(spacing: 0) {
             if showBackButton {
                 HStack {
-                    Button(action: { onBack?() }) {
-                        HStack(spacing: 4) { // To match Label structure
-                            Image(systemName: "chevron.left")
-                                .font(.system(size: 14, weight: .semibold)) // Reduced by 2 pts
-                            Text("Back")
-                                .font(.system(size: 14, weight: .semibold)) // Reduced by 2 pts
-                        }
-                        .foregroundColor(AppTheme.vibrantTeal)
-                        .padding(.vertical, 14)
-                        .padding(.horizontal, 20)
-                        .background(AppTheme.vibrantTeal.opacity(0.1))
-                        .cornerRadius(AppTheme.CornerRadius.medium)
-                        .textCase(.uppercase)
-                    }
-                    .buttonStyle(.plain) // Use .plain to allow background/padding
+                    OnboardingBackButton(action: { onBack?() })
                     Spacer()
                 }
                 .padding(.horizontal, AppTheme.Spacing.regular)
@@ -65,7 +51,7 @@ struct DeviceSelectionView: View {
                         // Tap instruction
                         Text("Tap one to begin")
                             .font(.system(size: 16, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                             .tracking(1)
                             .padding(.top, AppTheme.Spacing.medium)
 

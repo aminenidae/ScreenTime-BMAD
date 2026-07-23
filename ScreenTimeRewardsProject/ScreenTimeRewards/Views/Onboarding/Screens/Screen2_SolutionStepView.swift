@@ -10,13 +10,19 @@ struct SolutionStep: Identifiable {
     let subtitle: String
 }
 
-/// Screen 2: Solution (split into 5 dedicated full-screen steps)
-/// Each step is structured for both real onboarding AND ASC screenshot capture:
-/// - Large OCR-readable title carries ASO tokens
-/// - Hero image is full-width, centered
-/// - One screen = one step = one capturable screenshot
+/// Value slides — the "how it works" pitch, trimmed to the 3 strongest steps and
+/// written for parent conversion (sentence case, skippable). Decoupled from ASO: the
+/// keyword-loaded App Store screenshots are produced separately, so these no longer
+/// double as OCR screenshot sources.
 struct Screen2_SolutionStepView: View {
-    @EnvironmentObject var onboarding: OnboardingStateManager
+    /// Called when the last value slide is passed. Self-contained: the slides now sit
+    /// in the shared front-of-funnel (before the "whose phone?" question), so they no
+    /// longer depend on the child-flow OnboardingStateManager.
+    let onComplete: () -> Void
+    /// Called when Back is tapped on the first slide (earlier slides step back in place).
+    let onBack: () -> Void
+
+    @State private var stepIndex: Int = 0
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -25,61 +31,61 @@ struct Screen2_SolutionStepView: View {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
     }
 
-    /// 5 solution steps. Titles are OCR-targeted for App Store search indexing
-    /// (Apple indexes screenshot caption text since June 2025).
-    /// Token coverage anchors:
-    /// - Step 2: `points` (Pop 9), `screen time`
-    /// - Step 3: `unlock apps` (Pop 5 / Diff 41 — exceptional)
-    /// - Step 5: `limit screen time` (Pop 23 / Diff 55) — mirrors locked Subtitle for compounded weight
+    /// The 3 strongest steps (earn → auto-unlock → time's up), sentence-cased for
+    /// parents. Trimmed from the old 5-slide ASO carousel per the onboarding redesign.
     static let steps: [SolutionStep] = [
         SolutionStep(
             id: 0,
-            imageName: "onboarding_C2_1",
-            stepNumber: 1,
-            title: String(localized: "PARENTS SET LEARNING GOALS"),
-            subtitle: String(localized: "Together, you and your child agree on the daily target.")
-        ),
-        SolutionStep(
-            id: 1,
             imageName: "onboarding_C2_2",
-            stepNumber: 2,
-            title: String(localized: "KIDS EARN SCREEN TIME"),
+            stepNumber: 1,
+            title: String(localized: "Kids earn screen time"),
             subtitle: String(localized: "Learning apps award points for every minute of progress.")
         ),
         SolutionStep(
-            id: 2,
+            id: 1,
             imageName: "onboarding_C2_3",
-            stepNumber: 3,
-            title: String(localized: "UNLOCK APPS AUTOMATICALLY"),
+            stepNumber: 2,
+            title: String(localized: "Apps unlock automatically"),
             subtitle: String(localized: "No asking. No nagging. Apps unlock when goals are met.")
         ),
         SolutionStep(
-            id: 3,
-            imageName: "onboarding_C2_4",
-            stepNumber: 4,
-            title: String(localized: "KIDS PLAY GUILT-FREE"),
-            subtitle: String(localized: "Reward apps unlock — entertainment they've earned.")
-        ),
-        SolutionStep(
-            id: 4,
+            id: 2,
             imageName: "onboarding_C2_5",
-            stepNumber: 5,
-            title: String(localized: "LIMIT SCREEN TIME, AUTOMATICALLY"),
+            stepNumber: 3,
+            title: String(localized: "Time's up, automatically"),
             subtitle: String(localized: "Time's up. The app locks. No negotiations needed.")
         )
     ]
 
     private var currentStep: SolutionStep {
-        let idx = max(0, min(onboarding.solutionStepIndex, Self.steps.count - 1))
+        let idx = max(0, min(stepIndex, Self.steps.count - 1))
         return Self.steps[idx]
     }
 
     private var isLastStep: Bool {
-        onboarding.solutionStepIndex >= Self.steps.count - 1
+        stepIndex >= Self.steps.count - 1
     }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Back (left) + Skip (right). Back steps through slides, then out to welcome.
+            HStack {
+                OnboardingBackButton(action: handleBack)
+
+                Spacer()
+
+                Button(action: {
+                    AppAnalytics.shared.trackOnboarding(.onboardingSkipTapped, parameters: ["screen_name": "value_slides"])
+                    onComplete()
+                }) {
+                    Text("Skip")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                }
+            }
+            .padding(.horizontal, layout.horizontalPadding)
+            .padding(.top, 8)
+
             Spacer(minLength: layout.isLandscape ? 8 : 16)
 
             // Step indicator chip
@@ -136,41 +142,24 @@ struct Screen2_SolutionStepView: View {
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(AppTheme.CornerRadius.medium)
-                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
-
-            // Simulator-only: skip to paywall (parity with Screen 1)
-            // Gated behind UserDefaults so it can be hidden during ASC screenshot capture.
-            #if targetEnvironment(simulator)
-            if UserDefaults.standard.bool(forKey: "showSimulatorDebugButtons") {
-                Button("📸 Skip to Paywall (Simulator Only)") {
-                    onboarding.skipToPaywall()
-                }
-                .font(.system(size: 12))
-                .foregroundColor(.orange)
-                .padding(.top, 8)
-            }
-            #endif
 
             Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
-            onboarding.logScreenView(screenNumber: 2)
-        }
-        .onChange(of: onboarding.solutionStepIndex) { newIndex in
-            onboarding.logEvent("onboarding_screen2_step\(newIndex + 1)_shown")
+            AppAnalytics.shared.trackOnboarding(.onboardingScreenViewed, parameters: ["screen_name": "value_slides"])
         }
     }
 
     // MARK: - Sub-views
 
     private var stepIndicatorChip: some View {
-        Text("STEP \(currentStep.stepNumber) OF \(Self.steps.count)")
+        Text("Step \(currentStep.stepNumber) of \(Self.steps.count)")
             .font(.system(size: 13, weight: .semibold))
             .tracking(2)
-            .foregroundColor(AppTheme.vibrantTeal)
+            .foregroundColor(AppTheme.accentText(for: colorScheme))
             .padding(.horizontal, 14)
             .padding(.vertical, 6)
             .background(AppTheme.vibrantTeal.opacity(0.12))
@@ -194,10 +183,10 @@ struct Screen2_SolutionStepView: View {
         HStack(spacing: 8) {
             ForEach(Self.steps.indices, id: \.self) { index in
                 Circle()
-                    .fill(index == onboarding.solutionStepIndex ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.25))
+                    .fill(index == stepIndex ? AppTheme.vibrantTeal : AppTheme.vibrantTeal.opacity(0.25))
                     .frame(width: 8, height: 8)
-                    .scaleEffect(index == onboarding.solutionStepIndex ? 1.2 : 1.0)
-                    .animation(.easeInOut(duration: 0.2), value: onboarding.solutionStepIndex)
+                    .scaleEffect(index == stepIndex ? 1.2 : 1.0)
+                    .animation(.easeInOut(duration: 0.2), value: stepIndex)
             }
         }
     }
@@ -222,11 +211,26 @@ struct Screen2_SolutionStepView: View {
     // MARK: - Actions
 
     private func handleAdvance() {
-        onboarding.advanceSolutionStep(totalSteps: Self.steps.count)
+        if stepIndex < Self.steps.count - 1 {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                stepIndex += 1
+            }
+        } else {
+            onComplete()
+        }
+    }
+
+    private func handleBack() {
+        if stepIndex > 0 {
+            withAnimation(.easeInOut(duration: 0.3)) {
+                stepIndex -= 1
+            }
+        } else {
+            onBack()
+        }
     }
 }
 
 #Preview {
-    Screen2_SolutionStepView()
-        .environmentObject(OnboardingStateManager())
+    Screen2_SolutionStepView(onComplete: {}, onBack: {})
 }

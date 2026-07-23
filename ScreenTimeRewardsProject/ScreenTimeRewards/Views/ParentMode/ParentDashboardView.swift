@@ -9,6 +9,9 @@ struct ParentDashboardView: View {
 
     @StateObject private var dataAdapter: LocalDashboardDataAdapter
 
+    /// Fire the empty-state "shown" event at most once per view lifetime.
+    @State private var nudgeShownLogged = false
+
     init() {
         // Initialize with a temporary adapter - will be replaced on appear
         _dataAdapter = StateObject(wrappedValue: LocalDashboardDataAdapter(
@@ -29,6 +32,21 @@ struct ParentDashboardView: View {
                 // Content
                 ScrollView {
                     VStack(spacing: 16) {
+                        // Trial indicator on the child (solo) device's parent dashboard.
+                        // Only when unpaired — a paired child is covered by the parent's own
+                        // device, so we must not prompt "subscribe" here. TrialBannerView
+                        // shows nothing once subscribed / not in trial.
+                        if DevicePairingService.shared.getPairedParents().isEmpty {
+                            TrialBannerView()
+                        }
+
+                        // Safety net (trial-first onboarding): parents who entered via
+                        // "I'll explore on my own" land here with nothing configured. This
+                        // unmissable card leads them into setup instead of a barren dashboard.
+                        if viewModel.rewardSnapshots.isEmpty {
+                            firstAppSetupNudge
+                        }
+
                         // Section 1: Time Bank
                         TimeBankCard(
                             earnedMinutes: dataAdapter.earnedMinutes + dataAdapter.streakBonusMinutes,
@@ -101,6 +119,61 @@ struct ParentDashboardView: View {
         // This is a workaround since we can't directly inject EnvironmentObject into StateObject
         Task { @MainActor in
             dataAdapter.updateViewModel(viewModel)
+        }
+    }
+
+    // MARK: - First-app setup nudge (trial-first safety net)
+
+    private var firstAppSetupNudge: some View {
+        Button(action: {
+            AppAnalytics.shared.trackOnboarding(.emptyStateNudgeTapped)
+            AppAnalytics.shared.trackOnboarding(.configStarted, parameters: ["source": "empty_state"])
+            viewModel.presentPickerWithRetry(for: .reward)
+        }) {
+            HStack(spacing: 14) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 48, height: 48)
+                    Image(systemName: "gift.fill")
+                        .font(.system(size: 22))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Pick your child's first reward app")
+                        .font(.system(size: 16, weight: .bold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text("Choose an app they love — it unlocks as they hit their learning goals.")
+                        .font(.system(size: 13))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 8)
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 14, weight: .semibold))
+                    .foregroundColor(AppTheme.vibrantTeal)
+            }
+            .padding(16)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.vibrantTeal.opacity(0.4), lineWidth: 1.5)
+                    )
+            )
+        }
+        .buttonStyle(.plain)
+        .onAppear {
+            guard !nudgeShownLogged else { return }
+            nudgeShownLogged = true
+            AppAnalytics.shared.trackOnboarding(.emptyStateNudgeShown)
         }
     }
 

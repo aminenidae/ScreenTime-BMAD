@@ -27,10 +27,13 @@ enum AnalyticsEvent: String {
     case onboardingDeviceTypeSelected   = "onboarding_device_type_selected"
     case onboardingScreenViewed     = "onboarding_screen_viewed"
     case onboardingCtaTapped        = "onboarding_cta_tapped"
+    // RETIRED in v2 (trial-first): the Solo/Family question was removed from the flow,
+    // so this no longer fires. Case kept to avoid breaking historical dashboards.
     case onboardingPathSelected     = "onboarding_path_selected"
     case onboardingSkipTapped       = "onboarding_skip_tapped"
     case onboardingSkipConfirmed    = "onboarding_skip_confirmed"
-    // Freemium "last card" save offer (exit intent on the Solo paywall)
+    // Freemium "last card" save offer — RETIRED in v2: it lived on the onboarding
+    // paywall, which is gone. Cases kept for historical dashboards; no longer fire.
     case onboardingFreemiumOfferShown    = "onboarding_freemium_offer_shown"
     case onboardingFreemiumOfferAccepted = "onboarding_freemium_offer_accepted"
     case onboardingFreemiumOfferDeclined = "onboarding_freemium_offer_declined"
@@ -40,7 +43,23 @@ enum AnalyticsEvent: String {
     case onboardingCompleted        = "onboarding_completed"
     case onboardingAttemptStarted   = "onboarding_attempt_started"
 
-    // Authorization (Screen 4)
+    // Trial-first onboarding (v2) — see docs/ONBOARDING_TRIAL_FIRST_REDESIGN_2026-07-22.md.
+    // Wired up in later milestones; added here first so the whole flow ships measurable.
+    case trialStarted               = "trial_started"
+    case onboardingFinishLineShown            = "onboarding_finish_line_shown"
+    case onboardingFinishLinePersonalizeTapped = "onboarding_finish_line_personalize_tapped"
+    case onboardingFinishLineExploreTapped    = "onboarding_finish_line_explore_tapped"
+    case configStarted              = "config_started"                // param: source
+    case firstLearningAppAdded      = "first_learning_app_added"
+    case firstRewardAppAdded        = "first_reward_app_added"
+    case configDay1Completed        = "config_day1_completed"         // PRIMARY success metric
+    case emptyStateNudgeShown       = "empty_state_nudge_shown"
+    case emptyStateNudgeTapped      = "empty_state_nudge_tapped"
+    case settingsConfigEntryTapped  = "settings_config_entry_tapped"
+
+    // Screen Time authorization. In v2 these fire in-context at first app-pick
+    // (AppUsageViewModel.requestAuthorizationAndOpenPicker, param source=first_app_pick),
+    // not from a dedicated screen.
     case authorizationRequested     = "authorization_requested"
     case authorizationGranted       = "authorization_granted"
     case authorizationDenied        = "authorization_denied"
@@ -122,6 +141,11 @@ final class AppAnalytics {
 
     private init() {}
 
+    /// Identifies which onboarding funnel a cohort went through. Stamped on every
+    /// onboarding event via `trackOnboarding` so the trial-first (v2) redesign never
+    /// blends with the pre-cut (v1) numbers in BigQuery. Bump on the next funnel cut.
+    static let onboardingFunnelVersion = "v2_trial_first"
+
     // MARK: - Public API
 
     /// Track a custom event. Pass plain Swift values in `parameters`; Firebase
@@ -136,6 +160,17 @@ final class AppAnalytics {
         #if DEBUG
         print("📊 [AppAnalytics] \(event.rawValue) \(cleaned)")
         #endif
+    }
+
+    /// Track an onboarding-funnel event, auto-stamping `funnel_version`. Use this for
+    /// every onboarding/trial/finish-line/config event so v1 and v2 cohorts stay
+    /// separable in BigQuery. An explicit `funnel_version` in `parameters` wins.
+    func trackOnboarding(_ event: AnalyticsEvent, parameters: [String: Any] = [:]) {
+        var params = parameters
+        if params["funnel_version"] == nil {
+            params["funnel_version"] = Self.onboardingFunnelVersion
+        }
+        track(event, parameters: params)
     }
 
     /// Report a screen view using Firebase's native screen_view event, with a stable

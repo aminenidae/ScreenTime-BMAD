@@ -1,8 +1,36 @@
 # Onboarding Redesign — Trial-First "Finish Line" Flow
 
 **Date**: 2026-07-22
-**Status**: 📋 Spec — approved in principle, not yet built. Documented before coding.
+**Status**: ✅ Implemented on `fix/onboarding-ux` — builds clean, pending on-device validation. The original spec (below) is preserved; see **Implementation status (as built)** immediately after for what actually shipped, including deviations.
 **Supersedes the relevant parts of**: `docs/onboarding-redesign-plan.md`, `Marketing-Strategy/ONBOARDING_IMPROVEMENT_RECOMMENDATIONS.md` (P0 + UX-order sections)
+
+---
+
+## Implementation status — AS BUILT (2026-07-22)
+
+### Final flow (both paths)
+Shared front: **merged welcome (problem-led) → value slides (3, skippable) → "see it work" aha animation → one device question ("Whose phone are you setting up?")**. Then the fork:
+- **Child's phone** → finish line ("You're all set", no-card trial auto-starts) → optional **Personalize** (config) or **Explore**.
+- **Own phone** → parent welcome → install guide → pair (or **"I'll pair later"**) → parent finish line → dashboard.
+
+No paywall anywhere in onboarding on either path — everyone enters on the no-card 14-day Family trial (auto-created by `SubscriptionManager`). A dismissible **trial banner** shows post-entry on both dashboards (parent-device + solo child-device, the latter guarded to unpaired only).
+
+### Built vs. spec — key decisions & deviations
+- **Welcome + Problem merged** into one problem-led screen; original 4-bullet emotional arc kept.
+- **Value slides moved ahead of the device question** (both paths see them), **trimmed 5→3**, **sentence-cased + decoupled from ASO** (keyword screenshots produced separately), **skippable**.
+- **New "see it work" aha animation** (canned, looping, respects Reduce Motion): learning earns time → reward unlocks → time drains → app **re-locks automatically**. Headline: "You set it up once. The app handles the rest."
+- **Notification permission** asked on app entry (not bundled with Screen Time).
+- **Screen Time permission coaching screen removed** — fires raw in-context at first app-pick (CEO chose speed over coaching; this is the one recommendation deliberately not followed).
+- Coaching cards dropped from the finish line.
+- **Parent paywall removed entirely** (not just relocated); conversion relies on the in-app trial banner + Settings + child-device lockout at trial end.
+- **Design polish:** full sentence-case pass; parent path homogenized (install screen was stock-iOS styled); nav chrome + back buttons unified (shared `OnboardingBackButton`, rule: every screen except the first and the finish lines); front-of-funnel progress bar; dark-mode text-contrast fix (`AppTheme.accentText`).
+- **Analytics:** `funnel_version` stamp on all onboarding events; new v2 events added; authorization events re-homed to the picker (`source=first_app_pick`); tutorial events re-scoped; screen-name maps rewritten.
+
+### Still open (not built)
+- **Primary success metric NOT wired:** `config_day1_completed`, `first_learning_app_added`, `first_reward_app_added` — enum cases exist, 0 firing sites; need hooking into the app-config save path.
+- Social proof near the paywall (needs real ratings/testimonials); personalization quiz; palette refresh + illustration/icon-style unification; broader accessibility (Dynamic Type).
+- BigQuery funnel dashboards need rebuild + split on `funnel_version`.
+- On-device validation of the picker, pairing, purchase sheet, and trial-banner state.
 
 ---
 

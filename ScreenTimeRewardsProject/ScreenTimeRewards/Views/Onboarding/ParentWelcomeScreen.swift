@@ -8,9 +8,9 @@ struct ParentWelcomeScreen: View {
     @Environment(\.colorScheme) private var colorScheme
 
     private let featureRows: [FeatureRow] = [
-        .init(icon: "network", title: String(localized: "MONITOR FROM ANYWHERE"), detail: String(localized: "Check in on every paired child device from a single dashboard.")),
-        .init(icon: "trophy.fill", title: String(localized: "CREATE MEANINGFUL REWARDS"), detail: String(localized: "Launch challenges that motivate learning and good habits.")),
-        .init(icon: "qrcode.viewfinder", title: String(localized: "CONNECT DEVICES SECURELY"), detail: String(localized: "Pair whenever you're ready—no pressure to finish right now."))
+        .init(icon: "network", title: String(localized: "Monitor from anywhere"), detail: String(localized: "Check in on every paired child device from a single dashboard.")),
+        .init(icon: "trophy.fill", title: String(localized: "Create meaningful rewards"), detail: String(localized: "Launch challenges that motivate learning and good habits.")),
+        .init(icon: "qrcode.viewfinder", title: String(localized: "Connect devices securely"), detail: String(localized: "Pair whenever you're ready—no pressure to finish right now."))
     ]
 
     var body: some View {
@@ -19,19 +19,16 @@ struct ParentWelcomeScreen: View {
 
             VStack(spacing: 24) {
                 VStack(spacing: 12) {
-                    Text("WELCOME, \(deviceName.isEmpty ? "PARENT" : deviceName.uppercased())")
+                    Text("Welcome, \(deviceName.isEmpty ? "Parent" : deviceName)")
                         .font(.system(size: 29, weight: .bold)) // Reduced from 32
                         .multilineTextAlignment(.center)
                         .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                        .textCase(.uppercase)
-                        .tracking(3)
 
                     Text("This device becomes your remote monitor. You'll guide setup on your child's device and connect them with a QR code.")
                         .font(.system(size: 17))
                         .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
                         .multilineTextAlignment(.center)
                         .frame(maxWidth: 520)
-                        .textCase(.uppercase)
                 }
 
                 VStack(spacing: 16) {
@@ -47,12 +44,11 @@ struct ParentWelcomeScreen: View {
             Button(action: onContinue) {
                 Text("Show Me the Steps")
                     .font(.system(size: 18, weight: .bold))
-                    .foregroundColor(AppTheme.lightCream)
+                    .foregroundColor(.white)
                     .frame(maxWidth: 400)
                     .frame(height: 56)
                     .background(AppTheme.vibrantTeal)
                     .cornerRadius(AppTheme.CornerRadius.medium)
-                    .textCase(.uppercase)
             }
         }
         .padding()
@@ -62,19 +58,24 @@ struct ParentWelcomeScreen: View {
 
     private var header: some View {
         HStack {
+            // Branded teal back pill — matches the rest of the app (was iOS-native blue).
             Button(action: onBack) {
-                Label("Back", systemImage: "chevron.left")
-                    .labelStyle(.titleAndIcon)
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 18, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme))
+                    .frame(width: 44, height: 44)
+                    .background(
+                        RoundedRectangle(cornerRadius: 12)
+                            .fill(AppTheme.vibrantTeal.opacity(0.1))
+                    )
             }
-            .buttonStyle(.borderless)
+            .accessibilityLabel("Back")
 
             Spacer()
 
-            Text("PARENT ONBOARDING")
+            Text("Parent setup")
                 .font(.subheadline)
                 .foregroundColor(.secondary)
-                .textCase(.uppercase)
-                .tracking(2)
         }
     }
 
@@ -98,7 +99,7 @@ private struct ParentFeatureCard: View {
                     .frame(width: 48, height: 48)
 
                 Image(systemName: row.icon)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .font(.system(size: 22, weight: .semibold))
             }
 
@@ -106,13 +107,10 @@ private struct ParentFeatureCard: View {
                 Text(row.title)
                     .font(.system(size: 17, weight: .semibold))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme))
-                    .textCase(.uppercase)
-                    .tracking(2)
 
                 Text(row.detail)
                     .font(.system(size: 15))
                     .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.8))
-                    .textCase(.uppercase)
             }
 
             Spacer()

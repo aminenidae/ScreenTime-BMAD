@@ -235,7 +235,9 @@ class TutorialModeManager: ObservableObject {
 
         let nextStep = TutorialStep.allCases[currentIndex + 1]
 
-        AppAnalytics.shared.track(.onboardingTutorialStep, parameters: [
+        // Re-scoped (v2): the tutorial is now optional post-entry config, not a
+        // mandatory onboarding step. funnel_version keeps it separable from v1.
+        AppAnalytics.shared.trackOnboarding(.onboardingTutorialStep, parameters: [
             "step_index": nextStep.rawValue,
             "total_steps": TutorialStep.allCases.count
         ])
@@ -268,7 +270,7 @@ class TutorialModeManager: ObservableObject {
             // Clear persisted state
             UserDefaults.standard.removeObject(forKey: "tutorial_progress_step")
 
-            AppAnalytics.shared.track(.tutorialCompleted, parameters: [
+            AppAnalytics.shared.trackOnboarding(.tutorialCompleted, parameters: [
                 "tutorial_steps_completed": stepCompletionStatus.filter(\.value).count,
                 "total_steps": TutorialStep.allCases.count
             ])
@@ -280,7 +282,7 @@ class TutorialModeManager: ObservableObject {
             // Notify completion
             onTutorialComplete?()
         } else {
-            AppAnalytics.shared.track(.onboardingTutorialDropped, parameters: [
+            AppAnalytics.shared.trackOnboarding(.onboardingTutorialDropped, parameters: [
                 "last_step_index": currentStep.rawValue,
                 "steps_completed": stepCompletionStatus.filter(\.value).count,
                 "total_steps": TutorialStep.allCases.count

@@ -1,9 +1,11 @@
 import SwiftUI
 
-/// Screen 1: Problem Recognition (C1)
-/// Hero image showing the "five more minutes" struggle with empathetic messaging
+/// Merged welcome + problem screen (trial-first reorder). Front-of-funnel: shown to
+/// everyone before the "whose phone?" question. Problem-led hook + the core solution
+/// line, self-contained via an `onContinue` closure.
 struct Screen1_ProblemView: View {
-    @EnvironmentObject var onboarding: OnboardingStateManager
+    let onContinue: () -> Void
+
     @Environment(\.colorScheme) private var colorScheme
     @Environment(\.horizontalSizeClass) private var hSizeClass
     @Environment(\.verticalSizeClass) private var vSizeClass
@@ -33,13 +35,11 @@ struct Screen1_ProblemView: View {
             Spacer(minLength: layout.isLandscape ? 12 : 24)
 
             // Headline
-            Text("THE \"FIVE MORE MINUTES\"\nBATTLE CAN END TODAY")
+            Text("The \"five more minutes\" battle can end today")
                 .font(.system(size: layout.isRegular ? 29 : 25, weight: .bold)) // Reduced from 32/28
                 .lineLimit(3)
                 .multilineTextAlignment(.center)
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
-                .textCase(.uppercase)
-                .tracking(1)
                 .padding(.horizontal, layout.horizontalPadding)
                 .frame(maxWidth: 600)
 
@@ -60,12 +60,20 @@ struct Screen1_ProblemView: View {
             .padding(.horizontal, layout.horizontalPadding)
             .frame(maxWidth: 600)
 
-            Spacer(minLength: layout.isLandscape ? 16 : 32)
+            Spacer(minLength: layout.isLandscape ? 12 : 20)
+
+            // Expectation-setter (carried over from the old welcome screen)
+            Text("Setup takes about 3 minutes — on your phone or your child's.")
+                .font(.system(size: 14, weight: .medium))
+                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
+                .multilineTextAlignment(.center)
+                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, layout.horizontalPadding)
+
+            Spacer(minLength: layout.isLandscape ? 10 : 16)
 
             // Primary CTA
-            Button(action: {
-                onboarding.advanceScreen()
-            }) {
+            Button(action: onContinue) {
                 Text("Show Me How")
                     .font(.system(size: 18, weight: .bold)) // Standardized button font size
                     .frame(maxWidth: layout.isRegular ? 400 : .infinity)
@@ -73,28 +81,13 @@ struct Screen1_ProblemView: View {
                     .background(AppTheme.vibrantTeal)
                     .foregroundColor(.white)
                     .cornerRadius(AppTheme.CornerRadius.medium)
-                    .textCase(.uppercase)
             }
             .padding(.horizontal, layout.horizontalPadding)
-
-            // Simulator-only: Skip to paywall for App Store screenshots
-            // Gated behind UserDefaults so it can be hidden during ASC screenshot capture.
-            #if targetEnvironment(simulator)
-            if UserDefaults.standard.bool(forKey: "showSimulatorDebugButtons") {
-                Button("📸 Skip to Paywall (Simulator Only)") {
-                    onboarding.skipToPaywall()
-                }
-                .font(.system(size: 12))
-                .foregroundColor(.orange)
-                .padding(.top, 8)
-            }
-            #endif
 
             Spacer(minLength: layout.isLandscape ? 12 : 24)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
         .onAppear {
-            onboarding.logScreenView(screenNumber: 1)
             startBulletAnimations()
         }
     }
@@ -138,7 +131,7 @@ private struct ProblemBulletRow: View {
 
             Text(text)
                 .font(.system(size: layout.isRegular ? 17 : 15, weight: isPayoff ? .semibold : .medium))
-                .foregroundColor(isPayoff ? AppTheme.vibrantTeal : AppTheme.textPrimary(for: colorScheme).opacity(0.7))
+                .foregroundColor(isPayoff ? AppTheme.accentText(for: colorScheme) : AppTheme.textPrimary(for: colorScheme).opacity(0.7))
                 .fixedSize(horizontal: false, vertical: true)
 
             Spacer()
@@ -187,11 +180,10 @@ private struct ProblemHeroCard: View {
 
                 // Text overlay
                 VStack(alignment: .leading, spacing: 2) {
-                    Text("THE DAILY STRUGGLE")
+                    Text("The daily struggle")
                         .font(.system(size: layout.isIpad ? 21 : 13, weight: .semibold)) // Reduced from 24/16
                         .foregroundColor(.white)
-                        .textCase(.uppercase)
-                        .tracking(2)
+                        .tracking(1)
 
                     Text("Screen-time negotiations don't have to be this hard.")
                         .font(.system(size: layout.isIpad ? 16 : 12, weight: .regular))
@@ -208,6 +200,5 @@ private struct ProblemHeroCard: View {
 }
 
 #Preview {
-    Screen1_ProblemView()
-        .environmentObject(OnboardingStateManager())
+    Screen1_ProblemView(onContinue: {})
 }

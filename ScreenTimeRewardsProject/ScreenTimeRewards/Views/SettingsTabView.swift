@@ -112,6 +112,14 @@ struct SettingsTabView: View {
                 ScrollView {
                     VStack(spacing: 24) {
 
+                        // Setup Section — fallback safety net (trial-first onboarding).
+                        // Shown only until the first reward app is configured, so parents
+                        // who skipped setup can always find their way back into it.
+                        if viewModel.rewardSnapshots.isEmpty {
+                            settingsSection(title: String(localized: "SETUP")) {
+                                setupAppsRow
+                            }
+                        }
 
                         // Account Section
                         settingsSection(title: String(localized: "ACCOUNT")) {
@@ -1071,6 +1079,51 @@ private extension SettingsTabView {
             )
         }
         .buttonStyle(PlainButtonStyle())
+    }
+
+    var setupAppsRow: some View {
+        Button(action: {
+            AppAnalytics.shared.trackOnboarding(.settingsConfigEntryTapped)
+            AppAnalytics.shared.trackOnboarding(.configStarted, parameters: ["source": "settings"])
+            viewModel.presentPickerWithRetry(for: .reward)
+        }) {
+            HStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(AppTheme.vibrantTeal.opacity(0.15))
+                        .frame(width: 44, height: 44)
+
+                    Image(systemName: "wand.and.stars")
+                        .font(.system(size: 20))
+                        .foregroundColor(AppTheme.vibrantTeal)
+                }
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Set up your child's apps")
+                        .font(.system(size: 15, weight: .semibold))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme))
+
+                    Text("Pick a reward app to get started")
+                        .font(.system(size: 12, weight: .medium))
+                        .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                }
+
+                Spacer()
+
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.4))
+            }
+            .padding(14)
+            .background(
+                RoundedRectangle(cornerRadius: 16)
+                    .fill(AppTheme.card(for: colorScheme))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 16)
+                            .stroke(AppTheme.vibrantTeal.opacity(0.4), lineWidth: 1)
+                    )
+            )
+        }
     }
 
     var helpSupportRow: some View {

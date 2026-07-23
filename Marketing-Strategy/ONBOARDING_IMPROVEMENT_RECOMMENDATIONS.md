@@ -2,6 +2,8 @@
 
 **Companion to** `ONBOARDING_COMPETITOR_ANALYSIS.md` (6 competitors + our-flow read). Written 2026-07-22.
 
+> **Implementation update (2026-07-22):** most of this list is now built on `fix/onboarding-ux` — P0 (parent paywall → trial-first), the UX-order fixes (collapsed duplicate device question, reorder, "see it work" aha moment), and the P2 quick wins (sentence case, trimmed/skippable slides, prominent "pair later", unified nav/back buttons, dark-mode contrast). See the **AS BUILT** section of `docs/ONBOARDING_TRIAL_FIRST_REDESIGN_2026-07-22.md` for the full record and deviations. **Deliberately not done:** permission coaching (chose the fast raw prompt). **Still open:** social proof (needs real content), personalization quiz, palette/illustration-style pass, the `config_day1_completed` success-metric wiring, and the BigQuery dashboard rebuild.
+
 **Framing:** our onboarding is half-excellent, half-self-inflicted. The child-device path is already competitive; the parent-device path has one decisive flaw. And across both, the *look* lags the market — competitors feel friendlier and cleaner than we do. Recommendations below are ordered by money impact, with a separate design section since design needs its own pass.
 
 Every recommendation is tagged **P0 / P1 / P2** (priority) and marked **[verified in code]** where it's grounded in our actual source, or **[needs visual review]** where it should be confirmed against rendered screens.

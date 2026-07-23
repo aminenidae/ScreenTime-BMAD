@@ -203,6 +203,12 @@ struct ParentRemoteDashboardView: View {
                     }
                 }
             }
+            .safeAreaInset(edge: .top, spacing: 0) {
+                // Trial-first conversion prompt: shows "X days remaining / Subscribe"
+                // during trial (and a renew prompt in grace), opening the paywall on tap.
+                // Renders nothing — and reserves no space — once subscribed or expired.
+                TrialBannerView()
+            }
             .onAppear {
                 AppAnalytics.shared.trackScreenView("parent_dashboard")
 
@@ -471,5 +477,6 @@ struct ParentRemoteDashboardView_Previews: PreviewProvider {
     static var previews: some View {
         ParentRemoteDashboardView()
             .environmentObject(ParentRemoteViewModel())
+            .environmentObject(SubscriptionManager.shared)
     }
 }
