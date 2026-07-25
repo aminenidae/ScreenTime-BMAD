@@ -24,6 +24,9 @@ struct ParentSettingsView: View {
     @State private var showingNotificationSettings = false
     @State private var showingAbout = false
     @State private var showingChangePIN = false
+    #if DEBUG
+    @State private var showingTrialResetConfirmation = false
+    #endif
 
     var body: some View {
         NavigationView {
@@ -43,6 +46,22 @@ struct ParentSettingsView: View {
 
                     // About Section
                     aboutSection
+
+                    #if DEBUG
+                    // Testing-only: restore a fresh 14-day trial (clears the Keychain
+                    // trial-start that otherwise persists across reinstalls).
+                    Button(role: .destructive) {
+                        showingTrialResetConfirmation = true
+                    } label: {
+                        Text("Reset Trial (Testing)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(AppTheme.playfulCoral.opacity(0.15))
+                            .foregroundColor(AppTheme.playfulCoral)
+                            .cornerRadius(AppTheme.CornerRadius.medium)
+                    }
+                    #endif
                 }
                 .padding()
             }
@@ -74,6 +93,16 @@ struct ParentSettingsView: View {
                 showingChangePIN = false
             })
         }
+        #if DEBUG
+        .alert("Reset Trial?", isPresented: $showingTrialResetConfirmation) {
+            Button("Reset Trial", role: .destructive) {
+                subscriptionManager.resetTrialForTesting()
+            }
+            Button("Cancel", role: .cancel) { }
+        } message: {
+            Text("Testing only: restores a fresh 14-day trial on this device.")
+        }
+        #endif
     }
 
     // MARK: - Subscription Section

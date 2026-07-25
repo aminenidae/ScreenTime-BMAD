@@ -7,7 +7,6 @@ struct ParentRemoteDashboardView: View {
     @State private var showingRefreshIndicator = false
     @State private var showingPairingView = false
     @State private var showingSettings = false
-    @State private var showingChangePIN = false
     @State private var deviceCountBeforePairing = 0  // Track count to detect new pairing
     @State private var hasLoadedInitialData = false  // Prevent re-sync on navigation back
     @Environment(\.colorScheme) var colorScheme
@@ -66,22 +65,31 @@ struct ParentRemoteDashboardView: View {
 
                 // Single device mode - embed ChildUsagePageView directly for proper viewModel observation
                 if let device = singleDevice {
-                    ChildUsagePageView(device: device, viewModel: viewModel)
-                        .id(device.deviceID) // Force recreation when device changes
-                        .overlay {
-                            // Syncing overlay for single-device mode
-                            if showingRefreshIndicator {
-                                SyncingOverlayView(
-                                    deviceName: device.deviceName,
-                                    message: String(localized: "Syncing with \(device.deviceName ?? String(localized: "Device"))...")
-                                )
-                                .transition(.opacity)
+                    VStack(spacing: 0) {
+                        TrialBannerView()
+                            .padding(.top, 4)
+
+                        ChildUsagePageView(device: device, viewModel: viewModel)
+                            .id(device.deviceID) // Force recreation when device changes
+                            .overlay {
+                                // Syncing overlay for single-device mode
+                                if showingRefreshIndicator {
+                                    SyncingOverlayView(
+                                        deviceName: device.deviceName,
+                                        message: String(localized: "Syncing with \(device.deviceName ?? String(localized: "Device"))...")
+                                    )
+                                    .transition(.opacity)
+                                }
                             }
-                        }
+                    }
                 } else {
                     // Multi-device or empty state - use ScrollView
                     ScrollView {
                         VStack(spacing: 20) {
+                            // Trial banner as a real top element (safeAreaInset overlapped
+                            // the header because the full-bleed background swallowed the inset).
+                            TrialBannerView()
+
                             // Header
                             VStack(spacing: 8) {
                                 Text("Family Dashboard")
@@ -203,12 +211,6 @@ struct ParentRemoteDashboardView: View {
                     }
                 }
             }
-            .safeAreaInset(edge: .top, spacing: 0) {
-                // Trial-first conversion prompt: shows "X days remaining / Subscribe"
-                // during trial (and a renew prompt in grace), opening the paywall on tap.
-                // Renders nothing — and reserves no space — once subscribed or expired.
-                TrialBannerView()
-            }
             .onAppear {
                 AppAnalytics.shared.trackScreenView("parent_dashboard")
 
@@ -229,34 +231,7 @@ struct ParentRemoteDashboardView: View {
             .navigationTitle("")
             .navigationBarTitleDisplayMode(.large)
             .toolbar {
-                // Add Child Device button at top-left as per UX/UI improvements Phase 1
-                ToolbarItem(placement: .navigationBarLeading) {
-                    HStack(spacing: 16) {
-                        Button(action: {
-                            showingPairingView = true
-                        }) {
-                            Image(systemName: "plus.circle.fill")
-                                .imageScale(.large)
-                                .foregroundColor(.blue)
-                        }
-                        .accessibilityLabel("Add Child Device")
-
-                        // Settings menu
-                        Menu {
-                            Button(action: {
-                                showingChangePIN = true
-                            }) {
-                                Label("Change PIN", systemImage: "lock.rotation")
-                            }
-                        } label: {
-                            Image(systemName: "gearshape.fill")
-                                .imageScale(.large)
-                                .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                        }
-                        .accessibilityLabel("Settings")
-                    }
-                }
-
+                // Pairing and Change PIN moved to the Settings tab; refresh is pull-to-refresh.
                 // Show device name in center for single-device mode
                 if let device = singleDevice {
                     ToolbarItem(placement: .principal) {
@@ -275,39 +250,10 @@ struct ParentRemoteDashboardView: View {
                     }
                 }
 
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    Button(action: {
-                        Task {
-                            await refreshData()
-                        }
-                    }) {
-                        if let device = singleDevice {
-                            // Single device mode: show sync label with device name
-                            Label(
-                                "Sync with \(device.deviceName ?? "Device")",
-                                systemImage: showingRefreshIndicator ? "arrow.triangle.2.circlepath" : "icloud.and.arrow.down"
-                            )
-                            .labelStyle(.titleAndIcon)
-                            .font(.subheadline)
-                        } else {
-                            // Multi-device mode: just show icon
-                            Image(systemName: showingRefreshIndicator ? "arrow.triangle.2.circlepath" : "arrow.clockwise")
-                                .imageScale(.large)
-                        }
-                    }
-                    .disabled(showingRefreshIndicator)
-                }
             }
             // Move the sheet outside of conditional views to ensure it's always available
             .sheet(isPresented: $showingPairingView) {
                 ParentPairingView()
-            }
-            .sheet(isPresented: $showingChangePIN) {
-                ChangePINView(onSuccess: {
-                    #if DEBUG
-                    print("[ParentRemoteDashboardView] PIN changed successfully")
-                    #endif
-                })
             }
             .onChange(of: showingPairingView) { isShowing in
                 if isShowing {
