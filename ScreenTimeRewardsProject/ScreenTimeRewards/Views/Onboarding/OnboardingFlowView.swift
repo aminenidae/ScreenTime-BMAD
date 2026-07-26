@@ -14,6 +14,7 @@ struct OnboardingFlowView: View {
 
     @State private var onboardingStep: OnboardingStep = .welcome
     @State private var deviceName: String
+    @State private var isCheckingForReturningParent = false
     @StateObject private var deviceModeManager = DeviceModeManager.shared
     @EnvironmentObject var appUsageViewModel: AppUsageViewModel
     @EnvironmentObject var subscriptionManager: SubscriptionManager
@@ -59,6 +60,18 @@ struct OnboardingFlowView: View {
                         },
                         onBack: { onboardingStep = .ahaMoment }
                     )
+                    .disabled(isCheckingForReturningParent)
+                    .overlay {
+                        if isCheckingForReturningParent {
+                            ZStack {
+                                Color.black.opacity(0.25).ignoresSafeArea()
+                                ProgressView(String(localized: "Checking your account…"))
+                                    .padding(24)
+                                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 16))
+                            }
+                            .transition(.opacity)
+                        }
+                    }
                     .onAppear { AppAnalytics.shared.trackOnboarding(.onboardingDeviceSelectionViewed) }
 
                 case .parentFlow:
@@ -106,8 +119,34 @@ struct OnboardingFlowView: View {
         AppAnalytics.shared.trackOnboarding(.onboardingDeviceTypeSelected, parameters: [
             "device_type": mode == .parentDevice ? "parent" : "child"
         ])
-        deviceModeManager.setDeviceMode(mode, deviceName: name)
-        onboardingStep = mode == .parentDevice ? .parentFlow : .childFlow
+
+        guard mode == .parentDevice else {
+            deviceModeManager.setDeviceMode(mode, deviceName: name)
+            onboardingStep = .childFlow
+            return
+        }
+
+        // Before committing to the full parent setup wizard, give a returning
+        // parent (reinstall, or a new phone on the same iCloud account) a chance
+        // to be recognized and skip straight past it. Deliberately scoped to this
+        // explicit "yes, this is a parent device" moment — not raw app launch —
+        // so someone repurposing an old parent phone as a child device is never
+        // silently overridden. See docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+        isCheckingForReturningParent = true
+        Task {
+            let restored = await FirebaseValidationService.shared.recoverExistingFamilyIfRecognized(timeoutSeconds: 8.0)
+            isCheckingForReturningParent = false
+
+            guard !restored else {
+                // RootView's @AppStorage flags react immediately once
+                // hasCompletedParentOnboarding flips — it swaps away from
+                // OnboardingFlowView on its own, nothing else to do here.
+                return
+            }
+
+            deviceModeManager.setDeviceMode(mode, deviceName: name)
+            onboardingStep = .parentFlow
+        }
     }
 
     private func handleOnboardingComplete(destination: OnboardingContainerView.OnboardingDestination) {

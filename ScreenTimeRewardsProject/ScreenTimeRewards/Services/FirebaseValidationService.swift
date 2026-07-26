@@ -370,31 +370,36 @@ final class FirebaseValidationService: ObservableObject {
         return true
     }
 
-    /// Called once at launch, before onboarding would otherwise show. If this
-    /// device's iCloud account already owns a family — a parent who reinstalled,
-    /// or moved to a new phone signed into the same iCloud account — silently
-    /// restore that family and route straight to the dashboard instead of forcing
-    /// the whole onboarding + re-pairing wizard. Every launch's local
-    /// "onboarding completed" flag lives in ordinary storage that reinstall wipes;
-    /// this recovers what that flag can't. See
+    /// Called from onboarding, specifically when the user taps Continue after
+    /// choosing "On their own device" (parent device) — NOT at raw app launch.
+    /// Firing this before that choice risked silently snapping a device back into
+    /// parent mode for someone who deliberately wants to repurpose it as a child
+    /// device this time; scoping it to the explicit parent-device choice removes
+    /// that risk entirely. If this device's iCloud account already owns a family —
+    /// a parent who reinstalled, or moved to a new phone signed into the same
+    /// iCloud account — silently restore that family; RootView's `@AppStorage`
+    /// flags react immediately, swapping away from onboarding into the dashboard
+    /// PIN screen without any explicit navigation call needed here. Every launch's
+    /// local "onboarding completed" flag lives in ordinary storage that reinstall
+    /// wipes; this recovers what that flag can't. See
     /// docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
     ///
-    /// `timeoutSeconds` bounds only the read-only lookup: if it hasn't resolved by
-    /// then, RootView has almost certainly already rendered onboarding, so we
-    /// abandon rather than mutate state late and yank the user out of a wizard
-    /// they've already started. A slow lookup that finishes anyway is a wasted
-    /// network call, not a correctness problem.
+    /// `timeoutSeconds` bounds how long the caller's loading spinner is willing to
+    /// wait: if the lookup hasn't resolved by then, we abandon and let onboarding
+    /// proceed normally rather than block the user indefinitely. A slow lookup
+    /// that finishes anyway (after the deadline) is a wasted network call, not a
+    /// correctness problem — restoring late would just as likely land after the
+    /// caller has already moved on.
     @discardableResult
-    func recoverExistingFamilyIfRecognized(timeoutSeconds: Double = 3.0) async -> Bool {
+    func recoverExistingFamilyIfRecognized(timeoutSeconds: Double = 8.0) async -> Bool {
         let parentDone = UserDefaults.standard.bool(forKey: "hasCompletedParentOnboarding")
         let childDone = UserDefaults.standard.bool(forKey: "hasCompletedChildOnboarding")
         // Only the "onboarding not yet completed" path is interesting to log — that's
         // reinstalls and genuine first launches. An ordinary post-onboarding launch
-        // takes this early return on every single app open, so logging it would
-        // drown the file in noise for zero diagnostic value.
+        // never calls this at all, so there's no noise case to worry about excluding.
         guard !parentDone, !childDone else { return false }
 
-        recoveryLog("Launch with onboarding not completed on this install — checking for a recognizable returning parent (currentMode=\(String(describing: deviceManager.currentMode)))")
+        recoveryLog("Parent-device chosen in onboarding — checking for a recognizable returning parent (currentMode=\(String(describing: deviceManager.currentMode)))")
 
         // A device that has already explicitly identified as a child shouldn't be
         // silently reclassified as a family owner. (In practice a real child device
@@ -408,15 +413,15 @@ final class FirebaseValidationService: ObservableObject {
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
         guard let recognized = await lookupRecognizedFamilyId() else {
-            recoveryLog("No family recognized for this iCloud account — this launch will show onboarding as if it were a first install")
+            recoveryLog("No family recognized for this iCloud account — proceeding with normal parent onboarding")
             return false
         }
 
         guard Date() < deadline else {
             #if DEBUG
-            print("[FirebaseValidation] Recognition lookup succeeded but exceeded the launch budget — skipping restore")
+            print("[FirebaseValidation] Recognition lookup succeeded but exceeded the wait budget — skipping restore")
             #endif
-            recoveryLog("Recognition succeeded (family=\(recognized.familyId)) but exceeded the \(Int(timeoutSeconds))s launch budget — skipping restore")
+            recoveryLog("Recognition succeeded (family=\(recognized.familyId)) but exceeded the \(Int(timeoutSeconds))s wait budget — skipping restore")
             return false
         }
 

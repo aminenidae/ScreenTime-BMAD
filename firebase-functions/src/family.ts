@@ -39,6 +39,55 @@ export const createFamily = functions.https.onCall(async (data: CreateFamilyData
     return { familyId: existingDevice.data()?.familyId };
   }
 
+  // Check if this iCloud owner already has a family. A parent deviceId is
+  // deliberately ephemeral (wiped on reinstall — DeviceModeManager "PHASE 3"), so a
+  // returning owner reaches this point with a brand-new deviceId and no local
+  // familyId pointer, and the check above can't match. Creating a second family for
+  // them would orphan the original (along with its already-paired children) AND
+  // clobber the familyOwners pointer written below, making the original permanently
+  // unrecoverable. Reuse the existing family instead, adopting this device into it.
+  if (ownerKey) {
+    const ownerDoc = await db.collection('familyOwners').doc(ownerKey).get();
+    const ownedFamilyId = ownerDoc.exists ? (ownerDoc.data()?.familyId as string | undefined) : undefined;
+
+    if (ownedFamilyId) {
+      const ownedFamilyRef = db.collection('families').doc(ownedFamilyId);
+      const ownedFamily = await ownedFamilyRef.get();
+
+      // If the pointer is dangling (family deleted), fall through and create fresh.
+      if (ownedFamily.exists) {
+        const parents: string[] = ownedFamily.data()?.parents || [];
+        const previousSubscriberId: string | undefined = ownedFamily.data()?.subscriberDeviceId;
+        // Rotate the owner's own slot rather than appending, for the same reason as
+        // claimFamilyOwnership: otherwise every reinstall permanently burns a slot.
+        const coParents = parents.filter((p) => p !== previousSubscriberId).slice(0, 1);
+        const nextParents = parents.includes(deviceId) ? parents : [...coParents, deviceId];
+
+        const reuseBatch = db.batch();
+        reuseBatch.update(ownedFamilyRef, {
+          parents: nextParents,
+          subscriberDeviceId: deviceId,
+          updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+        });
+        reuseBatch.set(
+          db.collection('devices').doc(deviceId),
+          {
+            familyId: ownedFamilyId,
+            deviceType: 'parent',
+            role: 'subscriber',
+            deviceName: deviceName || 'Device',
+            updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+          },
+          { merge: true }
+        );
+        await reuseBatch.commit();
+
+        console.log(`Reused existing family ${ownedFamilyId} for returning owner ${ownerKey} (device ${deviceId})`);
+        return { familyId: ownedFamilyId };
+      }
+    }
+  }
+
   // Determine max children based on tier. Trial gets the same limit as Family
   // (full access during trial, matching SubscriptionTier.childDeviceLimit on
   // the client) — Individual and a real Solo-turned-family edge case get 1.
@@ -164,7 +213,18 @@ export const claimFamilyOwnership = functions.https.onCall(
     const parents: string[] = family.parents || [];
     const isNewParentDevice = !parents.includes(deviceId);
 
-    if (isNewParentDevice && parents.length >= 2) {
+    // Only the verified owner reaches this point (ownerKey guard above); a genuine
+    // co-parent joins through validateCoParentJoin instead, under their own iCloud
+    // account. So a "new" device here is always the owner returning on a fresh
+    // install — and a parent deviceId is deliberately ephemeral (wiped on reinstall,
+    // see DeviceModeManager "PHASE 3"). Appending each time would burn a permanent
+    // parent slot per reinstall and lock the owner out of their own family on the
+    // second one. Rotate the owner's own slot instead: drop the stale subscriber
+    // device, keep any genuine co-parent, and hand the subscriber role to this device.
+    const previousSubscriberId: string | undefined = family.subscriberDeviceId;
+    const parentsWithoutStaleOwner = parents.filter((p) => p !== previousSubscriberId);
+
+    if (isNewParentDevice && parentsWithoutStaleOwner.length >= 2) {
       throw new functions.https.HttpsError('resource-exhausted', 'Maximum number of parent devices reached for this family');
     }
 
@@ -177,7 +237,8 @@ export const claimFamilyOwnership = functions.https.onCall(
       familyUpdates.ownerKey = ownerKey;
     }
     if (isNewParentDevice) {
-      familyUpdates.parents = admin.firestore.FieldValue.arrayUnion(deviceId);
+      familyUpdates.parents = [...parentsWithoutStaleOwner, deviceId];
+      familyUpdates.subscriberDeviceId = deviceId;
     }
 
     const batch = db.batch();

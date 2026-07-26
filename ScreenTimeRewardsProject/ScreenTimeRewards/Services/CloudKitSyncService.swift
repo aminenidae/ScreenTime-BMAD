@@ -731,7 +731,19 @@ class CloudKitSyncService: ObservableObject {
                 print("[CloudKitSyncService]     - parentDeviceID: \(recordParentID ?? "nil")")
                 #endif
 
-                if deviceType == "child" && recordParentID == parentDeviceID {
+                // Zone ownership alone already proves this child belongs to us: these
+                // zones come from `privateCloudDatabase.allRecordZones()`, which only
+                // ever returns zones THIS iCloud account owns (a co-parent, a mere
+                // participant via CKShare, would see the same data through their own
+                // sharedCloudDatabase instead — a separate code path). Requiring
+                // recordParentID to also equal today's parentDeviceID was redundant on
+                // top of that, and actively wrong after a parent-device reinstall:
+                // parentDeviceID is deliberately NOT durable across reinstall (see
+                // DeviceModeManager "PHASE 3"), but the child's stored record still
+                // carries whatever parent device ID existed at original pairing time,
+                // so this comparison silently orphaned an otherwise-valid child on any
+                // parent reinstall. See docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+                if deviceType == "child" {
                     let device = convertToRegisteredDevice(record)
                     device.sharedZoneID = result.zoneID.zoneName
                     device.sharedZoneOwner = result.zoneOwner
