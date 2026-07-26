@@ -71,7 +71,16 @@ private extension TrialBannerView {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showPaywall) {
-            SubscriptionPaywallView()
+            // Device-aware, matching SubscriptionLockoutView: a child (solo) device
+            // can only buy the Solo plan — Individual/Family require the parent's own
+            // device (pairing/Firebase/CloudKit are wired to that device).
+            if isChild {
+                ChildSubscriptionView()
+                    .environmentObject(subscriptionManager)
+            } else {
+                SubscriptionPaywallView()
+                    .environmentObject(subscriptionManager)
+            }
         }
     }
 
@@ -111,7 +120,16 @@ private extension TrialBannerView {
         }
         .buttonStyle(.plain)
         .sheet(isPresented: $showPaywall) {
-            SubscriptionPaywallView()
+            // Device-aware, matching SubscriptionLockoutView: a child (solo) device
+            // can only buy the Solo plan — Individual/Family require the parent's own
+            // device (pairing/Firebase/CloudKit are wired to that device).
+            if isChild {
+                ChildSubscriptionView()
+                    .environmentObject(subscriptionManager)
+            } else {
+                SubscriptionPaywallView()
+                    .environmentObject(subscriptionManager)
+            }
         }
     }
 }
