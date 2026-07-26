@@ -511,6 +511,12 @@ struct ParentPairingView: View {
             if case PairingError.deviceLimitReached = error {
                 self.showSubscriptionPaywall = true
                 self.errorMessage = nil
+            } else if case PairingError.parentHasNoActiveAccess = error {
+                // The real fix here is starting/renewing access, not just reading an
+                // error — send the parent straight to the paywall, same as the
+                // device-limit case above.
+                self.showSubscriptionPaywall = true
+                self.errorMessage = nil
             } else if case PairingError.soloCannotPair = error {
                 self.errorMessage = String(localized: "Solo subscription doesn't support device pairing. Please upgrade to Individual or Family plan.")
             } else if case PairingError.firebaseValidationFailed(let fbError) = error {

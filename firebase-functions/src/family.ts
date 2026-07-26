@@ -10,7 +10,7 @@ const db = admin.firestore();
 interface CreateFamilyData {
   deviceId: string;
   deviceName: string;
-  subscriptionTier: 'solo' | 'individual' | 'family';
+  subscriptionTier: 'trial' | 'solo' | 'individual' | 'family';
   subscriptionStatus: string;
   // Optional: the parent's iCloud-account owner key (an opaque, per-app CloudKit
   // record name — not an email or Apple ID). When present, tags the new family
@@ -39,8 +39,10 @@ export const createFamily = functions.https.onCall(async (data: CreateFamilyData
     return { familyId: existingDevice.data()?.familyId };
   }
 
-  // Determine max children based on tier
-  const maxChildren = subscriptionTier === 'family' ? 5 : 1;
+  // Determine max children based on tier. Trial gets the same limit as Family
+  // (full access during trial, matching SubscriptionTier.childDeviceLimit on
+  // the client) — Individual and a real Solo-turned-family edge case get 1.
+  const maxChildren = (subscriptionTier === 'family' || subscriptionTier === 'trial') ? 5 : 1;
 
   // Create new family
   const familyRef = db.collection('families').doc();
@@ -204,7 +206,7 @@ export const claimFamilyOwnership = functions.https.onCall(
 
 interface UpdateFamilySubscriptionData {
   familyId: string;
-  subscriptionTier: 'solo' | 'individual' | 'family';
+  subscriptionTier: 'trial' | 'solo' | 'individual' | 'family';
   maxChildren: number;
 }
 

@@ -16,6 +16,7 @@ enum PairingError: LocalizedError {
     case tokenAlreadyUsed
     case subscriptionExpired
     case soloCannotPair
+    case parentHasNoActiveAccess
     case parentInTrial
     case parentNotSubscribed
 
@@ -43,6 +44,8 @@ enum PairingError: LocalizedError {
             return String(localized: "The parent's subscription has expired. Please ask the parent to renew their subscription.")
         case .soloCannotPair:
             return String(localized: "Solo subscription does not support device pairing. Upgrade to Individual or Family plan for remote monitoring.")
+        case .parentHasNoActiveAccess:
+            return String(localized: "Your free trial or subscription isn't active right now, so pairing is paused. Start your free trial or subscribe to pair a child device.")
         case .parentInTrial:
             return String(localized: "The parent is still in their free trial. Please ask the parent to subscribe before connecting.")
         case .parentNotSubscribed:
@@ -308,12 +311,21 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] 🔵 Starting createPairingSession...")
         #endif
 
-        // Check if subscription allows pairing (Solo cannot pair)
+        // Check if subscription allows pairing (Solo cannot pair; expired trial/subscription cannot pair either)
         guard SubscriptionManager.shared.allowsParentPairing else {
             #if DEBUG
             print("[DevicePairingService] ❌ Subscription doesn't allow pairing (Solo or no access)")
             #endif
-            throw PairingError.soloCannotPair
+            throw SubscriptionManager.shared.isSoloSubscription ? PairingError.soloCannotPair : PairingError.parentHasNoActiveAccess
+        }
+
+        // This QR code doesn't carry a familyId, but the child device still validates
+        // the pairing against Firebase by looking up this device's ID — so a Firebase
+        // family (and its `devices/{id}` record) must exist before generating the code,
+        // even for a trial parent who's never purchased. See createSecurePairingSession
+        // for the same lazy-creation pattern.
+        if FirebaseValidationService.shared.cachedFamilyId == nil {
+            await SubscriptionManager.shared.createFirebaseFamilyIfNeeded()
         }
 
         // Limit check uses local Core Data (mirrored from CloudKit) instead of
@@ -712,9 +724,18 @@ class DevicePairingService: ObservableObject {
         print("[DevicePairingService] 🔵 Starting secure pairing session with Firebase validation...")
         #endif
 
-        // Check if subscription allows pairing
+        // Check if subscription allows pairing (Solo cannot pair; expired trial/subscription cannot pair either)
         guard SubscriptionManager.shared.allowsParentPairing else {
-            throw PairingError.soloCannotPair
+            throw SubscriptionManager.shared.isSoloSubscription ? PairingError.soloCannotPair : PairingError.parentHasNoActiveAccess
+        }
+
+        // Trial parents are allowed to pair before ever subscribing, but the Firebase
+        // family record used to only get created after a real purchase — so a
+        // trial-only parent's family (and the `devices/{id}` doc the child device
+        // checks) never existed. Create it here, lazily, the first time it's
+        // actually needed instead of requiring a purchase first.
+        if FirebaseValidationService.shared.cachedFamilyId == nil {
+            await SubscriptionManager.shared.createFirebaseFamilyIfNeeded()
         }
 
         // Ensure we have a Firebase family

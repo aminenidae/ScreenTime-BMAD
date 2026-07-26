@@ -668,11 +668,15 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     // MARK: - Firebase Family Management
 
-    /// Create or update Firebase family for pairing tiers (Individual/Family)
-    /// Handles upgrades from Solo (which has no family) to pairing tiers
+    /// Create or update Firebase family for any tier that's allowed to pair
+    /// (trial, Individual, Family — matches `allowsParentPairing`). Handles
+    /// upgrades from Solo (which has no family) to pairing tiers, and lazily
+    /// creates the family for a trial parent the first time they need one
+    /// (pairing is allowed during trial, but nothing used to create the
+    /// family until a real purchase completed — see
+    /// docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md history).
     func createFirebaseFamilyIfNeeded() async {
-        // Only for tiers that require parent device (pairing tiers)
-        guard currentTier.requiresParentDevice else { return }
+        guard currentTier != .solo else { return }
         guard deviceManager.currentMode == .parentDevice else { return }
 
         // Check if family already exists (e.g., re-subscribing or upgrading from Individual to Family)
