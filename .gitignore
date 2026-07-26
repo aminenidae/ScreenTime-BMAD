@@ -53,6 +53,8 @@ GoogleService-Info.plist
 
 # Firebase functions build artifacts
 firebase-functions/node_modules/
+firebase-functions/node_modules
+firebase-functions/node_modules.nosync/
 firebase-functions/lib/
 
 # Firebase CLI debug logs
