@@ -23,7 +23,16 @@ struct LaunchScreenView: View {
         } else {
             launchScreenContent
                 .opacity(opacity)
-                .onAppear { startLaunchAnimation() }
+                .onAppear {
+                    startLaunchAnimation()
+                    // Runs silently behind this ~3.85s branding animation, so a
+                    // returning parent (reinstall, or a new phone signed into the
+                    // same iCloud account) gets recognized before RootView ever
+                    // decides whether to show onboarding — with zero added delay
+                    // for a genuine first launch. See
+                    // docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+                    Task { await FirebaseValidationService.shared.recoverExistingFamilyIfRecognized() }
+                }
         }
     }
 

@@ -1,8 +1,20 @@
 # Plan — Make family ownership survive a parent's device change
 
 **Date**: 2026-07-24
-**Status**: 🟡 Steps 1-3 implemented (2026-07-25) — client accessor + server create/lookup/claim, both codebases build clean. **Step 4 (the actual recovery-path wiring) is NOT done** — see "Implementation status" below.
-**Area**: pairing / Firebase family records / CloudKit identity — the highest-risk plumbing in the app.
+**Status**: 🟢 Steps 1-4 implemented (2026-07-25), builds clean. **Root cause was revised mid-implementation — see the correction below before reading the original plan.** Not yet tested on a real device (the actual proof: reinstall a parent device that has a paired child).
+**Area**: pairing / Firebase family records / CloudKit identity / app-launch routing — the highest-risk plumbing in the app.
+
+---
+
+## CORRECTION (2026-07-25): the root cause was upstream of what steps 1-3 fixed
+
+Steps 1-3 (below) were built on the assumption that a lost Firebase family record is what orphans a reinstalled parent's paired children. **On-device testing by the CEO disproved this before step 4 shipped.** Tracing the actual routing logic found the real cause is much simpler and further upstream:
+
+- `RootView` decides whether to show onboarding using a single flag, `hasCompletedParentOnboarding` — a plain `@AppStorage`/UserDefaults value (`ScreenTimeRewardsApp.swift:291`, `OnboardingFlowView.swift:20`, `ParentOnboardingCoordinator.swift:18`), wiped by any reinstall.
+- When that flag is false, `RootView` unconditionally routes to the full onboarding wizard, which always ends at the pairing screen — generating a **new QR code that the child must physically rescan** — regardless of whether the parent already has a working family.
+- Meanwhile, the child's actual data (CloudKit zones) appears to already be resilient to a parent reinstall on its own: zone discovery in `CloudKitSyncService.performFetchLinkedChildDevices` queries `privateCloudDatabase.allRecordZones()` — tied to the iCloud **account**, not any local device ID — and already has a "no cached zones → fall back to a full scan" path. The Firebase family record's practical enforcement over the *live* QR-based pairing flow looks weak: the live payload (`PairingPayload`) doesn't even transmit `familyId` to the child, and the child-side subscription check defaults to "allow" when no family ID is cached.
+
+**Net effect:** steps 1-3's plumbing (durable ownerKey, lookup, claim) was real and useful, but on its own it doesn't fix the symptom the CEO tested, because the code path it touches (`SubscriptionManager.createFirebaseFamilyIfNeeded`, called only after a paywall purchase) is never reached — `RootView` redirects to onboarding long before that. **Step 4 (below) is the piece that actually intercepts this**, by running the recognition check at launch, before `RootView` makes its onboarding-vs-dashboard decision.
 
 ---
 
@@ -15,7 +27,11 @@
 
 **Verified:** `firebase-functions` TypeScript compiles clean (`tsc`, zero errors) and the iOS app builds clean (`xcodebuild`, zero errors). Neither has been deployed or run on a device.
 
-**Explicitly NOT done (this is step 4, a separate future task):** nothing yet calls `lookupFamilyByOwner` in the "no local family" path. So today, a parent who reinstalls still creates a brand-new family exactly as before — **the actual bug this plan targets is not yet fixed.** What's shipped so far is invisible plumbing: new families get tagged going forward, and existing families get silently backfilled. The user-visible fix (recover instead of recreate) still needs step 4 + two-device testing, per the original plan below.
+**Step 4 (2026-07-25) — the actual fix, per the correction above:**
+- `FirebaseValidationService.recoverExistingFamilyIfRecognized(timeoutSeconds:)`: called once at launch (from `LaunchScreenView.onAppear`, alongside the existing ~3.85s branding animation, so a genuine first launch never gets added delay). Guards: only runs when neither onboarding-completed flag is set, and device mode is nil or already `.parentDevice`. Two-phase design — a read-only lookup (`fetchOwnerKey` → `lookupFamilyByOwner`) is attempted first; only if it resolves *within the timeout* does the mutating step (`claimFamilyOwnership` → set device mode + `firebase_family_id` + `hasCompletedParentOnboarding`) run. This ordering exists specifically so a slow/late-resolving background lookup can never yank a user out of a wizard they've since started — a late success is simply discarded rather than applied.
+- New public `lookupFamilyByOwner(ownerKey:)` and `claimFamilyOwnership(familyId:ownerKey:deviceId:deviceName:)` wrappers on `FirebaseValidationService`; `backfillOwnerKeyIfNeeded()` refactored to reuse the latter instead of duplicating the Firebase call.
+- Verified: iOS app builds clean (zero errors). **Not yet tested on a real device** — the only real proof is: parent device with a paired child → delete + reinstall the parent app → app should skip onboarding/pairing entirely and land on the dashboard with the child still there.
+- Known minor side effect, not fixed (acceptable): the parent PIN is deliberately cleared on reinstall (`ParentPINService.handleReinstallIfNeeded()`, called at app init) — so a recognized returning parent will be asked to set a new PIN. Much smaller ask than redoing onboarding + re-pairing, not addressed here.
 
 ---
 

@@ -249,26 +249,13 @@ final class FirebaseValidationService: ObservableObject {
     /// Silently tag the current parent device's already-known family with this
     /// iCloud account's owner key, if not already tagged. Fire-and-forget: any
     /// failure or unavailability is swallowed, since this is invisible background
-    /// plumbing (the lazy migration for families created before ownerKey existed),
-    /// not a user-facing flow. Never creates a family and never touches the "no
-    /// local family" path — that recovery flow is a separate, later step.
+    /// plumbing (the lazy migration for families created before ownerKey existed).
     private func backfillOwnerKeyIfNeeded() async {
-        #if canImport(FirebaseFunctions)
-        guard deviceManager.isParentDevice,
-              let familyId = currentFamilyId,
-              let functions else { return }
-
+        guard deviceManager.isParentDevice, let familyId = currentFamilyId else { return }
         guard let ownerKey = await fetchOwnerKey() else { return }
 
-        let data: [String: Any] = [
-            "familyId": familyId,
-            "ownerKey": ownerKey,
-            "deviceId": deviceManager.deviceID,
-            "deviceName": deviceManager.deviceName
-        ]
-
         do {
-            _ = try await functions.httpsCallable("claimFamilyOwnership").call(data)
+            try await claimFamilyOwnership(familyId: familyId, ownerKey: ownerKey, deviceId: deviceManager.deviceID, deviceName: deviceManager.deviceName)
             #if DEBUG
             print("[FirebaseValidation] Owner-key backfill OK for family \(familyId)")
             #endif
@@ -277,7 +264,124 @@ final class FirebaseValidationService: ObservableObject {
             print("[FirebaseValidation] Owner-key backfill skipped: \(error)")
             #endif
         }
+    }
+
+    /// Look up the family owned by a given iCloud identity, if any. Read-only —
+    /// never mutates anything. Returns nil on any failure or "no such owner".
+    func lookupFamilyByOwner(ownerKey: String) async -> String? {
+        #if canImport(FirebaseFunctions)
+        guard let functions else { return nil }
+        do {
+            let result = try await functions.httpsCallable("lookupFamilyByOwner").call(["ownerKey": ownerKey])
+            guard let response = result.data as? [String: Any] else { return nil }
+            return response["familyId"] as? String
+        } catch {
+            return nil
+        }
+        #else
+        return nil
         #endif
+    }
+
+    /// Attach `deviceId` to `familyId` under `ownerKey`. See claimFamilyOwnership
+    /// in firebase-functions/src/family.ts for the idempotent server-side rules
+    /// (safe to call repeatedly; caps new parent devices at 2; rejects a mismatched
+    /// owner). Used both for the silent backfill above and for reconnecting a
+    /// returning parent's (new) device ID to their existing family.
+    func claimFamilyOwnership(familyId: String, ownerKey: String, deviceId: String, deviceName: String) async throws {
+        #if canImport(FirebaseFunctions)
+        guard let functions else {
+            throw FirebaseValidationError.notConfigured
+        }
+        let data: [String: Any] = [
+            "familyId": familyId,
+            "ownerKey": ownerKey,
+            "deviceId": deviceId,
+            "deviceName": deviceName
+        ]
+        do {
+            _ = try await functions.httpsCallable("claimFamilyOwnership").call(data)
+        } catch {
+            throw FirebaseValidationError.networkError(error)
+        }
+        #else
+        throw FirebaseValidationError.notConfigured
+        #endif
+    }
+
+    // MARK: - Returning-Parent Recognition (launch-time)
+
+    /// Read-only half of recognition: does this iCloud account already own a
+    /// family? No mutation — safe to abandon if it runs slow, since nothing has
+    /// been changed yet.
+    private func lookupRecognizedFamilyId() async -> (familyId: String, ownerKey: String)? {
+        guard let ownerKey = await fetchOwnerKey() else { return nil }
+        guard let familyId = await lookupFamilyByOwner(ownerKey: ownerKey) else { return nil }
+        return (familyId, ownerKey)
+    }
+
+    /// Claim + restore once a family has been recognized. Assumed fast (a single
+    /// Firebase call) — this is the only part that actually mutates local state.
+    private func claimAndRestoreRecognizedFamily(familyId: String, ownerKey: String) async -> Bool {
+        do {
+            try await claimFamilyOwnership(familyId: familyId, ownerKey: ownerKey, deviceId: deviceManager.deviceID, deviceName: deviceManager.deviceName)
+        } catch {
+            #if DEBUG
+            print("[FirebaseValidation] Recognized family \(familyId) but claim failed: \(error)")
+            #endif
+            return false
+        }
+
+        deviceManager.setDeviceMode(.parentDevice, deviceName: deviceManager.deviceName)
+        UserDefaults.standard.set(familyId, forKey: "firebase_family_id")
+        UserDefaults.standard.set(true, forKey: "hasCompletedParentOnboarding")
+        await loadFamilyInfo(familyId: familyId)
+        deviceRole = .subscriber
+
+        #if DEBUG
+        print("[FirebaseValidation] Recognized returning parent — restored family \(familyId)")
+        #endif
+        return true
+    }
+
+    /// Called once at launch, before onboarding would otherwise show. If this
+    /// device's iCloud account already owns a family — a parent who reinstalled,
+    /// or moved to a new phone signed into the same iCloud account — silently
+    /// restore that family and route straight to the dashboard instead of forcing
+    /// the whole onboarding + re-pairing wizard. Every launch's local
+    /// "onboarding completed" flag lives in ordinary storage that reinstall wipes;
+    /// this recovers what that flag can't. See
+    /// docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+    ///
+    /// `timeoutSeconds` bounds only the read-only lookup: if it hasn't resolved by
+    /// then, RootView has almost certainly already rendered onboarding, so we
+    /// abandon rather than mutate state late and yank the user out of a wizard
+    /// they've already started. A slow lookup that finishes anyway is a wasted
+    /// network call, not a correctness problem.
+    @discardableResult
+    func recoverExistingFamilyIfRecognized(timeoutSeconds: Double = 3.0) async -> Bool {
+        let parentDone = UserDefaults.standard.bool(forKey: "hasCompletedParentOnboarding")
+        let childDone = UserDefaults.standard.bool(forKey: "hasCompletedChildOnboarding")
+        guard !parentDone, !childDone else { return false }
+
+        // A device that has already explicitly identified as a child shouldn't be
+        // silently reclassified as a family owner. (In practice a real child device
+        // can't match here anyway — pairing requires the parent and child to use
+        // different iCloud accounts — but keep the guard explicit.)
+        guard deviceManager.currentMode == nil || deviceManager.currentMode == .parentDevice else { return false }
+
+        let deadline = Date().addingTimeInterval(timeoutSeconds)
+
+        guard let recognized = await lookupRecognizedFamilyId() else { return false }
+
+        guard Date() < deadline else {
+            #if DEBUG
+            print("[FirebaseValidation] Recognition lookup succeeded but exceeded the launch budget — skipping restore")
+            #endif
+            return false
+        }
+
+        return await claimAndRestoreRecognizedFamily(familyId: recognized.familyId, ownerKey: recognized.ownerKey)
     }
 
     // MARK: - Family Management (Parent Device)
