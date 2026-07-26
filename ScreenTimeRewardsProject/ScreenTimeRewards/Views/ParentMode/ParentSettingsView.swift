@@ -26,6 +26,7 @@ struct ParentSettingsView: View {
     @State private var showingChangePIN = false
     #if DEBUG
     @State private var showingTrialResetConfirmation = false
+    @State private var showingRecoveryLogExport = false
     #endif
 
     var body: some View {
@@ -61,6 +62,22 @@ struct ParentSettingsView: View {
                             .foregroundColor(AppTheme.playfulCoral)
                             .cornerRadius(AppTheme.CornerRadius.medium)
                     }
+
+                    // Testing-only: share the on-device log of the launch-time
+                    // "returning parent" recognition check, for debugging why a
+                    // reinstall did or didn't skip re-pairing. See
+                    // docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+                    Button {
+                        showingRecoveryLogExport = true
+                    } label: {
+                        Text("Share Recovery Log (Testing)")
+                            .font(.system(size: 15, weight: .semibold))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 14)
+                            .background(AppTheme.vibrantTeal.opacity(0.15))
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
+                            .cornerRadius(AppTheme.CornerRadius.medium)
+                    }
                     #endif
                 }
                 .padding()
@@ -93,6 +110,11 @@ struct ParentSettingsView: View {
                 showingChangePIN = false
             })
         }
+        #if DEBUG
+        .sheet(isPresented: $showingRecoveryLogExport) {
+            DiagnosticsLogExportView(childName: "Parent")
+        }
+        #endif
         #if DEBUG
         .alert("Reset Trial?", isPresented: $showingTrialResetConfirmation) {
             Button("Reset Trial", role: .destructive) {

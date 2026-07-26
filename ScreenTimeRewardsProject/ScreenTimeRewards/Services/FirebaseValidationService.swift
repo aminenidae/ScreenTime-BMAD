@@ -192,6 +192,23 @@ final class FirebaseValidationService: ObservableObject {
 
     private let tokenExpirationMinutes: Int = 10
 
+    private static let recoveryLogDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd HH:mm:ss"
+        f.timeZone = TimeZone.current
+        return f
+    }()
+
+    /// Persists to the same rotating file the Diagnostics screen already exports
+    /// (ExtensionFileLogger, App-Group-backed), so a returning parent's recovery
+    /// attempt can be captured and shared even when nobody is watching Xcode's
+    /// console at the moment it happens. Only called on the reinstall/recognition
+    /// path — see docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+    private func recoveryLog(_ message: String) {
+        let ts = Self.recoveryLogDateFormatter.string(from: Date())
+        ExtensionFileLogger.shared.appendLine("[\(ts)] [FamilyRecovery] \(message)")
+    }
+
     // MARK: - Initialization
 
     private init() {
@@ -315,8 +332,15 @@ final class FirebaseValidationService: ObservableObject {
     /// family? No mutation — safe to abandon if it runs slow, since nothing has
     /// been changed yet.
     private func lookupRecognizedFamilyId() async -> (familyId: String, ownerKey: String)? {
-        guard let ownerKey = await fetchOwnerKey() else { return nil }
-        guard let familyId = await lookupFamilyByOwner(ownerKey: ownerKey) else { return nil }
+        guard let ownerKey = await fetchOwnerKey() else {
+            recoveryLog("fetchOwnerKey() returned nil — iCloud unavailable, not signed in, or the lookup failed")
+            return nil
+        }
+        recoveryLog("Owner key resolved: \(ownerKey)")
+        guard let familyId = await lookupFamilyByOwner(ownerKey: ownerKey) else {
+            recoveryLog("lookupFamilyByOwner(\(ownerKey)) — server has no family tagged with this owner key")
+            return nil
+        }
         return (familyId, ownerKey)
     }
 
@@ -329,6 +353,7 @@ final class FirebaseValidationService: ObservableObject {
             #if DEBUG
             print("[FirebaseValidation] Recognized family \(familyId) but claim failed: \(error)")
             #endif
+            recoveryLog("Recognized family \(familyId) but claimFamilyOwnership failed: \(error)")
             return false
         }
 
@@ -341,6 +366,7 @@ final class FirebaseValidationService: ObservableObject {
         #if DEBUG
         print("[FirebaseValidation] Recognized returning parent — restored family \(familyId)")
         #endif
+        recoveryLog("Recognized returning parent — restored family \(familyId)")
         return true
     }
 
@@ -362,26 +388,41 @@ final class FirebaseValidationService: ObservableObject {
     func recoverExistingFamilyIfRecognized(timeoutSeconds: Double = 3.0) async -> Bool {
         let parentDone = UserDefaults.standard.bool(forKey: "hasCompletedParentOnboarding")
         let childDone = UserDefaults.standard.bool(forKey: "hasCompletedChildOnboarding")
+        // Only the "onboarding not yet completed" path is interesting to log — that's
+        // reinstalls and genuine first launches. An ordinary post-onboarding launch
+        // takes this early return on every single app open, so logging it would
+        // drown the file in noise for zero diagnostic value.
         guard !parentDone, !childDone else { return false }
+
+        recoveryLog("Launch with onboarding not completed on this install — checking for a recognizable returning parent (currentMode=\(String(describing: deviceManager.currentMode)))")
 
         // A device that has already explicitly identified as a child shouldn't be
         // silently reclassified as a family owner. (In practice a real child device
         // can't match here anyway — pairing requires the parent and child to use
         // different iCloud accounts — but keep the guard explicit.)
-        guard deviceManager.currentMode == nil || deviceManager.currentMode == .parentDevice else { return false }
+        guard deviceManager.currentMode == nil || deviceManager.currentMode == .parentDevice else {
+            recoveryLog("Skipped — device is already identified as \(String(describing: deviceManager.currentMode))")
+            return false
+        }
 
         let deadline = Date().addingTimeInterval(timeoutSeconds)
 
-        guard let recognized = await lookupRecognizedFamilyId() else { return false }
+        guard let recognized = await lookupRecognizedFamilyId() else {
+            recoveryLog("No family recognized for this iCloud account — this launch will show onboarding as if it were a first install")
+            return false
+        }
 
         guard Date() < deadline else {
             #if DEBUG
             print("[FirebaseValidation] Recognition lookup succeeded but exceeded the launch budget — skipping restore")
             #endif
+            recoveryLog("Recognition succeeded (family=\(recognized.familyId)) but exceeded the \(Int(timeoutSeconds))s launch budget — skipping restore")
             return false
         }
 
-        return await claimAndRestoreRecognizedFamily(familyId: recognized.familyId, ownerKey: recognized.ownerKey)
+        let restored = await claimAndRestoreRecognizedFamily(familyId: recognized.familyId, ownerKey: recognized.ownerKey)
+        recoveryLog("Finished — restored=\(restored) for family \(recognized.familyId)")
+        return restored
     }
 
     // MARK: - Family Management (Parent Device)
