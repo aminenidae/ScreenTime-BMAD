@@ -8,6 +8,7 @@
 
 import Foundation
 import Combine
+import CloudKit
 #if canImport(FirebaseFirestore)
 import FirebaseFirestore
 #endif
@@ -166,6 +167,16 @@ final class FirebaseValidationService: ObservableObject {
     @Published private(set) var currentFamily: FirebaseFamily?
     @Published private(set) var deviceRole: DeviceRole?
 
+    /// The current iCloud user's per-app record name — an opaque, stable identifier
+    /// for "who is signed into iCloud on this device," read with NO sign-in prompt
+    /// (iOS already knows, because the device is signed into iCloud). Used to make a
+    /// parent's family record recoverable across a device reinstall/replacement, since
+    /// both the local familyId pointer and the parent deviceID are deliberately wiped
+    /// on a parent-device reinstall (DeviceModeManager "PHASE 3": fresh start, must
+    /// re-pair). NOT an email or Apple ID — different per app, meaningless elsewhere.
+    /// See docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+    @Published private(set) var ownerKey: String?
+
     // MARK: - Dependencies
 
     #if canImport(FirebaseFirestore)
@@ -200,9 +211,72 @@ final class FirebaseValidationService: ObservableObject {
         #endif
 
         print("[FirebaseValidation] Configured successfully")
+
+        // Best-effort, silent, invisible to the user: if this parent device already
+        // knows its family, tag that family with this iCloud account's owner key so
+        // it becomes recoverable after a future reinstall. No-op if not a parent
+        // device, no known family, iCloud unavailable, or already tagged.
+        Task { await backfillOwnerKeyIfNeeded() }
         #else
         print("[FirebaseValidation] Firebase not available - validation disabled")
         isConfigured = false
+        #endif
+    }
+
+    // MARK: - Owner Key (iCloud identity)
+
+    /// Fetch (and cache in-memory) the current iCloud user's owner key. Returns nil
+    /// cleanly whenever iCloud is unavailable, signed out, or the lookup fails — this
+    /// is best-effort identity, never a hard requirement. Callers must treat nil as
+    /// "skip this step," not as an error to surface to the user.
+    @discardableResult
+    func fetchOwnerKey() async -> String? {
+        if let ownerKey { return ownerKey }
+
+        let container = CKContainer(identifier: "iCloud.com.screentimerewards")
+        guard let status = try? await container.accountStatus(), status == .available else {
+            return nil
+        }
+        guard let recordID = try? await container.userRecordID() else {
+            return nil
+        }
+
+        let key = recordID.recordName
+        ownerKey = key
+        return key
+    }
+
+    /// Silently tag the current parent device's already-known family with this
+    /// iCloud account's owner key, if not already tagged. Fire-and-forget: any
+    /// failure or unavailability is swallowed, since this is invisible background
+    /// plumbing (the lazy migration for families created before ownerKey existed),
+    /// not a user-facing flow. Never creates a family and never touches the "no
+    /// local family" path — that recovery flow is a separate, later step.
+    private func backfillOwnerKeyIfNeeded() async {
+        #if canImport(FirebaseFunctions)
+        guard deviceManager.isParentDevice,
+              let familyId = currentFamilyId,
+              let functions else { return }
+
+        guard let ownerKey = await fetchOwnerKey() else { return }
+
+        let data: [String: Any] = [
+            "familyId": familyId,
+            "ownerKey": ownerKey,
+            "deviceId": deviceManager.deviceID,
+            "deviceName": deviceManager.deviceName
+        ]
+
+        do {
+            _ = try await functions.httpsCallable("claimFamilyOwnership").call(data)
+            #if DEBUG
+            print("[FirebaseValidation] Owner-key backfill OK for family \(familyId)")
+            #endif
+        } catch {
+            #if DEBUG
+            print("[FirebaseValidation] Owner-key backfill skipped: \(error)")
+            #endif
+        }
         #endif
     }
 
@@ -216,12 +290,17 @@ final class FirebaseValidationService: ObservableObject {
             throw FirebaseValidationError.notConfigured
         }
 
-        let data: [String: Any] = [
+        let ownerKey = await fetchOwnerKey()
+
+        var data: [String: Any] = [
             "deviceId": deviceManager.deviceID,
             "deviceName": deviceManager.deviceName,
             "subscriptionTier": subscriptionTier.rawValue,
             "subscriptionStatus": "active"
         ]
+        if let ownerKey {
+            data["ownerKey"] = ownerKey
+        }
 
         do {
             let result = try await functions.httpsCallable("createFamily").call(data)

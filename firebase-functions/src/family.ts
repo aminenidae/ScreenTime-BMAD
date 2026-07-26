@@ -12,6 +12,12 @@ interface CreateFamilyData {
   deviceName: string;
   subscriptionTier: 'solo' | 'individual' | 'family';
   subscriptionStatus: string;
+  // Optional: the parent's iCloud-account owner key (an opaque, per-app CloudKit
+  // record name — not an email or Apple ID). When present, tags the new family
+  // so it stays recoverable after a future parent-device reinstall/replacement,
+  // even though deviceId itself is deliberately NOT durable on parent devices.
+  // See docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+  ownerKey?: string;
 }
 
 /**
@@ -19,7 +25,7 @@ interface CreateFamilyData {
  * Called after successful subscription purchase on parent device
  */
 export const createFamily = functions.https.onCall(async (data: CreateFamilyData, context) => {
-  const { deviceId, deviceName, subscriptionTier, subscriptionStatus } = data;
+  const { deviceId, deviceName, subscriptionTier, subscriptionStatus, ownerKey } = data;
 
   // Validate required fields
   if (!deviceId || !subscriptionTier) {
@@ -40,7 +46,7 @@ export const createFamily = functions.https.onCall(async (data: CreateFamilyData
   const familyRef = db.collection('families').doc();
   const familyId = familyRef.id;
 
-  const familyData = {
+  const familyData: FirebaseFirestore.DocumentData = {
     subscriberDeviceId: deviceId,
     subscriptionTier,
     subscriptionStatus,
@@ -49,6 +55,9 @@ export const createFamily = functions.https.onCall(async (data: CreateFamilyData
     createdAt: admin.firestore.FieldValue.serverTimestamp(),
     updatedAt: admin.firestore.FieldValue.serverTimestamp(),
   };
+  if (ownerKey) {
+    familyData.ownerKey = ownerKey;
+  }
 
   // Create device record
   const deviceData = {
@@ -63,12 +72,135 @@ export const createFamily = functions.https.onCall(async (data: CreateFamilyData
   const batch = db.batch();
   batch.set(familyRef, familyData);
   batch.set(db.collection('devices').doc(deviceId), deviceData);
+  if (ownerKey) {
+    // Owner-key lookup index: "which family does this iCloud identity own?"
+    // Lets a future reinstalled parent device recover this family via
+    // lookupFamilyByOwner without needing the old (by-then-gone) deviceId.
+    batch.set(db.collection('familyOwners').doc(ownerKey), { familyId });
+  }
   await batch.commit();
 
-  console.log(`Created family ${familyId} for device ${deviceId}`);
+  console.log(`Created family ${familyId} for device ${deviceId}${ownerKey ? ' (owner-tagged)' : ''}`);
 
   return { familyId };
 });
+
+interface LookupFamilyByOwnerData {
+  ownerKey: string;
+}
+
+/**
+ * Look up the family owned by a given iCloud identity (owner key). Used by a
+ * parent device that has lost its local familyId pointer (e.g. after a
+ * reinstall, which deliberately wipes the parent deviceID — see
+ * DeviceModeManager "PHASE 3") to recover its existing family instead of
+ * creating a new, disconnected one that orphans already-paired children.
+ *
+ * Read-only and side-effect-free. A caller that gets a non-null familyId back
+ * must still call claimFamilyOwnership to attach its (new) device ID to it.
+ */
+export const lookupFamilyByOwner = functions.https.onCall(
+  async (data: LookupFamilyByOwnerData, context) => {
+    const { ownerKey } = data;
+
+    if (!ownerKey) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing ownerKey');
+    }
+
+    const ownerDoc = await db.collection('familyOwners').doc(ownerKey).get();
+    if (!ownerDoc.exists) {
+      return { familyId: null };
+    }
+
+    return { familyId: ownerDoc.data()?.familyId ?? null };
+  }
+);
+
+interface ClaimFamilyOwnershipData {
+  familyId: string;
+  ownerKey: string;
+  deviceId: string;
+  deviceName?: string;
+}
+
+/**
+ * Attach a device to a family under a given iCloud owner key. Idempotent and
+ * dual-purpose:
+ *  - Backfill: called silently at launch by a parent device that already
+ *    knows its familyId, to tag a pre-existing (pre-ownerKey) family for the
+ *    first time. deviceId is typically already a member of `parents`, so
+ *    this is usually a same-owner, no-new-device no-op.
+ *  - Recovery: called after lookupFamilyByOwner finds a family for a NEW
+ *    device ID (post-reinstall), to re-adopt that device into the family.
+ *
+ * Once a family has an owner key, only that same owner may claim it again —
+ * this stops a stray/incorrect key from hijacking someone else's family.
+ * Adding a genuinely new parent device is still capped at 2, matching the
+ * co-parent-join limit enforced in validateCoParentJoin (pairing.ts).
+ */
+export const claimFamilyOwnership = functions.https.onCall(
+  async (data: ClaimFamilyOwnershipData, context) => {
+    const { familyId, ownerKey, deviceId, deviceName } = data;
+
+    if (!familyId || !ownerKey || !deviceId) {
+      throw new functions.https.HttpsError('invalid-argument', 'Missing required fields');
+    }
+
+    const familyRef = db.collection('families').doc(familyId);
+    const familyDoc = await familyRef.get();
+
+    if (!familyDoc.exists) {
+      throw new functions.https.HttpsError('not-found', 'Family not found');
+    }
+
+    const family = familyDoc.data()!;
+
+    if (family.ownerKey && family.ownerKey !== ownerKey) {
+      throw new functions.https.HttpsError('permission-denied', 'This family has a different owner');
+    }
+
+    const parents: string[] = family.parents || [];
+    const isNewParentDevice = !parents.includes(deviceId);
+
+    if (isNewParentDevice && parents.length >= 2) {
+      throw new functions.https.HttpsError('resource-exhausted', 'Maximum number of parent devices reached for this family');
+    }
+
+    const isNewOwnerLink = !family.ownerKey;
+
+    const familyUpdates: { [key: string]: unknown } = {
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+    };
+    if (isNewOwnerLink) {
+      familyUpdates.ownerKey = ownerKey;
+    }
+    if (isNewParentDevice) {
+      familyUpdates.parents = admin.firestore.FieldValue.arrayUnion(deviceId);
+    }
+
+    const batch = db.batch();
+    batch.update(familyRef, familyUpdates);
+    if (isNewOwnerLink) {
+      batch.set(db.collection('familyOwners').doc(ownerKey), { familyId });
+    }
+    batch.set(
+      db.collection('devices').doc(deviceId),
+      {
+        familyId,
+        deviceType: 'parent',
+        role: 'subscriber',
+        deviceName: deviceName || 'Device',
+        updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      },
+      { merge: true }
+    );
+    await batch.commit();
+
+    console.log(`Claimed family ${familyId} for device ${deviceId} under owner ${ownerKey}`);
+
+    return { success: true, familyId };
+  }
+);
 
 interface UpdateFamilySubscriptionData {
   familyId: string;

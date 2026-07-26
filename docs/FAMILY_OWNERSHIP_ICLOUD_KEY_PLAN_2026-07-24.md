@@ -1,8 +1,23 @@
 # Plan — Make family ownership survive a parent's device change
 
 **Date**: 2026-07-24
-**Status**: 📋 Plan for review — no code written. Requires CEO go-ahead before implementation.
+**Status**: 🟡 Steps 1-3 implemented (2026-07-25) — client accessor + server create/lookup/claim, both codebases build clean. **Step 4 (the actual recovery-path wiring) is NOT done** — see "Implementation status" below.
 **Area**: pairing / Firebase family records / CloudKit identity — the highest-risk plumbing in the app.
+
+---
+
+## Implementation status (2026-07-25)
+
+**Done, on branch `fix/onboarding-ux`, uncommitted:**
+- **Step 1 (client):** `FirebaseValidationService.fetchOwnerKey()` — fetches + caches the iCloud user record name, returns nil cleanly when unavailable. `ScreenTimeRewardsProject/ScreenTimeRewards/Services/FirebaseValidationService.swift`.
+- **Step 2 (server + silent client wiring):** `createFamily` accepts optional `ownerKey`, writes it to the family doc + a new `familyOwners/{ownerKey}` lookup doc. `createFamily()` (Swift) now sends `ownerKey` on every new-family creation. A new private `backfillOwnerKeyIfNeeded()`, called once from `configure()`, silently tags an *already-known* family with its owner key at launch (fire-and-forget, swallows all errors, parent-device-only). `firebase-functions/src/family.ts` + `FirebaseValidationService.swift`.
+- **Step 3 (server):** `lookupFamilyByOwner({ownerKey})` (read-only) and `claimFamilyOwnership({familyId, ownerKey, deviceId, deviceName})` (idempotent attach — handles both the backfill no-op and future new-device adoption; enforces the same 2-parent cap as co-parent join; rejects a mismatched owner). Both exported from `index.ts`.
+
+**Verified:** `firebase-functions` TypeScript compiles clean (`tsc`, zero errors) and the iOS app builds clean (`xcodebuild`, zero errors). Neither has been deployed or run on a device.
+
+**Explicitly NOT done (this is step 4, a separate future task):** nothing yet calls `lookupFamilyByOwner` in the "no local family" path. So today, a parent who reinstalls still creates a brand-new family exactly as before — **the actual bug this plan targets is not yet fixed.** What's shipped so far is invisible plumbing: new families get tagged going forward, and existing families get silently backfilled. The user-visible fix (recover instead of recreate) still needs step 4 + two-device testing, per the original plan below.
+
+---
 
 ---
 
