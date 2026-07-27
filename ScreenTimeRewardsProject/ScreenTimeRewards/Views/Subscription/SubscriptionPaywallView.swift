@@ -438,16 +438,16 @@ private extension SubscriptionPaywallView {
     }
 
     var buttonText: String {
+        // Every product carries the same 14-day free trial in App Store Connect
+        // (verified across all 175 territories, 2026-07-26), so the billing period
+        // no longer changes what we can promise. This previously advertised the
+        // trial on annual only — which was doubly wrong: annual had NO trial
+        // configured at the time, and monthly (which did) was left saying plain
+        // "Subscribe", hiding a real offer from the customer.
         if isOnboarding {
             return String(localized: "Start Free Trial")
-        } else if let package = selectedPackage {
-            if selectedBillingPeriod == .annual {
-                return String(localized: "Start 14-Day Free Trial")
-            } else {
-                return String(localized: "Subscribe for \(package.localizedPriceString)")
-            }
-        } else if selectedStoreKitProduct != nil {
-            return selectedBillingPeriod == .annual ? "Start 14-Day Free Trial" : "Subscribe"
+        } else if selectedPackage != nil || selectedStoreKitProduct != nil {
+            return String(localized: "Start 14-Day Free Trial")
         } else {
             return String(localized: "Continue")
         }

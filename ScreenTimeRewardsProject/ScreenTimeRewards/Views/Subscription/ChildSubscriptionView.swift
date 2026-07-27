@@ -353,10 +353,11 @@ private extension ChildSubscriptionView {
     }
 
     var buttonText: String {
-        if selectedBillingPeriod == .annual {
+        // Both Solo products carry the same 14-day free trial in App Store Connect,
+        // so the billing period no longer changes what we can promise. See the
+        // matching note in SubscriptionPaywallView.buttonText.
+        if selectedPackage != nil || selectedStoreKitProduct != nil {
             return String(localized: "Start 14-Day Free Trial")
-        } else if let package = selectedPackage {
-            return String(localized: "Subscribe for \(package.localizedPriceString)")
         }
         return String(localized: "Subscribe")
     }
