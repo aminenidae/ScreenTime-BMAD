@@ -1,18 +1,13 @@
 {
   "identifier" : "Products",
-  "nonRenewingSubscriptions" : [
-
-  ],
-  "products" : [
-
-  ],
+  "nonRenewingSubscriptions" : [],
+  "products" : [],
   "settings" : {
     "_applicationInternalID" : "6504637647",
     "_developerTeamID" : "VNSB6B5L49",
     "_failTransactionsEnabled" : false,
     "_lastSynchronizedDate" : 788140800,
     "_locale" : "en_US",
-    "_storefront" : "USA",
     "_storeKitErrors" : [
       {
         "current" : null,
@@ -59,28 +54,27 @@
         "enabled" : false,
         "name" : "Offer Code Redeem Sheet"
       }
-    ]
+    ],
+    "_storefront" : "USA"
   },
   "subscriptionGroups" : [
     {
       "id" : "21574498",
-      "localizations" : [
-
-      ],
+      "localizations" : [],
       "name" : "ScreenTime Rewards Premium",
       "subscriptions" : [
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
+          "adHocOffers" : [],
+          "codeOffers" : [],
           "displayPrice" : "6.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "solo_monthly_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_solo_monthly",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor your child's screen time on this device. Billed monthly.",
@@ -95,17 +89,17 @@
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "49.99",
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "29.99",
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "solo_annual_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_solo_annual",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor your child's screen time on this device. Save 40% with annual billing.",
@@ -120,17 +114,17 @@
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "9.99",
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "8.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "individual_monthly_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_individual_monthly",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor 1 child remotely from your device. Billed monthly.",
@@ -145,17 +139,17 @@
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "59.99",
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "39.99",
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "individual_annual_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_individual_annual",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor 1 child remotely from your device. Save 40% with annual billing.",
@@ -170,17 +164,17 @@
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "12.49",
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "9.99",
           "familyShareable" : true,
           "groupNumber" : 3,
           "internalID" : "family_monthly_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_family_monthly",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor up to 5 children remotely. Billed monthly.",
@@ -195,17 +189,17 @@
           "type" : "RecurringSubscription"
         },
         {
-          "adHocOffers" : [
-
-          ],
-          "codeOffers" : [
-
-          ],
-          "displayPrice" : "74.99",
+          "adHocOffers" : [],
+          "codeOffers" : [],
+          "displayPrice" : "49.99",
           "familyShareable" : true,
           "groupNumber" : 3,
           "internalID" : "family_annual_001",
-          "introductoryOffer" : null,
+          "introductoryOffer" : {
+            "internalID" : "intro_family_annual",
+            "paymentMode" : "free",
+            "subscriptionPeriod" : "P2W"
+          },
           "localizations" : [
             {
               "description" : "Monitor up to 5 children remotely. Save 40% with annual billing.",
