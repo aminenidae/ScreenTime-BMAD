@@ -38,11 +38,27 @@ class DeviceModeManager: ObservableObject {
             storedMode = nil
         }
 
+        // A Keychain deviceID is written ONLY by child devices — the parent branch
+        // below actively deletes it — so its presence is a reliable marker that this
+        // install is a returning CHILD device, even when `storedMode` is nil because
+        // reinstall wiped UserDefaults.
+        //
+        // Gating the Keychain read on `storedMode == .childDevice` alone (as this
+        // originally did) silently defeated the whole mechanism: on reinstall the mode
+        // flag is gone, so this generated a fresh ID, and setDeviceMode(.childDevice)
+        // then OVERWROTE the Keychain copy with it — permanently destroying the prior
+        // identity and orphaning its CloudKit zone, which is exactly what persisting
+        // the ID was meant to prevent.
+        let persistedChildDeviceID = Self.loadFromKeychain(service: "com.screentimerewards", key: "deviceID")
+
         // Load deviceID based on mode
-        if storedMode == .childDevice {
+        if storedMode == .childDevice || (storedMode == nil && persistedChildDeviceID != nil) {
             // CHILD: Use Keychain (persists across reinstall)
-            if let keychainID = Self.loadFromKeychain(service: "com.screentimerewards", key: "deviceID") {
+            if let keychainID = persistedChildDeviceID {
                 self.deviceID = keychainID
+                // Mirror back into UserDefaults so the two stores agree after a
+                // reinstall wiped the UserDefaults copy.
+                userDefaults.set(keychainID, forKey: deviceIDKey)
                 #if DEBUG
                 print("[DeviceModeManager] Child device: Loaded deviceID from Keychain: \(keychainID)")
                 #endif
@@ -124,6 +140,20 @@ class DeviceModeManager: ObservableObject {
             print("[DeviceModeManager] Child mode: Saved deviceID to Keychain for persistence")
             #endif
         } else {
+            // If this ID was inherited from a previous CHILD install on this device
+            // (init now adopts the Keychain ID so a returning child keeps its
+            // identity), it must NOT be reused as a parent ID — that same ID is
+            // already registered as a child in Firebase and CloudKit, and reusing it
+            // would collide. Mint a fresh one for the parent role instead.
+            if Self.loadFromKeychain(service: keychainService, key: keychainDeviceIDKey) == deviceID {
+                let freshParentID = UUID().uuidString
+                self.deviceID = freshParentID
+                userDefaults.set(freshParentID, forKey: deviceIDKey)
+                #if DEBUG
+                print("[DeviceModeManager] Parent mode: deviceID was inherited from a prior child install — minted fresh parent deviceID: \(freshParentID)")
+                #endif
+            }
+
             // Parent: Clear deviceID from Keychain (fresh start on reinstall)
             Self.deleteFromKeychain(service: keychainService, key: keychainDeviceIDKey)
             #if DEBUG

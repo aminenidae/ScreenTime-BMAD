@@ -148,17 +148,26 @@ export const validateChildPairing = functions.https.onCall(async (data: Validate
     return { success: false, errorCode: 'same_account' };
   }
 
-  // Check device limit
-  const childrenSnapshot = await db.collection(`families/${token.familyId}/children`).get();
-  if (childrenSnapshot.size >= family.maxChildren) {
-    return { success: false, errorCode: 'device_limit' };
-  }
-
-  // Check if child already exists in this family
+  // Check if child already exists in this family. This MUST be evaluated before
+  // the device-limit check below: a child device keeps its deviceId across an
+  // uninstall/reinstall (Keychain-persisted — DeviceModeManager "PHASE 3"), so a
+  // returning child is the SAME member re-pairing, not an additional device, and
+  // registering it below overwrites the same doc rather than adding one.
+  //
+  // Evaluating the limit first (as this originally did) made that "allow
+  // re-pairing" branch unreachable whenever the family was already at its limit —
+  // permanently locking out, for example, any Individual-plan family (1 child)
+  // whose child simply reinstalled the app.
   const existingChild = await db.collection(`families/${token.familyId}/children`).doc(childDeviceId).get();
+
   if (existingChild.exists) {
-    // Already paired - allow re-pairing
-    console.log(`Child ${childDeviceId} already paired with family ${token.familyId}`);
+    console.log(`Child ${childDeviceId} already paired with family ${token.familyId} — re-pairing, not counted against the device limit`);
+  } else {
+    // Check device limit (new child devices only)
+    const childrenSnapshot = await db.collection(`families/${token.familyId}/children`).get();
+    if (childrenSnapshot.size >= family.maxChildren) {
+      return { success: false, errorCode: 'device_limit' };
+    }
   }
 
   // All validations passed - consume token and register child
