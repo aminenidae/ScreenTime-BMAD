@@ -11,6 +11,9 @@ struct ChildDashboardView: View {
     @ObservedObject var syncService = ChildBackgroundSyncService.shared
     @Environment(\.colorScheme) var colorScheme
 
+    /// Non-nil while a child-triggered usage recount is in flight.
+    @State private var recountStatus: String?
+
     // Design colors matching ModeSelectionView
     
     
@@ -73,6 +76,12 @@ struct ChildDashboardView: View {
                 // subscription still valid — sync broken but access preserved).
                 PairingReconnectBanner()
 
+                // Live note while a recount rebuilds today's totals. Sits at the
+                // top so it stays visible once the kid scrolls past the link.
+                if let recountStatus {
+                    RecountStatusBanner(message: recountStatus)
+                }
+
                 ScrollView {
                     VStack(spacing: 16) {
                         // Hero Time Bank Card
@@ -81,6 +90,16 @@ struct ChildDashboardView: View {
                             usedMinutes: totalUsedMinutes,
                             availableMinutes: cumulativeAvailableMinutes
                         )
+
+                        // Quiet recount entry point, directly under the number the
+                        // kid would be doubting. Hidden until apps are configured —
+                        // with nothing tracked a recount is a no-op that would still
+                        // burn the 30-minute lock.
+                        if !(viewModel.learningSnapshots.isEmpty && viewModel.rewardSnapshots.isEmpty) {
+                            RecountMinutesLink { message in
+                                withAnimation { recountStatus = message }
+                            }
+                        }
 
                         // One card per reward app, each showing its own linked learning
                         // requirements + progress directly underneath. Replaces the old

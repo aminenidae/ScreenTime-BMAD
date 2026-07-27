@@ -2351,6 +2351,13 @@ class ScreenTimeService: NSObject, ScreenTimeActivityMonitorDelegate {
         defaults.set(Date().timeIntervalSince1970, forKey: "heal_requested_at")
         defaults.set(reason, forKey: "heal_requested_reason")
 
+        // Durable "last recount" stamp. The extension consumes heal_requested_at,
+        // so it can't serve as a cooldown marker. The child dashboard's recount
+        // link reads this to stay locked across app launches — and because both
+        // paths write it, a parent-initiated heal also holds the child's button
+        // instead of the two restarting each other's rebuild minutes apart.
+        defaults.set(Date().timeIntervalSince1970, forKey: "last_manual_heal_at")
+
         // Restart monitoring. iOS calls intervalDidEnd → intervalDidStart on
         // the extension; the extension's hook sees the flag and runs the heal
         // (wipe + a single all-apps sliding-window rebuild) before its regular
