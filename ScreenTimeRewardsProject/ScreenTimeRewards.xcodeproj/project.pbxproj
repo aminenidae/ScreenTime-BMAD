@@ -17,6 +17,7 @@
 		43BC1A1D2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BC1A1C2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift */; };
 		43BEEF022F949D00003A3769 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 43BEEF012F949D00003A3769 /* FirebaseMessaging */; };
 		43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */; };
+		43C5A1C301000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 43C5A1C300000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings */; };
 		43C5A1C201000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
 		43C5A1C202000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
 		43D7273B2FA42D5E00DA58EE /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 43D7273A2FA42D5E00DA58EE /* FirebaseAnalytics */; };
@@ -80,6 +81,7 @@
 		43BC1A1C2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeRewards/Shared/BankCalculator.swift; sourceTree = SOURCE_ROOT; };
 		43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/ExtensionCloudKitSync.swift; sourceTree = SOURCE_ROOT; };
 		43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeActivityExtension/ExtensionFileLogger.swift; sourceTree = SOURCE_ROOT; };
+		43C5A1C300000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings */ = {isa = PBXFileReference; lastKnownFileType = text.json.xcstrings; path = ScreenTimeActivityExtension/Localizable.xcstrings; sourceTree = SOURCE_ROOT; };
 		43DD71472E9F19B60066E06C /* DeviceActivity.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = DeviceActivity.framework; path = System/Library/Frameworks/DeviceActivity.framework; sourceTree = SDKROOT; };
 		43DD71492E9F19C20066E06C /* FamilyControls.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FamilyControls.framework; path = System/Library/Frameworks/FamilyControls.framework; sourceTree = SDKROOT; };
 		43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ScreenTimeRewards/Shared/ScreenTimeNotifications.swift; sourceTree = SOURCE_ROOT; };
@@ -210,6 +212,7 @@
 			children = (
 				43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */,
 				43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */,
+				43C5A1C300000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings */,
 				43E0F0042EA0258700567890 /* ScreenTimeActivityExtension/DeviceActivityMonitorExtension.swift */,
 				43E0F0012EA0258700567890 /* ScreenTimeRewards/Shared/ScreenTimeNotifications.swift */,
 				43BC1A1C2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift */,
@@ -463,6 +466,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				43C5A1C301000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
