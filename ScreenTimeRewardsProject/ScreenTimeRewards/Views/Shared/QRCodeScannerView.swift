@@ -192,7 +192,7 @@ private struct SuccessModal: View {
                     .font(.custom("Lexend", size: 20).weight(.bold))
                     .foregroundColor(.white)
 
-                Text("You've successfully linked Leo's device.")
+                Text("You've successfully linked your child's device.")
                     .font(.custom("Lexend", size: 16))
                     .foregroundColor(.white.opacity(0.7))
                     .multilineTextAlignment(.center)
