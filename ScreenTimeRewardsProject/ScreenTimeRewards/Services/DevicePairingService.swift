@@ -1219,8 +1219,27 @@ class DevicePairingService: ObservableObject {
     /// the child reading from the dead zone.
     func addPairedParent(_ parent: PairedParentInfo) {
         var parents = getPairedParents()
-        let isReplacement = parents.contains(where: { $0.id == parent.id })
-        parents.removeAll { $0.id == parent.id }
+
+        // Match on deviceID OR on the parent's CloudKit zone owner. The zone owner
+        // identifies the parent's iCloud ACCOUNT, which survives a parent-device
+        // reinstall; the parent's deviceID deliberately does NOT (DeviceModeManager
+        // "PHASE 3"). Matching on deviceID alone made every parent reinstall look
+        // like an entirely new co-parent, silently consuming one of only two parent
+        // slots — so after the parent's second reinstall the child hit "already
+        // paired with the maximum number of parent devices (2)" and could never
+        // re-pair, with no way out except manually unpairing.
+        let isSameParent: (PairedParentInfo) -> Bool = { existing in
+            if existing.id == parent.id { return true }
+            if let existingOwner = existing.sharedZoneOwner,
+               let incomingOwner = parent.sharedZoneOwner,
+               existingOwner == incomingOwner {
+                return true
+            }
+            return false
+        }
+
+        let isReplacement = parents.contains(where: isSameParent)
+        parents.removeAll(where: isSameParent)
         parents.append(parent)
         savePairedParents(parents)
 
