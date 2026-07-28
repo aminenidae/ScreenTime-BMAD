@@ -769,7 +769,21 @@ class CloudKitSyncService: ObservableObject {
             successfullyScannedZones.insert(result.zoneID.zoneName)
 
             #if DEBUG
-            print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): fetched \(zoneRecords.count) CD_RegisteredDevice record(s)")
+            // NOT necessarily device records: when the CKQuery fast path fails
+            // ("not marked queryable"), fetchRegisteredDeviceRecordsInZone falls back to
+            // fetching EVERY record in the zone. This line used to claim they were all
+            // CD_RegisteredDevice, which made zones full of usage records look like they
+            // held devices we were failing to match. Print the actual type breakdown so
+            // "zone has data but no child" is distinguishable from "child was filtered out".
+            var typeCounts: [String: Int] = [:]
+            for record in zoneRecords {
+                typeCounts[record.recordType, default: 0] += 1
+            }
+            let typeHistogram: String = typeCounts
+                .map { key, value in "\(key)=\(value)" }
+                .sorted()
+                .joined(separator: ", ")
+            print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): fetched \(zoneRecords.count) record(s) [\(typeHistogram)]")
             #endif
 
             for record in zoneRecords {
@@ -796,6 +810,15 @@ class CloudKitSyncService: ObservableObject {
                 // carries whatever parent device ID existed at original pairing time,
                 // so this comparison silently orphaned an otherwise-valid child on any
                 // parent reinstall. See docs/FAMILY_OWNERSHIP_ICLOUD_KEY_PLAN_2026-07-24.md.
+                #if DEBUG
+                if deviceType != "child" {
+                    // A device record we deliberately skip. Logged explicitly so a
+                    // "parent"/nil deviceType can't be mistaken for a child that simply
+                    // never appeared in the scan.
+                    print("[CloudKitSyncService]     ↳ skipped: deviceType is \(deviceType ?? "nil"), not \"child\"")
+                }
+                #endif
+
                 if deviceType == "child" {
                     let device = convertToRegisteredDevice(record)
                     device.sharedZoneID = result.zoneID.zoneName

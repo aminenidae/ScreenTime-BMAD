@@ -150,6 +150,13 @@ struct ChildUsagePageView: View {
     @Environment(\.colorScheme) var colorScheme
     @Environment(\.dismiss) var dismiss
 
+    /// Same key ParentRemoteDashboardView renders "Updated Xm ago" from. Written here
+    /// too, because in single-device mode pull-to-refresh runs through this view and
+    /// never touches ParentRemoteDashboardView.refreshData() — so the label sat frozen
+    /// at the launch-time value no matter how many times the user pulled, making a
+    /// working refresh look broken.
+    @AppStorage("parent_remote_last_refresh") private var lastRefreshEpoch: Double = 0
+
     /// Shared-VM gate: every paged ChildUsagePageView reads from the same VM,
     /// so during a swipe transition the destination page can momentarily render
     /// with the previous child's data. Only show this page's tab content when
@@ -175,6 +182,7 @@ struct ChildUsagePageView: View {
     private func refreshAll() async {
         await viewModel.loadLinkedChildDevices()
         await viewModel.loadChildData(for: device, forceRefresh: true)
+        lastRefreshEpoch = Date().timeIntervalSince1970
     }
 
     var body: some View {
