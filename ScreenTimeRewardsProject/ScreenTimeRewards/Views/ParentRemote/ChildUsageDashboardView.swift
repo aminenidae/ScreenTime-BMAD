@@ -160,6 +160,23 @@ struct ChildUsagePageView: View {
         viewModel.selectedChildDevice?.deviceID == device.deviceID
     }
 
+    /// Pull-to-refresh for every tab on this page.
+    ///
+    /// Re-scans the linked-device list BEFORE reloading this child's data. Previously
+    /// this only called `loadChildData`, so `loadLinkedChildDevices()` ran exactly once
+    /// per launch (ParentRemoteDashboardView's onAppear guards on `hasLoadedInitialData`)
+    /// and never again. Two consequences, both reported from a device:
+    ///   • a child paired later never appeared, because nothing re-enumerated the zones
+    ///   • this child's `sharedZoneID` was never re-resolved, so once it pointed at a
+    ///     stale zone it stayed there and the numbers never updated
+    /// The toolbar refresh button used to cover this; it was removed on the assumption
+    /// pull-to-refresh was equivalent, which it wasn't — single-device mode has no
+    /// other refresh affordance at all.
+    private func refreshAll() async {
+        await viewModel.loadLinkedChildDevices()
+        await viewModel.loadChildData(for: device, forceRefresh: true)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
             // Indeterminate top progress bar while a CK refresh is in flight.
@@ -199,7 +216,7 @@ struct ChildUsagePageView: View {
                     ChildHomeTabView(
                         viewModel: viewModel,
                         device: device,
-                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
+                        onRefresh: { await refreshAll() }
                     )
                     .tag(0)
 
@@ -210,7 +227,7 @@ struct ChildUsagePageView: View {
                         usageRecords: isVMShowingThisDevice ? viewModel.usageRecords : [],
                         historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
                         onConfigUpdated: { viewModel.updateAppConfig($0) },
-                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
+                        onRefresh: { await refreshAll() }
                     )
                     .tag(1)
 
@@ -223,7 +240,7 @@ struct ChildUsagePageView: View {
                         historyByApp: isVMShowingThisDevice ? viewModel.childDailyUsageByApp : [:],
                         childLearningApps: isVMShowingThisDevice ? viewModel.childLearningAppsFullConfig : [],
                         onConfigUpdated: { viewModel.updateAppConfig($0) },
-                        onRefresh: { await viewModel.loadChildData(for: device, forceRefresh: true) }
+                        onRefresh: { await refreshAll() }
                     )
                     .tag(2)
 
