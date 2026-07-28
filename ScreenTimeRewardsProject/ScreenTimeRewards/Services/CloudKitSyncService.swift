@@ -1400,6 +1400,29 @@ class CloudKitSyncService: ObservableObject {
     ///
     /// Returns nil if no zone with accepted participants exists.
     private func findActiveSharedParentCommandsZone(in zones: [CKRecordZone], db: CKDatabase) async -> ActiveSharedZone? {
+        await findActiveSharedParentCommandsZones(in: zones, db: db).first
+    }
+
+    /// EVERY ParentCommands-* zone that has at least one child who accepted the share.
+    ///
+    /// There is usually more than one, and that is the whole problem this exists to solve.
+    /// A child accepts whichever command zone existed at ITS pairing time, and the zone is
+    /// named after the parent's deviceID — which rotates on every parent reinstall. So a
+    /// family whose parent has been reinstalled a few times ends up with its children
+    /// spread across several different command zones.
+    ///
+    /// Writing to only the first accepted zone (what findActiveSharedParentCommandsZone
+    /// does) therefore delivers to whichever child happens to be found first and silently
+    /// drops commands for everyone else. Observed: parent posted a config change for Ali
+    /// into ParentCommands-55E56916 (Alex's zone); Ali's shared database only contains
+    /// 07D51256 / 2BFE0007 / 05C5C7F4, so it correctly found 0 pending commands and the
+    /// change never applied.
+    ///
+    /// The parent cannot tell which zone belongs to which child — CKShare participants
+    /// don't carry our deviceIDs — so the reliable fix is to post to all of them and let
+    /// each child filter on targetDeviceID, which it already does.
+    private func findActiveSharedParentCommandsZones(in zones: [CKRecordZone], db: CKDatabase) async -> [ActiveSharedZone] {
+        var accepted: [ActiveSharedZone] = []
         let candidates = zones.filter { $0.zoneID.zoneName.hasPrefix(Self.parentCommandsZonePrefix) }
         #if DEBUG
         print("[CloudKitSyncService] 🔍 Scanning \(candidates.count) ParentCommands-* zones for active shares...")
@@ -1431,7 +1454,7 @@ class CloudKitSyncService: ObservableObject {
                     #if DEBUG
                     print("[CloudKitSyncService] 🔍 Found actively-shared parent commands zone: \(zone.zoneID.zoneName) (root=\(rootRecord.recordID.recordName), \(activeParticipants.count) accepted participant(s))")
                     #endif
-                    return (zoneID: zone.zoneID, rootRecordID: rootRecord.recordID)
+                    accepted.append((zoneID: zone.zoneID, rootRecordID: rootRecord.recordID))
                 } else {
                     #if DEBUG
                     let participantSummary = share.participants.map { p -> String in
@@ -1451,7 +1474,7 @@ class CloudKitSyncService: ObservableObject {
                 continue
             }
         }
-        return nil
+        return accepted
     }
 
     /// Get or create the parent's command zone
@@ -1826,6 +1849,78 @@ class CloudKitSyncService: ObservableObject {
             #if DEBUG
             print("[CloudKitSyncService] ⚠️ Verification fetch failed: \(error)")
             #endif
+        }
+
+        // The zone written above is only ONE of the parent's command zones. Mirror the
+        // command into every other zone a child has accepted, or children paired against
+        // a different zone never see it. See mirrorConfigCommandToOtherAcceptedZones.
+        await mirrorConfigCommandToOtherAcceptedZones(
+            deviceID: deviceID,
+            payload: payload,
+            alreadyWrittenZoneID: zoneID
+        )
+    }
+
+    /// Post a copy of a config command into every *other* ParentCommands zone that a child
+    /// has accepted.
+    ///
+    /// A child accepts whichever command zone existed when IT paired, and those zones are
+    /// named after the parent's deviceID — which rotates on every parent reinstall. So the
+    /// children of one family routinely end up spread across several command zones, and
+    /// the parent has no way to tell which child is on which: CKShare participants don't
+    /// carry our deviceIDs.
+    ///
+    /// Writing to a single zone therefore delivers to whichever child was found first and
+    /// silently drops the rest. Observed: a config change for Ali was written to
+    /// ParentCommands-55E56916 (Alex's zone) while Ali's shared database held only
+    /// 07D51256 / 2BFE0007 / 05C5C7F4 — Ali polled correctly, found 0 commands, and the
+    /// change never applied, with no error anywhere.
+    ///
+    /// Every command already carries `targetDeviceID` and children filter on it, so a
+    /// child receiving a command meant for a sibling simply ignores it. Best-effort by
+    /// design: the primary write has already succeeded and been verified by this point, so
+    /// a failure here must not fail the whole send.
+    private func mirrorConfigCommandToOtherAcceptedZones(
+        deviceID: String,
+        payload: FullConfigUpdatePayload,
+        alreadyWrittenZoneID: CKRecordZone.ID
+    ) async {
+        let db = container.privateCloudDatabase
+
+        guard let allZones = try? await db.allRecordZones() else { return }
+        let acceptedZones = await findActiveSharedParentCommandsZones(in: allZones, db: db)
+        let targets = acceptedZones.filter { $0.zoneID != alreadyWrittenZoneID }
+
+        guard !targets.isEmpty else { return }
+
+        #if DEBUG
+        print("[CloudKitSyncService] 📮 Mirroring command to \(targets.count) other accepted command zone(s)")
+        #endif
+
+        guard let payloadString = try? payload.toBase64String() else { return }
+
+        for target in targets {
+            let recordID = CKRecord.ID(recordName: "ConfigCmd-\(payload.commandID)", zoneID: target.zoneID)
+            let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
+            record.parent = CKRecord.Reference(recordID: target.rootRecordID, action: .none)
+            record["commandID"] = payload.commandID as CKRecordValue
+            record["targetDeviceID"] = deviceID as CKRecordValue
+            record["commandType"] = "update_full_config" as CKRecordValue
+            record["payloadJSON"] = payloadString as CKRecordValue
+            record["createdAt"] = Date() as CKRecordValue
+            record["status"] = "pending" as CKRecordValue
+            record["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
+
+            do {
+                _ = try await db.save(record)
+                #if DEBUG
+                print("[CloudKitSyncService]   ✅ Mirrored to \(target.zoneID.zoneName)")
+                #endif
+            } catch {
+                #if DEBUG
+                print("[CloudKitSyncService]   ⚠️ Mirror to \(target.zoneID.zoneName) failed: \(error.localizedDescription)")
+                #endif
+            }
         }
     }
 
