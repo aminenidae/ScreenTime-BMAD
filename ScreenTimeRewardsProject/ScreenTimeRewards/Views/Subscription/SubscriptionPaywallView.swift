@@ -481,28 +481,7 @@ private extension SubscriptionPaywallView {
     }
 
     var legalText: some View {
-        VStack(spacing: 8) {
-            if let trialTermsText {
-                Text(trialTermsText)
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(.secondary)
-                    .multilineTextAlignment(.center)
-            }
-
-            Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
-                .font(.system(size: 11))
-                .foregroundColor(.secondary)
-                .multilineTextAlignment(.center)
-
-            HStack(spacing: 16) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
-                Text("•")
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
-            }
-            .font(.system(size: 11))
-            .foregroundColor(.secondary)
-        }
-        .multilineTextAlignment(.center)
+        SubscriptionDisclosureText(trialTerms: trialTermsText)
     }
 
     #if DEBUG

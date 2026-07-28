@@ -58,7 +58,10 @@ struct Screen6_TrialPaywallView: View {
 
     /// Fine print with dynamic post-trial price (Apple guideline 3.1.2(a))
     private var finePrintText: String {
-        let appleBoilerplate = String(localized: "Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
+        // Single source of this wording — see SubscriptionDisclosureText. This screen
+        // stitches it into one paragraph rather than using the component's layout, but
+        // must not keep its own copy of the text.
+        let appleBoilerplate = SubscriptionDisclosureText.renewalDisclosure
         
         if selectedPlan == .annual {
             let price = annualPackage?.localizedPriceString ?? annualFallbackPrice
@@ -191,12 +194,13 @@ struct Screen6_TrialPaywallView: View {
                 .padding(.horizontal, layout.horizontalPadding)
                 .padding(.bottom, 6)
 
-            // Terms & Privacy links (required for all subscription flows)
+            // Terms & Privacy links (required for all subscription flows). URLs come from
+            // SubscriptionDisclosureText so every paywall points at the same pages.
             HStack(spacing: 12) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
+                Link("Terms of Service", destination: SubscriptionDisclosureText.termsURL)
                 Text("•")
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme))
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
+                Link("Privacy Policy", destination: SubscriptionDisclosureText.privacyURL)
             }
             .font(.system(size: 12, weight: .regular))
             .foregroundColor(AppTheme.vibrantTeal)

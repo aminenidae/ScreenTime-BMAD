@@ -367,6 +367,14 @@ struct ParentPaywallView: View {
 
     // MARK: - Legal Text
 
+    /// Trial length and post-trial price — see SubscriptionDisclosureText.
+    private var trialTermsText: String? {
+        guard let price = currentPackage?.localizedPriceString else { return nil }
+        return selectedBilling == .annual
+            ? String(localized: "Free for 14 days, then \(price)/year.")
+            : String(localized: "Free for 14 days, then \(price)/month.")
+    }
+
     private var legalText: some View {
         VStack(spacing: 8) {
             if let error = purchaseError {
@@ -376,31 +384,12 @@ struct ParentPaywallView: View {
                     .multilineTextAlignment(.center)
             }
 
-            // See the matching note in SubscriptionPaywallView.trialTermsText — trial
-            // length and post-trial price belong at the point of purchase, alongside a
-            // CTA that promises the trial (Apple guideline 3.1.2).
-            if let price = currentPackage?.localizedPriceString {
-                Text(selectedBilling == .annual
-                     ? String(localized: "Free for 14 days, then \(price)/year.")
-                     : String(localized: "Free for 14 days, then \(price)/month."))
-                    .font(.system(size: 11, weight: .semibold))
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
-                    .multilineTextAlignment(.center)
-            }
-
-            Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
-                .font(.system(size: 11))
-                .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                .multilineTextAlignment(.center)
-
-            HStack(spacing: 12) {
-                Link("Terms of Service", destination: URL(string: "https://i6dev.ca/ticlock/terms.html")!)
-                Text("•")
-                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))
-                Link("Privacy Policy", destination: URL(string: "https://i6dev.ca/ticlock/privacy.html")!)
-            }
-            .font(.system(size: 11))
-            .foregroundColor(AppTheme.vibrantTeal)
+            SubscriptionDisclosureText(
+                trialTerms: trialTermsText,
+                textColor: AppTheme.brandedText(for: colorScheme).opacity(0.5),
+                linkColor: AppTheme.vibrantTeal,
+                linkSpacing: 12
+            )
         }
     }
 
