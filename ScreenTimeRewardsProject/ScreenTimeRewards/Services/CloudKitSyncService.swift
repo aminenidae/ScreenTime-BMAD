@@ -411,6 +411,10 @@ class CloudKitSyncService: ObservableObject {
     private static let orphanCleanupDoneKeyPrefix = "parent_orphan_zone_cleanup_v1_done_"
     private static let childZoneMappingUDKeyPrefix = "parent_child_zone_mapping_v1_"
 
+    private func forceFullZoneScanUDKey(parentDeviceID: String) -> String {
+        "parent_force_full_zone_scan_v1_" + parentDeviceID
+    }
+
     private func knownZonesUDKey(parentDeviceID: String) -> String {
         Self.knownChildZonesUDKeyPrefix + parentDeviceID
     }
@@ -497,9 +501,30 @@ class CloudKitSyncService: ObservableObject {
         guard !parentDeviceID.isEmpty,
               let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
         defaults.removeObject(forKey: knownZonesUDKey(parentDeviceID: parentDeviceID))
+        // Clearing the cache alone is NOT enough: knownChildZoneNames() falls back to
+        // Core Data when the cache is empty, rebuilding the very same restrictive set
+        // from the children already known locally — so the next fetch stayed pinned to
+        // exactly the children we were trying to look past. This explicit flag is
+        // checked ahead of both, and survives a relaunch, so the full scan actually
+        // happens even if the app is restarted before the next fetch.
+        defaults.set(true, forKey: forceFullZoneScanUDKey(parentDeviceID: parentDeviceID))
         #if DEBUG
         print("[CloudKitSyncService] 🗑 Cleared known-child-zones cache — next fetch will full-scan")
         #endif
+    }
+
+    /// Whether a full zone scan has been explicitly requested (see
+    /// invalidateKnownChildZonesCache). Consumed by the next successful full scan.
+    private func forceFullZoneScanPending(parentDeviceID: String) -> Bool {
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return false }
+        return defaults.bool(forKey: forceFullZoneScanUDKey(parentDeviceID: parentDeviceID))
+    }
+
+    private func clearForceFullZoneScan(parentDeviceID: String) {
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+        defaults.removeObject(forKey: forceFullZoneScanUDKey(parentDeviceID: parentDeviceID))
     }
 
     /// Persist the canonical set of known zones after a successful fetch.
@@ -646,9 +671,16 @@ class CloudKitSyncService: ObservableObject {
         // 3. If restricting to known zones, intersect with the persisted
         //    known-zones cache. This drops orphan zones from old pairings —
         //    typically reducing ~20 zones to the 1-5 actually in use.
+        let forceFullScan = forceFullZoneScanPending(parentDeviceID: parentDeviceID)
+        #if DEBUG
+        if forceFullScan {
+            print("[CloudKitSyncService] 🔎 Full scan explicitly requested — ignoring the known-zones restriction for this fetch")
+        }
+        #endif
+
         let knownZones = knownChildZoneNames(parentDeviceID: parentDeviceID)
         let childMonitoringZones: [CKRecordZone]
-        if restrictToKnownZones, !knownZones.isEmpty {
+        if restrictToKnownZones, !forceFullScan, !knownZones.isEmpty {
             childMonitoringZones = allChildMonitoringZones.filter { knownZones.contains($0.zoneID.zoneName) }
             #if DEBUG
             let skipped = allChildMonitoringZones.count - childMonitoringZones.count
@@ -827,6 +859,10 @@ class CloudKitSyncService: ObservableObject {
             saveKnownChildZoneNames(freshZoneSet, parentDeviceID: parentDeviceID)
             saveChildZoneMapping(devices, parentDeviceID: parentDeviceID)
             lastSuccessfulFetchAt = Date()
+            // Consume the force-scan request only once a scan has actually completed
+            // with every zone succeeding — a partial or failed scan must leave it set
+            // so the next fetch retries rather than re-pinning to a stale subset.
+            clearForceFullZoneScan(parentDeviceID: parentDeviceID)
         } else if !freshZoneSet.isEmpty && !allScansSucceeded {
             #if DEBUG
             let failedCount = childMonitoringZones.count - successfullyScannedZones.count
