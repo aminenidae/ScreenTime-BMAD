@@ -173,10 +173,22 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
     /// Load subscription status from RevenueCat and local storage
     func loadSubscriptionStatus() async {
-        // 1. Get RevenueCat customer info
+        // 1. Get RevenueCat customer info.
+        //
+        // Deliberately does NOT call updateTierFromCustomerInfo() yet. With no paid
+        // entitlement (the normal case during a trial) that function falls through to
+        // the local-trial check — and `subscription` is still nil at this point, so it
+        // would resolve to `.expired` on every single launch before step 2 loads the
+        // trial and corrects it. The UI settles correctly, but the transient wrong
+        // value escaped: it was reported to analytics as subscription_status=expired
+        // for healthy trial users, written through to CloudKit (where a paired child
+        // reads it as "the parent's subscription lapsed"), and made BlockingCoordinator
+        // skip its refresh as unverified. Step 2 always recomputes — both
+        // syncLocalWithRevenueCat() and createTrialSubscription() end in
+        // updateTierFromCustomerInfo() — so status is now decided exactly once, with
+        // both RevenueCat and the local trial record in hand.
         do {
             customerInfo = try await Purchases.shared.customerInfo()
-            updateTierFromCustomerInfo()
         } catch {
             print("[SubscriptionManager] Failed to get customer info: \(error)")
         }
