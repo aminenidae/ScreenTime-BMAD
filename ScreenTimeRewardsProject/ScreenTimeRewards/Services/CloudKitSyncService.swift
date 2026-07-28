@@ -1853,12 +1853,17 @@ class CloudKitSyncService: ObservableObject {
 
         // The zone written above is only ONE of the parent's command zones. Mirror the
         // command into every other zone a child has accepted, or children paired against
-        // a different zone never see it. See mirrorConfigCommandToOtherAcceptedZones.
-        await mirrorConfigCommandToOtherAcceptedZones(
-            deviceID: deviceID,
-            payload: payload,
-            alreadyWrittenZoneID: zoneID
-        )
+        // a different zone never see it. See mirrorCommandToOtherAcceptedZones.
+        if let payloadString = try? payload.toBase64String() {
+            await mirrorCommandToOtherAcceptedZones(
+                commandID: payload.commandID,
+                recordNamePrefix: "ConfigCmd-",
+                commandType: "update_full_config",
+                payloadBase64: payloadString,
+                targetDeviceID: deviceID,
+                alreadyWrittenZoneID: zoneID
+            )
+        }
     }
 
     /// Post a copy of a config command into every *other* ParentCommands zone that a child
@@ -1880,9 +1885,12 @@ class CloudKitSyncService: ObservableObject {
     /// child receiving a command meant for a sibling simply ignores it. Best-effort by
     /// design: the primary write has already succeeded and been verified by this point, so
     /// a failure here must not fail the whole send.
-    private func mirrorConfigCommandToOtherAcceptedZones(
-        deviceID: String,
-        payload: FullConfigUpdatePayload,
+    private func mirrorCommandToOtherAcceptedZones(
+        commandID: String,
+        recordNamePrefix: String,
+        commandType: String,
+        payloadBase64: String,
+        targetDeviceID: String,
         alreadyWrittenZoneID: CKRecordZone.ID
     ) async {
         let db = container.privateCloudDatabase
@@ -1894,19 +1902,17 @@ class CloudKitSyncService: ObservableObject {
         guard !targets.isEmpty else { return }
 
         #if DEBUG
-        print("[CloudKitSyncService] 📮 Mirroring command to \(targets.count) other accepted command zone(s)")
+        print("[CloudKitSyncService] 📮 Mirroring \(commandType) to \(targets.count) other accepted command zone(s)")
         #endif
 
-        guard let payloadString = try? payload.toBase64String() else { return }
-
         for target in targets {
-            let recordID = CKRecord.ID(recordName: "ConfigCmd-\(payload.commandID)", zoneID: target.zoneID)
+            let recordID = CKRecord.ID(recordName: "\(recordNamePrefix)\(commandID)", zoneID: target.zoneID)
             let record = CKRecord(recordType: "ConfigurationCommand", recordID: recordID)
             record.parent = CKRecord.Reference(recordID: target.rootRecordID, action: .none)
-            record["commandID"] = payload.commandID as CKRecordValue
-            record["targetDeviceID"] = deviceID as CKRecordValue
-            record["commandType"] = "update_full_config" as CKRecordValue
-            record["payloadJSON"] = payloadString as CKRecordValue
+            record["commandID"] = commandID as CKRecordValue
+            record["targetDeviceID"] = targetDeviceID as CKRecordValue
+            record["commandType"] = commandType as CKRecordValue
+            record["payloadJSON"] = payloadBase64 as CKRecordValue
             record["createdAt"] = Date() as CKRecordValue
             record["status"] = "pending" as CKRecordValue
             record["parentDeviceID"] = DeviceModeManager.shared.deviceID as CKRecordValue
@@ -2015,6 +2021,20 @@ class CloudKitSyncService: ObservableObject {
         #if DEBUG
         print("[CloudKitSyncService] ✅ Web restriction command saved: \(savedRecordName)")
         #endif
+
+        // Same fan-out as config commands: children are spread across whichever command
+        // zones existed when each of them paired, so a single write reaches only one of
+        // them. See mirrorCommandToOtherAcceptedZones.
+        if let payloadString = try? payload.toBase64String() {
+            await mirrorCommandToOtherAcceptedZones(
+                commandID: payload.commandID,
+                recordNamePrefix: "WebCmd-",
+                commandType: "update_web_restrictions",
+                payloadBase64: payloadString,
+                targetDeviceID: deviceID,
+                alreadyWrittenZoneID: zoneID
+            )
+        }
     }
 
     /// Fetch pending commands from the shared zone (child side)
