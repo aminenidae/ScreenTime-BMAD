@@ -376,6 +376,18 @@ struct ParentPaywallView: View {
                     .multilineTextAlignment(.center)
             }
 
+            // See the matching note in SubscriptionPaywallView.trialTermsText — trial
+            // length and post-trial price belong at the point of purchase, alongside a
+            // CTA that promises the trial (Apple guideline 3.1.2).
+            if let price = currentPackage?.localizedPriceString {
+                Text(selectedBilling == .annual
+                     ? String(localized: "Free for 14 days, then \(price)/year.")
+                     : String(localized: "Free for 14 days, then \(price)/month."))
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.7))
+                    .multilineTextAlignment(.center)
+            }
+
             Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))

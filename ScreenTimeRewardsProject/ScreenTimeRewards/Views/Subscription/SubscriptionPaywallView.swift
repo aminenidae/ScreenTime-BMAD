@@ -465,8 +465,30 @@ private extension SubscriptionPaywallView {
         }
     }
 
+    /// Trial length + what the customer pays when it ends, stated together with the price
+    /// and billing period. Apple guideline 3.1.2 wants all of that at the point of
+    /// purchase, and the CTA here says "Start 14-Day Free Trial" — so promising the trial
+    /// without stating its terms is exactly the mismatch review looks for. Screen6's
+    /// onboarding paywall already did this; the other paywalls showed only the generic
+    /// boilerplate. Falls back to trial-only wording if pricing hasn't loaded yet, rather
+    /// than printing an empty amount.
+    private var trialTermsText: String? {
+        let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice
+        guard let price else { return nil }
+        return selectedBillingPeriod == .annual
+            ? String(localized: "Free for 14 days, then \(price)/year.")
+            : String(localized: "Free for 14 days, then \(price)/month.")
+    }
+
     var legalText: some View {
         VStack(spacing: 8) {
+            if let trialTermsText {
+                Text(trialTermsText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)

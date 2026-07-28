@@ -5171,6 +5171,26 @@
         }
       }
     },
+    "Free for 14 days, then %@/month." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gratuit pendant 14 jours, puis %@/mois."
+          }
+        }
+      }
+    },
+    "Free for 14 days, then %@/year." : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Gratuit pendant 14 jours, puis %@/an."
+          }
+        }
+      }
+    },
     "Free for 14 days, then %@/year.\n\n%@" : {
       "localizations" : {
         "fr" : {

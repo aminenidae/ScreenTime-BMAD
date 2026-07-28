@@ -466,8 +466,26 @@ private extension ChildSubscriptionView {
         }
     }
 
+    /// See the matching note in SubscriptionPaywallView.trialTermsText — trial length and
+    /// post-trial price must appear at the point of purchase alongside the CTA promising
+    /// the trial (Apple guideline 3.1.2).
+    private var trialTermsText: String? {
+        let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice
+        guard let price else { return nil }
+        return selectedBillingPeriod == .annual
+            ? String(localized: "Free for 14 days, then \(price)/year.")
+            : String(localized: "Free for 14 days, then \(price)/month.")
+    }
+
     var legalText: some View {
         VStack(spacing: 8) {
+            if let trialTermsText {
+                Text(trialTermsText)
+                    .font(.system(size: 11, weight: .semibold))
+                    .foregroundColor(.secondary)
+                    .multilineTextAlignment(.center)
+            }
+
             Text("Payment will be charged to your Apple ID account at confirmation of purchase. Subscription automatically renews unless canceled at least 24 hours before the end of the current period. You can manage and cancel your subscriptions by going to your account settings after purchase.")
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
