@@ -201,6 +201,12 @@ final class SubscriptionManager: NSObject, ObservableObject {
 
         do {
             let results = try context.fetch(fetchRequest)
+            // Set before resolving status: both branches below end in
+            // updateTierFromCustomerInfo(), which needs this true to be allowed to
+            // conclude .expired. Set on the error path too — a fetch failure means we
+            // genuinely have no local record to consult, so status must stay resolvable
+            // rather than being pinned to the startup default forever.
+            hasLoadedLocalSubscription = true
             if let existing = results.first {
                 subscription = existing
                 syncLocalWithRevenueCat()
@@ -208,12 +214,18 @@ final class SubscriptionManager: NSObject, ObservableObject {
                 await createTrialSubscription()
             }
         } catch {
+            hasLoadedLocalSubscription = true
             print("[SubscriptionManager] Failed to load subscription: \(error)")
         }
 
         // 3. Load offerings for dynamic pricing
         await loadOfferings()
     }
+
+    /// True once the local CoreData trial record has been loaded (or created) at least
+    /// once. Until then `subscription` being nil means "not loaded yet", NOT "this user
+    /// has no trial" — and the two are indistinguishable without this flag.
+    private var hasLoadedLocalSubscription = false
 
     /// Update tier and status based on RevenueCat customer info
     private func updateTierFromCustomerInfo() {
@@ -225,6 +237,9 @@ final class SubscriptionManager: NSObject, ObservableObject {
             } else if let sub = subscription, sub.isInGracePeriod {
                 currentTier = .trial
                 currentStatus = .grace
+            } else if !hasLoadedLocalSubscription {
+                // See the note on the matching branch below.
+                return
             } else {
                 currentTier = .trial
                 currentStatus = .expired
@@ -263,6 +278,21 @@ final class SubscriptionManager: NSObject, ObservableObject {
         } else if let sub = subscription, sub.isInGracePeriod {
             currentTier = .trial
             currentStatus = .grace
+        } else if !hasLoadedLocalSubscription {
+            // No paid entitlement AND the local trial record hasn't loaded yet, so we
+            // cannot tell an expired user from a trial user we simply haven't read yet.
+            // Declaring .expired here is what made a healthy trial report as expired on
+            // every launch — the RevenueCat delegate fires this before
+            // loadSubscriptionStatus() reaches the CoreData load, and that transient
+            // value reached analytics, synced to CloudKit (where a paired child reads
+            // it as the parent lapsing), and suppressed BlockingCoordinator's refresh.
+            //
+            // Leaving the state untouched keeps the safe startup default (.trial) until
+            // the record is actually loaded, at which point this runs again with real
+            // information. Guarding here rather than at the call sites closes every
+            // path — there were two, and fixing only loadSubscriptionStatus() left the
+            // delegate still doing it.
+            return
         } else {
             currentTier = .trial
             currentStatus = .expired
