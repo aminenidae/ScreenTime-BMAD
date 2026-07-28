@@ -479,6 +479,29 @@ class CloudKitSyncService: ObservableObject {
         }
     }
 
+    /// Forget the cached zone set so the next fetch does a full scan.
+    ///
+    /// The known-zones cache is what keeps the dashboard from enumerating every zone
+    /// in the account on each load, but nothing ever invalidated it: once written it
+    /// pinned the dashboard to exactly the children that existed at that moment, and
+    /// any child paired later was silently skipped forever (logged, misleadingly, as
+    /// an "orphan zone"). Only the onboarding pairing screen passed
+    /// `restrictToKnownZones: false`, so a second or third child added later from
+    /// Settings never appeared.
+    ///
+    /// Called when the parent starts a pairing session — the one moment we know a new
+    /// child zone may be about to exist. Costs a single full scan on the next fetch,
+    /// which then re-caches the complete set.
+    func invalidateKnownChildZonesCache() {
+        let parentDeviceID = DeviceModeManager.shared.deviceID
+        guard !parentDeviceID.isEmpty,
+              let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared") else { return }
+        defaults.removeObject(forKey: knownZonesUDKey(parentDeviceID: parentDeviceID))
+        #if DEBUG
+        print("[CloudKitSyncService] 🗑 Cleared known-child-zones cache — next fetch will full-scan")
+        #endif
+    }
+
     /// Persist the canonical set of known zones after a successful fetch.
     /// Writes to app-group UserDefaults so every entry point (and the next
     /// launch's cold-start callers) sees the same set immediately.
@@ -648,7 +671,6 @@ class CloudKitSyncService: ObservableObject {
         #endif
 
         var devices: [RegisteredDevice] = []
-        var zoneRecordCounts: [String: Int] = [:]  // Track record counts per zone for deduplication
         // Track which zones we successfully scanned (whether they had a matching
         // device or not). Used by the orphan-cleanup pass to ensure we never
         // delete a zone that errored — a transient network blip during fetch
@@ -713,7 +735,6 @@ class CloudKitSyncService: ObservableObject {
 
             let zoneRecords = result.records
             successfullyScannedZones.insert(result.zoneID.zoneName)
-            zoneRecordCounts[result.zoneID.zoneName] = zoneRecords.count
 
             #if DEBUG
             print("[CloudKitSyncService] Zone \(result.zoneID.zoneName): fetched \(zoneRecords.count) CD_RegisteredDevice record(s)")
@@ -751,18 +772,29 @@ class CloudKitSyncService: ObservableObject {
                     if let deviceID = device.deviceID,
                        let existingIndex = devices.firstIndex(where: { $0.deviceID == deviceID }) {
                         let existingDevice = devices[existingIndex]
-                        let existingZoneCount = zoneRecordCounts[existingDevice.sharedZoneID ?? ""] ?? 0
-                        let newZoneCount = zoneRecords.count
 
-                        if newZoneCount > existingZoneCount {
+                        // Same child found in two zones — every pairing creates a fresh
+                        // ChildMonitoring-<UUID> zone, so a re-paired child leaves the old
+                        // one behind. Pick the zone from the MOST RECENT pairing.
+                        //
+                        // This previously picked whichever zone held more records, which is
+                        // backwards: an abandoned zone has months of accumulated history and
+                        // always beats a freshly-created one, so after any re-pair the parent
+                        // locked onto the dead zone and showed permanently stale numbers.
+                        // Compare registrationDate (stamped when the child registers), falling
+                        // back to the record's modification date.
+                        let existingStamp = existingDevice.registrationDate ?? existingDevice.lastSyncDate ?? .distantPast
+                        let newStamp = device.registrationDate ?? device.lastSyncDate ?? .distantPast
+
+                        if newStamp > existingStamp {
                             devices[existingIndex] = device
                             #if DEBUG
-                            print("[CloudKitSyncService]   🔄 Replaced with more active zone: \(device.childName ?? deviceID)")
-                            print("[CloudKitSyncService]      \(result.zoneID.zoneName) (\(newZoneCount) records) > \(existingDevice.sharedZoneID ?? "?") (\(existingZoneCount) records)")
+                            print("[CloudKitSyncService]   🔄 Replaced with more recently paired zone: \(device.childName ?? deviceID)")
+                            print("[CloudKitSyncService]      \(result.zoneID.zoneName) (\(newStamp)) newer than \(existingDevice.sharedZoneID ?? "?") (\(existingStamp))")
                             #endif
                         } else {
                             #if DEBUG
-                            print("[CloudKitSyncService]   ⚠️ Skipping less active zone: \(device.childName ?? deviceID) from \(result.zoneID.zoneName) (\(newZoneCount) records)")
+                            print("[CloudKitSyncService]   ⚠️ Skipping older pairing: \(device.childName ?? deviceID) from \(result.zoneID.zoneName) (\(newStamp))")
                             #endif
                         }
                     } else {

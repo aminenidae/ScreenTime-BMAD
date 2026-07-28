@@ -342,6 +342,11 @@ class DevicePairingService: ObservableObject {
             throw PairingError.deviceLimitReached
         }
 
+        // A new child zone is about to exist. The dashboard's fetch restricts itself to
+        // a cached zone set that nothing else ever invalidates, so without this the new
+        // child would never be discovered — see invalidateKnownChildZonesCache().
+        CloudKitSyncService.shared.invalidateKnownChildZonesCache()
+
         isPairing = true
         defer { isPairing = false }
 
@@ -757,6 +762,10 @@ class DevicePairingService: ObservableObject {
         guard SubscriptionManager.shared.canPairChildDevice(currentCount: currentChildCount) else {
             throw PairingError.deviceLimitReached
         }
+
+        // A new child zone is about to exist — see the matching call in
+        // createPairingSession() and invalidateKnownChildZonesCache().
+        CloudKitSyncService.shared.invalidateKnownChildZonesCache()
 
         isPairing = true
         defer { isPairing = false }
