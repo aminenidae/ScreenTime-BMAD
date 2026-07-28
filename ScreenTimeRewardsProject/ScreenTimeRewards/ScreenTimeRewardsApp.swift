@@ -70,6 +70,12 @@ struct ScreenTimeRewardsApp: App {
                 let rewardUnlocked = ScreenTimeService.shared.anyRewardAppCurrentlyAccessible()
                 Task { await FirebaseValidationService.shared.sendHeartbeat(rewardUnlocked: rewardUnlocked) }
 
+                // REGISTRATION SELF-HEAL: the child's identity record in the parent's
+                // zone is written once at pairing and never retried, so a single failed
+                // write hides this child from the parent dashboard permanently — while
+                // all its other data keeps syncing normally. Cheap no-op once present.
+                Task { await DevicePairingService.shared.reassertChildRegistrationIfNeeded() }
+
                 // HEARTBEAT GAP DETECTION: If monitoring should be active but extension
                 // hasn't fired in >5 minutes, log the gap for diagnostics
                 if let defaults = UserDefaults(suiteName: "group.com.screentimerewards.shared"),

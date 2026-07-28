@@ -720,6 +720,69 @@ class DevicePairingService: ObservableObject {
         let _ = try await sharedDatabase.save(deviceRecord)
     }
 
+    /// Re-create this child's `CD_RegisteredDevice` record in each paired parent's zone
+    /// if it has gone missing. Safe to call on every foreground; a no-op once present.
+    ///
+    /// Why this is needed: registerInParentSharedZone() is a single manual write that
+    /// runs exactly once, during pairing. Everything else the child syncs (usage,
+    /// configs, history, notifications) rides NSPersistentCloudKitContainer, which
+    /// retries indefinitely on its own. So if that one write fails — a dropped
+    /// connection at the wrong moment — the child is invisible to the parent FOREVER
+    /// while continuing to look perfectly healthy from its own side: it keeps uploading
+    /// data into a zone the parent will never recognise as belonging to a child.
+    ///
+    /// It's also written AFTER addPairedParent(), so the child records "paired ✓"
+    /// locally even when the registration fails, and neither side ever notices the
+    /// disagreement. Observed on a real account: two children with 98 and 48 usage
+    /// records, full app configs and daily history, and no device record in either zone
+    /// — permanently absent from the parent dashboard.
+    func reassertChildRegistrationIfNeeded() async {
+        guard DeviceModeManager.shared.isChildDevice else { return }
+
+        let parents = getPairedParents()
+        guard !parents.isEmpty else { return }
+
+        let sharedDatabase = container.sharedCloudDatabase
+        let myDeviceID = DeviceModeManager.shared.deviceID
+
+        for parent in parents {
+            guard let zoneName = parent.sharedZoneID,
+                  let zoneOwner = parent.sharedZoneOwner,
+                  let rootName = parent.rootRecordName else { continue }
+
+            let zoneID = CKRecordZone.ID(zoneName: zoneName, ownerName: zoneOwner)
+            let deviceRecordID = CKRecord.ID(recordName: "device-\(myDeviceID)", zoneID: zoneID)
+
+            do {
+                _ = try await sharedDatabase.record(for: deviceRecordID)
+                // Present — nothing to do.
+            } catch let ckError as CKError where ckError.code == .unknownItem {
+                // Genuinely absent (not a network failure): recreate it.
+                do {
+                    try await registerInParentSharedZone(
+                        zoneID: zoneID,
+                        rootRecordID: CKRecord.ID(recordName: rootName, zoneID: zoneID),
+                        parentDeviceID: parent.id
+                    )
+                    #if DEBUG
+                    print("[DevicePairingService] ♻️ Re-registered this child in parent \(parent.deviceName)'s zone \(zoneName) — the record was missing")
+                    #endif
+                } catch {
+                    #if DEBUG
+                    print("[DevicePairingService] ⚠️ Re-registration failed for zone \(zoneName): \(error.localizedDescription) — will retry next foreground")
+                    #endif
+                }
+            } catch {
+                // Any other error (offline, throttled, zone temporarily unreachable) is
+                // NOT evidence the record is missing. Leave it alone and retry later —
+                // writing on a failed read risks clobbering a good record.
+                #if DEBUG
+                print("[DevicePairingService] ℹ️ Could not verify registration in zone \(zoneName): \(error.localizedDescription)")
+                #endif
+            }
+        }
+    }
+
     // MARK: - Firebase-Validated Secure Pairing (v2)
 
     /// Create a secure pairing session with Firebase validation
