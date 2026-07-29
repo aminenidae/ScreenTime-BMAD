@@ -663,23 +663,35 @@ class DevicePairingService: ObservableObject {
             pairedDate: Date()
         )
 
+        #if DEBUG
+        print("[DevicePairingService] 🔵 Registering child in parent's shared zone...")
+        #endif
+
+        // 5. Register in parent's shared zone.
+        //
+        // MUST happen before addPairedParent below. Recording the pairing first means a
+        // registration failure leaves the child believing it is paired to a zone it never
+        // gained access to — and since addPairedParent replaces any entry from the same
+        // parent account (by sharedZoneOwner), that broken entry EVICTS a previously
+        // working one. Observed on a real device: stored zone
+        // ChildMonitoring-30FCEBED… while the child's shared database only contained
+        // ChildMonitoring-F27FC0F2…, showing "reconnect needed" forever, and each retry
+        // minted another zone and made it worse instead of better.
+        try await registerInParentSharedZone(
+            zoneID: metadata.rootRecordID.zoneID,
+            rootRecordID: metadata.rootRecordID,
+            parentDeviceID: payload.parentDeviceID
+        )
+
+        // Only now is the pairing real: the share is accepted AND this child is
+        // registered in the parent's zone. A throw above leaves any existing working
+        // pairing untouched.
         addPairedParent(newParent)
 
         #if DEBUG
         print("[DevicePairingService] ✅ Saved parent: \(newParent.deviceName)")
         print("[DevicePairingService] Zone: \(zoneID.zoneName), Owner: \(zoneID.ownerName)")
         #endif
-
-        #if DEBUG
-        print("[DevicePairingService] 🔵 Registering child in parent's shared zone...")
-        #endif
-
-        // 5. Register in parent's shared zone
-        try await registerInParentSharedZone(
-            zoneID: metadata.rootRecordID.zoneID,
-            rootRecordID: metadata.rootRecordID,
-            parentDeviceID: payload.parentDeviceID
-        )
 
         // 6. Refresh subscription status to inherit parent's tier
         await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
@@ -1080,14 +1092,18 @@ class DevicePairingService: ObservableObject {
             pairedDate: Date()
         )
 
-        addPairedParent(newParent)
-
-        // Register in parent's shared zone
+        // Register in parent's shared zone BEFORE recording the pairing — see the
+        // matching note in acceptParentShareAndRegister. Recording first lets a failed
+        // registration evict a working pairing via addPairedParent's same-owner replace.
         try await registerInParentSharedZone(
             zoneID: zoneID,
             rootRecordID: rootID,
             parentDeviceID: payload.parentDeviceID
         )
+
+        // Only now is the pairing real. A throw above leaves any existing working
+        // pairing untouched.
+        addPairedParent(newParent)
 
         // Refresh subscription status to inherit parent's tier
         await SubscriptionManager.shared.refreshParentSubscriptionIfNeeded()
