@@ -138,6 +138,9 @@ final class AppAnalytics {
     private let lastDailyActiveKey = "appAnalytics.lastDailyActiveDate"
     private let learningMilestoneKey = "appAnalytics.learningMilestonesFiredToday"
     private let learningMilestoneDateKey = "appAnalytics.learningMilestonesFiredDate"
+    private let firstLearningAppKey = "appAnalytics.firstLearningAppAdded"
+    private let firstRewardAppKey = "appAnalytics.firstRewardAppAdded"
+    private let configCompletedKey = "appAnalytics.configCompleted"
 
     private init() {}
 
@@ -171,6 +174,42 @@ final class AppAnalytics {
             params["funnel_version"] = Self.onboardingFunnelVersion
         }
         track(event, parameters: params)
+    }
+
+    /// Fire the one-time app-configuration milestones, if this save crossed them.
+    ///
+    /// Call after every user-driven category save with the resulting counts; this decides
+    /// whether anything is new. Each event fires at most once per install (UserDefaults
+    /// flags), so removing every app and re-adding one does not re-fire them — these are
+    /// "first time" funnel milestones, not state changes.
+    ///
+    /// `configDay1Completed` is the primary success metric and means "this install now has
+    /// a working setup": at least one learning app AND at least one reward app, since
+    /// either alone earns or unlocks nothing. Deliberately NOT restricted to the first
+    /// calendar day despite the event name — the name is fixed by the existing BigQuery
+    /// schema, and GA4 already records first_open per user, so day-1 completion is a
+    /// timestamp comparison in the query rather than something to gate on here. Gating
+    /// would silently discard every later completion.
+    func trackConfigMilestones(learningAppCount: Int, rewardAppCount: Int) {
+        let defaults = UserDefaults.standard
+
+        if learningAppCount > 0 && !defaults.bool(forKey: firstLearningAppKey) {
+            defaults.set(true, forKey: firstLearningAppKey)
+            trackOnboarding(.firstLearningAppAdded, parameters: ["learning_apps": learningAppCount])
+        }
+
+        if rewardAppCount > 0 && !defaults.bool(forKey: firstRewardAppKey) {
+            defaults.set(true, forKey: firstRewardAppKey)
+            trackOnboarding(.firstRewardAppAdded, parameters: ["reward_apps": rewardAppCount])
+        }
+
+        if learningAppCount > 0 && rewardAppCount > 0 && !defaults.bool(forKey: configCompletedKey) {
+            defaults.set(true, forKey: configCompletedKey)
+            trackOnboarding(.configDay1Completed, parameters: [
+                "learning_apps": learningAppCount,
+                "reward_apps": rewardAppCount
+            ])
+        }
     }
 
     /// Report a screen view using Firebase's native screen_view event, with a stable

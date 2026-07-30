@@ -1068,9 +1068,21 @@ class AppUsageViewModel: ObservableObject {
             #if DEBUG
             print("[AppUsageViewModel] ❌ Duplicate assignments detected in hasDuplicateAssignments(), aborting save")
             #endif
-            
+
             return
         }
+
+        // Onboarding funnel milestones. This is the one place every user-driven category
+        // save converges on (the app picker's save path, plus the guided tutorial's
+        // learning and reward steps), which is why it goes here rather than in each UI
+        // site — and it is deliberately AFTER the duplicate guard so an aborted save
+        // doesn't report success. Not fired from ScreenTimeService.assignCategory, which
+        // is the CloudKit-sync / remote-command path: that reflects another device's
+        // configuration arriving, not this user configuring anything.
+        AppAnalytics.shared.trackConfigMilestones(
+            learningAppCount: categoryAssignments.values.filter { $0 == .learning }.count,
+            rewardAppCount: categoryAssignments.values.filter { $0 == .reward }.count
+        )
 
         // INSTRUMENTATION: Log view-model snapshots before calling configureMonitoring
         #if DEBUG
