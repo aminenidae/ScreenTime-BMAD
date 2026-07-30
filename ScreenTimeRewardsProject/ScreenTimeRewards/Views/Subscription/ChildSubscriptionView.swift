@@ -184,10 +184,9 @@ private extension ChildSubscriptionView {
             // Billing toggle
             billingPeriodSelector
 
-            if selectedBillingPeriod == .annual {
-                TrialTimelineView()
-                    .padding(.top, 4)
-            }
+            // The trial timeline that used to sit here is gone — it hardcoded dates for
+            // Apple's introductory offer, which is being removed. See the note on
+            // SubscriptionPaywallView.trialBanner.
 
             // Price
             priceSection
@@ -353,10 +352,10 @@ private extension ChildSubscriptionView {
     }
 
     var buttonText: String {
-        // States the price, not a free trial — see the note in
+        // Benefit-led, and does not promise a free trial — see the note in
         // SubscriptionPaywallView.buttonText for why.
-        if let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice {
-            return String(localized: "Subscribe for \(price)")
+        if selectedPackage != nil || selectedStoreKitProduct != nil {
+            return String(localized: "Unlock Premium")
         }
         return String(localized: "Subscribe")
     }

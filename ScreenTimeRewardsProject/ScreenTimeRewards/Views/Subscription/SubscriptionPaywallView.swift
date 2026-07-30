@@ -178,16 +178,20 @@ private extension SubscriptionPaywallView {
         }
     }
 
+    /// Intentionally empty.
+    ///
+    /// This rendered TrialTimelineView — a hardcoded "TODAY: Free Trial → DAY 13:
+    /// Reminder → DAY 15: First Charge" strip. With Apple's introductory offer removed
+    /// from the products a purchase charges immediately, so that panel promised a
+    /// specific two-week grace before payment that does not exist. Worse than the old
+    /// button copy, because it names dates.
+    ///
+    /// It also occupied roughly half the sheet on iPad for information the customer does
+    /// not need at the point of purchase — the app's own 14 days are already communicated
+    /// by the trial banner they tapped to get here.
     @ViewBuilder
     var trialBanner: some View {
-        if selectedBillingPeriod == .annual {
-            TrialTimelineView()
-                .padding(.top, 8)
-        } else {
-            // Optional: Hide entirely for Monthly or keep the simple banner.
-            // Since we want free trial for annual ONLY, we return EmptyView or hide it.
-            EmptyView()
-        }
+        EmptyView()
     }
 
     var billingPeriodSelector: some View {
@@ -438,17 +442,21 @@ private extension SubscriptionPaywallView {
     }
 
     var buttonText: String {
-        // States the price, NOT a free trial. The app grants its own 14 days on install
+        // Does NOT promise a free trial. The app grants its own 14 days on install
         // (SubscriptionManager.createTrialSubscription) and Apple's introductory offer is
         // being removed from the products, so tapping this button starts a charge
         // immediately — the common path is someone subscribing on day 14 when the app's
         // own trial ends, who would be promised 14 more free days and get none. That is
         // the mismatch Apple checks for and the shape refund requests take.
         //
+        // Benefit-led rather than "Subscribe for $X" (CEO call — the transactional
+        // phrasing read badly); the price sits immediately below in trialTermsText, so
+        // guideline 3.1.2 is still satisfied at the point of purchase.
+        //
         // The 14 free days are still advertised where they are true: the trial banner,
         // the onboarding finish line, and the App Store description.
-        if let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice {
-            return String(localized: "Subscribe for \(price)")
+        if selectedPackage != nil || selectedStoreKitProduct != nil {
+            return String(localized: "Unlock Premium")
         }
         return String(localized: "Continue")
     }
