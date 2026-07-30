@@ -953,14 +953,22 @@ class ParentRemoteViewModel: ObservableObject {
 
             guard !toDelete.isEmpty else { return }
 
+            #if DEBUG
+            // Name what is being deleted, not just the count. This prune trusts the
+            // latest fetch as "CK truth", so a short fetch silently erases real children
+            // here — which is what makes a transient miss stick around.
+            if !toDelete.isEmpty {
+                print("[ParentRemoteViewModel] 🧹 Pruning \(toDelete.count) RegisteredDevice row(s) — keeping \(validIDs.count) from the fetch:")
+                for row in toDelete {
+                    print("[ParentRemoteViewModel]      ✂️ \(row.deviceName ?? "unnamed") (\(row.deviceID ?? "nil deviceID")) lastSync=\(row.lastSyncDate.map(String.init(describing:)) ?? "never")")
+                }
+            }
+            #endif
+
             for row in toDelete {
                 context.delete(row)
             }
             try context.save()
-
-            #if DEBUG
-            print("[ParentRemoteViewModel] 🧹 Pruned \(toDelete.count) stale/duplicate RegisteredDevice row(s) from Core Data")
-            #endif
         } catch {
             #if DEBUG
             print("[ParentRemoteViewModel] ⚠️ Local prune failed: \(error.localizedDescription)")
@@ -1253,11 +1261,24 @@ class ParentRemoteViewModel: ObservableObject {
             // Sort by deviceID — same order populateFromLocalCache uses, so
             // the carousel layout doesn't reshuffle when the CK fetch
             // replaces the local-cache placeholder array.
+            let previousCount = linkedChildDevices.count
+            let previousIDs = Set(linkedChildDevices.compactMap { $0.deviceID })
             let fetched = try await cloudKitService.fetchLinkedChildDevices()
             linkedChildDevices = fetched.sorted { ($0.deviceID ?? "") < ($1.deviceID ?? "") }
 
             #if DEBUG
             print("[ParentRemoteViewModel] Loaded \(linkedChildDevices.count) child devices")
+
+            // This assignment is unconditional — any short fetch narrows the dashboard,
+            // and pruneStaleLocalChildDevices below then deletes the local rows for the
+            // children that went missing. Flag the shrink explicitly, naming who was
+            // dropped, so it is obvious in a log which fetch caused the regression.
+            if previousCount > 0 && linkedChildDevices.count < previousCount {
+                let droppedIDs = previousIDs.subtracting(linkedChildDevices.compactMap { $0.deviceID })
+                print("[ParentRemoteViewModel] 🚨 CHILD LIST SHRANK: \(previousCount) → \(linkedChildDevices.count)")
+                print("[ParentRemoteViewModel]    dropped: \(droppedIDs.sorted())")
+                print("[ParentRemoteViewModel]    their local Core Data rows are about to be pruned")
+            }
             #endif
 
             // Prune local Core Data rows that aren't in the CK truth set.
@@ -1269,7 +1290,17 @@ class ParentRemoteViewModel: ObservableObject {
             // LinkedDevicesView) re-resurrects the unpaired child. Forcing
             // the local table to converge with what CK just returned closes
             // that window.
-            pruneStaleLocalChildDevices(keeping: linkedChildDevices)
+            // ONLY prune when the fetch actually looked everywhere. A restricted fetch
+            // visits just the cached zones, so a child missing from its result may simply
+            // not have been looked for — deleting its local row on that basis is how a
+            // single transient miss permanently erased real children.
+            if cloudKitService.lastFetchWasCompleteScan {
+                pruneStaleLocalChildDevices(keeping: linkedChildDevices)
+            } else {
+                #if DEBUG
+                print("[ParentRemoteViewModel] ⏸ Skipping local prune — last fetch was a restricted scan, so absences are not authoritative")
+                #endif
+            }
 
             // Validate that each child's zone still exists
             await validateChildPairings()

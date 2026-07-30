@@ -545,6 +545,16 @@ class CloudKitSyncService: ObservableObject {
     /// -zone enumeration and the log shows two passes interleaved.
     private var inFlightFetchLinkedChildDevicesTask: Task<[RegisteredDevice], Error>?
 
+    /// Whether the most recent `fetchLinkedChildDevices` actually looked in EVERY
+    /// ChildMonitoring zone and read all of them successfully.
+    ///
+    /// Only such a fetch is authoritative about which children no longer exist. A
+    /// restricted fetch only visits the cached zones, so its absences prove nothing —
+    /// and acting on them is destructive: ParentRemoteViewModel prunes the local Core
+    /// Data row for every child a fetch didn't return, which is how one transient miss
+    /// erased real children and made the loss stick.
+    private(set) var lastFetchWasCompleteScan: Bool = false
+
     /// Timestamp of the last successful restricted-zone fetch. Used by the
     /// freshness short-circuit below — repeat callers within the freshness
     /// window get a synthesized result from local Core Data + cached zone
@@ -864,6 +874,25 @@ class CloudKitSyncService: ObservableObject {
 
         #if DEBUG
         print("[CloudKitSyncService] ✅ Total: Found \(devices.count) child device(s) across all zones")
+
+        // A fetch returning FEWER children than the cached zone set implies means the
+        // result is about to narrow the dashboard AND trigger
+        // ParentRemoteViewModel.pruneStaleLocalChildDevices, which deletes the local rows
+        // for children this run didn't see. That is how a single short fetch becomes
+        // sticky. Log the discrepancy in full so one run identifies the cause instead of
+        // us guessing at it.
+        if !knownZones.isEmpty && devices.count < knownZones.count {
+            let foundZones = Set(devices.compactMap { $0.sharedZoneID })
+            let expectedButUnmatched = knownZones.subtracting(foundZones).sorted()
+            print("[CloudKitSyncService] 🚨 SHORT FETCH — found \(devices.count) child(ren) but \(knownZones.count) zone(s) were cached as known")
+            print("[CloudKitSyncService]    forcedFullScan=\(forceFullScan) didFullScan=\(childMonitoringZones.count == allChildMonitoringZones.count) restrictToKnownZones=\(restrictToKnownZones)")
+            print("[CloudKitSyncService]    zones scanned: \(childMonitoringZones.count), scans succeeded: \(successfullyScannedZones.count)")
+            print("[CloudKitSyncService]    cached-known zones with no child found this run:")
+            for zoneName in expectedButUnmatched {
+                let wasScanned = successfullyScannedZones.contains(zoneName)
+                print("[CloudKitSyncService]      • \(zoneName) — scanned=\(wasScanned)\(wasScanned ? " (scan OK, but no matching CD_RegisteredDevice)" : " (SCAN DID NOT SUCCEED)")")
+            }
+        }
         #endif
 
         // Persist the canonical known-zone set so the next fetch (this launch
@@ -878,8 +907,28 @@ class CloudKitSyncService: ObservableObject {
         let didFullScan = childMonitoringZones.count == allChildMonitoringZones.count
         let allScansSucceeded = successfullyScannedZones.count == childMonitoringZones.count
 
+        // Only a COMPLETE scan may narrow the known-zone set. `didFullScan` was computed
+        // here but never consulted, which made this a one-way ratchet: a restricted scan
+        // reads only the cached zones, so if it missed one child for any transient reason
+        // the cache was overwritten with the smaller set — and since the next restricted
+        // scan then looks in even fewer places, it could only ever shrink further, never
+        // rediscover. Observed ratcheting 5 → 1 child, unrecoverable except by forcing a
+        // full scan or reinstalling the app (a fresh install has no cache, so it scans
+        // everywhere and found all five children intact — proof the data was never the
+        // problem).
+        //
+        // A restricted scan is authoritative only about the zones it actually looked in,
+        // so it may add newly-discovered zones but must never remove others.
+        lastFetchWasCompleteScan = didFullScan && allScansSucceeded
+
         if !freshZoneSet.isEmpty && allScansSucceeded {
-            saveKnownChildZoneNames(freshZoneSet, parentDeviceID: parentDeviceID)
+            let zonesToPersist = didFullScan ? freshZoneSet : knownZones.union(freshZoneSet)
+            #if DEBUG
+            if !didFullScan && !knownZones.subtracting(freshZoneSet).isEmpty {
+                print("[CloudKitSyncService] 🛡 Restricted scan found \(freshZoneSet.count) of \(knownZones.count) known zone(s) — keeping the wider set rather than narrowing")
+            }
+            #endif
+            saveKnownChildZoneNames(zonesToPersist, parentDeviceID: parentDeviceID)
             saveChildZoneMapping(devices, parentDeviceID: parentDeviceID)
             lastSuccessfulFetchAt = Date()
             // Consume the force-scan request only once a scan has actually completed
