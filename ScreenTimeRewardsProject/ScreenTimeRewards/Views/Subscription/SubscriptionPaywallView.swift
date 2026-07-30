@@ -438,19 +438,19 @@ private extension SubscriptionPaywallView {
     }
 
     var buttonText: String {
-        // Every product carries the same 14-day free trial in App Store Connect
-        // (verified across all 175 territories, 2026-07-26), so the billing period
-        // no longer changes what we can promise. This previously advertised the
-        // trial on annual only — which was doubly wrong: annual had NO trial
-        // configured at the time, and monthly (which did) was left saying plain
-        // "Subscribe", hiding a real offer from the customer.
-        if isOnboarding {
-            return String(localized: "Start Free Trial")
-        } else if selectedPackage != nil || selectedStoreKitProduct != nil {
-            return String(localized: "Start 14-Day Free Trial")
-        } else {
-            return String(localized: "Continue")
+        // States the price, NOT a free trial. The app grants its own 14 days on install
+        // (SubscriptionManager.createTrialSubscription) and Apple's introductory offer is
+        // being removed from the products, so tapping this button starts a charge
+        // immediately — the common path is someone subscribing on day 14 when the app's
+        // own trial ends, who would be promised 14 more free days and get none. That is
+        // the mismatch Apple checks for and the shape refund requests take.
+        //
+        // The 14 free days are still advertised where they are true: the trial banner,
+        // the onboarding finish line, and the App Store description.
+        if let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice {
+            return String(localized: "Subscribe for \(price)")
         }
+        return String(localized: "Continue")
     }
 
     var restoreButton: some View {
@@ -465,19 +465,20 @@ private extension SubscriptionPaywallView {
         }
     }
 
-    /// Trial length + what the customer pays when it ends, stated together with the price
-    /// and billing period. Apple guideline 3.1.2 wants all of that at the point of
-    /// purchase, and the CTA here says "Start 14-Day Free Trial" — so promising the trial
-    /// without stating its terms is exactly the mismatch review looks for. Screen6's
-    /// onboarding paywall already did this; the other paywalls showed only the generic
-    /// boilerplate. Falls back to trial-only wording if pricing hasn't loaded yet, rather
-    /// than printing an empty amount.
+    /// Price and billing period, shown above the renewal boilerplate so guideline 3.1.2's
+    /// "what am I paying, how often, how does it renew" is all at the point of purchase.
+    ///
+    /// No longer mentions a free trial. Apple's introductory offer is being removed from
+    /// the products, so a purchase charges immediately — while the app still grants its own
+    /// 14 days on install, which is advertised on the trial banner and finish-line screen
+    /// instead. Returns nil until pricing loads, so the line is omitted rather than
+    /// rendering a blank amount.
     private var trialTermsText: String? {
         let price = selectedPackage?.localizedPriceString ?? selectedStoreKitProduct?.displayPrice
         guard let price else { return nil }
         return selectedBillingPeriod == .annual
-            ? String(localized: "Free for 14 days, then \(price)/year.")
-            : String(localized: "Free for 14 days, then \(price)/month.")
+            ? String(localized: "\(price) per year.")
+            : String(localized: "\(price) per month.")
     }
 
     var legalText: some View {
