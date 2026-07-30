@@ -61,7 +61,8 @@ struct ChildSubscriptionView: View {
         let monthlyPrice = monthly.storeProduct.price as Decimal
         guard monthlyPrice > 0 else { return nil }
         let savings = (1 - annualPerMonth / monthlyPrice) * 100
-        return Int((savings as NSDecimalNumber).doubleValue.rounded())
+        // Rounds DOWN — see the note on SubscriptionPaywallView.annualSavingsPercent.
+        return Int((savings as NSDecimalNumber).doubleValue.rounded(.down))
     }
 
     /// Check if child is already paired with a parent
@@ -137,10 +138,6 @@ private extension ChildSubscriptionView {
 
     var headerSection: some View {
         VStack(spacing: 12) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 50))
-                .foregroundColor(AppTheme.vibrantTeal)
-
             Text("Continue Using Tic Lock")
                 .font(.system(size: 24, weight: .bold))
                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
@@ -232,9 +229,12 @@ private extension ChildSubscriptionView {
                             .font(.system(size: 14, weight: .semibold))
 
                         if period == .annual {
-                            Text(annualSavingsPercent.map { String(localized: "Save ~\($0)%") } ?? String(localized: "Best Value"))
-                                .font(.system(size: 10, weight: .medium))
-                                .foregroundColor(selectedBillingPeriod == period ? .white : AppTheme.sunnyYellow)
+                            SavingsBadge(
+                                text: annualSavingsPercent
+                                    .map { String(localized: "Save \($0)%") }
+                                    ?? String(localized: "Best Value"),
+                                fontSize: 10
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity)

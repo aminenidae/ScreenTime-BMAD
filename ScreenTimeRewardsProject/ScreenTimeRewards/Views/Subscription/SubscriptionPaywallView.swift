@@ -163,11 +163,11 @@ struct SubscriptionPaywallView: View {
 private extension SubscriptionPaywallView {
     var headerSection: some View {
         VStack(spacing: 16) {
-            Image(systemName: "crown.fill")
-                .font(.system(size: 80))
-                .foregroundColor(AppTheme.sunnyYellow)
-
-            Text("Unlock Premium")
+            // Title is "Choose your plan", not "Unlock Premium" — that is now the button
+            // copy, and having both say the same thing on one screen read as a stutter.
+            // The crown that used to sit above it is gone: it duplicated the hero image
+            // directly above and cost 80pt of a screen the CEO wants shorter.
+            Text("Choose your plan")
                 .font(.system(size: 32, weight: .bold))
                 .foregroundColor(AppTheme.vibrantTeal)
 
@@ -207,9 +207,11 @@ private extension SubscriptionPaywallView {
                             .font(.system(size: 16, weight: .semibold))
 
                         if period == .annual {
-                            Text(annualSavingsPercent(for: selectedTier).map { String(localized: "Save ~\($0)%") } ?? String(localized: "Best Value"))
-                                .font(.system(size: 11, weight: .medium))
-                                .foregroundColor(AppTheme.sunnyYellow)
+                            SavingsBadge(
+                                text: annualSavingsPercent(for: selectedTier)
+                                    .map { String(localized: "Save \($0)%") }
+                                    ?? String(localized: "Best Value")
+                            )
                         }
                     }
                     .frame(maxWidth: .infinity)
@@ -383,7 +385,9 @@ private extension SubscriptionPaywallView {
         let monthlyPrice = monthly.storeProduct.price as Decimal
         guard monthlyPrice > 0 else { return nil }
         let savings = (1 - annualPerMonth / monthlyPrice) * 100
-        return Int((savings as NSDecimalNumber).doubleValue.rounded())
+        // Rounds DOWN, not to nearest: the badge dropped the "~", so the number is now
+        // read as an exact claim and must never overstate the discount.
+        return Int((savings as NSDecimalNumber).doubleValue.rounded(.down))
     }
 
     var featureList: some View {

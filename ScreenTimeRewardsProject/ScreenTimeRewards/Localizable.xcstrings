@@ -2312,6 +2312,16 @@
         }
       }
     },
+    "Choose your plan" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Choisissez votre forfait"
+          }
+        }
+      }
+    },
     "CHOOSE YOUR PLAN" : {
       "localizations" : {
         "fr" : {
@@ -9908,6 +9918,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Enregistrer le code PIN"
+          }
+        }
+      }
+    },
+    "Save %lld%%" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "Économisez %lld %%"
           }
         }
       }
