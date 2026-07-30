@@ -32,14 +32,15 @@ done.
 
 ---
 
-## What we get for free once the 14-day Apple trial is removed
+## The introductory-offer slot is already free — done 2026-07-29
 
-Every subscription has exactly one introductory-offer slot per customer. Today that slot
-holds Apple's 14-day free trial, which is being removed after this build ships (the app
-grants its own 14 days from the Keychain — nothing to do with Apple).
+Every subscription has exactly one introductory-offer slot per customer. That slot used to
+hold Apple's 14-day free trial. **The CEO removed all six from ASC on 2026-07-29**, so the
+slot is now empty and available for a seasonal price discount. The app's own 14 days are
+granted from the Keychain and have nothing to do with Apple, so the two can never collide.
 
-Once removed, **the slot is empty and available for a seasonal price discount.** That is
-the whole mechanism. It also means the two can never collide.
+`Products.storekit` (local Xcode testing only) was updated to match — otherwise local test
+purchases would show a free trial that production no longer gives.
 
 And the pitch that results is stronger than the competitor's:
 
@@ -145,13 +146,23 @@ offer-takers from full-price buyers.
 
 ## Ordering
 
-1. 1.0.9 (3) approved and live
-2. Remove Apple's 14-day introductory offers in ASC (already decided)
+1. ~~Remove Apple's 14-day introductory offers in ASC~~ — done 2026-07-29
+2. 1.0.9 (3) approved and live
 3. Consolidate the three subscription groups into one
 4. Configure the seasonal introductory offer with real dates
 5. App-side display work, French included
 6. Ship as 1.1.0, ahead of the campaign window
 7. Only then start the ad spend against it
 
-**Do not start step 4 before step 3.** Changing products underneath a binary in review is
-also worth avoiding — hence step 1 first.
+**Do not start step 4 before step 3**, or the same parent claims the discount three times.
+
+### Open exposure until 1.0.9 is live
+
+Step 1 happened before step 2, which leaves a gap: the version on the App Store right now
+(1.0.3) has a purchase button reading **"Start 14-Day Free Trial"**, and Apple no longer
+grants one. Anyone tapping it is charged immediately.
+
+Volume is very low — ad conversions have been ~0, and a customer inside their own 14 free
+days has no reason to tap subscribe. The fix is simply to get 1.0.9 through review, whose
+copy states the charge plainly. Re-adding the ASC offers as a stopgap would recreate the
+14 + 14 = 28 free days that were deliberately killed, so it is not worth it.

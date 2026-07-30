@@ -295,16 +295,6 @@ private extension SubscriptionPaywallView {
                                 .foregroundColor(.secondary)
                         }
 
-                        // The caption is not optional dressing. A struck total sitting bare
-                        // next to a lower price reads as "was, now" — a time-limited
-                        // markdown we are not running. Captioned, it is plainly a comparison
-                        // against the other plan we sell, which is both true and legal.
-                        if struckTotal != nil {
-                            Text("if billed monthly")
-                                .font(.system(size: 12))
-                                .foregroundColor(.secondary)
-                        }
-
                         if selectedBillingPeriod == .annual {
                             Text(weeklyEquivalent(for: package))
                                 .font(.system(size: 17, weight: .bold))
@@ -377,9 +367,12 @@ private extension SubscriptionPaywallView {
     /// Twelve months on the monthly plan, for the struck-through figure beside the annual
     /// price. 12 × the live monthly price, so it tracks any ASC price change on its own.
     ///
-    /// This is a real cost of a real alternative we sell, not a former price of this one —
-    /// which is exactly why the "if billed monthly" caption always travels with it. A bare
-    /// struck total implies a markdown; a captioned one is a plan comparison.
+    /// This is a real cost of a real alternative we sell, not a former price of this one.
+    /// It carried an "if billed monthly" caption briefly; the CEO cut it. What keeps the
+    /// display from reading as a time-limited markdown is now context alone — the struck
+    /// figure sits beside a price suffixed "/year", under the Monthly/Annual toggle the
+    /// customer just tapped, next to the "Save 58%" sticker. Worth knowing if any of those
+    /// three ever move: if the strike is shown somewhere without them, it needs a caption.
     func twelveMonthTotal(for tier: SubscriptionTier) -> String? {
         guard let monthly = subscriptionManager.monthlyPackage(for: tier) else { return nil }
         let total = (monthly.storeProduct.price as Decimal) * 12

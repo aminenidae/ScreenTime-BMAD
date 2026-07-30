@@ -278,14 +278,6 @@ private extension ChildSubscriptionView {
                         .foregroundColor(.secondary)
                 }
 
-                // Caption is required, not decorative — see the note in
-                // SubscriptionPaywallView.tierCard.
-                if struckTotal != nil {
-                    Text("if billed monthly")
-                        .font(.system(size: 12))
-                        .foregroundColor(.secondary)
-                }
-
                 if selectedBillingPeriod == .annual {
                     Text(weeklyEquivalent(for: package))
                         .font(.system(size: 17, weight: .bold))

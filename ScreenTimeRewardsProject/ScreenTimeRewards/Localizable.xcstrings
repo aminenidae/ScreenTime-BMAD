@@ -5849,16 +5849,6 @@
         }
       }
     },
-    "if billed monthly" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "si facturé mensuellement"
-          }
-        }
-      }
-    },
     "Inactive" : {
       "localizations" : {
         "fr" : {

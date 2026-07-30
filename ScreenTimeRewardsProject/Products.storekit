@@ -70,11 +70,6 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "solo_monthly_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_solo_monthly",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor your child's screen time on this device. Billed monthly.",
@@ -95,11 +90,6 @@
           "familyShareable" : false,
           "groupNumber" : 1,
           "internalID" : "solo_annual_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_solo_annual",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor your child's screen time on this device. Save 40% with annual billing.",
@@ -120,11 +110,6 @@
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "individual_monthly_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_individual_monthly",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor 1 child remotely from your device. Billed monthly.",
@@ -145,11 +130,6 @@
           "familyShareable" : false,
           "groupNumber" : 2,
           "internalID" : "individual_annual_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_individual_annual",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor 1 child remotely from your device. Save 40% with annual billing.",
@@ -170,11 +150,6 @@
           "familyShareable" : true,
           "groupNumber" : 3,
           "internalID" : "family_monthly_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_family_monthly",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor up to 5 children remotely. Billed monthly.",
@@ -195,11 +170,6 @@
           "familyShareable" : true,
           "groupNumber" : 3,
           "internalID" : "family_annual_001",
-          "introductoryOffer" : {
-            "internalID" : "intro_family_annual",
-            "paymentMode" : "free",
-            "subscriptionPeriod" : "P2W"
-          },
           "localizations" : [
             {
               "description" : "Monitor up to 5 children remotely. Save 40% with annual billing.",
