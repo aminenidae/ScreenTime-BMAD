@@ -16,6 +16,29 @@ extension RegisteredDevice {
         return NSFetchRequest<RegisteredDevice>(entityName: "RegisteredDevice")
     }
 
+    /// Predicate for "the child devices in this parent's local store".
+    ///
+    /// Deliberately does NOT compare `parentDeviceID` against the current parent's
+    /// deviceID. That ID is regenerated on every parent reinstall (DeviceModeManager
+    /// "PHASE 3"), while each child row keeps whatever parent ID existed when that child
+    /// paired — so the comparison matches nothing after a reinstall, and every caller
+    /// silently sees zero children while CloudKit correctly reports several. Same root
+    /// cause as the family record, the server parent-slot list, the child-device lookup,
+    /// the child's paired-parent list and command delivery.
+    ///
+    /// Filtering on `deviceType` alone is correct here: a parent's Core Data mirrors only
+    /// its own CloudKit zones, so every child row present is one of its own children. The
+    /// deviceID exclusion covers a device that was previously set up as a child and still
+    /// carries its own stale row.
+    ///
+    /// Defined once because five call sites had this predicate copy-pasted
+    /// (localPairedChildCount, populateFromLocalCache, pruneStaleLocalChildDevices,
+    /// knownChildZoneNames, synthesizeLinkedChildDevicesFromLocal) and would otherwise
+    /// need fixing — and drift — independently.
+    static func childrenOfThisParentPredicate(excludingDeviceID ownDeviceID: String) -> NSPredicate {
+        NSPredicate(format: "deviceType == %@ AND deviceID != %@", "child", ownDeviceID)
+    }
+
     @NSManaged public var deviceID: String?
     @NSManaged public var deviceName: String?
     @NSManaged public var deviceType: String?

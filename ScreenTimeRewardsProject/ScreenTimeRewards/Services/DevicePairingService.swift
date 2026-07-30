@@ -96,7 +96,7 @@ class DevicePairingService: ObservableObject {
         guard !parentDeviceID.isEmpty else { return 0 }
         let context = PersistenceController.shared.container.viewContext
         let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        req.predicate = RegisteredDevice.childrenOfThisParentPredicate(excludingDeviceID: parentDeviceID)
         // Dedupe by deviceID — NSPersistentCloudKitContainer can mirror the
         // same record into multiple rows after pair/unpair/repair cycles.
         let rows = (try? context.fetch(req)) ?? []

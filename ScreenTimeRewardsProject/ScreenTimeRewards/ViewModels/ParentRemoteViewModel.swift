@@ -840,7 +840,7 @@ class ParentRemoteViewModel: ObservableObject {
         // 1. Load paired children from local Core Data (no CK round-trip).
         let context = PersistenceController.shared.container.viewContext
         let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentID)
+        req.predicate = RegisteredDevice.childrenOfThisParentPredicate(excludingDeviceID: parentID)
         let localDevices: [RegisteredDevice]
         do {
             localDevices = try context.fetch(req)
@@ -923,7 +923,7 @@ class ParentRemoteViewModel: ObservableObject {
         let validIDs = Set(fresh.compactMap { $0.deviceID })
         let context = PersistenceController.shared.container.viewContext
         let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentID)
+        req.predicate = RegisteredDevice.childrenOfThisParentPredicate(excludingDeviceID: parentID)
 
         do {
             let localRows = try context.fetch(req)

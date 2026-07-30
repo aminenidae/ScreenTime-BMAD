@@ -471,7 +471,7 @@ class CloudKitSyncService: ObservableObject {
 
         let context = PersistenceController.shared.container.viewContext
         let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        req.predicate = RegisteredDevice.childrenOfThisParentPredicate(excludingDeviceID: parentDeviceID)
         do {
             let rows = try context.fetch(req)
             return Set(rows.compactMap { $0.sharedZoneID })
@@ -577,7 +577,7 @@ class CloudKitSyncService: ObservableObject {
         guard !parentDeviceID.isEmpty else { return nil }
         let context = PersistenceController.shared.container.viewContext
         let req: NSFetchRequest<RegisteredDevice> = RegisteredDevice.fetchRequest()
-        req.predicate = NSPredicate(format: "deviceType == %@ AND parentDeviceID == %@", "child", parentDeviceID)
+        req.predicate = RegisteredDevice.childrenOfThisParentPredicate(excludingDeviceID: parentDeviceID)
         guard let rows = try? context.fetch(req), !rows.isEmpty else { return nil }
 
         // Dedupe by deviceID — NSPersistentCloudKitContainer can mirror the
