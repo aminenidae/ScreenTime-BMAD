@@ -118,7 +118,7 @@ struct JoinFamilyView: View {
 
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 48))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
 
             Text("Join as Co-Parent")
@@ -183,7 +183,7 @@ struct JoinFamilyView: View {
         VStack(spacing: 8) {
             Text("No subscription needed")
                 .font(.system(size: 13, weight: .semibold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
 
             Text("As a co-parent, you share the family subscription. Only one parent needs to pay.")
                 .font(.system(size: 13))

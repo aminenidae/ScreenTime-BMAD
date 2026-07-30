@@ -237,7 +237,7 @@ struct DailyUsageChartCard: View {
                                 Spacer(minLength: 6)
                                 Text("\(learningMin)m")
                                     .font(.system(size: 11, weight: .bold))
-                                    .foregroundColor(AppTheme.vibrantTeal)
+                                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                             }
                             HStack(spacing: 4) {
                                 Circle()

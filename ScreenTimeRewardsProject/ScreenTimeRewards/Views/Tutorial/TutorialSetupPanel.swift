@@ -29,7 +29,7 @@ struct TutorialSetupPanel: View {
 
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 48))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 // Header
@@ -95,7 +95,7 @@ struct TutorialSetupPanel: View {
                     HStack(alignment: .top, spacing: 12) {
                         Image(systemName: "chart.bar.fill")
                             .font(.system(size: 24))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                             .frame(width: 32)
 
                         VStack(alignment: .leading, spacing: 4) {

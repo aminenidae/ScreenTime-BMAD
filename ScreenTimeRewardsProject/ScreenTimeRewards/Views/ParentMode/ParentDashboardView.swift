@@ -137,7 +137,7 @@ struct ParentDashboardView: View {
                         .frame(width: 48, height: 48)
                     Image(systemName: "gift.fill")
                         .font(.system(size: 22))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 VStack(alignment: .leading, spacing: 4) {
@@ -157,7 +157,7 @@ struct ParentDashboardView: View {
 
                 Image(systemName: "chevron.right")
                     .font(.system(size: 14, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
             .padding(16)
             .background(

@@ -25,7 +25,7 @@ struct SetupCompleteScreen: View {
 
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 128))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
                 .padding(.bottom, 32)
 

@@ -37,7 +37,9 @@ struct ParentTabView: View {
                 }
                 .tag(1)
         }
-        .tint(AppTheme.vibrantTeal)
+        // accentText: tint here colours the SELECTED tab item, which is foreground
+        // against dark tab-bar chrome — brand teal is ~2:1 there.
+        .tint(AppTheme.accentText(for: colorScheme))
         .onAppear {
             // Configure tab bar appearance
             let appearance = UITabBarAppearance()

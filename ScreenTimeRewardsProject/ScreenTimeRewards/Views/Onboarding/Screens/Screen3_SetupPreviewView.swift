@@ -28,7 +28,7 @@ struct Screen3_SetupPreviewView: View {
 
                     Text("(ABOUT 3 MINUTES)")
                         .font(.system(size: layout.isRegular ? 20 : 18, weight: .medium))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .textCase(.uppercase)
 
                     Text("Interactive Tutorial. No Confusion. Just Follow Along.")
@@ -136,7 +136,7 @@ private struct BenefitRow: View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 20, weight: .semibold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
                 .frame(width: 28, height: 28)
 
             Text(text)

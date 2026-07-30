@@ -162,7 +162,7 @@ struct LearningAppDetailView: View {
             HStack {
                 Image(systemName: "calendar.badge.clock")
                     .font(.system(size: 16))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("SCHEDULE")
                     .font(.system(size: 12, weight: .bold))
@@ -177,7 +177,7 @@ struct LearningAppDetailView: View {
                 HStack {
                     Image(systemName: "clock.fill")
                         .font(.system(size: 14))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .frame(width: 24)
                     Text("Allowed Time")
                         .font(.system(size: 14, weight: .medium))
@@ -196,7 +196,7 @@ struct LearningAppDetailView: View {
                 HStack {
                     Image(systemName: "timer")
                         .font(.system(size: 14))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .frame(width: 24)
                     Text("Daily Limit")
                         .font(.system(size: 14, weight: .medium))
@@ -501,7 +501,7 @@ struct RewardAppDetailView: View {
             HStack {
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: 16))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("UNLOCK REQUIREMENTS")
                     .font(.system(size: 12, weight: .bold))
@@ -543,7 +543,7 @@ struct RewardAppDetailView: View {
 
                                 Image(systemName: "book.fill")
                                     .font(.system(size: 14))
-                                    .foregroundColor(AppTheme.vibrantTeal)
+                                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                             }
 
                             Text(linkedApp.displayName ?? "Learning App")

@@ -582,7 +582,7 @@ private extension SettingsTabView {
                         // Child device paired with parent
                         Text("Managed by Parent")
                             .font(.system(size: 12, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     } else {
                         Text(subscriptionManager.currentTierName)
                             .font(.system(size: 12, weight: .bold))
@@ -633,7 +633,7 @@ private extension SettingsTabView {
 
                         Image(systemName: "gearshape.2.fill")
                             .font(.system(size: 20))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
 
                     // Add badge if unnamed apps exist
@@ -833,7 +833,7 @@ private extension SettingsTabView {
 
                     Image(systemName: "person.text.rectangle")
                         .font(.system(size: 20))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1095,7 +1095,7 @@ private extension SettingsTabView {
 
                     Image(systemName: "wand.and.stars")
                         .font(.system(size: 20))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 VStack(alignment: .leading, spacing: 2) {
@@ -1237,11 +1237,11 @@ private extension SettingsTabView {
                     if case .uploading = diagnosticUploadState {
                         ProgressView()
                             .progressViewStyle(.circular)
-                            .tint(AppTheme.vibrantTeal)
+                            .tint(AppTheme.accentText(for: colorScheme))
                     } else {
                         Image(systemName: "paperplane.fill")
                             .font(.system(size: 18))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                 }
 
@@ -1323,7 +1323,7 @@ private extension SettingsTabView {
 
                     Image(systemName: "doc.text.magnifyingglass")
                         .font(.system(size: 20))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 VStack(alignment: .leading, spacing: 2) {

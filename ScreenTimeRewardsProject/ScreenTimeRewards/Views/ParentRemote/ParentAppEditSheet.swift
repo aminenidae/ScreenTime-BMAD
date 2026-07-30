@@ -565,7 +565,7 @@ struct ParentAppEditSheet: View {
                     .overlay(
                         Image(systemName: "book.fill")
                             .font(.system(size: 12))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     )
             }
 

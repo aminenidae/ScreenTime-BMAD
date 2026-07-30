@@ -144,10 +144,10 @@ struct SubscriptionManagementView: View {
         VStack(alignment: .leading, spacing: 16) {
             HStack {
                 Image(systemName: "person.2.fill")
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                 Text("WANT REMOTE MONITORING?")
                     .font(.system(size: 12, weight: .bold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .tracking(1)
             }
 
@@ -164,7 +164,7 @@ struct SubscriptionManagementView: View {
                     Text("Connect with Parent")
                         .font(.system(size: 15, weight: .semibold))
                 }
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
                 .frame(maxWidth: .infinity)
                 .frame(height: 44)
                 .background(
@@ -269,7 +269,7 @@ struct SubscriptionManagementView: View {
 
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 36))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
 
             // Title and description
@@ -304,7 +304,7 @@ struct SubscriptionManagementView: View {
             // Status
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .font(.system(size: 14))
 
                 Text(subscriptionManager.currentStatus.displayText)
@@ -375,7 +375,7 @@ private extension SubscriptionManagementView {
             
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .font(.system(size: 14))
                 
                 Text(subscriptionManager.currentStatus.displayText)
@@ -468,7 +468,7 @@ private extension SubscriptionManagementView {
                 ForEach(subscriptionManager.currentTier.features, id: \.self) { feature in
                     HStack(spacing: 12) {
                         Image(systemName: "checkmark.seal.fill")
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                             .font(.system(size: 16))
                         
                         Text(feature)

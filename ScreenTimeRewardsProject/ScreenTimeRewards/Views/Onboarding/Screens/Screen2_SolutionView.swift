@@ -62,7 +62,7 @@ struct Screen2_SolutionView: View {
                 (Text("Learning Apps ")
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme)) +
                 Text("Automatically")
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .fontWeight(.bold) +
                 Text(" Unlock AND Lock Reward Apps.")
                     .foregroundColor(AppTheme.textSecondary(for: colorScheme)))

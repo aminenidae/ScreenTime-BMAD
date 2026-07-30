@@ -221,7 +221,7 @@ struct ChildPairingPromptView: View {
 
                 Image(systemName: "qrcode.viewfinder")
                     .font(.system(size: 40))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
 
             if syncService.parentSubscriptionStatus == .trial,

@@ -107,7 +107,7 @@ struct WebsiteBlockingView: View {
                     Button("Cancel") {
                         dismiss()
                     }
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
 
                 ToolbarItem(placement: .navigationBarTrailing) {
@@ -115,7 +115,7 @@ struct WebsiteBlockingView: View {
                         dismiss()
                     }
                     .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
             }
             .familyActivityPicker(

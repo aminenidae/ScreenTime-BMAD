@@ -85,7 +85,7 @@ struct SetupPathSelectionView: View {
         VStack(spacing: 12) {
             Image(systemName: "iphone.and.arrow.right.inward")
                 .font(.system(size: 48))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
 
             Text("Where will you manage the rules?")
                 .font(.system(size: 22, weight: .bold))

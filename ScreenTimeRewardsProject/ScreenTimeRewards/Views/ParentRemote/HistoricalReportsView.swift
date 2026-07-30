@@ -235,7 +235,7 @@ private struct UsageTrendChart: View {
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.6))
                             Text("\(learningMin + rewardMin)m")
                                 .font(.system(size: 14, weight: .bold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.accentText(for: colorScheme))
                             Text("Learning: \(learningMin)m | Reward: \(rewardMin)m")
                                 .font(.system(size: 9, weight: .medium))
                                 .foregroundColor(AppTheme.brandedText(for: colorScheme).opacity(0.5))

@@ -27,7 +27,7 @@ struct WelcomeScreen: View {
 
                         Image(systemName: "graduationcap.fill")
                             .font(.system(size: 48))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                     .padding(.bottom, 24)
 
@@ -114,7 +114,7 @@ struct WelcomeScreen: View {
                     }) {
                         Text("Log In")
                             .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                 }
             }

@@ -86,7 +86,7 @@ struct LinkedDevicesView: View {
         VStack(spacing: 20) {
             Image(systemName: "iphone.and.arrow.forward")
                 .font(.system(size: 60))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
 
             Text("No Linked Devices")
                 .font(.title2)

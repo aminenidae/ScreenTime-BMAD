@@ -2,6 +2,7 @@ import SwiftUI
 
 /// A wheel-based duration picker for hours and minutes
 struct DurationWheelPicker: View {
+    @Environment(\.colorScheme) private var colorScheme
     @Binding var minutes: Int
     let maxMinutes: Int
 
@@ -48,7 +49,7 @@ struct DurationWheelPicker: View {
 
                 Image(systemName: "chevron.down")
                     .font(.system(size: 10, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -73,7 +74,7 @@ struct DurationWheelPicker: View {
                 // Current selection display
                 Text(formatDuration(selectedHours * 60 + selectedMinutes))
                     .font(.system(size: 32, weight: .bold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                     .padding(.top, 20)
 
                 Text("per day")
@@ -142,7 +143,7 @@ struct DurationWheelPicker: View {
                         isPresented = false
                     }
                     .fontWeight(.semibold)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
             }
         }

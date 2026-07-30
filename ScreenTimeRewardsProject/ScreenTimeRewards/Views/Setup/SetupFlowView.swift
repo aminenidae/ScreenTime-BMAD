@@ -93,7 +93,7 @@ struct SetupPINScreen: View {
                 // Icon
                 Image(systemName: "lock.shield.fill")
                     .font(.system(size: 80))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 // Title
                 Text(isConfirming ? "Confirm Your PIN" : "Create Parent PIN")

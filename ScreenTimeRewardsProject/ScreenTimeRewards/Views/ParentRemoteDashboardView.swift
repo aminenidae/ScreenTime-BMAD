@@ -366,7 +366,7 @@ private struct SyncingOverlayView: View {
 
                     Image(systemName: "icloud.and.arrow.down.fill")
                         .font(.system(size: 44))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .scaleEffect(iconScale)
                 }
                 .onAppear {

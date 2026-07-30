@@ -100,7 +100,7 @@ struct StreakSettingsPicker: View {
         return HStack(alignment: .top, spacing: 8) {
             Image(systemName: "info.circle.fill")
                 .font(.system(size: 12))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
                 .padding(.top, 2)
             
             Text(message)
@@ -225,7 +225,7 @@ struct StreakSettingsPicker: View {
                     if !prefix.isEmpty {
                         Text(prefix)
                             .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                     
                     Text("\(value)")

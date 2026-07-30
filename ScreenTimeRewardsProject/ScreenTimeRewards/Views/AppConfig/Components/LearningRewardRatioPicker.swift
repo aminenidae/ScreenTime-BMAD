@@ -16,7 +16,7 @@ struct LearningRewardRatioPicker: View {
             HStack(spacing: 8) {
                 Image(systemName: "arrow.right.arrow.left")
                     .font(.system(size: 14))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("Reward Ratio")
                     .font(.system(size: 15, weight: .semibold))
@@ -81,7 +81,7 @@ struct LearningRewardRatioPicker: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 8))
             }
-            .foregroundColor(AppTheme.vibrantTeal)
+            .foregroundColor(AppTheme.accentText(for: colorScheme))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(

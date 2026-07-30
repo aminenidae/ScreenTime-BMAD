@@ -167,7 +167,7 @@ struct ParentPairingView: View {
                 HStack(spacing: 8) {
                     Image(systemName: "clock.fill")
                         .font(.caption)
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                     Text("This code expires in 10 minutes")
                         .font(.caption)
                         .foregroundColor(.secondary)
@@ -193,7 +193,7 @@ struct ParentPairingView: View {
             if selectedQRType == .child {
                 Image(systemName: "qrcode")
                     .font(.system(size: 64))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("Generate a QR code for your child to scan")
                     .font(.subheadline)
@@ -202,7 +202,7 @@ struct ParentPairingView: View {
             } else {
                 Image(systemName: "person.2.fill")
                     .font(.system(size: 64))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("Invite your partner to monitor together")
                     .font(.subheadline)
@@ -211,7 +211,7 @@ struct ParentPairingView: View {
 
                 Text("They'll get full access without paying separately")
                     .font(.caption)
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
 
             Button {
@@ -263,7 +263,7 @@ struct ParentPairingView: View {
                     Image(systemName: "person.2.fill")
                 }
                 .font(.caption)
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
         }
         .padding()

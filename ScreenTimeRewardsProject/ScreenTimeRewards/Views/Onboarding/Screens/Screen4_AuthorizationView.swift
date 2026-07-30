@@ -81,7 +81,7 @@ struct Screen4_AuthorizationView: View {
                 Button(action: { onboarding.goBack() }) {
                     Text("Back")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 14)
                         .background(AppTheme.vibrantTeal.opacity(0.1))
@@ -209,7 +209,7 @@ private struct AuthReassuranceRow: View {
         HStack(alignment: .top, spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 16))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
                 .frame(width: 22)
             Text(text)
                 .font(.system(size: 15))

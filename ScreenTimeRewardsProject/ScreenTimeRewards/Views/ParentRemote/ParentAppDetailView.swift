@@ -634,7 +634,7 @@ struct ParentAppDetailView: View {
             HStack {
                 Image(systemName: "lock.open.fill")
                     .font(.system(size: 16))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                 Text("Unlock Requirements")
                     .font(.system(size: 12, weight: .bold))
@@ -679,7 +679,7 @@ struct ParentAppDetailView: View {
 
                         Text("\(linkedApp.minutesRequired) min")
                             .font(.system(size: 12, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                             .padding(.horizontal, 8)
                             .padding(.vertical, 4)
                             .background(AppTheme.vibrantTeal.opacity(0.15))
@@ -1182,7 +1182,7 @@ private struct SavingConfigOverlayView: View {
 
                     Image(systemName: "icloud.and.arrow.up.fill")
                         .font(.system(size: 44))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                         .scaleEffect(iconScale)
                 }
                 .onAppear {

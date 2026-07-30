@@ -195,7 +195,7 @@ struct ChildUsagePageView: View {
             if viewModel.isLoading {
                 ProgressView()
                     .progressViewStyle(.linear)
-                    .tint(AppTheme.vibrantTeal)
+                    .tint(AppTheme.accentText(for: colorScheme))
                     .frame(maxWidth: .infinity)
                     .frame(height: 2)
                     .transition(.opacity)

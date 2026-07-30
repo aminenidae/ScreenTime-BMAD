@@ -62,7 +62,7 @@ struct AuthorizationRequestScreen: View {
 
                         Image(systemName: "figure.2.and.child.holdinghands")
                             .font(.system(size: 36))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                     .padding(.bottom, 24)
 

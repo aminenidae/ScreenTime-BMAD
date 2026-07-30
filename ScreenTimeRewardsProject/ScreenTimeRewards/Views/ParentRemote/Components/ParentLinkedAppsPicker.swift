@@ -84,7 +84,7 @@ struct ParentLinkedAppsPicker: View {
 
                         Image(systemName: "book.fill")
                             .font(.system(size: 16))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                 }
 
@@ -184,7 +184,7 @@ struct ParentLinkedAppsPicker: View {
                 .overlay(
                     Image(systemName: "book.fill")
                         .font(.system(size: 10))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 )
         }
     }
@@ -235,7 +235,7 @@ struct ParentLinkedAppsPicker: View {
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.system(size: 8))
             }
-            .foregroundColor(AppTheme.vibrantTeal)
+            .foregroundColor(AppTheme.accentText(for: colorScheme))
             .padding(.horizontal, 6)
             .padding(.vertical, 3)
             .background(
