@@ -253,6 +253,10 @@ private extension SubscriptionPaywallView {
             ? subscriptionManager.storeKitMonthlyPrice(for: tier)
             : subscriptionManager.storeKitAnnualPrice(for: tier)
 
+        let struckTotal: String? = selectedBillingPeriod == .annual
+            ? twelveMonthTotal(for: tier)
+            : nil
+
         return Button {
             selectedTier = tier
         } label: {
@@ -274,7 +278,14 @@ private extension SubscriptionPaywallView {
                         .foregroundColor(.secondary)
 
                     if let package {
-                        HStack(alignment: .lastTextBaseline, spacing: 4) {
+                        HStack(alignment: .lastTextBaseline, spacing: 6) {
+                            if let struckTotal {
+                                Text(struckTotal)
+                                    .font(.system(size: 17, weight: .semibold))
+                                    .foregroundColor(.secondary)
+                                    .strikethrough(true, color: .secondary)
+                            }
+
                             Text(package.localizedPriceString)
                                 .font(.system(size: 28, weight: .bold))
                                 .foregroundColor(AppTheme.textPrimary(for: colorScheme))
@@ -284,18 +295,20 @@ private extension SubscriptionPaywallView {
                                 .foregroundColor(.secondary)
                         }
 
-                        if selectedBillingPeriod == .annual,
-                           let comparison = monthlyComparison(for: tier) {
-                            HStack(spacing: 6) {
-                                Text(comparison.regularMonthly)
-                                    .font(.system(size: 15, weight: .semibold))
-                                    .foregroundColor(.secondary)
-                                    .strikethrough(true, color: .secondary)
+                        // The caption is not optional dressing. A struck total sitting bare
+                        // next to a lower price reads as "was, now" — a time-limited
+                        // markdown we are not running. Captioned, it is plainly a comparison
+                        // against the other plan we sell, which is both true and legal.
+                        if struckTotal != nil {
+                            Text("if billed monthly")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
 
-                                Text("\(comparison.effectiveMonthly)/month, billed yearly")
-                                    .font(.system(size: 17, weight: .bold))
-                                    .foregroundColor(AppTheme.vibrantTeal)
-                            }
+                        if selectedBillingPeriod == .annual {
+                            Text(weeklyEquivalent(for: package))
+                                .font(.system(size: 17, weight: .bold))
+                                .foregroundColor(AppTheme.vibrantTeal)
                         }
                     } else if let price = fallbackPrice {
                         // StoreKit fallback when RevenueCat offerings unavailable
@@ -361,26 +374,31 @@ private extension SubscriptionPaywallView {
         }
     }
 
-    /// The annual plan's real per-month cost, alongside the monthly plan's actual listed
-    /// price to strike through.
+    /// Twelve months on the monthly plan, for the struck-through figure beside the annual
+    /// price. 12 × the live monthly price, so it tracks any ASC price change on its own.
     ///
-    /// This is the honest form of the crossed-out price. Both figures are live store prices
-    /// — the second simply divided by 12 — so the comparison holds with no Apple discount
-    /// running, and it updates itself if pricing changes in ASC.
-    ///
-    /// Deliberately NOT "was $119.88, now $49.99": no $119.88 price has ever existed, and
-    /// striking through a twelve-month total we calculated ourselves would imply a discount
-    /// that isn't there. Keeping both sides in the same unit, with one of them a price Apple
-    /// genuinely charges, is what makes it a fair comparison rather than a fake markdown.
-    func monthlyComparison(for tier: SubscriptionTier) -> (regularMonthly: String, effectiveMonthly: String)? {
-        guard let annual = subscriptionManager.annualPackage(for: tier),
-              let monthly = subscriptionManager.monthlyPackage(for: tier) else { return nil }
-        let perMonth = (annual.storeProduct.price as Decimal) / 12
+    /// This is a real cost of a real alternative we sell, not a former price of this one —
+    /// which is exactly why the "if billed monthly" caption always travels with it. A bare
+    /// struck total implies a markdown; a captioned one is a plan comparison.
+    func twelveMonthTotal(for tier: SubscriptionTier) -> String? {
+        guard let monthly = subscriptionManager.monthlyPackage(for: tier) else { return nil }
+        let total = (monthly.storeProduct.price as Decimal) * 12
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.locale = annual.storeProduct.priceFormatter?.locale ?? Locale.current
-        guard let formatted = formatter.string(from: perMonth as NSDecimalNumber) else { return nil }
-        return (monthly.localizedPriceString, formatted)
+        formatter.locale = monthly.storeProduct.priceFormatter?.locale ?? Locale.current
+        return formatter.string(from: total as NSDecimalNumber)
+    }
+
+    func weeklyEquivalent(for package: Package) -> String {
+        let price = package.storeProduct.price as Decimal
+        let weeklyPrice = price / 52
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
+            return String(localized: "just \(formatted)/week")
+        }
+        return ""
     }
 
     func storeKitWeeklyEquivalent(for product: Product) -> String {

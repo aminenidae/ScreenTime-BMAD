@@ -231,16 +231,6 @@
         }
       }
     },
-    "%@/month, billed yearly" : {
-      "localizations" : {
-        "fr" : {
-          "stringUnit" : {
-            "state" : "translated",
-            "value" : "%@/mois, facturé annuellement"
-          }
-        }
-      }
-    },
     "%@ → %@" : {
       "localizations" : {
         "fr" : {
@@ -5855,6 +5845,16 @@
           "stringUnit" : {
             "state" : "translated",
             "value" : "Si ton parent s'abonne sur son appareil, tu peux t'associer à lui pour obtenir l'accès complet."
+          }
+        }
+      }
+    },
+    "if billed monthly" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "si facturé mensuellement"
           }
         }
       }

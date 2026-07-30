@@ -259,7 +259,16 @@ private extension ChildSubscriptionView {
     var priceSection: some View {
         Group {
             if let package = selectedPackage {
-                HStack(alignment: .lastTextBaseline, spacing: 4) {
+                let struckTotal = selectedBillingPeriod == .annual ? twelveMonthTotal : nil
+
+                HStack(alignment: .lastTextBaseline, spacing: 6) {
+                    if let struckTotal {
+                        Text(struckTotal)
+                            .font(.system(size: 17, weight: .semibold))
+                            .foregroundColor(.secondary)
+                            .strikethrough(true, color: .secondary)
+                    }
+
                     Text(package.localizedPriceString)
                         .font(.system(size: 32, weight: .bold))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))
@@ -269,17 +278,18 @@ private extension ChildSubscriptionView {
                         .foregroundColor(.secondary)
                 }
 
-                if selectedBillingPeriod == .annual, let comparison = monthlyComparison {
-                    HStack(spacing: 6) {
-                        Text(comparison.regularMonthly)
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(.secondary)
-                            .strikethrough(true, color: .secondary)
+                // Caption is required, not decorative — see the note in
+                // SubscriptionPaywallView.tierCard.
+                if struckTotal != nil {
+                    Text("if billed monthly")
+                        .font(.system(size: 12))
+                        .foregroundColor(.secondary)
+                }
 
-                        Text("\(comparison.effectiveMonthly)/month, billed yearly")
-                            .font(.system(size: 17, weight: .bold))
-                            .foregroundColor(AppTheme.vibrantTeal)
-                    }
+                if selectedBillingPeriod == .annual {
+                    Text(weeklyEquivalent(for: package))
+                        .font(.system(size: 17, weight: .bold))
+                        .foregroundColor(AppTheme.vibrantTeal)
                 }
             } else if let price = fallbackPrice {
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
@@ -305,17 +315,27 @@ private extension ChildSubscriptionView {
             : subscriptionManager.storeKitAnnualPrice(for: .solo)
     }
 
-    /// Solo's annual per-month cost plus the monthly price to strike through — see the note
-    /// on SubscriptionPaywallView.monthlyComparison for why it is framed this way.
-    var monthlyComparison: (regularMonthly: String, effectiveMonthly: String)? {
-        guard let annual = subscriptionManager.annualPackage(for: .solo),
-              let monthly = subscriptionManager.monthlyPackage(for: .solo) else { return nil }
-        let perMonth = (annual.storeProduct.price as Decimal) / 12
+    /// Twelve months of Solo monthly, for the struck-through figure — see the note on
+    /// SubscriptionPaywallView.twelveMonthTotal.
+    var twelveMonthTotal: String? {
+        guard let monthly = subscriptionManager.monthlyPackage(for: .solo) else { return nil }
+        let total = (monthly.storeProduct.price as Decimal) * 12
         let formatter = NumberFormatter()
         formatter.numberStyle = .currency
-        formatter.locale = annual.storeProduct.priceFormatter?.locale ?? Locale.current
-        guard let formatted = formatter.string(from: perMonth as NSDecimalNumber) else { return nil }
-        return (monthly.localizedPriceString, formatted)
+        formatter.locale = monthly.storeProduct.priceFormatter?.locale ?? Locale.current
+        return formatter.string(from: total as NSDecimalNumber)
+    }
+
+    func weeklyEquivalent(for package: Package) -> String {
+        let price = package.storeProduct.price as Decimal
+        let weeklyPrice = price / 52
+        let formatter = NumberFormatter()
+        formatter.numberStyle = .currency
+        formatter.locale = package.storeProduct.priceFormatter?.locale ?? Locale.current
+        if let formatted = formatter.string(from: weeklyPrice as NSDecimalNumber) {
+            return String(localized: "just \(formatted)/week")
+        }
+        return ""
     }
 
     var featuresSection: some View {
