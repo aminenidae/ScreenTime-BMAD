@@ -231,6 +231,16 @@
         }
       }
     },
+    "%@/month, billed yearly" : {
+      "localizations" : {
+        "fr" : {
+          "stringUnit" : {
+            "state" : "translated",
+            "value" : "%@/mois, facturé annuellement"
+          }
+        }
+      }
+    },
     "%@ → %@" : {
       "localizations" : {
         "fr" : {
