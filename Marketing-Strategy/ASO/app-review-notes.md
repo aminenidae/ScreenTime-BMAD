@@ -1,4 +1,4 @@
-# App Review Notes — Brain Coinz
+# App Review Notes — Tic Lock
 
 Versioned source of truth for the **App Review Information → Notes** field in App Store Connect. Paste this (or an updated version) into every submission so reviewers can find the parent dashboard without guessing.
 
@@ -7,26 +7,43 @@ Versioned source of truth for the **App Review Information → Notes** field in 
 ## Notes to paste into App Store Connect
 
 ```
-Brain Coinz is a Screen Time / parental-control app built on Apple's
+Tic Lock is a Screen Time / parental-control app built on Apple's
 FamilyControls, ManagedSettings, and DeviceActivity frameworks
 (com.apple.developer.family-controls entitlement granted). The app
 manages access to OTHER apps on the device; it does not host
 child-facing in-app content.
 
-To access parent features:
-1. Launch the app and complete onboarding.
-2. At Device Selection, choose "Child Device" (default reviewer flow)
-   or "Parent Device" (parent-only flow).
-3. At the Mode Selection screen, tap "PARENT SPACE" (top half, lock icon).
-4. Create a 4-digit PIN when prompted (stored in Keychain, SHA-256).
-5. The Parent Dashboard will appear with:
+NO PURCHASE IS REQUIRED TO REVIEW THE APP. A 14-day free trial starts
+automatically during onboarding. There is no paywall or sign-in blocking
+access, and no account or email is required.
+
+To reach the parent features on a single device:
+
+1. Launch the app. Tap "Show Me How" on the first screen.
+2. Three short explainer slides follow — tap through them, or "Skip".
+3. An animated demo screen follows — tap Continue.
+4. At "Where does your child spend screen time?", tap the first card,
+   "On this device", then Continue. (The second card, "On their own
+   device", is the two-device flow and shows a QR code for pairing a
+   separate child device — it needs two devices, so it is not the
+   suggested review path.)
+5. A confirmation screen appears ("You're all set"). Either button works:
+   - "Personalize My App" goes straight to app configuration
+   - "I'll explore on my own" goes to the child home screen
+6. From the child home screen, tap "PARENT SPACE" (top half, lock icon).
+7. Create a 4-digit PIN when prompted. This is device-local (Keychain,
+   SHA-256) and is created fresh on each install — we cannot pre-set one
+   for you, so please choose any 4 digits and re-enter them.
+8. The Parent Dashboard appears, with:
    - App Configuration (select Learning Apps and Reward Apps)
    - Reward Ratios and time limits
    - Website Blocking
    - Usage Monitoring / real-time sync
 
-FamilyControls authorization prompt appears the first time a parent
-enters the dashboard — please tap Allow when prompted.
+The FamilyControls (Screen Time) authorization prompt appears the first
+time you select apps to configure — please tap Allow. Without it, iOS
+does not permit the app to see or manage other apps, and the core
+feature cannot be demonstrated.
 
 The app is not submitted under the Kids Category; it is a Lifestyle /
 parental-control utility intended for adults managing their child's device.
@@ -151,9 +168,9 @@ i6 Development
 
 ### Known inconsistency in the Apr 16 reply — confirmed harmless by Apr 17 approval
 
-The reply stated *"Reviewer notes with a demo PIN have been added to App Review Information."* The Notes block above was submitted **without** a demo PIN — it instructs the reviewer to create one at step 4. The app was approved Apr 17 despite the mismatch, confirming the reviewer's blocker was the questionnaire answer, not the Notes content.
+The reply stated *"Reviewer notes with a demo PIN have been added to App Review Information."* The Notes block above was submitted **without** a demo PIN — it instructs the reviewer to create one (step 7 in the current Notes block). The app was approved Apr 17 despite the mismatch, confirming the reviewer's blocker was the questionnaire answer, not the Notes content.
 
-**Forward fix (next submission):** correct the Resolution Center reply template so it does NOT claim a demo PIN exists. The PIN is device-local — it's created at first launch on the reviewer's test device and stored in Keychain. There is no way to ship a preset PIN to the reviewer's install, so the Notes block should continue to instruct the reviewer to create one at step 4 (as it does today). Do NOT add a "Demo PIN: XXXX" line.
+**Forward fix (next submission):** correct the Resolution Center reply template so it does NOT claim a demo PIN exists. The PIN is device-local — it's created at first launch on the reviewer's test device and stored in Keychain. There is no way to ship a preset PIN to the reviewer's install, so the Notes block should continue to instruct the reviewer to create one (step 7 as currently written). Do NOT add a "Demo PIN: XXXX" line.
 
 ### Lesson for future ASO metadata-only submissions
 
