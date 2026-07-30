@@ -126,6 +126,12 @@ enum AnalyticsUserProperty: String {
     case cohortInstallWeek   = "cohort_install_week"   // ISO yyyy-Www
     case learningAppsCount   = "learning_apps_count"   // numeric, attached as user prop for segmentation
     case rewardAppsCount     = "reward_apps_count"
+    /// Which onboarding funnel this install actually went through — captured once and
+    /// never changed. Deliberately a DIFFERENT name from the `funnel_version` event
+    /// parameter: this is user-scoped, that one is event-scoped, and GA4 registers them
+    /// as separate custom dimensions. Same name for both would produce two
+    /// indistinguishable entries in the UI.
+    case onboardingFunnel    = "onboarding_funnel"     // v2_trial_first | v1_legacy
 }
 
 // MARK: - Service
@@ -141,6 +147,7 @@ final class AppAnalytics {
     private let firstLearningAppKey = "appAnalytics.firstLearningAppAdded"
     private let firstRewardAppKey = "appAnalytics.firstRewardAppAdded"
     private let configCompletedKey = "appAnalytics.configCompleted"
+    private let onboardingFunnelKey = "appAnalytics.onboardingFunnel"
 
     private init() {}
 
@@ -271,6 +278,27 @@ final class AppAnalytics {
             UserDefaults.standard.set(cohort, forKey: cohortKey)
         }
         setUserProperty(.cohortInstallWeek, value: cohort)
+
+        // Which onboarding funnel this install went through. Captured once and never
+        // changed, so conversion rates are computed per-user against the funnel that user
+        // actually saw. The `funnel_version` event parameter alone can't do this: an
+        // install that started onboarding on the old build and finished on the new one has
+        // its steps split across both funnels, quietly deflating v1's completion and
+        // inflating v2's.
+        //
+        // An install that has ALREADY completed onboarding did so on whichever funnel
+        // shipped at the time, so it must not inherit today's version just because it
+        // updated — that would relabel the entire existing user base as v2.
+        let funnel: String
+        if let existing = UserDefaults.standard.string(forKey: onboardingFunnelKey) {
+            funnel = existing
+        } else {
+            let alreadyOnboarded = UserDefaults.standard.bool(forKey: "hasCompletedParentOnboarding")
+                || UserDefaults.standard.bool(forKey: "hasCompletedChildOnboarding")
+            funnel = alreadyOnboarded ? "v1_legacy" : Self.onboardingFunnelVersion
+            UserDefaults.standard.set(funnel, forKey: onboardingFunnelKey)
+        }
+        setUserProperty(.onboardingFunnel, value: funnel)
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         setUserProperty(.appVersion, value: version)
