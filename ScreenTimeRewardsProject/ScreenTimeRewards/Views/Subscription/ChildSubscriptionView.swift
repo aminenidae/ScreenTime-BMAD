@@ -224,30 +224,32 @@ private extension ChildSubscriptionView {
                         selectedBillingPeriod = period
                     }
                 } label: {
-                    VStack(spacing: 2) {
-                        Text(period.displayName)
-                            .font(.system(size: 14, weight: .semibold))
-
-                        if period == .annual {
-                            PromoBadge(
-                                text: annualSavingsPercent
-                                    .map { String(localized: "Save \($0)%") }
-                                    ?? String(localized: "Best Value"),
-                                fontSize: 10
-                            )
+                    // Overlay, not a VStack row — see the note in
+                    // SubscriptionPaywallView.billingPeriodSelector.
+                    Text(period.displayName)
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 10)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(selectedBillingPeriod == period
+                                      ? AppTheme.vibrantTeal
+                                      : AppTheme.vibrantTeal.opacity(0.1))
+                        )
+                        .foregroundColor(selectedBillingPeriod == period
+                                         ? .white
+                                         : AppTheme.textPrimary(for: colorScheme))
+                        .overlay(alignment: .topTrailing) {
+                            if period == .annual {
+                                PromoBadge(
+                                    text: annualSavingsPercent
+                                        .map { String(localized: "Save \($0)%") }
+                                        ?? String(localized: "Best Value"),
+                                    fontSize: 10
+                                )
+                                .offset(x: 6, y: -8)
+                            }
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 10)
-                    .background(
-                        RoundedRectangle(cornerRadius: 8)
-                            .fill(selectedBillingPeriod == period
-                                  ? AppTheme.vibrantTeal
-                                  : AppTheme.vibrantTeal.opacity(0.1))
-                    )
-                    .foregroundColor(selectedBillingPeriod == period
-                                     ? .white
-                                     : AppTheme.textPrimary(for: colorScheme))
                 }
                 .buttonStyle(.plain)
             }

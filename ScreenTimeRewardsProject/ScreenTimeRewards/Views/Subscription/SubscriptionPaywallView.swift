@@ -202,29 +202,33 @@ private extension SubscriptionPaywallView {
                         selectedBillingPeriod = period
                     }
                 } label: {
-                    VStack(spacing: 4) {
-                        Text(period.displayName)
-                            .font(.system(size: 16, weight: .semibold))
-
-                        if period == .annual {
-                            PromoBadge(
-                                text: annualSavingsPercent(for: selectedTier)
-                                    .map { String(localized: "Save \($0)%") }
-                                    ?? String(localized: "Best Value")
-                            )
+                    // The badge is an overlay, not a second row in a VStack. In a VStack it
+                    // added its own height to the annual pill only, so the two pills came
+                    // out visibly different sizes. An overlay contributes no layout, so both
+                    // pills stay identical and the sticker floats over the corner.
+                    Text(period.displayName)
+                        .font(.system(size: 16, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                        .background(
+                            RoundedRectangle(cornerRadius: 10)
+                                .fill(selectedBillingPeriod == period
+                                      ? AppTheme.vibrantTeal
+                                      : AppTheme.card(for: colorScheme))
+                        )
+                        .foregroundColor(selectedBillingPeriod == period
+                                         ? .white
+                                         : AppTheme.textPrimary(for: colorScheme))
+                        .overlay(alignment: .topTrailing) {
+                            if period == .annual {
+                                PromoBadge(
+                                    text: annualSavingsPercent(for: selectedTier)
+                                        .map { String(localized: "Save \($0)%") }
+                                        ?? String(localized: "Best Value")
+                                )
+                                .offset(x: 8, y: -9)
+                            }
                         }
-                    }
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 12)
-                    .background(
-                        RoundedRectangle(cornerRadius: 10)
-                            .fill(selectedBillingPeriod == period
-                                  ? AppTheme.vibrantTeal
-                                  : AppTheme.card(for: colorScheme))
-                    )
-                    .foregroundColor(selectedBillingPeriod == period
-                                     ? .white
-                                     : AppTheme.textPrimary(for: colorScheme))
                 }
                 .buttonStyle(.plain)
             }
