@@ -14,6 +14,12 @@ struct AppTheme {
     /// Playful Coral - Rewards, achievements, excitement (#FA8073)
     static let playfulCoral = Color(red: 0.98, green: 0.50, blue: 0.45)
 
+    /// Promo Gold - Paywall value stickers (#FFD700)
+    ///
+    /// Deliberately richer than `sunnyYellow`, which is pale enough to disappear against
+    /// the light-mode card. Pair it with `darkTeal` text, not `vibrantTeal` — see PromoBadge.
+    static let promoGold = Color(hex: "FFD700")
+
     /// Deep Navy - Dark background (#073B4C)
     static let deepNavy = Color(red: 0.027, green: 0.231, blue: 0.298)
 
