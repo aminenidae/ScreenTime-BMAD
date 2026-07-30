@@ -149,6 +149,23 @@ final class AppAnalytics {
     private let configCompletedKey = "appAnalytics.configCompleted"
     private let onboardingFunnelKey = "appAnalytics.onboardingFunnel"
 
+    /// The funnel label for this install, exposed so RevenueCat can be tagged with it —
+    /// that is what lets RevenueCat's own trial→paid charts be split by old flow vs new,
+    /// which is the number that says whether the onboarding redesign worked.
+    private(set) var currentOnboardingFunnel: String?
+
+    /// Firebase's install identifier, for linking a RevenueCat customer to the same
+    /// person in Firebase/BigQuery. Without it the two systems describe the same users
+    /// with no shared key, and the funnel stops dead at the moment of purchase: Firebase
+    /// knows who saw the new onboarding, RevenueCat knows who paid, and nothing joins them.
+    var firebaseAppInstanceID: String? {
+        #if canImport(FirebaseAnalytics)
+        return Analytics.appInstanceID()
+        #else
+        return nil
+        #endif
+    }
+
     private init() {}
 
     /// Identifies which onboarding funnel a cohort went through. Stamped on every
@@ -299,6 +316,7 @@ final class AppAnalytics {
             UserDefaults.standard.set(funnel, forKey: onboardingFunnelKey)
         }
         setUserProperty(.onboardingFunnel, value: funnel)
+        currentOnboardingFunnel = funnel
 
         let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "unknown"
         setUserProperty(.appVersion, value: version)

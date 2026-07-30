@@ -93,11 +93,12 @@ final class SubscriptionManager: NSObject, ObservableObject {
         Purchases.shared.attribution.enableAdServicesAttributionTokenCollection()
 
         // Use device ID for cross-device identification
-        Task {
+        Task { @MainActor in
             do {
                 let (customerInfo, _) = try await Purchases.shared.logIn(deviceManager.deviceID)
                 self.customerInfo = customerInfo
                 self.isConfigured = true
+                linkRevenueCatToAnalytics()
                 await loadSubscriptionStatus()
 
                 #if DEBUG
@@ -107,6 +108,7 @@ final class SubscriptionManager: NSObject, ObservableObject {
                 print("[SubscriptionManager] RevenueCat login error: \(error)")
                 // Continue without login - will use anonymous ID
                 self.isConfigured = true
+                linkRevenueCatToAnalytics()
                 await loadSubscriptionStatus()
             }
         }
@@ -226,6 +228,38 @@ final class SubscriptionManager: NSObject, ObservableObject {
     /// once. Until then `subscription` being nil means "not loaded yet", NOT "this user
     /// has no trial" — and the two are indistinguishable without this flag.
     private var hasLoadedLocalSubscription = false
+
+    /// Give RevenueCat the two pieces of context it can't discover on its own.
+    ///
+    /// Called right after logIn so both attach to the correct customer (attributes set
+    /// before identity is established can land on the anonymous one). Also called on the
+    /// login-failure path — an anonymous customer still converts, and losing the link for
+    /// exactly those users would bias the numbers toward the healthy ones.
+    ///
+    /// 1. Firebase's install ID. Without it the two systems describe the same people with
+    ///    no shared key, so the funnel dies at the purchase: Firebase knows who saw the
+    ///    new onboarding and started the trial, RevenueCat knows who paid, and nothing
+    ///    joins them. This is also what makes RevenueCat's GA4 integration attribute its
+    ///    events to the right user rather than creating a parallel one.
+    ///
+    /// 2. The onboarding funnel this install went through, so RevenueCat's own
+    ///    trial→paid and churn charts can be split by old flow vs new — the number that
+    ///    actually answers whether the redesign worked. Duplicated deliberately from the
+    ///    Firebase user property: RevenueCat cannot read Firebase's, and this is the one
+    ///    place the two tools' answers need to agree.
+    private func linkRevenueCatToAnalytics() {
+        if let instanceID = AppAnalytics.shared.firebaseAppInstanceID {
+            Purchases.shared.attribution.setFirebaseAppInstanceID(instanceID)
+        }
+
+        if let funnel = AppAnalytics.shared.currentOnboardingFunnel {
+            Purchases.shared.attribution.setAttributes(["onboarding_funnel": funnel])
+        }
+
+        #if DEBUG
+        print("[SubscriptionManager] Linked RevenueCat → analytics (firebaseID=\(AppAnalytics.shared.firebaseAppInstanceID != nil), funnel=\(AppAnalytics.shared.currentOnboardingFunnel ?? "unset"))")
+        #endif
+    }
 
     /// Update tier and status based on RevenueCat customer info
     private func updateTierFromCustomerInfo() {
