@@ -207,7 +207,7 @@ private extension SubscriptionPaywallView {
                             .font(.system(size: 16, weight: .semibold))
 
                         if period == .annual {
-                            SavingsBadge(
+                            PromoBadge(
                                 text: annualSavingsPercent(for: selectedTier)
                                     .map { String(localized: "Save \($0)%") }
                                     ?? String(localized: "Best Value")
@@ -260,13 +260,8 @@ private extension SubscriptionPaywallView {
                             .foregroundColor(AppTheme.textPrimary(for: colorScheme))
 
                         if tier == .family {
-                            Text("BEST VALUE")
-                                .font(.system(size: 10, weight: .bold))
-                                .foregroundColor(.white)
-                                .padding(.horizontal, 8)
-                                .padding(.vertical, 4)
-                                .background(AppTheme.sunnyYellow)
-                                .cornerRadius(4)
+                            // Was white on sunnyYellow (~1.5:1) and shouting in caps.
+                            PromoBadge(text: String(localized: "Best Value"))
                         }
                     }
 

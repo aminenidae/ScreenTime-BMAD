@@ -229,7 +229,7 @@ private extension ChildSubscriptionView {
                             .font(.system(size: 14, weight: .semibold))
 
                         if period == .annual {
-                            SavingsBadge(
+                            PromoBadge(
                                 text: annualSavingsPercent
                                     .map { String(localized: "Save \($0)%") }
                                     ?? String(localized: "Best Value"),
