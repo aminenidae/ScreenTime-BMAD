@@ -67,10 +67,10 @@ struct SubscriptionPaywallView: View {
                     HStack(spacing: 6) {
                         Image(systemName: "checkmark.circle.fill")
                             .font(.system(size: 13))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                         Text("No commitment. Cancel anytime.")
                             .font(.system(size: 13, weight: .semibold))
-                            .foregroundColor(AppTheme.vibrantTeal)
+                            .foregroundColor(AppTheme.accentText(for: colorScheme))
                     }
                     restoreButton
                     legalText
@@ -169,7 +169,7 @@ private extension SubscriptionPaywallView {
             // directly above and cost 80pt of a screen the CEO wants shorter.
             Text("Choose your plan")
                 .font(.system(size: 32, weight: .bold))
-                .foregroundColor(AppTheme.vibrantTeal)
+                .foregroundColor(AppTheme.accentText(for: colorScheme))
 
             Text("Give your family the tools to balance screen time and learning")
                 .font(.system(size: 16))
@@ -298,7 +298,7 @@ private extension SubscriptionPaywallView {
                         if selectedBillingPeriod == .annual {
                             Text(weeklyEquivalent(for: package))
                                 .font(.system(size: 17, weight: .bold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.accentText(for: colorScheme))
                         }
                     } else if let price = fallbackPrice {
                         // StoreKit fallback when RevenueCat offerings unavailable
@@ -315,7 +315,7 @@ private extension SubscriptionPaywallView {
                         if selectedBillingPeriod == .annual, let product = subscriptionManager.storeKitAnnualProduct(for: tier) {
                             Text(storeKitWeeklyEquivalent(for: product))
                                 .font(.system(size: 17, weight: .bold))
-                                .foregroundColor(AppTheme.vibrantTeal)
+                                .foregroundColor(AppTheme.accentText(for: colorScheme))
                         }
                     } else {
                         Text("Loading...")
@@ -329,7 +329,7 @@ private extension SubscriptionPaywallView {
                 if isSelected {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 28))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 } else {
                     Image(systemName: "circle")
                         .font(.system(size: 28))
@@ -343,7 +343,10 @@ private extension SubscriptionPaywallView {
                     .fill(AppTheme.card(for: colorScheme))
                     .overlay(
                         RoundedRectangle(cornerRadius: 16)
-                            .stroke(isSelected ? AppTheme.vibrantTeal : .clear, lineWidth: 2)
+                            // accentText, not vibrantTeal: this 2pt ring is how the customer
+                           // knows which plan they picked, and brand teal on the dark card
+                           // is ~1.7:1. It also has to match the tick, which is accentText.
+                           .stroke(isSelected ? AppTheme.accentText(for: colorScheme) : .clear, lineWidth: 2)
                     )
                     .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 5, x: 0, y: 2)
             )
@@ -428,7 +431,7 @@ private extension SubscriptionPaywallView {
             ForEach(selectedTier.features, id: \.self) { feature in
                 HStack(spacing: 12) {
                     Image(systemName: "checkmark.seal.fill")
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                     Text(feature)
                         .font(.system(size: 15))
                         .foregroundColor(AppTheme.textPrimary(for: colorScheme))

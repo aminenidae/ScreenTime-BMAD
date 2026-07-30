@@ -197,10 +197,10 @@ private extension ChildSubscriptionView {
             HStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
                     .font(.system(size: 13))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
                 Text("No commitment. Cancel anytime.")
                     .font(.system(size: 13, weight: .semibold))
-                    .foregroundColor(AppTheme.vibrantTeal)
+                    .foregroundColor(AppTheme.accentText(for: colorScheme))
             }
             .multilineTextAlignment(.center)
         }
@@ -210,7 +210,10 @@ private extension ChildSubscriptionView {
                 .fill(AppTheme.card(for: colorScheme))
                 .overlay(
                     RoundedRectangle(cornerRadius: 16)
-                        .stroke(AppTheme.vibrantTeal, lineWidth: 2)
+                        // This ring exists to make the Solo card stand out; brand teal on
+                        // the dark card is ~1.7:1, so in dark mode it read as no border
+                        // at all and the emphasis was lost.
+                        .stroke(AppTheme.accentText(for: colorScheme), lineWidth: 2)
                 )
                 .shadow(color: AppTheme.cardShadow(for: colorScheme), radius: 5, x: 0, y: 2)
         )
@@ -281,7 +284,7 @@ private extension ChildSubscriptionView {
                 if selectedBillingPeriod == .annual {
                     Text(weeklyEquivalent(for: package))
                         .font(.system(size: 17, weight: .bold))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
                 }
             } else if let price = fallbackPrice {
                 HStack(alignment: .lastTextBaseline, spacing: 4) {
@@ -336,7 +339,7 @@ private extension ChildSubscriptionView {
                 HStack(spacing: 10) {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 16))
-                        .foregroundColor(AppTheme.vibrantTeal)
+                        .foregroundColor(AppTheme.accentText(for: colorScheme))
 
                     Text(feature)
                         .font(.system(size: 14))
