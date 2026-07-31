@@ -51,6 +51,50 @@ parental-control utility intended for adults managing their child's device.
 
 ---
 
+## Brief version — used for 1.0.9 (3)
+
+Same substance, roughly half the length. The long block above stays as the reference; this
+is what goes in the Notes field when the flow has not changed since the last submission.
+
+```
+Tic Lock is a parental-control app built on Apple's FamilyControls,
+ManagedSettings and DeviceActivity frameworks
+(com.apple.developer.family-controls granted). It manages access to OTHER
+apps on the device and hosts no child-facing content of its own.
+
+This version reworks onboarding and subscription copy. There is still no
+paywall or sign-in blocking review.
+
+NO PURCHASE IS REQUIRED. A 14-day free trial starts automatically during
+onboarding — no account, email or payment details.
+
+To reach the parent features on a single device:
+
+1. Tap "Show Me How", then tap through the explainer slides.
+2. At "Where does your child spend screen time?", choose the first card,
+   "On this device". (The second card is the two-device QR pairing flow
+   and needs a second device, so it is not the suggested review path.)
+3. On the "You're all set" screen, either button works.
+4. From the child home screen, tap "PARENT SPACE" (lock icon, top half).
+5. Create any 4-digit PIN when prompted. It is device-local (Keychain,
+   SHA-256) and created fresh on each install, so we cannot pre-set one
+   for you.
+6. The Parent Dashboard opens: app configuration, reward ratios, website
+   blocking and usage monitoring.
+
+Please tap Allow on the Screen Time (FamilyControls) prompt shown the
+first time you select apps. Without it, iOS does not permit the app to
+see or manage other apps and the core feature cannot be demonstrated.
+
+Not submitted under the Kids Category; it is a Lifestyle/utility app for
+adults managing a child's device.
+```
+
+**Do not add a "Demo PIN: XXXX" line** — the PIN is device-local and cannot be shipped to
+the reviewer's install. See the Apr 16 note below.
+
+---
+
 ## Age Rating Questionnaire — Verified Answers
 
 Per Apple's verbatim definitions in the [Age ratings values and definitions reference](https://developer.apple.com/help/app-store-connect/reference/app-information/age-ratings-values-and-definitions/):
