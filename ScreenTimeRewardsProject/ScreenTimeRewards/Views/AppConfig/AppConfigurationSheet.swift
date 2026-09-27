@@ -7,6 +7,7 @@ enum AppConfigSection: String {
     case summary = "config_summary_section"
     case timeWindow = "config_time_window_section"
     case dailyLimits = "config_daily_limits_section"
+    case rewardRatio = "config_reward_ratio_section"
     case linkedApps = "config_linked_apps_section"
     case save = "config_save_section"
 }
@@ -148,6 +149,8 @@ struct AppConfigurationSheet: View {
                                 ratioLearningMinutes: $localConfig.ratioLearningMinutes,
                                 rewardMinutesEarned: $localConfig.rewardMinutesEarned
                             )
+                            .id(AppConfigSection.rewardRatio.rawValue)
+                            .tutorialTarget("config_reward_ratio")
                         }
 
                         // Unlock Requirements Section (reward apps only)

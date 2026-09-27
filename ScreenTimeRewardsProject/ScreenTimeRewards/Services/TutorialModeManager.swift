@@ -10,32 +10,33 @@ class TutorialModeManager: ObservableObject {
 
     // MARK: - Tutorial Steps
     // NOTE: Authorization is now handled in Screen 4 BEFORE the tutorial starts.
-    // The tutorial guides parents through selecting AND configuring apps (18 steps total).
+    // The tutorial guides parents through selecting AND configuring apps (19 steps total).
 
     enum TutorialStep: Int, CaseIterable {
-        // Learning flow (Steps 1-8)
+        // Learning flow (Steps 1-9)
         case tapLearningTab = 0           // Step 1: Navigate to Learning tab
         case tapAddLearningApps = 1       // Step 2: Tap "Manage Learning apps" button
         case selectLearningApps = 2       // Step 3: System picker (waiting state)
         case tapFirstLearningApp = 3      // Step 4: Tap first learning app to configure
         case configTimeWindowLearning = 4 // Step 5: Configure time window
         case configDailyLimitsLearning = 5 // Step 6: Configure daily limits
-        case reviewSummaryLearning = 6    // Step 7: Review summary section
-        case tapSaveLearning = 7          // Step 8: Tap Save button
+        case configRewardRatioLearning = 6 // Step 7: Configure reward ratio
+        case reviewSummaryLearning = 7    // Step 8: Review summary section
+        case tapSaveLearning = 8          // Step 9: Tap Save button
 
-        // Reward flow (Steps 9-17)
-        case tapRewardsTab = 8            // Step 9: Navigate to Rewards tab
-        case tapAddRewardApps = 9         // Step 10: Tap "Manage Reward Apps" button
-        case selectRewardApps = 10        // Step 11: System picker (waiting state)
-        case tapFirstRewardApp = 11       // Step 12: Tap first reward app to configure
-        case configTimeWindowReward = 12  // Step 13: Configure time window
-        case configDailyLimitsReward = 13 // Step 14: Configure daily limits
-        case configLinkedApps = 14        // Step 15: Configure linked learning apps
-        case reviewSummaryReward = 15     // Step 16: Review summary section
-        case tapSaveReward = 16           // Step 17: Tap Save button
+        // Reward flow (Steps 10-18)
+        case tapRewardsTab = 9            // Step 10: Navigate to Rewards tab
+        case tapAddRewardApps = 10        // Step 11: Tap "Manage Reward Apps" button
+        case selectRewardApps = 11        // Step 12: System picker (waiting state)
+        case tapFirstRewardApp = 12       // Step 13: Tap first reward app to configure
+        case configTimeWindowReward = 13  // Step 14: Configure time window
+        case configDailyLimitsReward = 14 // Step 15: Configure daily limits
+        case configLinkedApps = 15        // Step 16: Configure linked learning apps
+        case reviewSummaryReward = 16     // Step 17: Review summary section
+        case tapSaveReward = 17           // Step 18: Tap Save button
 
-        // Final (Step 18)
-        case configureSettings = 17       // Step 18: Configure daily goal + ratio
+        // Final (Step 19)
+        case configureSettings = 18       // Step 19: Setup complete summary
 
         var instructionText: String {
             switch self {
@@ -52,6 +53,8 @@ class TutorialModeManager: ObservableObject {
                 return String(localized: "Set when this app can be used (e.g., 8 AM - 8 PM).")
             case .configDailyLimitsLearning:
                 return String(localized: "Set how long your child can use this app each day.")
+            case .configRewardRatioLearning:
+                return String(localized: "Set the exchange rate: how much reward time each minute of learning earns.")
             case .reviewSummaryLearning:
                 return String(localized: "Review the configuration summary. This shows what you've set up.")
             case .tapSaveLearning:
@@ -79,7 +82,7 @@ class TutorialModeManager: ObservableObject {
 
             // Final
             case .configureSettings:
-                return String(localized: "Almost done! Set how much learning unlocks reward time.")
+                return String(localized: "You're all set! Here's what you can do next.")
             }
         }
 
@@ -98,6 +101,8 @@ class TutorialModeManager: ObservableObject {
                 return "config_time_window"
             case .configDailyLimitsLearning:
                 return "config_daily_limits"
+            case .configRewardRatioLearning:
+                return "config_reward_ratio"
             case .reviewSummaryLearning:
                 return "config_summary"
             case .tapSaveLearning:
@@ -133,7 +138,8 @@ class TutorialModeManager: ObservableObject {
             switch self {
             case .tapLearningTab, .tapAddLearningApps, .selectLearningApps,
                  .tapFirstLearningApp, .configTimeWindowLearning,
-                 .configDailyLimitsLearning, .reviewSummaryLearning, .tapSaveLearning:
+                 .configDailyLimitsLearning, .configRewardRatioLearning,
+                 .reviewSummaryLearning, .tapSaveLearning:
                 return 1  // Learning tab
             case .tapRewardsTab, .tapAddRewardApps, .selectRewardApps,
                  .tapFirstRewardApp, .configTimeWindowReward,
@@ -147,6 +153,7 @@ class TutorialModeManager: ObservableObject {
         var isConfigSheetStep: Bool {
             switch self {
             case .configTimeWindowLearning, .configDailyLimitsLearning,
+                 .configRewardRatioLearning,
                  .reviewSummaryLearning, .tapSaveLearning,
                  .configTimeWindowReward, .configDailyLimitsReward,
                  .configLinkedApps, .reviewSummaryReward, .tapSaveReward:

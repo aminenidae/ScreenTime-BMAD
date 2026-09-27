@@ -101,6 +101,10 @@ struct TutorialAppConfigurationSheet: View {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 scrollToSection = .dailyLimits
             }
+        case .configRewardRatioLearning:
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                scrollToSection = .rewardRatio
+            }
         case .configLinkedApps:
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                 scrollToSection = .linkedApps
