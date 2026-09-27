@@ -48,6 +48,9 @@ enum AnalyticsEvent: String {
     case trialStarted               = "trial_started"
     case onboardingFinishLineShown            = "onboarding_finish_line_shown"
     case onboardingFinishLinePersonalizeTapped = "onboarding_finish_line_personalize_tapped"
+    // RETIRED (2026-09-27): the "I'll explore on my own" escape was removed from the
+    // finish line — it dropped parents onto an empty dashboard. Case kept so historical
+    // dashboards keep resolving; it no longer fires.
     case onboardingFinishLineExploreTapped    = "onboarding_finish_line_explore_tapped"
     case configStarted              = "config_started"                // param: source
     case firstLearningAppAdded      = "first_learning_app_added"

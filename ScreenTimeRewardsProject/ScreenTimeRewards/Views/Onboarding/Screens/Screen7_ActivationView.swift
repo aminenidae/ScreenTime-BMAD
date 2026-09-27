@@ -3,8 +3,12 @@ import SwiftUI
 /// Screen 7 (repurposed): the trial-first "finish line".
 /// Reached right after the value slides — config has NOT happened yet. This is the
 /// psychological pivot from prospect to owner: celebrate that the app is live and the
-/// trial has started, then offer optional setup ("Personalize") or a quiet escape
-/// into the app ("Explore"). See docs/ONBOARDING_TRIAL_FIRST_REDESIGN_2026-07-22.md.
+/// trial has started, then carry on into setup.
+///
+/// The "I'll explore on my own" escape was removed: it dropped parents onto an empty
+/// child dashboard with nothing configured. Setup is now the only way forward, and it
+/// runs permission gate → tutorial.
+/// See docs/ONBOARDING_TRIAL_FIRST_REDESIGN_2026-07-22.md.
 struct Screen7_ActivationView: View {
     @EnvironmentObject var onboarding: OnboardingStateManager
     @Environment(\.colorScheme) private var colorScheme
@@ -13,10 +17,8 @@ struct Screen7_ActivationView: View {
 
     /// Start the no-card 14-day trial. Called once, on appear (idempotent upstream).
     let onStartTrial: () -> Void
-    /// Launch the optional ~30-second setup.
+    /// Continue into setup: the Screen Time permission gate, then the tutorial.
     let onPersonalize: () -> Void
-    /// Skip setup and drop straight into the app.
-    let onExplore: () -> Void
 
     private var layout: ResponsiveCardLayout {
         ResponsiveCardLayout(horizontal: hSizeClass, vertical: vSizeClass)
@@ -59,8 +61,8 @@ struct Screen7_ActivationView: View {
 
             Spacer()
 
-            // Primary: owns the moment, pulls into the ~30s setup (where the iOS
-            // Screen Time permission prompt naturally fires at the app picker).
+            // Sole CTA: pulls into setup, which opens with the Screen Time
+            // permission gate before the tutorial.
             Button(action: {
                 AppAnalytics.shared.trackOnboarding(.onboardingFinishLinePersonalizeTapped)
                 onPersonalize()
@@ -74,20 +76,6 @@ struct Screen7_ActivationView: View {
                     .cornerRadius(AppTheme.CornerRadius.medium)
             }
             .padding(.horizontal, layout.horizontalPadding)
-            .padding(.bottom, 12)
-
-            // Quiet secondary escape for the curious.
-            Button(action: {
-                AppAnalytics.shared.trackOnboarding(.onboardingFinishLineExploreTapped)
-                onExplore()
-            }) {
-                Text("I'll explore on my own")
-                    .font(.system(size: 16, weight: .semibold))
-                    .foregroundColor(AppTheme.accentText(for: colorScheme))
-                    .frame(maxWidth: layout.isRegular ? 400 : .infinity)
-                    .padding(.vertical, 14)
-            }
-            .padding(.horizontal, layout.horizontalPadding)
             .padding(.bottom, layout.isLandscape ? 16 : 32)
         }
         .background(AppTheme.background(for: colorScheme).ignoresSafeArea())
@@ -95,14 +83,14 @@ struct Screen7_ActivationView: View {
             onStartTrial()
             onboarding.logScreenView(screenNumber: 7)
             AppAnalytics.shared.trackOnboarding(.onboardingFinishLineShown)
-            // Redefinition (v2): onboarding now ends at the finish line, so
-            // onboarding_completed fires here — at app entry — not after a paywall.
-            AppAnalytics.shared.trackOnboarding(.onboardingCompleted, parameters: ["flow": "child"])
+            // onboarding_completed deliberately does NOT fire here: the permission
+            // gate and tutorial still follow. It fires on dashboard entry, in
+            // OnboardingContainerView.enterChildDashboard().
         }
     }
 }
 
 #Preview {
-    Screen7_ActivationView(onStartTrial: {}, onPersonalize: {}, onExplore: {})
+    Screen7_ActivationView(onStartTrial: {}, onPersonalize: {})
         .environmentObject(OnboardingStateManager())
 }

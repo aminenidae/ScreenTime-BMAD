@@ -17,9 +17,9 @@
 		43BC1A1D2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43BC1A1C2EA0258700567890 /* ScreenTimeRewards/Shared/BankCalculator.swift */; };
 		43BEEF022F949D00003A3769 /* FirebaseMessaging in Frameworks */ = {isa = PBXBuildFile; productRef = 43BEEF012F949D00003A3769 /* FirebaseMessaging */; };
 		43C5A1C001000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C000000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionCloudKitSync.swift */; };
-		43C5A1C301000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 43C5A1C300000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings */; };
 		43C5A1C201000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
 		43C5A1C202000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 43C5A1C200000000DEADBEEF /* ScreenTimeActivityExtension/ExtensionFileLogger.swift */; };
+		43C5A1C301000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings in Resources */ = {isa = PBXBuildFile; fileRef = 43C5A1C300000000DEADBEEF /* ScreenTimeActivityExtension/Localizable.xcstrings */; };
 		43D7273B2FA42D5E00DA58EE /* FirebaseAnalytics in Frameworks */ = {isa = PBXBuildFile; productRef = 43D7273A2FA42D5E00DA58EE /* FirebaseAnalytics */; };
 		43DD71482E9F19B60066E06C /* DeviceActivity.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71472E9F19B60066E06C /* DeviceActivity.framework */; };
 		43DD714A2E9F19C20066E06C /* FamilyControls.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 43DD71492E9F19C20066E06C /* FamilyControls.framework */; };
@@ -540,7 +540,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -552,7 +552,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ShieldConfigurationExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -570,7 +570,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ShieldConfigurationExtension/ShieldConfigurationExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ShieldConfigurationExtension/Info.plist;
@@ -582,7 +582,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ShieldConfigurationExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = YES;
@@ -602,7 +602,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -618,7 +618,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -638,7 +638,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeRewards/ScreenTimeRewards.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				ENABLE_PREVIEWS = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -654,7 +654,7 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
@@ -796,11 +796,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -818,11 +818,11 @@
 			buildSettings = {
 				BUNDLE_LOADER = "$(TEST_HOST)";
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsTests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -839,11 +839,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -860,11 +860,11 @@
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				IPHONEOS_DEPLOYMENT_TARGET = 16.6;
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewardsUITests;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				STRING_CATALOG_GENERATE_SYMBOLS = NO;
@@ -882,7 +882,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
@@ -892,7 +892,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
@@ -908,7 +908,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = ScreenTimeActivityExtension/ScreenTimeActivityExtension.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				CURRENT_PROJECT_VERSION = 3;
+				CURRENT_PROJECT_VERSION = 1;
 				DEVELOPMENT_TEAM = KQ5KZR3DQ5;
 				GENERATE_INFOPLIST_FILE = YES;
 				INFOPLIST_FILE = ScreenTimeActivityExtension/Info.plist;
@@ -918,7 +918,7 @@
 					"@executable_path/Frameworks",
 					"@executable_path/../../Frameworks",
 				);
-				MARKETING_VERSION = 1.0.9;
+				MARKETING_VERSION = 1.0.10;
 				PRODUCT_BUNDLE_IDENTIFIER = i6dev.ScreenTimeRewards.ScreenTimeActivityExtension;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SKIP_INSTALL = NO;
